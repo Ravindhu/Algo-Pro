@@ -1,0 +1,16 @@
+# Force LF endings for Linux-bound files. Without this, Git on Windows
+# rewrites them to CRLF and they break on the Ubuntu server with errors like
+# "bad interpreter: /usr/bin/env bash^M" or unparseable systemd units.
+
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.service text eol=lf
+*.conf    text eol=lf
+*.py      text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+
+# Windows-only launchers keep CRLF
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
