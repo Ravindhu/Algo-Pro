@@ -26,6 +26,10 @@ function Info($m)  { Write-Host "    $m" -ForegroundColor Gray }
 
 # ---------- 0. sanity ----------
 Step "0. Sanity checks"
+$codeCount = @(Get-Process code,Code -ErrorAction SilentlyContinue).Count
+if ($codeCount -gt 0) { Fail "VS Code is STILL RUNNING ($codeCount processes). It locks the openalgo folder. Close ALL VS Code windows (File > Exit), wait 5 seconds, then re-run this script." }
+$pyCount = @(Get-Process python,uvicorn -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*openalgo*" }).Count
+if ($pyCount -gt 0) { Fail "An OpenAlgo python process is running. Stop OpenAlgo first, then re-run." }
 if (-not (Test-Path $oldPath)) { Fail "$oldPath does not exist" }
 $lt = (Get-Item $oldPath -Force).LinkType
 if ($lt -eq "Junction") { Fail "$oldPath is already a junction - the move appears DONE. Run scripts\smoke_test.py to confirm." }
