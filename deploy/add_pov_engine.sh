@@ -270,14 +270,38 @@ ok "pov-dash enabled; pov-runner DISABLED (must be started manually to trade)"
 # ------------------------------------------------------------------ 8. restart
 step "8. Restarting OpenAlgo to pick up the patch"
 systemctl restart openalgo
+
+# --- health probe -----------------------------------------------------------
+# The official install.sh serves the app over a GUNICORN UNIX SOCKET
+# (/var/python/openalgo/openalgo.sock) - NOT tcp 127.0.0.1:5000. Older or DIY
+# installs use TCP. Probe whichever this deployment actually provides.
+SOCK="$OA_DIR/openalgo.sock"
+HEALTH_PATH="/auth/check-setup"
+
+probe() {
+    if [[ -S "$SOCK" ]]; then
+        curl -fsS --unix-socket "$SOCK" "http://localhost${HEALTH_PATH}" >/dev/null 2>&1 && return 0
+    fi
+    curl -fsS "http://127.0.0.1:5000${HEALTH_PATH}" >/dev/null 2>&1 && return 0
+    if [[ -n "${DOMAIN:-}" ]]; then
+        curl -fsS "https://${DOMAIN}${HEALTH_PATH}" >/dev/null 2>&1 && return 0
+    fi
+    return 1
+}
+
 UP=0
 for i in $(seq 1 30); do
     sleep 3
-    if curl -fsS http://127.0.0.1:5000/auth/check-setup >/dev/null 2>&1; then UP=1; break; fi
+    if probe; then UP=1; break; fi
 done
 if [[ $UP -eq 1 ]]; then
-    ok "OpenAlgo is responding"
-    printf "    %s\n" "$(curl -fsS http://127.0.0.1:5000/auth/check-setup || true)"
+    if [[ -S "$SOCK" ]]; then
+        ok "OpenAlgo responding (gunicorn unix socket: $SOCK)"
+        printf "    %s\n" "$(curl -fsS --unix-socket "$SOCK" "http://localhost${HEALTH_PATH}" || true)"
+    else
+        ok "OpenAlgo responding (tcp 127.0.0.1:5000)"
+        printf "    %s\n" "$(curl -fsS "http://127.0.0.1:5000${HEALTH_PATH}" || true)"
+    fi
 else
     printf "    ${R}OpenAlgo did not come up. Last 40 log lines:${N}\n"
     journalctl -u openalgo -n 40 --no-pager || true
@@ -298,7 +322,7 @@ chk() {
 chk "openalgo service active"            "systemctl is-active --quiet openalgo"
 chk "pov-dash service active"            "systemctl is-active --quiet pov-dash"
 chk "pov-runner NOT enabled at boot"     "! systemctl is-enabled --quiet pov-runner"
-chk "OpenAlgo HTTP responds"             "curl -fsS http://127.0.0.1:5000/auth/check-setup"
+chk "OpenAlgo health probe responds"      "probe"
 chk "POV order REST API present"         "[ -f $OA_DIR/restx_api/volume_participation.py ]"
 chk "POV service layer present"          "[ -f $OA_DIR/services/volume_participation_service.py ]"
 chk "ledger backend database.pov_db"     "cd $OA_DIR && sudo -u $SVC_USER $PY -c 'from database import pov_db'"
