@@ -249,3 +249,65 @@ journalctl -u openalgo --since "1 hour ago" -p err
 5. Add basic auth or IP-allowlisting on `/pov-dash/` if it is internet-facing.
 6. Secrets live in `/opt/.../openalgo/.env`, chmod `600`, never in git.
 7. Keep the `pov-runner` manual — never `systemctl enable` it.
+---
+
+## 13. OPTION B — self-contained server install (fresh upstream clone + your patch)
+
+Your `openalgo/` tree is **not vanilla upstream**: it carries 66 custom changes
+(31 POV/OCL platform files — POV order REST API, `database/pov_db.py` which the
+engine's ledger depends on, OCL screener, broker/mstock auction support,
+frontend pages, tests). A bare clone would silently destroy all of it.
+
+So Option B = **clone upstream at a pinned baseline, then re-apply your code**:
+
+```bash
+# on the VPS
+cd ~/my-trading-system
+./deploy/setup_ubuntu.sh          # 1. packages + venv + systemd units + .env
+./deploy/install_openalgo.sh      # 2. clone upstream + apply your patch + deps
+sudo nano /opt/my-trading-system/openalgo/.env   # 3. secrets
+sudo systemctl start openalgo pov-dash           # 4. run
+```
+
+### The patch bundle
+
+| Artefact | Purpose |
+|---|---|
+| `patches/openalgo-custom.patch` | 65 files / 45 new — your entire custom platform layer, binary-safe |
+| `deploy/.baseline` | upstream commit the patch was cut against |
+| `deploy/rebuild_patch.sh` | re-cut the patch after you change platform code (dev box) |
+| `deploy/install_openalgo.sh` | checkout baseline → apply → 3-way fallback → verify |
+
+**Baseline pinning is deliberate:** the installer checks out the exact commit the
+patch was generated against, so it always applies cleanly. It does *not* silently
+track upstream HEAD — a moving target would corrupt a trading platform.
+
+### Updating to a NEWER OpenAlgo
+
+```bash
+# 1. on your DEV box, sync your custom code onto the new upstream
+git -C openalgo fetch origin && git -C openalgo rebase origin/main
+# 2. re-cut the patch
+./deploy/rebuild_patch.sh
+# 3. commit the new patch + .baseline, then deploy
+```
+
+### Verification performed
+
+```
+[PASS] patch applies CLEANLY to the pinned pristine baseline
+[PASS] 11/11 critical files land (pov_db, volume_participation API, ocl_screener, PovTerminal.tsx)
+[PASS] app.py wiring at lines 87 + 343
+[PASS] database.pov_db imports -> durable ledger enabled
+[PASS] ZERO hardcoded secrets in the patch
+```
+
+### 🔒 Secrets incident (already fixed)
+
+The original scan found a **live API key hardcoded in two custom files**
+(`test_order.py`, `strategies/examples/POV/volume_participation_order.py`).
+Both were fixed to read `os.getenv("OPENALGO_API_KEY")`, the patch was
+regenerated, and a repo-wide rescan confirmed **zero** occurrences.
+
+**Action required from you:** rotate that key in the OpenAlgo UI anyway — it was
+committed to an unencrypted file on disk, so treat it as compromised.
