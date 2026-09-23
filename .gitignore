@@ -1,0 +1,15 @@
+# Secrets
+.env
+openalgo/.env
+
+# Backups
+_backup/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Engine runtime state
+data/*.db
+data/*.log

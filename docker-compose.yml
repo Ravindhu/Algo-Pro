@@ -1,0 +1,92 @@
+# my-trading-system/docker-compose.yml
+# One-click launch of BOTH apps: OpenAlgo platform + POV engine dashboard.
+# Usage:
+#   docker compose up -d              (both apps)
+#   docker compose up -d openalgo     (platform only)
+#   docker compose up -d pov-dash     (dashboard only)
+#   docker compose logs -f pov-dash   (watch the engine)
+
+services:
+  # ------------------------------------------------------------------
+  # OpenAlgo platform (build context = ./openalgo, untouched upstream)
+  # ------------------------------------------------------------------
+  openalgo:
+    build:
+      context: ./openalgo
+      dockerfile: Dockerfile
+    container_name: openalgo-web
+    ports:
+      - "${FLASK_PORT:-5000}:5000"
+      - "${WEBSOCKET_PORT:-8765}:8765"
+    env_file:
+      - ./openalgo/.env
+    volumes:
+      - openalgo_db:/app/db
+      - openalgo_log:/app/log
+      - openalgo_strategies:/app/strategies
+      - openalgo_keys:/app/keys
+      - openalgo_tmp:/app/tmp
+    environment:
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - TZ=Asia/Kolkata
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-2}
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
+      - NUMBA_NUM_THREADS=${NUMBA_NUM_THREADS:-2}
+    shm_size: ${SHM_SIZE:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5000/auth/check-setup"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  # POV engine Dash terminal (own image from ./pov_engine)
+  # http://localhost:8050
+  # ------------------------------------------------------------------
+  pov-dash:
+    build:
+      context: ./pov_engine
+      dockerfile: Dockerfile
+    container_name: pov-dash
+    depends_on:
+      openalgo:
+        condition: service_healthy
+    ports:
+      - "${POV_DASH_PORT:-8050}:8050"
+    environment:
+      # Reach OpenAlgo over the compose network (not localhost)
+      - HOST_SERVER=http://openalgo:5000
+      - WEBSOCKET_URL=ws://openalgo:8765
+      - OPENALGO_API_KEY=${OPENALGO_API_KEY}
+      - POV_DASH_HOST=0.0.0.0
+      - POV_DASH_PORT=8050
+      - POV_DASH_LOGLEVEL=${POV_DASH_LOGLEVEL:-INFO}
+      - TZ=Asia/Kolkata
+    volumes:
+      # live-editable configs (no rebuild needed)
+      - ./pov_engine/input:/app/pov_engine/input
+      # engine ledger / state persisted on host
+      - ./data:/app/data
+      - openalgo_keys:/app/keys:ro
+    shm_size: ${SHM_SIZE:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8050/_dash"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  openalgo_db:
+    driver: local
+  openalgo_log:
+    driver: local
+  openalgo_strategies:
+    driver: local
+  openalgo_keys:
+    driver: local
+  openalgo_tmp:
+    driver: local
