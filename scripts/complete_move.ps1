@@ -48,11 +48,20 @@ if ((Test-Path $newPath) -and ((Get-Item $newPath -Force).LinkType -eq $null) -a
     } elseif (-not $j) { Ok "No junction present (nothing to remove)" }
     else { Fail "$newPath exists but is NOT a junction - manual inspection required" }
 
-    Step "2. Move real folder: $oldPath -> $newPath"
-    try {
-        [System.IO.Directory]::Move($oldPath, $newPath)
-        Ok "MOVE OK"
-    } catch {
+    Step "2. Move real folder: $oldPath -> $newPath (5 attempts, 10s apart - shrugs off antivirus/indexer locks)"
+    $moved = $false
+    foreach ($attempt in 1..5) {
+        try {
+            [System.IO.Directory]::Move($oldPath, $newPath)
+            Ok "MOVE OK (attempt $attempt)"
+            $moved = $true
+            break
+        } catch {
+            Info "attempt $attempt failed: $($_.Exception.Message)"
+            if ($attempt -lt 5) { Start-Sleep -Seconds 10 }
+        }
+    }
+    if (-not $moved) {
         Info "Move failed ($($_.Exception.Message)). Restoring the junction..."
         & "$env:ComSpec" /c mklink /J "$newPath" "$oldPath" | Out-Null
         if ((Get-Item $newPath -Force).LinkType -eq "Junction") { Fail "System RESTORED to previous state (junction back at my-trading-system\openalgo). Close VS Code and ALL terminals inside openalgo, then re-run this script." }
