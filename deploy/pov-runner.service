@@ -1,0 +1,35 @@
+[Unit]
+Description=POV execution engine (LIVE ORDER SENDER - manual start only)
+After=network-online.target openalgo.service
+Wants=network-online.target
+
+[Service]
+# Type=oneshot semantics via simple + explicit stop: the runner performs a
+# finite strategy loop and exits. It is NOT enabled at boot on purpose -
+# sending live orders automatically after a reboot is never acceptable.
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@BASE_DIR@
+EnvironmentFile=-@BASE_DIR@/openalgo/.env
+Environment=HOST_SERVER=http://127.0.0.1:5000
+Environment=WEBSOCKET_URL=ws://127.0.0.1:8765
+Environment=TZ=Asia/Kolkata
+Environment=POV_DATA_DIR=@BASE_DIR@/data
+# Engine mode (live vs analyze) is controlled in the OpenAlgo UI, not here.
+
+ExecStart=@BASE_DIR@/openalgo/.venv/bin/python -m pov_engine.runner @BASE_DIR@/pov_engine/input/master.json
+
+# Never auto-restart a trading process: a crash must be seen by a human.
+Restart=no
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=@BASE_DIR@/data @BASE_DIR@/logs
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pov-runner
+
+# No [Install] section on purpose: this unit must be started explicitly.

@@ -1,0 +1,42 @@
+[Unit]
+Description=POV engine Dash terminal (read-only trading dashboard)
+After=network-online.target openalgo.service
+Wants=network-online.target
+# Start after the platform, but do not fail if it is briefly down:
+# the dashboard reconnects on its own.
+After=openalgo.service
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@BASE_DIR@
+EnvironmentFile=-@BASE_DIR@/openalgo/.env
+# Talk to the platform over loopback (same host) - never hardcode secrets here.
+Environment=HOST_SERVER=http://127.0.0.1:5000
+Environment=WEBSOCKET_URL=ws://127.0.0.1:8765
+Environment=POV_DASH_HOST=127.0.0.1
+Environment=POV_DASH_PORT=8050
+Environment=POV_DASH_LOGLEVEL=INFO
+Environment=TZ=Asia/Kolkata
+# Engine state / ledgers live on the mounted data dir, never in the code tree.
+Environment=POV_DATA_DIR=@BASE_DIR@/data
+
+ExecStart=@BASE_DIR@/openalgo/.venv/bin/python -m pov_engine.dashboard.dash_app
+
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=@BASE_DIR@/data @BASE_DIR@/logs @BASE_DIR@/pov_engine/input
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pov-dash
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+[Unit]
+Description=OpenAlgo trading platform (Flask + SocketIO, SocketIO in threading mode)
+Documentation=https://openalgo.in
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@BASE_DIR@/openalgo
+EnvironmentFile=-@BASE_DIR@/openalgo/.env
+# --worker-class gthread is REQUIRED: OpenAlgo forces flask-socketio into
+# async_mode="threading" (extensions.py), so eventlet/gevent workers would
+# deadlock. gthread gives us N request threads + the SocketIO long-poll
+# workers flask-socketio spawns itself.
+# --bind stays on loopback: nginx terminates TLS and reverse-proxies.
+ExecStart=@BASE_DIR@/openalgo/.venv/bin/gunicorn \
+    --worker-class gthread \
+    --workers 1 \
+    --threads 8 \
+    --worker-tmp-dir /dev/shm \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --keep-alive 5 \
+    --access-logfile @BASE_DIR@/logs/openalgo-access.log \
+    --error-logfile @BASE_DIR@/logs/openalgo-error.log \
+    --capture-output \
+    --log-level info \
+    --bind 127.0.0.1:5000 \
+    "app:app"
+# NOTE on websockets: the standalone WS proxy (port 8765) is started by the
+# platform itself when websocket_proxy runs. If your build starts it as a
+# separate process, uncomment the next two lines and create a distinct unit.
+# (See DEPLOY.md -> "WebSocket proxy" for the two supported options.)
+
+Restart=always
+RestartSec=5
+# Do not hammer-restart if it crash-loops on bad config
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Basic hardening (kept permissive enough for SQLite + market-data downloads)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=@BASE_DIR@/openalgo @BASE_DIR@/data @BASE_DIR@/logs
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openalgo
+
+[Install]
+WantedBy=multi-user.target
