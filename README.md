@@ -19,9 +19,9 @@ my-trading-system/
 │   └── smoke_test.py         post-upgrade acceptance gate
 └── data/                     engine ledger/state (persistent)
 ```
-NOTE: openalgo physically remains at C:\Users\KanagalakshmiM\openalgo (VS Code had it
-locked during migration) and is junction-linked here. Both paths work; do the real move
-after closing VS Code if you want physical consolidation.
+NOTE: openalgo is now physically located at my-trading-system\openalgo. A junction at
+C:\Users\KanagalakshmiM\openalgo points to it, so the venv and any old absolute paths
+keep working. Plan Step 1 is now 100% complete.
 
 ## Daily operations
 | Task | Command |
