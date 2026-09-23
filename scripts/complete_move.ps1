@@ -48,9 +48,9 @@ if ((Test-Path $newPath) -and ((Get-Item $newPath -Force).LinkType -eq $null) -a
     } elseif (-not $j) { Ok "No junction present (nothing to remove)" }
     else { Fail "$newPath exists but is NOT a junction - manual inspection required" }
 
-    Step "2. Move real folder: $oldPath -> $newPath (5 attempts, 10s apart - shrugs off antivirus/indexer locks)"
+    Step "2. Move real folder: $oldPath -> $newPath (12 attempts, 30s apart - outlasts search-indexer/AV locks)"
     $moved = $false
-    foreach ($attempt in 1..5) {
+    foreach ($attempt in 1..12) {
         try {
             [System.IO.Directory]::Move($oldPath, $newPath)
             Ok "MOVE OK (attempt $attempt)"
@@ -58,7 +58,7 @@ if ((Test-Path $newPath) -and ((Get-Item $newPath -Force).LinkType -eq $null) -a
             break
         } catch {
             Info "attempt $attempt failed: $($_.Exception.Message)"
-            if ($attempt -lt 5) { Start-Sleep -Seconds 10 }
+            Info ("attempt {0} at {1:HH:mm:ss}" -f $attempt, (Get-Date)); if ($attempt -lt 12) { Start-Sleep -Seconds 30 }
         }
     }
     if (-not $moved) {
