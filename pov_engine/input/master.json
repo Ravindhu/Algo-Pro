@@ -1,0 +1,128 @@
+{
+  "_comment": "Master JSON config for pov_engine. Edit the 'strategies' block to enable/disable each strategy. Each enabled strategy must have its own config block at the top level (with the same name).",
+
+  "strategy_label": "POV-INFY-NSE",
+
+  "_comment_auth": "Leave api_key/host/ws_url null to use environment variables OPENALGO_API_KEY, HOST_SERVER, WEBSOCKET_URL (recommended).",
+  "api_key": null,
+  "host":    null,
+  "ws_url":  null,
+
+  "_comment_symbol": "Top-level symbol/exchange. Shared by every enabled strategy unless overridden in its own block.",
+  "symbol":   "INFY",
+  "exchange": "NSE",
+
+  "_comment_strategies": "Toggle each strategy on/off. 'pov' is the slicer. 'keylevel' is manual price trigger. 'ocl_keylevel' is the OCL pattern-based signal (scans HTF for RRG/GRR pattern, monitors LTF for touch, fires POV).\n  - { 'keylevel': false, 'pov': true }       -> manual mode (slicer fires immediately)\n  - { 'keylevel': true,  'pov': true }       -> wait for manual keylevel, then POV\n  - { 'ocl_keylevel': true, 'pov': true }    -> wait for OCL pattern, then POV\n  - { 'pov': true }                          -> same as first; no signal enabled",
+  "strategies": {
+    "keylevel": false,
+    "ocl_keylevel": false,
+    "pov":      true
+  },
+
+  "_comment_keylevel": "Keylevel signal. Only used when 'keylevel' is true above. Polls LTP and fires the trade when the trigger is crossed.",
+  "keylevel": {
+    "trigger_price":      1480.00,
+    "trigger_direction":  "ABOVE",
+    "poll_seconds":       5,
+    "tolerance":          0.0,
+    "one_shot":           true,
+    "wait_seconds":       1800,
+    "action":             "BUY",
+    "quantity":           1000
+  },
+
+  "_comment_ocl_keylevel": "OCL Keylevel signal. Only used when 'ocl_keylevel' is true above. Scans HTF for Red-Red-Green (or Green-Red-Red) candle pattern, calculates the Touch Trigger Level from candle bodies, monitors LTF for price touch, then fires POV.",
+  "ocl_keylevel": {
+    "_comment_htf_settings": "[HTF SETTINGS] Higher Timeframe Configuration",
+    "htf_interval":         "15minute",
+    "htf_candles":          5,
+
+    "_comment_pattern_settings": "[PATTERN SETTINGS] Candlestick Pattern Parameters",
+    "pattern_type":         "RRG",
+    "min_body_pct":         0.3,
+    "trade_direction":      "AUTO",
+
+    "_comment_ltf_settings": "[LTF SETTINGS] Lower Timeframe Monitoring",
+    "ltf_interval":         "5minute",
+    "ltf_touch_buffer":     0.05,
+
+    "_comment_trade_settings": "[TRADE SETTINGS] Execution Parameters",
+    "action":               "BUY",
+    "quantity":             1000,
+
+    "_comment_monitoring_settings": "[MONITORING SETTINGS] Polling and Timeout Controls",
+    "poll_seconds":         10,
+    "wait_seconds":         1800,
+    "one_shot":             true,
+
+    "_comment_execution_settings": "[EXECUTION SETTINGS] Per-Run Slicing Behavior (USER-DEFINED). Controls how many times the signal can fire and how much qty per fire.",
+    "_comment_exec_mode": "exec_mode: ONE_SHOT (default) = fire once per run | CONTINUOUS = fire on every touch (cooldown enforced) | COUNT_LIMITED = fire up to max_fires times | AUTO = fire once per new pattern (re-arms on rearm_on_fire)",
+    "exec_mode":           "ONE_SHOT",
+    "qty_per_fire":        200,
+    "max_fires":           5,
+    "cooldown_seconds":    60,
+    "rearm_on_fire":       false
+  },
+
+  "_comment_pov": "POV slicer. The 'action' and 'quantity' here are used only when no signal is enabled (manual mode). When a signal fires, it supplies the action/quantity.",
+  "pov": {
+    "action":                  "BUY",
+    "quantity":                100000,
+    "participation_pct":       10.0,
+    "duration_seconds":        900,
+    "poll_interval_seconds":   15,
+    "product":                 "CNC",
+    "order_mode":              "LIMIT",
+    "max_slice_quantity":      100,
+    "ceiling_price":           1500,
+    "stop_loss_price":         1450,
+    "exit_participation_pct":  30.0,
+    "limit_expiry_pct":        80.0,
+    "cutoff_time":             "15:15",
+    "squareoff_time":          "15:20",
+
+    "_comment_safety_guards": "Depth-aware execution safety guards (OpenAlgo SDK-style). All three are enabled by default and degrade safely to the legacy ceiling_price / max_slice_quantity paths when client.depth(...) is unavailable. Knobs you will most often want to tweak: depth_offset_ticks, depth_slice_min_qty, circuit_buffer_pct.",
+    "depth_aware_pricing":    true,
+    "_comment_depth_offset_ticks": "Default 1 means LIMIT orders are placed at best_bid + 1 tick (BUY) or best_ask - 1 tick (SELL) — 'joining the inside of the spread'. Set to 0 to sit exactly on the bid/ask.",
+    "depth_offset_ticks":     1,
+    "tick_size":              null,
+
+    "depth_slice_cap":        true,
+    "depth_slice_min_qty":    1,
+
+    "circuit_guard_enabled":  true,
+    "circuit_buffer_pct":     0.5,
+
+    "_example_quick_presets": "Common tuning recipes - copy/paste any one of these into the safety guards above.\n  1) AGGRESSIVE (the new default - sit 1 tick inside the spread, never slice less than 50 shares, pause 1% from circuit):\n       \"depth_offset_ticks\": 1, \"depth_slice_min_qty\": 50, \"circuit_buffer_pct\": 1.0\n  2) PATIENT (sit exactly on bid/ask, skip dust orders, 0.3% circuit buffer):\n       \"depth_offset_ticks\": 0, \"depth_slice_min_qty\": 10, \"circuit_buffer_pct\": 0.3\n  3) DEEPER (sit 2 ticks inside the spread — for very illiquid names where the spread is wide):\n       \"depth_offset_ticks\": 2, \"depth_slice_min_qty\": 25, \"circuit_buffer_pct\": 0.5\n  4) LEGACY-COMPATIBLE (disable every guard, fall back to ceiling_price / max_slice_quantity):\n       \"depth_aware_pricing\": false, \"depth_slice_cap\": false, \"circuit_guard_enabled\": false",
+
+    "_comment_exchange_compliance": "Feature 5-8: Exchange & Compliance Operations. Set these only for SME / PCAS / restricted scrips. For plain NSE equity they can stay at their defaults.",
+    "sme_periodic_call_auction":         false,
+    "auction_windows":                   ["09:15-15:30"],
+    "auction_window_enabled":            true,
+    "auction_price_enabled":             true,
+    "lot_size":                          null,
+    "restricted_same_day_reverse_exit":  false,
+    "supervisor_override":               false,
+
+    "_comment_system_stability": "Feature 9-12: System Stability & State Preservation. Throttle helpers and the persistent ledger use the shared platform database.pov_db when available; otherwise the framework runs in-memory only with a warning.",
+    "max_order_to_trade_ratio":          10.0,
+    "min_order_interval_seconds":        1.0,
+    "cancellation_cool_off_seconds":     2.0,
+    "quote_failure_threshold":           3,
+
+    "_comment_vwap_band_slippage": "Feature 13: VWAP Value Filter (Phase 1) + Slippage Feedback Loop (Phase 2). The POV rate now varies smoothly between min_pov_pct and max_pov_pct based on the position of LTP inside a dynamic VWAP band. When the rolling-mean slippage (in bps) crosses max_slippage_bps, the rate is multiplied by slippage_penalty_factor and clamped to min_pov_pct. Both features default to ENABLED but degrade safely when their inputs are missing. Set vwap_filter_enabled=false and/or slippage_guard_enabled=false to restore the legacy behaviour.",
+    "vwap_filter_enabled":               true,
+    "vwap_ceiling_pct":                  0.5,
+    "vwap_floor_pct":                    3.0,
+    "min_pov_pct":                       5.0,
+    "max_pov_pct":                       25.0,
+    "passthrough_floor":                 "part_pct",
+
+    "slippage_guard_enabled":            true,
+    "max_slippage_bps":                  50.0,
+    "slippage_penalty_factor":           0.5,
+    "slippage_window_fills":             10,
+    "arrival_window_ticks":              20
+  }
+}
+

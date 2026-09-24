@@ -1,7 +1,12 @@
-# smoke_test.py - Post-upgrade acceptance gate for the POV/OpenAlgo setup.
+# smoke_test.py - Post-upgrade acceptance gate for the pov_engine / OpenAlgo setup.
 # Location: my-trading-system\scripts\smoke_test.py
 # Run:  openalgo\.venv\Scripts\python.exe my-trading-system\scripts\smoke_test.py
 # Exit 0 = all good. Exit 1 = do not trade.
+#
+# ARCHITECTURE (locked):
+#   Python (pov_engine) -> OpenAlgo REST/SDK -> Broker -> Exchange
+# OpenAlgo is a PRISTINE upstream clone. Nothing POV-related is ever
+# patched into it. The engine talks only through the public `openalgo` SDK.
 
 import json
 import os
@@ -33,8 +38,13 @@ def _api_key():
     k = os.getenv("OPENALGO_API_KEY", "").strip()
     if k:
         return k
-    envf = ROOT / ".env"
-    if envf.exists():
+    # State lives in the sibling _restored/ folder; fall back to the clone's
+    # own .env (start_openalgo.py copies it there during bootstrap).
+    for envf in (ROOT / "_restored" / ".env",
+                 ROOT / "openalgo" / ".env",
+                 ROOT / ".env"):
+        if not envf.exists():
+            continue
         for line in envf.read_text(encoding="utf-8").splitlines():
             s = line.strip()
             if s.startswith("#") or "=" not in s:
@@ -76,15 +86,38 @@ def t_dashboard_import():
 check("dashboard module imports", t_dashboard_import)
 
 
-# ---- 4. OpenAlgo wiring in place (static, no server needed) ----
-def t_wiring():
-    app_py = (ROOT / "openalgo" / "app.py").read_text(encoding="utf-8")
-    assert "from blueprints.pov_terminal import pov_terminal_bp" in app_py, "app.py import missing"
-    assert "app.register_blueprint(pov_terminal_bp)" in app_py, "app.py registration missing"
-    assert (ROOT / "openalgo" / "blueprints" / "pov_terminal.py").exists(), "blueprint file missing"
+# ---- 4. local state in place (static, no server needed) ----
+def t_state():
+    """The _restored/ source of truth must exist and be intact.
+
+    .env and db/ are cryptographically married: FERNET_SALT and
+    API_KEY_PEPPER in .env are the KDF inputs that encrypt the broker
+    session tokens stored in db/openalgo.db. A partial restore boots fine
+    and then silently cannot decrypt the broker login - so both are
+    asserted here, together.
+    """
+    restored = ROOT / "_restored"
+    assert restored.is_dir(), f"_restored/ missing at {restored}"
+    for required in (".env", "db"):
+        assert (restored / required).exists(), f"_restored/{required} missing"
 
 
-check("OpenAlgo wiring (import + register + blueprint file)", t_wiring)
+check("local state (_restored/.env + _restored/db present)", t_state)
+
+
+# ---- 4b. the clone carries no POV (retired server-side) ----
+def t_no_pov_in_clone():
+    clone = ROOT / "openalgo"
+    stale = [
+        clone / "services" / "volume_participation_service.py",
+        clone / "restx_api" / "volume_participation.py",
+        clone / "blueprints" / "pov_terminal.py",
+    ]
+    present = [str(f.relative_to(clone)) for f in stale if f.exists()]
+    assert not present, f"POV files present in clone: {present}"
+
+
+check("OpenAlgo clone is free of POV (retired server-side)", t_no_pov_in_clone)
 
 
 # ---- 5. OpenAlgo server alive (only if currently running) ----
@@ -109,15 +142,33 @@ def t_sdk():
 check("SDK contract (analyzer status via openalgo SDK)", t_sdk)
 
 
-# ---- 7. blueprint endpoint (only if server running) ----
-def t_blueprint_endpoint():
-    urllib.request.urlopen(_host() + "/pov-terminal/config", timeout=3)
+# ---- 7. retired endpoint must be gone (only if server running) ----
+def t_pov_endpoint_gone():
+    """POST /api/v1/povorder must 404: the server-side POV is retired."""
+    import urllib.error
+
+    req = urllib.request.Request(
+        _host() + "/api/v1/povorder",
+        data=b"{}",
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=3)
+    except urllib.error.HTTPError as e:
+        assert e.code == 404, f"expected 404, got {e.code}"
+        return
+    except Exception:
+        # Server not running - nothing to assert against.
+        return
+    raise AssertionError("povorder endpoint is still registered")
 
 
-check("POV terminal config endpoint (only if currently running)", t_blueprint_endpoint)
+check("server-side POV endpoint retired (404)", t_pov_endpoint_gone)
 
 
-HARD_PREFIXES = ("pov_engine", "engine ", "dashboard", "OpenAlgo wiring")
+HARD_PREFIXES = ("pov_engine", "engine ", "dashboard", "local state",
+                 "OpenAlgo clone")
 print()
 print("=" * 60)
 hard = [f for f in FAIL if f[0].startswith(HARD_PREFIXES)]

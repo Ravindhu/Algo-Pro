@@ -1,15 +1,137 @@
-# Secrets
+# =============================================================================
+# .gitignore — my-trading-system
+# =============================================================================
+# Architecture: Python (pov_engine) -> OpenAlgo (server) -> Broker -> Exchange
+#
+# THE RULE: this repository contains YOUR CODE ONLY.
+#
+#   TRACKED    pov_engine/, scripts/, Servers/, README.md, .env.example
+#   NEVER      openalgo/ (upstream - the installer clones it), _restored/ (secrets),
+#              archive/ (retired code and backups)
+#
+# If a secret ever reaches a commit, rotating the key is the ONLY fix. Removing
+# the file in a later commit does not remove it from history.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SECRETS AND LOCAL STATE — never commit, ever
+# -----------------------------------------------------------------------------
+# _restored/ holds .env AND db/. The .env carries FERNET_SALT and
+# API_KEY_PEPPER, which are the KDF inputs that encrypt the broker session
+# tokens stored in db/openalgo.db. Both are credentials.
+_restored/
 .env
-openalgo/.env
+.env.*
+!.env.example
 
-# Backups
+# Databases — encrypted broker tokens, positions, order history
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Key material
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Convenience copies of any of the above
+deploy_*/
+mts-state/
+*_env_*
+*_db_*
+
+# -----------------------------------------------------------------------------
+# UPSTREAM PLATFORM — cloned by the installer, never tracked here
+# -----------------------------------------------------------------------------
+# Tracking openalgo/ would either duplicate 3,175 files or create a submodule
+# that `git pull` fights on every upgrade. Servers/install_ubuntu.sh clones it.
+openalgo/
+openalgo_new/
+openalgo_fresh/
+openalgo_OLD_*/
+openalgo_retired_*/
+
+# -----------------------------------------------------------------------------
+# RETIRED CODE AND BACKUPS — reference only, large, not needed on the VPS
+# -----------------------------------------------------------------------------
+archive/
 _backup/
+_retired_*/
+_venv_hold/
 
-# Python
+# -----------------------------------------------------------------------------
+# RUNTIME STATE AND LOGS
+# -----------------------------------------------------------------------------
+data/
+log/
+logs/
+*.log
+*.out
+*.err
+tmp/
+*.tmp
+
+# -----------------------------------------------------------------------------
+# PYTHON
+# -----------------------------------------------------------------------------
 __pycache__/
-*.pyc
-.pytest_cache/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+.python-version
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
 
-# Engine runtime state
-data/*.db
-data/*.log
+# -----------------------------------------------------------------------------
+# ENGINE RUNTIME ARTIFACTS
+# -----------------------------------------------------------------------------
+pov_engine/input/*.local.json
+pov_engine/**/state.json
+pov_engine/**/*.jsonl
+
+# -----------------------------------------------------------------------------
+# TOOLING AND EDITORS
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# -----------------------------------------------------------------------------
+# SCRATCH / DIAGNOSTIC SCRIPTS
+# -----------------------------------------------------------------------------
+# Ad-hoc probes and scanners. These have historically contained a literal API
+# key inside their regex patterns, so they are excluded by default. Put real
+# tools in scripts/ with a proper name rather than an underscore prefix.
+scripts/_*.ps1
+scripts/_*.py
+_diag.ps1
+move_log.txt
+
+# -----------------------------------------------------------------------------
+# EXCEPTIONS — things that look ignored but must be tracked
+# -----------------------------------------------------------------------------
+!.env.example
+!pov_engine/input/master.json
+!pov_engine/pyproject.toml

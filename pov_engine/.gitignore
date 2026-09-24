@@ -1,0 +1,31 @@
+# --- build artifacts ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# --- test / lint caches ---
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# --- virtualenvs ---
+.venv/
+venv/
+
+# --- engine runtime state (never commit ledgers / logs) ---
+data/
+*.db
+*.db-journal
+*.log
+*.jsonl
+
+# --- editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
