@@ -16,6 +16,67 @@ of ours is patched into it, and no POV wiring is injected. The engine is a pure
 
 ---
 
+## 0. Quick start — the whole thing in 2 commands
+
+The repository contains **your code only**. The installer clones OpenAlgo itself, so
+you never track or upload the 3,175 upstream files.
+
+### One-time setup
+
+```bash
+# 1. Clone your repo onto the VPS and enter it
+git clone https://github.com/<you>/my-trading-system.git
+cd my-trading-system
+
+# 2. Create the deploy config from the template
+cp Servers/deploy.env.example Servers/deploy.env
+chmod 600 Servers/deploy.env
+$EDITOR Servers/deploy.env      # set MTS_DOMAIN and MTS_API_KEY
+```
+
+`Servers/deploy.env` is gitignored. It holds your API key, so it must never be
+committed. Putting the key here rather than on the command line keeps it out of
+`~/.bash_history` and out of `ps` output.
+
+### Copy your state (required once — secrets cannot ride in git)
+
+```bash
+# on the dev laptop
+scp -r .\_restored\.env .\_restored\db user@<vps>:/tmp/mts-state/
+
+# on the VPS
+sudo mkdir -p /opt/my-trading-system/_restored
+sudo cp -r /tmp/mts-state/.env /tmp/mts-state/db /opt/my-trading-system/_restored/
+```
+
+### The 2 commands
+
+```bash
+# 1) install everything and start the platform
+sudo bash Servers/install_ubuntu.sh
+
+# 2) verify (command 1 also runs this as its acceptance gate)
+sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
+     /opt/my-trading-system/scripts/smoke_test.py
+```
+
+Command 1 reads `deploy.env`, clones OpenAlgo, builds the venv, installs
+`pov_engine`, writes the systemd units, configures nginx, bridges `_restored/`,
+writes the API key into `_restored/.env`, verifies the `.env`/`db` pairing still
+decrypts, and runs the smoke gate.
+
+### Optional flags
+
+| Flag | Effect |
+|---|---|
+| `--start-engine` | Also start `pov-runner` + `pov-dash` (default: left stopped) |
+| `--api-key KEY` | Override `MTS_API_KEY` (prefer the file) |
+| `--domain NAME` | Override `MTS_DOMAIN` |
+| `--no-smoke` | Skip the acceptance gate (not recommended) |
+| `--no-nginx` | Skip the reverse proxy |
+
+---
+
 ## 1. What gets installed
 
 ```

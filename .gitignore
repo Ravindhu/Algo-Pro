@@ -135,3 +135,6 @@ move_log.txt
 !.env.example
 !pov_engine/input/master.json
 !pov_engine/pyproject.toml
+# Deployment config with the API key - the .example template IS tracked
+Servers/deploy.env
+

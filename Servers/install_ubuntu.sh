@@ -50,12 +50,17 @@ APP_NAME="my-trading-system"
 INSTALL_ROOT="/opt/${APP_NAME}"
 SERVICE_USER="algo"
 OPENALGO_REPO="https://github.com/marketcalls/openalgo.git"
-OPENALGO_URL="http://127.0.0.1:5000"
+OPENALGO_PORT="5000"
+OPENALGO_URL="http://127.0.0.1:${OPENALGO_PORT}"
 DASH_PORT="8050"
 WS_PORT="8765"
 SETUP_NGINX=1
 DOMAIN=""
 PY_VER="python3"
+DEPLOY_ENV=""
+MTS_API_KEY=""
+RUN_SMOKE=1
+START_ENGINE=0
 
 # ------------------------------------------------------------------ output
 C_RESET=$'\033[0m'; C_OK=$'\033[32m'; C_ERR=$'\033[31m'
@@ -65,15 +70,52 @@ ok()   { printf '    %s[OK]%s %s\n'   "$C_OK"   "$C_RESET" "$*"; }
 warn() { printf '    %s[WARN]%s %s\n' "$C_WARN" "$C_RESET" "$*"; }
 die()  { printf '    %s[ABORT]%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; exit 1; }
 
+# ------------------------------------------------------------------ config file
+# Load Servers/deploy.env if present, so the common case is a bare
+# `sudo bash install_ubuntu.sh` with no arguments.
+#
+# Deploy.env holds the API key. A key on the command line would land in
+# ~/.bash_history and in `ps` output; a file does not. Values here are
+# defaults: any CLI flag still overrides them.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_ENV="${SCRIPT_DIR}/deploy.env"
+if [[ -f "$DEPLOY_ENV" ]]; then
+  # Parse only simple KEY=VALUE lines. Deliberately not `source`d: sourcing
+  # would execute arbitrary shell from the file, and this file is writable by
+  # whoever prepares the deploy.
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" =~ ^[A-Z_]+$ ]] || continue
+    _v="${_v%\"}"; _v="${_v#\"}"      # strip surrounding double quotes
+    _v="${_v%\'}"; _v="${_v#\'}"        # strip surrounding single quotes
+    case "$_k" in
+      MTS_DOMAIN)           [[ -n "$_v" ]] && DOMAIN="$_v" ;;
+      MTS_API_KEY)          [[ -n "$_v" ]] && MTS_API_KEY="$_v" ;;
+      MTS_ROOT)             [[ -n "$_v" ]] && INSTALL_ROOT="$_v" ;;
+      MTS_USER)             [[ -n "$_v" ]] && SERVICE_USER="$_v" ;;
+      MTS_OPENALGO_URL)     [[ -n "$_v" ]] && OPENALGO_URL="$_v" ;;
+      MTS_OPENALGO_PORT)    [[ -n "$_v" ]] && OPENALGO_PORT="$_v" ;;
+      MTS_DASH_PORT)        [[ -n "$_v" ]] && DASH_PORT="$_v" ;;
+      MTS_WS_PORT)          [[ -n "$_v" ]] && WS_PORT="$_v" ;;
+      MTS_OPENALGO_REPO)    [[ -n "$_v" ]] && OPENALGO_REPO="$_v" ;;
+      MTS_START_ENGINE)     [[ "$_v" == "1" ]] && START_ENGINE=1 ;;
+      MTS_SETUP_NGINX)      [[ "$_v" == "0" ]] && SETUP_NGINX=0 ;;
+      MTS_RUN_SMOKE)        [[ "$_v" == "0" ]] && RUN_SMOKE=0 ;;
+    esac
+  done < <(grep -E '^[A-Z_]+=' "$DEPLOY_ENV" 2>/dev/null || true)
+fi
+
 # ------------------------------------------------------------------ args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --domain)   DOMAIN="${2:-}"; shift 2 ;;
-    --user)     SERVICE_USER="${2:-}"; shift 2 ;;
-    --root)     INSTALL_ROOT="${2:-}"; shift 2 ;;
-    --no-nginx) SETUP_NGINX=0; shift ;;
+    --domain)       DOMAIN="${2:-}"; shift 2 ;;
+    --user)         SERVICE_USER="${2:-}"; shift 2 ;;
+    --root)         INSTALL_ROOT="${2:-}"; shift 2 ;;
+    --api-key)      MTS_API_KEY="${2:-}"; shift 2 ;;
+    --no-nginx)     SETUP_NGINX=0; shift ;;
+    --start-engine) START_ENGINE=1; shift ;;
+    --no-smoke)     RUN_SMOKE=0; shift ;;
     -h|--help)
-      sed -n '2,55p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
@@ -165,6 +207,44 @@ if [[ "$STATE_OK" -eq 0 ]]; then
   warn "----------------------------------------------------------------"
 else
   chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_ROOT/_restored"
+
+  # ---- API key ---------------------------------------------------------------
+  # If MTS_API_KEY was supplied (via deploy.env or --api-key), reconcile it with
+  # _restored/.env. The key is written to the FILE, never passed on a command
+  # line, so it does not end up in shell history or in `ps` output.
+  #
+  # If _restored/.env already carries an OPENALGO_API_KEY, that value wins	unless
+  # MTS_API_KEY differs - in which case we update it and say so, because a
+  # mismatch between the .env key and the engine's key is a silent auth failure.
+  if [[ -n "$MTS_API_KEY" ]]; then
+    ENVF="$INSTALL_ROOT/_restored/.env"
+    if grep -q '^OPENALGO_API_KEY=' "$ENVF" 2>/dev/null; then
+      CURRENT=$(grep '^OPENALGO_API_KEY=' "$ENVF" | head -1 | cut -d= -f2- | tr -d '"'"'"''\r')
+      if [[ "$CURRENT" == "$MTS_API_KEY" ]]; then
+        ok "API key already matches _restored/.env (unchanged)"
+      else
+        sed -i "s|^OPENALGO_API_KEY=.*|OPENALGO_API_KEY='${MTS_API_KEY}'|" "$ENVF"
+        ok "API key updated in _restored/.env (replace_in_file)"
+      fi
+    else
+      printf "\n# Set by install_ubuntu.sh from deploy.env\nOPENALGO_API_KEY='%s'\n" \
+        "$MTS_API_KEY" >> "$ENVF"
+      ok "API key written to _restored/.env"
+    fi
+    # The engine reads this; also export it for the smoke test below.
+    if grep -q '^HOST_SERVER=' "$ENVF" 2>/dev/null; then
+      sed -i "s|^HOST_SERVER=.*|HOST_SERVER='${OPENALGO_URL}'|" "$ENVF"
+    else
+      printf "HOST_SERVER='%s'\n" "$OPENALGO_URL" >> "$ENVF"
+    fi
+    ok "HOST_SERVER set to ${OPENALGO_URL} in _restored/.env"
+    chmod 600 "$ENVF"
+    chown "$SERVICE_USER:$SERVICE_USER" "$ENVF"
+    ok "_restored/.env locked down (chmod 600)"
+  else
+    warn "no MTS_API_KEY supplied - relying on the key already in _restored/.env"
+    warn "set MTS_API_KEY in Servers/deploy.env to have the installer manage it"
+  fi
 
   # Bridge state into the clone the same way start_openalgo.py does. OpenAlgo
   # reads .env and db/ from its OWN root, so they must be materialised there.
@@ -410,6 +490,45 @@ else
   warn "OpenAlgo not responding yet. Inspect: journalctl -u openalgo -n 80"
 fi
 
+# ------------------------------------------------------------------ smoke gate
+SMOKE_RESULT="skipped"
+if [[ "$RUN_SMOKE" -eq 1 ]] && [[ -x "$OA_VENV/bin/python" ]]; then
+  step "Smoke test (acceptance gate)"
+  if sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" "$INSTALL_ROOT/scripts/smoke_test.py"; then
+    ok "smoke test PASSED"
+    SMOKE_RESULT="passed"
+  else
+    SMOKE_RESULT="FAILED"
+    warn "smoke test FAILED - do NOT trade until this passes"
+    warn "hard failures are listed above; warnings are expected when the platform is idle"
+  fi
+elif [[ "$RUN_SMOKE" -eq 0 ]]; then
+  warn "smoke test skipped (MTS_RUN_SMOKE=0 / --no-smoke)"
+fi
+
+# ------------------------------------------------------------------ engine
+if [[ "$START_ENGINE" -eq 1 ]]; then
+  step "Starting the engine (MTS_START_ENGINE=1)"
+  if [[ "$SMOKE_RESULT" == "FAILED" ]]; then
+    warn "NOT starting pov-runner: the smoke gate failed"
+    warn "fix the failures, then: sudo systemctl start pov-runner pov-dash"
+    ENGINE_MSG="blocked (smoke test failed)"
+  else
+    systemctl enable pov-dash >/dev/null 2>&1 || true
+    systemctl restart pov-dash
+    ok "pov-dash started (dashboard on port ${DASH_PORT})"
+
+    # pov-runner is left DISABLED on purpose. Enabling it would restart an
+    # execution automatically after a reboot or an upgrade - undesirable for an
+    # order-placing service that should only run when you intend it to.
+    systemctl restart pov-runner
+    ok "pov-runner started (NOT enabled - it will not auto-start on reboot)"
+    ENGINE_MSG="running (pov-runner + pov-dash)"
+  fi
+else
+  ENGINE_MSG="stopped (start with: sudo systemctl start pov-runner pov-dash)"
+fi
+
 step "Installation summary"
 cat <<SUMMARY
 
@@ -419,18 +538,19 @@ cat <<SUMMARY
 
   Data path    : Python (pov_engine) -> OpenAlgo -> Broker -> Exchange
 
-  Units        : openalgo (running), openalgo-ws (running),
-                 pov-runner (stopped), pov-dash (stopped)
+  Units        : openalgo            running
+                 openalgo-ws         running
+                 pov-dash            ${ENGINE_MSG}
+                 pov-runner          ${ENGINE_MSG}
+  Smoke gate   : ${SMOKE_RESULT}
 
   Next steps
-    1. If _restored/ was empty, copy .env and db/ here, then re-run:
-         sudo bash $0 --domain ${DOMAIN:-<your-domain>}
-    2. Open the UI and log in to your broker:
+    1. Open the UI and log in to your broker:
          ${DOMAIN:+http://}${DOMAIN:-http://<server-ip>}
-    3. Confirm the platform is in ANALYZER (paper) mode.
-    4. Start the engine when ready:
-         sudo systemctl start pov-runner pov-dash
-    5. Verify:
+    2. Confirm the platform is in ANALYZER (paper) mode.
+    3. Put TLS in front of it:
+         sudo certbot --nginx -d ${DOMAIN:-<your-domain>}
+    4. Re-verify any time:
          sudo -u ${SERVICE_USER} ${OA_VENV}/bin/python ${INSTALL_ROOT}/scripts/smoke_test.py
 
   SECURITY
