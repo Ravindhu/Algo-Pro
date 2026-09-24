@@ -1,5 +1,7 @@
 # my-trading-system — Master Operations README
 
+**Repository:** https://github.com/Ravindhu/my-trading-system
+
 **Architecture (locked):** `Python (pov_engine) → OpenAlgo (server) → Broker → Exchange`
 
 The engine talks to the platform **only** through the public OpenAlgo SDK

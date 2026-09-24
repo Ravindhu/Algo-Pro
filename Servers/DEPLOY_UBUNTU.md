@@ -25,13 +25,13 @@ you never track or upload the 3,175 upstream files.
 
 ```bash
 # 1. Clone your repo onto the VPS and enter it
-git clone https://github.com/<you>/my-trading-system.git
+git clone https://github.com/Ravindhu/my-trading-system.git
 cd my-trading-system
 
 # 2. Create the deploy config from the template
 cp Servers/deploy.env.example Servers/deploy.env
 chmod 600 Servers/deploy.env
-$EDITOR Servers/deploy.env      # set MTS_DOMAIN and MTS_API_KEY
+nano Servers/deploy.env         # set MTS_DOMAIN and MTS_API_KEY
 ```
 
 `Servers/deploy.env` is gitignored. It holds your API key, so it must never be
