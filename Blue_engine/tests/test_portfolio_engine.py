@@ -31,6 +31,7 @@ if _ROOT not in sys.path:
 
 from blue_engine.portfolio import (  # noqa: E402
     PortfolioEngine, attribution, optim, providers, risk, sizing, views)
+from blue_engine.portfolio import portfolio_manager as pm_mod  # noqa: E402
 from blue_engine.portfolio.providers import (  # noqa: E402
     PortfolioProvider, CachedProvider, CompositeProvider)
 
@@ -1438,6 +1439,64 @@ def test_job_equity_is_never_fatal(tmp_path):
                                 {}, 1.0, lambda m: None, result)
     _check(snap is not None or result["warnings"],
            "either a row is produced, or a warning is recorded — never a raise")
+
+
+# --------------------------------------------------------------------------- #
+# 24. Phase 2: the manager risk report reads the Phase 1 curve
+# --------------------------------------------------------------------------- #
+def test_manager_risk_report_needs_history_but_never_raises(tmp_path):
+    """One NAV row is not enough for returns; the report must say so, not invent."""
+    from blue_engine.portfolio import tracker as tr
+    from datetime import datetime
+
+    pm = pm_mod.PortfolioManager.create(
+        {"persist": False, "nav_dir": str(tmp_path)})
+    ts = datetime(2026, 9, 25, 16, 0, tzinfo=tr.IST).timestamp()
+    tr.store_nav({"ts": ts, "date": "2026-09-25", "nav": 1_000_000.0},
+                 directory=tmp_path)
+
+    rep = pm.get_risk_report(months=1)
+    _check(rep["n_nav_rows"] == 1, f"should see the single row: {rep}")
+    _check(rep["n_returns"] == 0, "one NAV point yields zero returns")
+    _check(any("need >= 2" in w for w in rep["warnings"]),
+           f"should explain the shortfall: {rep['warnings']}")
+
+
+def test_manager_risk_report_has_all_panels(tmp_path):
+    """With a real curve, every dashboard panel has data to render."""
+    import random
+    from datetime import datetime, timedelta
+    from blue_engine.portfolio import tracker as tr
+
+    pm = pm_mod.PortfolioManager.create(
+        {"persist": False, "nav_dir": str(tmp_path)})
+    rng = random.Random(5)
+    nav = 1_000_000.0
+    d0 = datetime(2026, 6, 1, 16, 0, tzinfo=tr.IST)
+    for i in range(80):
+        nav *= (1.0 + rng.gauss(0.0004, 0.011))
+        tr.store_nav({"ts": (d0 + timedelta(days=i)).timestamp(),
+                      "date": (d0 + timedelta(days=i)).strftime("%Y-%m-%d"),
+                      "nav": round(nav, 2)}, directory=tmp_path)
+
+    rep = pm.get_risk_report(months=12, capital=1_000_000.0, beta=1.1)
+    _check(rep["ok"] is True, f"report should be ok: {rep.get('warnings')}")
+    _check(rep["n_returns"] == 79, f"80 rows -> 79 returns, got {rep['n_returns']}")
+
+    perf = rep["performance"]
+    for key in ("summary", "drawdown", "underwater", "rolling"):
+        _check(key in perf, f"performance missing '{key}'")
+    _check(perf["summary"].get("sharpe") is not None, "Sharpe should compute")
+    _check(len(perf["underwater"]["drawdown"]) == rep["n_returns"],
+           "underwater must align with the return series")
+
+    risk = rep["risk"]
+    for name in ("historical", "parametric", "cornish_fisher"):
+        _check(risk["var"][name] is not None and risk["var"][name] > 0,
+               f"{name} VaR must be a real loss, got {risk['var'][name]}")
+    _check(risk["stress"], "stress scenarios should be present")
+    _check(risk["amounts"].get("var_cf") is not None,
+           "currency VaR should be populated when capital is known")
 
 
 # --------------------------------------------------------------------------- #

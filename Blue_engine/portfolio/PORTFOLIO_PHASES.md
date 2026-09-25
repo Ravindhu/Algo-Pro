@@ -77,29 +77,86 @@ equity: nav=1,000,000 gross=450,000 date=2026-09-25
 
 ---
 
-## Phase 2 — Risk & performance metrics — ⏳ NEXT
+## Phase 2 — Risk & performance metrics — ✅ DONE
 
 > Consumes `get_equity_curve()`. No new data sources needed.
 
-| # | Deliverable | Notes |
-|---|---|---|
-| 1 | Annualised return/vol, Sharpe, Sortino, Calmar | daily returns from Phase 1 |
-| 2 | Max drawdown + duration, hit rate, profit factor | underwater series for the chart |
-| 3 | VaR / CVaR at 95/99% | historical + Cornish-Fisher (fat tails are the NSE norm) |
-| 4 | Stress tests | ±1% NIFTY gap, sector crash, 3× spread widening |
-| 5 | Rolling Sharpe / rolling vol series | feeds the dashboard Efficiency tab |
+| # | Deliverable | Status | Where |
+|---|---|---|---|
+| 1 | Sharpe, Sortino, Calmar, IR, capture (reused, not re-implemented) | [x] | `attribution/perf.py` |
+| 2 | **Underwater curve** (drawdown path paired with dates) | [x] | `risk_report.underwater()` |
+| 3 | **Drawdown duration + recovery state** | [x] | `risk_report.drawdown_stats()` |
+| 4 | **Rolling vol & Sharpe** (aligned 1:1 with returns) | [x] | `risk_report.rolling_series()` |
+| 5 | VaR / CVaR 95 & 99 (historical, Gaussian, Cornish-Fisher) | [x] | `risk/tail.py` (fixed) |
+| 6 | Stress scenarios scaled by book beta, in currency | [x] | `risk_report.risk_report()` |
+| 7 | One-call report from a NAV path | [x] | `risk_report.report()` |
+| 8 | Manager API | [x] | `portfolio_manager.get_risk_report()` |
+| 9 | Tests (28) incl. 4 regression tests for the bugs below | [x] | `tests/test_risk_report.py` |
 
-**Guard:** reuse `attribution/perf.py` where the maths already exists; do not
-re-implement Sharpe. New code should be VaR/CVaR/stress only.
+### Bugs found and fixed in Phase 2
+
+**1. `parametric_var` and `cornish_fisher_var` silently returned 0.0000 for every
+input (PRODUCTION BUG, pre-existing).**
+
+``_z_score(level)`` returns the *left-tail* quantile, which is **negative**
+(−1.6449 at 95%). The VaR formula was written ``-(mu - z*sd)``, which with a
+negative z computes ``-(mu + 1.645σ)`` — a **gain** — and then ``max(..., 0)``
+clipped it to exactly zero. So the risk report said *“no risk”* regardless of the
+data. On Indian small/mid-caps, where the tail is the whole point, this is the
+worst possible failure mode: a number that looks like a measurement and is
+guaranteed wrong.
+
+Correct form: ``-(mu + z*sd)``. Verified against theory — on 4,000 Gaussian
+returns all three estimators now land within 15% of ``1.645σ``.
+**Test:** `test_regression_parametric_var_is_not_silently_zero`.
+
+**2. Drawdown recovery was measured against the wrong peak (MY BUG).**
+
+The recovery scan rebuilt the peak by replaying ``rs[:peak_index]`` from 1.0.
+Whenever the high-water mark was **not at index 0** that rebuild was wrong —
+e.g. ``[+50%, −10%, −5%, +2%]`` has a true peak of 1.50, but the replay gives
+1.00, so the curve looked “recovered” the moment it climbed back above 1.00
+while still 12.8% under water. A PM would be told a hole was filled when it was
+not.
+
+Fixed by tracking the actual high-water **value** at each step and comparing
+recovery against it, scanning only *after* the trough.
+**Test:** `test_regression_recovery_loop_does_not_self_satisfy` — asserts
+``recovered`` and ``current_drawdown`` can never contradict each other.
+
+**3. `months` in `read_nav`/`get_equity_curve` counts monthly FILES (USABILITY BUG).**
+
+NAV is one file per month, so ``months=1`` means “the current month’s file”, not
+“the last 30 days”. A caller reading 80 days of history with ``months=1``
+silently got a **truncated** curve (18 rows instead of 79) — and every metric
+computed from it would be wrong. Added `_window_warning()`: when the window
+starts on the 1st of a month, the report now says so explicitly rather than
+returning a confident number from the wrong sample.
+
+### Verification
+
+```
+$ pytest Blue_engine\tests -q
+212 passed in 51.56s
+```
+
+On a 90-day synthetic path (σ=1%/day, β=1.15):
+
+```
+VaR 95%: historical 0.0163 · Gaussian 0.0163 · Cornish-Fisher 0.0166
+CVaR 95%: 0.0209        (correctly the most severe)
+Sharpe / Sortino / Calmar / maxDD: populated
+Stress worst case: COVID_2020
+```
 
 ---
 
-## Phase 3 — Exposure & attribution — ⏳
+## Phase 3 — Exposure & attribution — ⏳ NEXT
 
 | # | Deliverable | Notes |
 |---|---|---|
 | 1 | Sector / market-cap exposure | map NSE symbols → Nifty sector buckets |
-| 2 | Beta-weighted exposure vs NIFTY | needs Phase-2 covariance (or `risk/beta.py`) |
+| 2 | Beta-weighted exposure vs NIFTY | reuse `risk/beta.py` |
 | 3 | P&L attribution waterfall: symbol → strategy → time-of-day | India microstructure: open/mid/close buckets |
 | 4 | Execution quality: fill vs arrival/VWAP slippage | joins to `core/ledger.py` |
 

@@ -22,6 +22,9 @@ Public methods (the contract the dashboard uses)::
     pm.snapshot_nav(marks)           # freeze + persist one end-of-day NAV row
     pm.get_equity_curve()            # NAV path + daily returns for Phases 2-5
 
+    # Phase 2 — risk & performance (reads the Phase 1 curve, never recomputes)
+    pm.get_risk_report()             # Sharpe/Sortino/DD + VaR/CVaR + stress
+
 Why the tracker lives here
 --------------------------
 ``EquityTracker`` (``portfolio/tracker.py``) owns the accounting; this class
@@ -89,6 +92,30 @@ def _empty_regime() -> Dict[str, Any]:
     """The regime snapshot used when the Economic engine has not run yet."""
     return {"ok": True, "regime": "UNKNOWN", "risk_on_score": None,
             "gross_exposure_multiplier": None, "warnings": ["no economic data"]}
+
+
+def _window_warning(rows: List[Dict[str, Any]], months: int) -> Optional[str]:
+    """Warn when a NAV window probably clipped the curve at a month boundary.
+
+    NAV is stored one file per month, so ``months=1`` means "the current month's
+    file", not "the last 30 days". A caller who reads a curve that starts on the
+    1st of a month and asks for one month may be looking at a partial curve
+    without realising it — and every metric derived from it (Sharpe, VaR,
+    drawdown) would then be computed on the wrong sample.
+
+    Heuristic: the window is suspicious when we pulled the maximum number of
+    files AND the earliest row is the first day of its month, which is the
+    signature of a boundary clip rather than a genuine start of history.
+    """
+    if not rows:
+        return None
+    first = str((rows[0] if rows else {}).get("date") or "")
+    if len(first) == 10 and first.endswith("-01"):
+        return (f"equity curve starts on {first} (the 1st of a month) while "
+                f"reading months={months} monthly file(s) — if you expected "
+                f"earlier history, raise 'months'; metrics on a clipped sample "
+                f"will be wrong")
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -337,20 +364,62 @@ class PortfolioManager:
     def get_equity_curve(self, months: int = 12) -> Dict[str, Any]:
         """The stored daily equity curve + derived daily returns.
 
-        This is the Phase-2 input: Phases 2–5 read this instead of recomputing
+        This is the Phase-2 input: Phases 3–5 read this instead of recomputing
         P&L, which keeps one definition of "return" across the whole desk.
+
+        ``months`` counts **monthly FILES**, not calendar months of history.
+        NAV is stored one file per month, so passing ``months=1`` reads only the
+        current month and silently truncates anything that spans a boundary —
+        which corrupts every metric computed from it. We therefore warn when the
+        window looks like it clipped the curve (see ``_window_warning``).
         """
         try:
             rows = tracker_mod.read_nav(
                 months=months, directory=self.config.get("nav_dir"))
             rets = tracker_mod.daily_returns(rows)
+            warn = _window_warning(rows, months)
             return {"ok": True, "rows": rows, "n": len(rows),
                     "returns": rets, "n_returns": len(rets),
                     "dates": [r.get("date") for r in rows],
-                    "nav": [safe_float(r.get("nav")) for r in rows]}
+                    "nav": [safe_float(r.get("nav")) for r in rows],
+                    "months": months,
+                    "warnings": ([warn] if warn else [])}
         except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "rows": [], "returns": [],
-                    "warnings": [f"equity curve unavailable: {exc}"]}
+            return {"ok": False, "rows": [], "returns": [], "n": 0,
+                    "n_returns": 0, "warnings": [f"equity curve unavailable: {exc}"]}
+
+    def get_risk_report(self, months: int = 12, *,
+                        capital: Optional[float] = None,
+                        level: float = 0.95,
+                        beta: Optional[float] = None,
+                        rolling_window: int = 60) -> Dict[str, Any]:
+        """Phase 2: the full risk & performance report on the stored curve.
+
+        One call for the dashboard's Risk and Efficiency panels: Sharpe/Sortino/
+        Calmar, max drawdown with duration and recovery, VaR/CVaR at the given
+        level, the named stress scenarios, and the rolling vol/Sharpe series.
+
+        Reads the equity curve from Phase 1 (never recomputes P&L) so every
+        number traces to the same NAV path. Never raises.
+        """
+        try:
+            from blue_engine.portfolio import risk_report as rr_mod
+
+            rows = tracker_mod.read_nav(
+                months=months, directory=self.config.get("nav_dir"))
+            report = rr_mod.report(
+                rows, capital=capital, level=level, beta=beta,
+                rolling_window=rolling_window)
+            report["months"] = months
+            warn = _window_warning(rows, months)
+            if warn:
+                report.setdefault("warnings", []).append(warn)
+            return report
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("get_risk_report failed: %r", exc)
+            return {"ok": False, "n_nav_rows": 0, "n_returns": 0,
+                    "performance": {}, "risk": {},
+                    "warnings": [f"risk report unavailable: {exc}"]}
 
     def run_optimization(self, method: str,
                          context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

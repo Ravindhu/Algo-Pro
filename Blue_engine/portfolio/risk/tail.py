@@ -125,15 +125,23 @@ def cvar(returns: Sequence[float], *, level: float = 0.95) -> Optional[float]:
 
 def parametric_var(returns: Sequence[float], *, level: float = 0.95
                    ) -> Optional[float]:
-    """Gaussian parametric VaR from the sample mean/std."""
+    """Gaussian parametric VaR from the sample mean/std (positive = a loss).
+
+    Sign convention (this is where it is easy to go wrong): ``_z_score`` returns
+    the LEFT-tail quantile, so it is NEGATIVE (-1.645 at 95%). The loss quantile
+    is therefore ``mu + z*sd`` (a number below the mean), and VaR is its
+    negation: ``-(mu + z*sd)``. Writing ``-(mu - z*sd)`` flips the sign and the
+    ``max(..., 0)`` clip then silently reports 0.0000 for every input — a risk
+    report that says "no risk" is worse than no report.
+    """
     rs = [safe_float(x) for x in (returns or [])]
     rs = [r for r in rs if r is not None]
     sd = stdev(rs)
     mu = mean(rs)
     if sd is None or mu is None or sd <= 0:
         return None
-    z = _z_score(level)
-    return max(-(mu - z * sd), 0.0)
+    z = _z_score(level)          # negative, e.g. -1.645 at 95%
+    return max(-(mu + z * sd), 0.0)
 
 
 def cornish_fisher_var(returns: Sequence[float], *, level: float = 0.95
@@ -143,6 +151,9 @@ def cornish_fisher_var(returns: Sequence[float], *, level: float = 0.95
     ``z_cf = z + (z^2-1)/6 * skew + (z^3-3z)/24 * exkurt -
     (2z^3-5z)/36 * skew^2``. This is why a plain Gaussian under-states the risk
     of Indian small-cap sleeves, which are sharply negatively skewed.
+
+    Same sign convention as :func:`parametric_var`: ``z`` is the negative
+    left-tail quantile, so the loss is ``-(mu + z_cf * sd)``.
     """
     rs = [safe_float(x) for x in (returns or [])]
     rs = [r for r in rs if r is not None]
@@ -151,12 +162,12 @@ def cornish_fisher_var(returns: Sequence[float], *, level: float = 0.95
     if sd is None or mu is None or sd <= 0:
         return None
     skew, kurt = _skew_kurt(rs)
-    z = _z_score(level)
+    z = _z_score(level)          # negative, e.g. -1.645 at 95%
     exkurt = kurt - 3.0
     z_cf = (z + (z * z - 1) / 6.0 * skew
             + (z ** 3 - 3 * z) / 24.0 * exkurt
             - (2 * z ** 3 - 5 * z) / 36.0 * skew * skew)
-    return max(-(mu - z_cf * sd), 0.0)
+    return max(-(mu + z_cf * sd), 0.0)
 
 
 def _z_score(level: float) -> float:
