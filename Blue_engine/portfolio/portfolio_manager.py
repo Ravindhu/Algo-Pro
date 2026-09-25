@@ -25,6 +25,10 @@ Public methods (the contract the dashboard uses)::
     # Phase 2 — risk & performance (reads the Phase 1 curve, never recomputes)
     pm.get_risk_report()             # Sharpe/Sortino/DD + VaR/CVaR + stress
 
+    # Phase 3 — exposure & attribution
+    pm.get_exposure()                # sector/long-short/beta/concentration
+    pm.get_attribution()             # P&L by sleeve, session bucket, strategy
+
 Why the tracker lives here
 --------------------------
 ``EquityTracker`` (``portfolio/tracker.py``) owns the accounting; this class
@@ -420,6 +424,66 @@ class PortfolioManager:
             return {"ok": False, "n_nav_rows": 0, "n_returns": 0,
                     "performance": {}, "risk": {},
                     "warnings": [f"risk report unavailable: {exc}"]}
+
+    # -- Phase 3: exposure & P&L attribution ------------------------------ #
+    def get_exposure(self, *, weights: Optional[Dict[str, float]] = None,
+                     betas: Optional[Dict[str, float]] = None,
+                     capital: Optional[float] = None,
+                     benchmark: str = "NIFTY",
+                     constituents: Optional[Dict[str, Dict[str, float]]] = None
+                     ) -> Dict[str, Any]:
+        """Phase 3: sector exposure, long/short shape, beta and concentration.
+
+        Weights default to the engine's current target book; pass them
+        explicitly to stress-test a hypothetical allocation without running the
+        engine first (the dashboard's what-if panel does this).
+
+        Look-through is attempted automatically only when the caller supplies a
+        constituent map — an index sleeve is not one bet (a 60% NIFTY sleeve is
+        already ~21% Financials), so the sector view matters more than the
+        sleeve view. Never raises.
+        """
+        try:
+            from blue_engine.portfolio import exposure as ex_mod
+
+            w = dict(weights or {})
+            if not w:
+                last = self._last_run or {}
+                w = dict(last.get("target_weights") or {})
+            cap = safe_float(capital)
+            if cap is None:
+                cap = safe_float((self._last_run or {}).get("capital"))
+            return ex_mod.analyse(
+                w, betas=betas, capital=cap, benchmark=benchmark,
+                constituents=constituents or self.config.get("constituents"),
+                config=self.config)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("get_exposure failed: %r", exc)
+            return {"ok": False, "by_sleeve": {}, "by_sector": {},
+                    "long_short": {}, "beta": {}, "concentration": {},
+                    "warnings": [f"exposure unavailable: {exc}"]}
+
+    def get_attribution(self, *, strategy_of: Optional[Any] = None
+                        ) -> Dict[str, Any]:
+        """Phase 3: P&L attribution by sleeve, session bucket and strategy.
+
+        Computed from the fills the tracker has ingested — so it is *realised*
+        P&L only. Open positions contribute nothing until they are closed, which
+        is the correct accounting and the reason the number can differ from the
+        dashboard's mark-to-market unrealised figure.
+
+        Each decomposition is reconciled against its own total before being
+        returned; a table that does not add up sets ``ok=False`` and explains
+        why, rather than presenting a confident but wrong split. Never raises.
+        """
+        try:
+            from blue_engine.portfolio import pnl_attribution as pa_mod
+            return pa_mod.attribute(self.tracker, strategy_of=strategy_of)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("get_attribution failed: %r", exc)
+            return {"ok": False, "by_sleeve": {}, "by_bucket": {},
+                    "by_strategy": {}, "reconciliation": {},
+                    "warnings": [f"attribution unavailable: {exc}"]}
 
     def run_optimization(self, method: str,
                          context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

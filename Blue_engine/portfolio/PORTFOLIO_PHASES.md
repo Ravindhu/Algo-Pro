@@ -151,18 +151,67 @@ Stress worst case: COVID_2020
 
 ---
 
-## Phase 3 — Exposure & attribution — ⏳ NEXT
+## Phase 3 — Exposure & attribution — ✅ DONE
 
-| # | Deliverable | Notes |
-|---|---|---|
-| 1 | Sector / market-cap exposure | map NSE symbols → Nifty sector buckets |
-| 2 | Beta-weighted exposure vs NIFTY | reuse `risk/beta.py` |
-| 3 | P&L attribution waterfall: symbol → strategy → time-of-day | India microstructure: open/mid/close buckets |
-| 4 | Execution quality: fill vs arrival/VWAP slippage | joins to `core/ledger.py` |
+| # | Deliverable | Status | Where |
+|---|---|---|---|
+| 1 | Sector / bucket exposure (aggregates same-bucket sleeves) | [x] | `exposure.py` |
+| 2 | Long/short split, net-to-gross | [x] | `exposure.long_short_split()` |
+| 3 | Beta exposure: measured > desk-assumed > 1.0, blend flagged | [x] | `exposure.beta_exposure()` |
+| 4 | Concentration: HHI, effective bets, largest sleeve/sector | [x] | `exposure.concentration()` |
+| 5 | Look-through (an index sleeve is not one bet) | [x] | `exposure.lookthrough()` |
+| 6 | P&L by sleeve, **gross vs net** (cost problem vs signal problem) | [x] | `pnl_attribution.by_sleeve()` |
+| 7 | P&L by **IST session bucket** (PRE/OPEN/MID/CLOSE/AFTER/WEEKEND) | [x] | `pnl_attribution.by_bucket()` |
+| 8 | P&L by strategy label | [x] | `pnl_attribution.by_strategy()` |
+| 9 | **Reconciliation guard** — every view must sum to the total | [x] | `pnl_attribution.reconcile()` |
+| 10 | Manager API | [x] | `get_exposure()`, `get_attribution()` |
+| 11 | Tests (48) | [x] | `test_exposure.py`, `test_pnl_attribution.py` |
+
+### Bug found and fixed in Phase 3
+
+**Sleeve→sector matching filed IT sleeves under Large Cap (MY BUG).**
+
+``sector_of`` originally took the **first** substring match. ``"NIFTY IT"``
+contains both ``"NIFTY"`` and ``"IT"``, and ``"NIFTY"`` appears first in the
+map — so an IT sleeve was reported as Large Cap. Switching to **longest**-match
+was not enough either: in ``"NIFTYIT"`` the generic token ``NIFTY`` (5 chars) is
+longer than the specific ``IT`` (2), so it still lost.
+
+The correct rule is **rightmost match, longest at that position**. NSE sleeve
+names qualify a family name at the *end* (``NIFTY IT``, ``NIFTY PHARMA``,
+``NIFTY AUTO``), so the qualifier is the informative token and sits furthest
+right. Fixed and covered by `test_sector_of_exact_and_substring`.
+
+This mattered because sector exposure is the *one* thing the module exists to
+get right: overstating Large Cap while understating IT would have made a
+concentrated tech book look diversified.
+
+### Design decisions worth remembering
+
+* **An index sleeve is not one bet.** ``NIFTY`` is ~35% Financials by
+  construction, so a 60% NIFTY sleeve is already ~21% Financials *before* any
+  BANKNIFTY sleeve is added. `lookthrough()` unwinds this; without it a desk adds
+  a bank sleeve believing it is diversifying.
+* **Gross and net P&L are never shown alone.** A sleeve with positive gross and
+  negative net has a **cost** problem (widen the no-trade band, slow the cadence),
+  not a signal problem — completely different fixes.
+* **A fill after 15:30 IST is a red flag, not a bucket.** `AFTER` is surfaced
+  loudly because cash equity cannot trade then; it almost always means a
+  timestamp or timezone bug, and silently folding it into CLOSE would hide that.
+* **Attribution must reconcile.** All three views are checked against their own
+  totals; a non-reconciling table sets ``ok=False`` rather than being presented
+  as fact, because someone will trade on the gap.
+
+### Verification
+
+```
+$ pytest Blue_engine\tests -q
+260 passed in 53.70s
+```
 
 ---
 
-## Phase 4 — Optimiser layer — ⏳
+## Phase 4 — Optimiser layer — ⏳ NEXT
 
 | # | Deliverable | Notes |
 |---|---|---|
