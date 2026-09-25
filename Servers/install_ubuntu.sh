@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # =============================================================================
-# install_ubuntu.sh — Install my-trading-system on a fresh Ubuntu VPS
+# install_ubuntu.sh â€” Install my-trading-system on a fresh Ubuntu VPS
 # =============================================================================
 #
 # ARCHITECTURE (locked):
-#     Python (pov_engine)  ->  OpenAlgo (server)  ->  Broker  ->  Exchange
+#     Python (blue_engine)  ->  OpenAlgo (server)  ->  Broker  ->  Exchange
 #
 # OpenAlgo is a PRISTINE upstream clone. Nothing of ours is patched into it.
 # The engine talks to it only through the public OpenAlgo SDK.
@@ -18,7 +18,7 @@
 #         db/            SQLite DBs - broker session tokens, encrypted
 #         keys/          Fernet / oauth key material
 #         download/      master-contract symbol cache
-#       pov_engine/      the engine (editable install, SDK-only)
+#       blue_engine/      the engine (editable install, SDK-only)
 #       scripts/         launchers + health checks
 #       data/            engine state
 #
@@ -287,23 +287,23 @@ PYEOF
 fi
 
 # ------------------------------------------------------------------ engine
-step "Installing pov_engine (editable, SDK-only)"
-if [[ -f "$INSTALL_ROOT/pov_engine/pyproject.toml" ]]; then
-  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/pov_engine[dashboard]"
-  ok "pov_engine installed editable with [dashboard] extras"
+step "Installing blue_engine (editable, SDK-only)"
+if [[ -f "$INSTALL_ROOT/blue_engine/pyproject.toml" ]]; then
+  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/blue_engine[dashboard]"
+  ok "blue_engine installed editable with [dashboard] extras"
 
   # The engine must not import from the OpenAlgo tree. Assert that here so a
   # regression is caught at install time rather than at 09:15 on a trading day.
   ENGINE_CHECK=$(cd "$INSTALL_ROOT" && sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -c "
 import sys
 sys.path.insert(0, '$INSTALL_ROOT')
-import pov_engine.core.ledger as L
+import blue_engine.core.ledger as L
 print('LEDGER_AVAILABLE=%s' % L._LEDGER_AVAILABLE)
 " 2>&1 | tail -1)
   ok "engine import probe: $ENGINE_CHECK  (LEDGER_AVAILABLE=False is correct: in-memory authoritative)"
 else
-  warn "pov_engine/pyproject.toml not found - skipping engine install"
-  warn "rsync your pov_engine/ here, then re-run this script"
+  warn "blue_engine/pyproject.toml not found - skipping engine install"
+  warn "rsync your blue_engine/ here, then re-run this script"
 fi
 
 # ------------------------------------------------------------------ systemd
@@ -382,7 +382,7 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_ROOT}
 Environment=OPENALGO_URL=${OPENALGO_URL}
-ExecStart=${OA_VENV}/bin/python -m pov_engine.dashboard.cli --host 127.0.0.1 --port ${DASH_PORT}
+ExecStart=${OA_VENV}/bin/python -m blue_engine.dashboard.cli --host 127.0.0.1 --port ${DASH_PORT}
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${INSTALL_ROOT}/log/pov-dash.out.log
@@ -536,7 +536,7 @@ cat <<SUMMARY
   Service user : ${SERVICE_USER}
   State        : ${INSTALL_ROOT}/_restored  (source of truth)
 
-  Data path    : Python (pov_engine) -> OpenAlgo -> Broker -> Exchange
+  Data path    : Python (blue_engine) -> OpenAlgo -> Broker -> Exchange
 
   Units        : openalgo            running
                  openalgo-ws         running

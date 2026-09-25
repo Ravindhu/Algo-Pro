@@ -1,0 +1,23 @@
+{
+  "_comment": "Sample Live Dashboard config. Copy to blue_engine/input/my_dashboard.json and edit. Run with: python -m blue_engine.dashboard.cli --config blue_engine/input/my_dashboard.json",
+  "watchlist_preset": "NIFTY50",
+  "extra_symbols": [],
+  "exchange_filter": "NSE",
+  "max_symbols": 25,
+
+  "quote_refresh_seconds": 3.0,
+  "scan_refresh_seconds": 30.0,
+  "lookback_days": 7,
+
+  "starting_cash": 100000,
+
+  "mode": "short_term",
+  "qty_per_fire": 100,
+  "risk_pct": 0.01,
+  "touch_buffer_pct": 0.05,
+  "ceiling_pct_above_trigger": 1.0,
+  "floor_pct_below_trigger": 1.0,
+  "stop_loss_pct_below_trigger": 2.0,
+  "pov_min_pct": 5.0,
+  "pov_max_pct": 25.0
+}

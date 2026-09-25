@@ -1,0 +1,153 @@
+{
+  "_comment": "macro_master.json - configuration for the six-engine macro pipeline. Every block is optional; engines degrade to sane defaults when a block is absent. Credentials are NEVER stored here - the API key is read from the environment / _restored/.env.",
+  "dry_run": true,
+  "gate_on_infrastructure": true,
+  "engines": {
+    "economic": {
+      "_comment": "New opt-in knobs. Defaults reproduce the baseline scorer. Set regime_model='hmm' + model_weight>0 to use the sticky-HMM posterior; use_surprise/use_delevel blend change vs trend; event_trim scales gross down near known events; use_nlp reads context['headlines']/'rbi_text'.",
+      "use_surprise": true,
+      "use_delevel": true,
+      "blend": {"level": 0.35, "delevel": 0.25, "surprise": 0.40},
+      "regime_model": "none",
+      "model_weight": 0.0,
+      "use_nlp": true,
+      "event_trim": 0.0,
+      "event_window_days": 10,
+      "mpc_dates": [],
+      "fixed_events": [],
+      "macro": {
+        "gdp_growth":     {"value": 6.8, "previous": 6.5, "unit": "pct"},
+        "bond_return":    {"value": 7.1, "previous": 7.0, "unit": "pct"},
+        "debt":           {"value": 82.0, "previous": 81.5, "unit": "pct_gdp"},
+        "employment":     {"value": 7.6, "previous": 7.9, "unit": "pct"},
+        "inflation":      {"value": 5.1, "previous": 4.8, "unit": "pct", "forecast": 5.6},
+        "climate":        {"value": 42.0, "previous": 40.0, "unit": "index"},
+        "tax":            {"value": 27.0, "previous": 26.5, "unit": "pct"},
+        "currency":       {"value": 84.5, "previous": 83.9, "unit": "usd_local"},
+        "forex_reserves": {"value": 690.0, "previous": 685.0, "unit": "bn_usd"}
+      },
+      "signals": {
+        "bond_return": {"direction": -1, "weight": 1.0},
+        "currency":    {"direction": -1, "weight": 0.5}
+      }
+    },
+    "market": {
+      "indices": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
+      "fii_weight": 0.5,
+      "fii_scale": 1000.0,
+      "market": {
+        "indices": {
+          "NIFTY":      {"close": 24500, "prev_close": 24380, "return_1m_pct": 3.2, "return_3m_pct": 6.1},
+          "BANKNIFTY":  {"close": 52300, "prev_close": 52500, "return_1m_pct": -1.1, "return_3m_pct": 2.0},
+          "NIFTYIT":    {"close": 38200, "prev_close": 37900, "return_1m_pct": 4.8, "return_3m_pct": 9.4},
+          "NIFTYPHARMA":{"close": 21400, "prev_close": 21350, "return_1m_pct": 1.9, "return_3m_pct": 3.3}
+        },
+        "commodities": {
+          "gold":     {"close": 72000, "prev_close": 71500},
+          "crude":    {"close": 6200,  "prev_close": 6320}
+        },
+        "fii": {"net_cash": 1450.0, "net_futures": 320.0}
+      }
+    },
+    "portfolio": {
+      "_comment": "portfolio_inputs below is the LAST-RESORT fallback. The live path is provider_ref -> providers/factory.py:portfolio_inputs, which assembles openalgo (history/positionbook) + account (funds) + price_cache + this static block. Set BLUE_PORTFOLIO_CONFIG=/path/to.json to override the universe/costs per deployment without editing this file. P0 finding (11y walk-forward, net of India costs): no optimiser beat inverse_vol SIGNIFICANTLY (all Sharpe CIs spanned zero), so optimiser choice is stability-driven; the COST lever is ~20x larger than the optimiser lever. Hence rebalance_band_pct=1.0 (cost 268 -> 171 bps for ~0.02 Sharpe).",
+      "provider_ref": "blue_engine.portfolio.providers.factory:portfolio_inputs",
+      "optimiser": "risk_parity",
+      "max_weight": 0.30,
+      "min_weight": 0.0,
+      "max_gross": 1.0,
+      "max_turnover": 0.10,
+      "beta_lower": 0.9,
+      "beta_upper": 1.1,
+      "rebalance_band_pct": 1.0,
+      "cost_band_pct": 1.0,
+      "target_vol": 0.12,
+      "benchmark": "NIFTY",
+      "sizing_enabled": true,
+      "use_kelly": true,
+      "use_drawdown_governor": true,
+      "views_enabled": false,
+      "cov_method": "ledoit_wolf",
+      "cache_prices": true,
+      "hedge_beta_tolerance": 0.10,
+      "max_hedge_ratio": 0.60,
+      "leader_tilt": 0.0,
+      "universe_names": ["NIFTY", "BANKNIFTY", "IT", "PHARMA", "AUTO"],
+      "costs": {
+        "_comment": "Conservative India DELIVERY cost model, bps of notional per side. Override for intraday/F&O (STT differs).",
+        "brokerage": 3.0,
+        "stt": 10.0,
+        "exchange_txn": 0.33,
+        "gst_on_brokerage_pct": 18.0,
+        "stamp_duty": 1.5,
+        "sebi": 0.01,
+        "slippage": 5.0
+      },
+      "portfolio_inputs": {
+        "universe": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
+        "vols": {"NIFTY": 0.14, "BANKNIFTY": 0.19, "NIFTYIT": 0.17, "NIFTYPHARMA": 0.16},
+        "betas": {"NIFTY": 1.0, "BANKNIFTY": 1.15, "NIFTYIT": 0.9, "NIFTYPHARMA": 0.7},
+        "corr": {
+          "NIFTY":       {"BANKNIFTY": 0.82, "NIFTYIT": 0.61, "NIFTYPHARMA": 0.48},
+          "BANKNIFTY":   {"NIFTY": 0.82, "NIFTYIT": 0.55, "NIFTYPHARMA": 0.44},
+          "NIFTYIT":     {"NIFTY": 0.61, "BANKNIFTY": 0.55, "NIFTYPHARMA": 0.39},
+          "NIFTYPHARMA": {"NIFTY": 0.48, "BANKNIFTY": 0.44, "NIFTYIT": 0.39}
+        },
+        "current_weights": {"NIFTY": 0.30, "BANKNIFTY": 0.15},
+        "capital": 1000000.0
+      }
+    },
+    "alpha": {
+      "weight_fundamental": 1.0,
+      "weight_technical": 1.5,
+      "min_score": 0.30,
+      "backtest_min_hit_rate": 0.45,
+      "backtest_horizon": 10,
+      "backtest_window": 5,
+      "alpha_inputs": {
+        "symbols": ["INFY", "TCS"],
+        "fundamentals": {
+          "INFY": {"pe": 24.0, "pb": 7.5, "roe": 0.31, "de": 0.1, "earnings_growth": 0.12, "dividend_yield": 0.025},
+          "TCS":  {"pe": 28.0, "pb": 12.0, "roe": 0.48, "de": 0.0, "earnings_growth": 0.08, "dividend_yield": 0.035}
+        },
+        "prices": {
+          "INFY": {"close": 1480, "prev_high": 1470, "vwap": 1475, "sma_20": 1450, "sma_50": 1430},
+          "TCS":  {"close": 4100, "prev_high": 4120, "vwap": 4110, "sma_20": 4050, "sma_50": 4080}
+        },
+        "history": {
+          "INFY": [{"close": 1440}, {"close": 1450}, {"close": 1462}, {"close": 1458}, {"close": 1470}, {"close": 1478}, {"close": 1480}, {"close": 1490}, {"close": 1495}, {"close": 1502}, {"close": 1510}, {"close": 1508}, {"close": 1515}, {"close": 1520}, {"close": 1518}]
+        }
+      }
+    },
+    "pov": {
+      "symbol": "INFY",
+      "exchange": "NSE",
+      "action": "BUY",
+      "quantity": 1000,
+      "participation_pct": 5.0,
+      "duration_seconds": 900,
+      "poll_interval_seconds": 15,
+      "product": "CNC",
+      "order_mode": "LIMIT",
+      "limit_price": null,
+      "max_slice_quantity": 100,
+      "ceiling_price": 1520.0,
+      "stop_loss_price": 1440.0,
+      "cutoff_time": "15:15",
+      "squareoff_time": "15:20",
+      "depth_aware_pricing": true,
+      "depth_offset_ticks": 1,
+      "circuit_buffer_pct": 0.5,
+      "quote_failure_threshold": 3,
+      "assume_fill_on_ack": false,
+      "strategy_label": "MACRO-POV"
+    },
+    "infrastructure": {
+      "openalgo_host": "127.0.0.1",
+      "openalgo_port": 5000,
+      "dash_port": 8050,
+      "ws_port": 8765,
+      "dashboard_required": false
+    }
+  }
+}

@@ -1,11 +1,11 @@
 # =============================================================================
 # .gitignore — my-trading-system
 # =============================================================================
-# Architecture: Python (pov_engine) -> OpenAlgo (server) -> Broker -> Exchange
+# Architecture: Python (blue_engine) -> OpenAlgo (server) -> Broker -> Exchange
 #
 # THE RULE: this repository contains YOUR CODE ONLY.
 #
-#   TRACKED    pov_engine/, scripts/, Servers/, README.md, .env.example
+#   TRACKED    Blue_engine/, scripts/, Servers/, README.md, .env.example
 #   NEVER      openalgo/ (upstream - the installer clones it), _restored/ (secrets),
 #              archive/ (retired code and backups)
 #
@@ -97,9 +97,9 @@ pip-wheel-metadata/
 # -----------------------------------------------------------------------------
 # ENGINE RUNTIME ARTIFACTS
 # -----------------------------------------------------------------------------
-pov_engine/input/*.local.json
-pov_engine/**/state.json
-pov_engine/**/*.jsonl
+blue_engine/input/*.local.json
+blue_engine/**/state.json
+blue_engine/**/*.jsonl
 
 # -----------------------------------------------------------------------------
 # TOOLING AND EDITORS
@@ -133,8 +133,8 @@ move_log.txt
 # EXCEPTIONS — things that look ignored but must be tracked
 # -----------------------------------------------------------------------------
 !.env.example
-!pov_engine/input/master.json
-!pov_engine/pyproject.toml
+!Blue_engine/input/master.json
+!Blue_engine/pyproject.toml
 # Deployment config with the API key - the .example template IS tracked
 Servers/deploy.env
 

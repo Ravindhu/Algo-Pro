@@ -1,10 +1,10 @@
-# smoke_test.py - Post-upgrade acceptance gate for the pov_engine / OpenAlgo setup.
+﻿# smoke_test.py - Post-upgrade acceptance gate for the blue_engine / OpenAlgo setup.
 # Location: my-trading-system\scripts\smoke_test.py
 # Run:  openalgo\.venv\Scripts\python.exe my-trading-system\scripts\smoke_test.py
 # Exit 0 = all good. Exit 1 = do not trade.
 #
 # ARCHITECTURE (locked):
-#   Python (pov_engine) -> OpenAlgo REST/SDK -> Broker -> Exchange
+#   Python (blue_engine) -> OpenAlgo REST/SDK -> Broker -> Exchange
 # OpenAlgo is a PRISTINE upstream clone. Nothing POV-related is ever
 # patched into it. The engine talks only through the public `openalgo` SDK.
 
@@ -57,19 +57,19 @@ def _api_key():
     return ""
 
 
-# ---- 1. pov_engine imports cleanly (installed package) ----
+# ---- 1. blue_engine imports cleanly (installed package) ----
 def t_engine_import():
-    import pov_engine
-    import pov_engine.runner
+    import blue_engine
+    import blue_engine.core.runner
 
 
-check("pov_engine imports cleanly", t_engine_import)
+check("blue_engine imports cleanly", t_engine_import)
 
 
 # ---- 2. engine config schema ----
 def t_config_schema():
-    import pov_engine
-    cfg_path = Path(pov_engine.__file__).parent / "input" / "master.json"
+    import blue_engine
+    cfg_path = Path(blue_engine.__file__).parent / "input" / "master.json"
     if cfg_path.exists():
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
         assert isinstance(cfg, dict), "master.json is not a dict"
@@ -80,7 +80,7 @@ check("engine input/master.json parses (schema ok)", t_config_schema)
 
 # ---- 3. dashboard module imports ----
 def t_dashboard_import():
-    from pov_engine.dashboard import dash_app
+    from blue_engine.dashboard import dash_app
 
 
 check("dashboard module imports", t_dashboard_import)
@@ -167,7 +167,7 @@ def t_pov_endpoint_gone():
 check("server-side POV endpoint retired (404)", t_pov_endpoint_gone)
 
 
-HARD_PREFIXES = ("pov_engine", "engine ", "dashboard", "local state",
+HARD_PREFIXES = ("blue_engine", "engine ", "dashboard", "local state",
                  "OpenAlgo clone")
 print()
 print("=" * 60)

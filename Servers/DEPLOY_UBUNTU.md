@@ -1,22 +1,22 @@
-# Deploying my-trading-system on an Ubuntu VPS
+﻿# Deploying my-trading-system on an Ubuntu VPS
 
-**Architecture (locked):** `Python (pov_engine) → OpenAlgo (server) → Broker → Exchange`
+**Architecture (locked):** `Python (blue_engine) â†’ OpenAlgo (server) â†’ Broker â†’ Exchange`
 
-Everything here follows that line. OpenAlgo is a **pristine upstream clone** — nothing
+Everything here follows that line. OpenAlgo is a **pristine upstream clone** â€” nothing
 of ours is patched into it, and no POV wiring is injected. The engine is a pure
 *consumer* of the platform through the public SDK.
 
 > **Note on the old scripts.** A previous generation of deploy scripts
-> (`add_pov_engine.sh`, `first_boot.sh`, `install_openalgo.sh`) lived in this folder.
+> (`add_blue_engine.sh`, `first_boot.sh`, `install_openalgo.sh`) lived in this folder.
 > They copied `patches/pov_terminal.py` into `blueprints/` and `sed`-edited `app.py`
-> to embed the dashboard in the OpenAlgo UI. That wiring is retired — the dashboard is
-> opened directly — so those scripts would fail their own `die` checks against a
+> to embed the dashboard in the OpenAlgo UI. That wiring is retired â€” the dashboard is
+> opened directly â€” so those scripts would fail their own `die` checks against a
 > pristine clone. They are archived under `archive/ubuntu_pov_wiring/` for reference.
 > **Do not run them.**
 
 ---
 
-## 0. Quick start — the whole thing in 2 commands
+## 0. Quick start â€” the whole thing in 2 commands
 
 The repository contains **your code only**. The installer clones OpenAlgo itself, so
 you never track or upload the 3,175 upstream files.
@@ -38,7 +38,7 @@ nano Servers/deploy.env         # set MTS_DOMAIN and MTS_API_KEY
 committed. Putting the key here rather than on the command line keeps it out of
 `~/.bash_history` and out of `ps` output.
 
-### Copy your state (required once — secrets cannot ride in git)
+### Copy your state (required once â€” secrets cannot ride in git)
 
 ```bash
 # on the dev laptop
@@ -61,7 +61,7 @@ sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
 ```
 
 Command 1 reads `deploy.env`, clones OpenAlgo, builds the venv, installs
-`pov_engine`, writes the systemd units, configures nginx, bridges `_restored/`,
+`blue_engine`, writes the systemd units, configures nginx, bridges `_restored/`,
 writes the API key into `_restored/.env`, verifies the `.env`/`db` pairing still
 decrypts, and runs the smoke gate.
 
@@ -81,18 +81,18 @@ decrypts, and runs the smoke gate.
 
 ```
 /opt/my-trading-system/
-├── openalgo/          pristine upstream clone (git pull to upgrade)
-│   └── .venv/         the one venv everything uses
-├── _restored/         YOUR STATE — the source of truth
-│   ├── .env           OpenAlgo config (FERNET_SALT, API_KEY_PEPPER, DB urls)
-│   ├── db/            SQLite DBs — broker session tokens, encrypted
-│   ├── keys/          Fernet / oauth key material
-│   └── download/      master-contract symbol cache
-├── pov_engine/        the engine, installed editable with [dashboard] extras
-├── scripts/           run_pov.py, smoke_test.py, probe_sdk.py
-├── data/              engine state
-├── backups/           dated copies of .env + db
-└── log/               service logs
+â”œâ”€â”€ openalgo/          pristine upstream clone (git pull to upgrade)
+â”‚   â””â”€â”€ .venv/         the one venv everything uses
+â”œâ”€â”€ _restored/         YOUR STATE â€” the source of truth
+â”‚   â”œâ”€â”€ .env           OpenAlgo config (FERNET_SALT, API_KEY_PEPPER, DB urls)
+â”‚   â”œâ”€â”€ db/            SQLite DBs â€” broker session tokens, encrypted
+â”‚   â”œâ”€â”€ keys/          Fernet / oauth key material
+â”‚   â””â”€â”€ download/      master-contract symbol cache
+â”œâ”€â”€ blue_engine/        the engine, installed editable with [dashboard] extras
+â”œâ”€â”€ scripts/           run_pov.py, smoke_test.py, probe_sdk.py
+â”œâ”€â”€ data/              engine state
+â”œâ”€â”€ backups/           dated copies of .env + db
+â””â”€â”€ log/               service logs
 ```
 
 ### Why `_restored/` is a sibling, not a subfolder
@@ -106,7 +106,7 @@ subfolder would be invisible to it. As a sibling it is both visible to OpenAlgo
 **`.env` and `db/` are cryptographically married.** `FERNET_SALT` and
 `API_KEY_PEPPER` in `.env` are the KDF inputs that encrypt the broker session
 tokens in `db/openalgo.db`. Copy one without the other and OpenAlgo boots happily
-and then **cannot decrypt your broker login** — presenting as an inexplicable
+and then **cannot decrypt your broker login** â€” presenting as an inexplicable
 "session invalid" at order time. The installer runs a decrypt check for exactly
 this reason; do not skip past a failure there.
 
@@ -127,7 +127,7 @@ Copy-Item ".\_restored\download"      ".\deploy_$stamp\download" -Recurse
 ```
 
 Never commit `deploy_*/`, `_restored/`, or anything containing `.env` or a database.
-The API key belongs in `.env` only — never in a source file. (This shipped incorrectly
+The API key belongs in `.env` only â€” never in a source file. (This shipped incorrectly
 three times in this project's history; `install_ubuntu.sh` asserts the retired endpoint
 is absent, and `smoke_test.py` will catch a regression.)
 
@@ -159,7 +159,7 @@ Optional flags:
 | `--root /opt/...` | install root (default `/opt/my-trading-system`) |
 | `--no-nginx` | skip the reverse proxy |
 
-The installer will stop and warn if `_restored/` is empty — that is intentional.
+The installer will stop and warn if `_restored/` is empty â€” that is intentional.
 Place your state, then re-run:
 
 ```bash
@@ -180,7 +180,7 @@ sudo bash /tmp/install_ubuntu.sh --domain trade.example.com
 # platform + retired endpoint
 curl -s http://127.0.0.1:5000/auth/check-setup
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:5000/api/v1/povorder
-#   expect 404 — its absence is what proves no old-architecture POV is patched in
+#   expect 404 â€” its absence is what proves no old-architecture POV is patched in
 
 # service health
 systemctl status openalgo openalgo-ws --no-pager
@@ -208,7 +208,7 @@ sudo systemctl start pov-runner pov-dash
 systemctl status pov-runner pov-dash --no-pager
 ```
 
-The engine is deliberately **not** started by the installer — installing is not
+The engine is deliberately **not** started by the installer â€” installing is not
 the same as intending to trade.
 
 ---
@@ -217,10 +217,10 @@ the same as intending to trade.
 
 | Unit | Role | Started by installer |
 |---|---|---|
-| `openalgo` | Flask + SocketIO via gunicorn (eventlet, `-w 1`) | ✅ yes |
-| `openalgo-ws` | broker tick WebSocket proxy (port 8765) | ✅ yes |
-| `pov-runner` | the engine (`scripts/run_pov.py`) | ❌ manual |
-| `pov-dash` | Plotly dashboard (port 8050) | ❌ manual |
+| `openalgo` | Flask + SocketIO via gunicorn (eventlet, `-w 1`) | âœ… yes |
+| `openalgo-ws` | broker tick WebSocket proxy (port 8765) | âœ… yes |
+| `pov-runner` | the engine (`scripts/run_pov.py`) | âŒ manual |
+| `pov-dash` | Plotly dashboard (port 8050) | âŒ manual |
 
 `--workers 1` is **required** on `openalgo`. Multiple gunicorn workers break
 SocketIO room state, which shows up as orders silently never receiving updates.
@@ -230,7 +230,7 @@ SocketIO room state, which shows up as orders silently never receiving updates.
 ## 8. Upgrading
 
 ```bash
-# stop the engine first — never upgrade mid-execution
+# stop the engine first â€” never upgrade mid-execution
 sudo systemctl stop pov-runner
 
 cd /opt/my-trading-system
@@ -295,6 +295,6 @@ to a git remote.
 | Boots but "broker session invalid" | `.env` and `db/` restored separately | restore both from the same snapshot |
 | Order updates never arrive | nginx missing `Upgrade` headers, or `--workers > 1` | check section 5/7 |
 | `povorder` returns 200 | old-architecture POV present | investigate the clone; it should be 404 |
-| `pov-dash` exits immediately | bad config JSON | check `pov_engine/input/*.json` |
+| `pov-dash` exits immediately | bad config JSON | check `blue_engine/input/*.json` |
 | `pov-runner` exits immediately | platform not up yet | it has `Restart=on-failure`; check `journalctl -u pov-runner` |
 | Dashboard unreachable at `/pov-dash/` | dash unit stopped | `systemctl start pov-dash` |

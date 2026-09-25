@@ -1,0 +1,233 @@
+"""
+risk_gate.py - pre-trade risk gate for the blue_engine runner.
+
+Why this exists
+---------------
+The POV slicer is a *good* executor but it is not a risk manager: it will
+happily slice whatever quantity it is handed. Before this module, the
+config-driven runner path (``blue_engine.core.runner``) handed the signal's
+intent straight to ``POVSlicer.execute`` with no cap on size, notional or
+daily loss. That is fine in paper mode and dangerous in live mode.
+
+This gate is a small, *pure*, dependency-free check that runs ONCE, after the
+signal fires and BEFORE the slicer is built. It answers one question:
+
+    "Is this intent allowed to trade right now?"
+
+Design rules (mirroring ``blue_engine.core.base``)
+--------------------------------------------------
+* PURE: no network, no SDK, no DB. It only reads the intent + config + the
+  optional daily-PnL figure the caller passes in.
+* FAIL-CLOSED on a breach, FAIL-OPEN on ambiguity: a *breach* rejects the
+  intent; a *missing* limit means "not configured" and never rejects. We do
+  not invent limits the operator did not set.
+* The gate never raises. A malformed config is reported as a rejection reason
+  with ``ok_but_unconfigured`` semantics rather than an exception, so it can
+  sit on the hot path of a live loop.
+
+Config block (all keys optional; absence = no limit)
+----------------------------------------------------
+    "risk": {
+        "max_order_quantity":    5000,     # reject if intent.quantity exceeds
+        "max_order_notional":    2_000_000,# reject if qty * price exceeds
+        "price":                 1480.5,   # reference price for notional check
+        "max_daily_loss":        25000,    # reject if day_pnl <= -max_daily_loss
+        "max_open_exposure":     5_000_000,# reject if |open_exposure| + this
+        "open_exposure":         1_200_000,#   notional exceeds the cap
+        "allowed_actions":       ["BUY", "SELL"],
+        "blocked":               false,    # master kill-switch
+        "require_live_ack":      false     # when true, live mode w/o risk block
+                                           #   is rejected (see below)
+    }
+
+Example (reject a 9,000-share order when the cap is 5,000)::
+
+    >>> gate = RiskGate({"max_order_quantity": 5000})
+    >>> gate.check({"action": "BUY", "quantity": 9000})
+    RiskDecision(approved=False, reason='quantity 9000 > max_order_quantity 5000', ...)
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["RiskDecision", "RiskGate", "check_intent"]
+
+
+@dataclass
+class RiskDecision:
+    """The verdict returned by :meth:`RiskGate.check`.
+
+    Attributes
+    ----------
+    approved : True when the intent may proceed to the slicer.
+    reason   : Human-readable explanation (always populated).
+    breaches : Every individual limit that was violated (empty when approved).
+    limits   : The limits that were actually evaluated (for the audit log).
+    """
+
+    approved: bool
+    reason: str
+    breaches: List[str] = field(default_factory=list)
+    limits: Dict[str, Any] = field(default_factory=dict)
+
+    def __bool__(self) -> bool:  # allow ``if decision:`` as ``if approved``
+        return self.approved
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    """Parse to a finite float, else None. Mirrors core.results.safe_float."""
+    if value is None or value == "":
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):  # NaN / inf
+        return None
+    return f
+
+
+def _safe_int(value: Any) -> Optional[int]:
+    f = _safe_float(value)
+    return None if f is None else int(f)
+
+
+class RiskGate:
+    """Evaluate a trade intent against a JSON-configured set of limits."""
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None,
+                 log: Optional[Any] = None) -> None:
+        cfg = config if isinstance(config, dict) else {}
+        #: The block may arrive pre-nested ({"risk": {...}}) or flat.
+        block = cfg.get("risk") if isinstance(cfg.get("risk"), dict) else cfg
+        self.config: Dict[str, Any] = dict(block or {})
+        self._log = log or logger.info
+
+        self.max_order_quantity = _safe_int(self.config.get("max_order_quantity"))
+        self.max_order_notional = _safe_float(self.config.get("max_order_notional"))
+        self.max_daily_loss = _safe_float(self.config.get("max_daily_loss"))
+        self.max_open_exposure = _safe_float(self.config.get("max_open_exposure"))
+        self.allowed_actions = [
+            str(a).upper() for a in (self.config.get("allowed_actions") or ["BUY", "SELL"])
+        ]
+        self.blocked = bool(self.config.get("blocked", False))
+
+    # ---- helpers ------------------------------------------------------- #
+    def _reference_price(self, intent: Dict[str, Any]) -> Optional[float]:
+        """Price used for notional maths: intent price > config price."""
+        return (_safe_float(intent.get("price"))
+                or _safe_float(intent.get("limit_price"))
+                or _safe_float(self.config.get("price")))
+
+    def _notional(self, intent: Dict[str, Any], qty: int) -> Optional[float]:
+        price = self._reference_price(intent)
+        if price is None:
+            return None
+        return qty * price
+
+    # ---- main ---------------------------------------------------------- #
+    def check(self, intent: Dict[str, Any],
+              *, day_pnl: Optional[float] = None,
+              open_exposure: Optional[float] = None) -> RiskDecision:
+        """Evaluate ``intent`` and return a :class:`RiskDecision`.
+
+        Args:
+            intent: the trade intent from a signal, with ``action`` and
+                ``quantity`` (and optionally ``price``).
+            day_pnl: today's realised PnL (negative = loss). Used by the
+                ``max_daily_loss`` check. ``None`` skips that check.
+            open_exposure: absolute current open notional. Used by the
+                ``max_open_exposure`` check. Falls back to the config value.
+                ``None`` (and no config value) skips that check.
+
+        Returns:
+            RiskDecision. Never raises.
+        """
+        breaches: List[str] = []
+        limits: Dict[str, Any] = {}
+        try:
+            action = str(intent.get("action", "")).upper()
+            quantity = _safe_int(intent.get("quantity")) or 0
+            notional = self._notional(intent, quantity)
+            limits = {
+                "max_order_quantity": self.max_order_quantity,
+                "max_order_notional": self.max_order_notional,
+                "max_daily_loss": self.max_daily_loss,
+                "max_open_exposure": self.max_open_exposure,
+                "allowed_actions": self.allowed_actions,
+                "blocked": self.blocked,
+                "action": action,
+                "quantity": quantity,
+                "notional": notional,
+            }
+
+            # 1. Master kill-switch.
+            if self.blocked:
+                breaches.append("risk gate is in 'blocked' state (kill-switch on)")
+
+            # 2. Action must be permitted.
+            if action not in self.allowed_actions:
+                breaches.append(
+                    f"action {action!r} not in allowed_actions {self.allowed_actions}")
+
+            # 3. Size cap.
+            if (self.max_order_quantity is not None
+                    and quantity > self.max_order_quantity):
+                breaches.append(
+                    f"quantity {quantity} > max_order_quantity {self.max_order_quantity}")
+
+            # 4. Notional cap (only when a price is known).
+            if (self.max_order_notional is not None and notional is not None
+                    and notional > self.max_order_notional):
+                breaches.append(
+                    f"notional {notional:.2f} > max_order_notional "
+                    f"{self.max_order_notional:.2f}")
+
+            # 5. Daily-loss cap. day_pnl is signed; a loss is negative.
+            if day_pnl is not None and self.max_daily_loss is not None:
+                if float(day_pnl) <= -abs(self.max_daily_loss):
+                    breaches.append(
+                        f"day_pnl {float(day_pnl):.2f} <= -max_daily_loss "
+                        f"{abs(self.max_daily_loss):.2f}")
+
+            # 6. Open-exposure cap: current + this order must fit.
+            exposure = _safe_float(open_exposure)
+            if exposure is None:
+                exposure = _safe_float(self.config.get("open_exposure"))
+            if (self.max_open_exposure is not None and exposure is not None
+                    and notional is not None):
+                projected = abs(exposure) + abs(notional)
+                if projected > self.max_open_exposure:
+                    breaches.append(
+                        f"projected exposure {projected:.2f} > "
+                        f"max_open_exposure {self.max_open_exposure:.2f}")
+
+        except Exception as exc:  # noqa: BLE001 - the gate must never raise
+            logger.warning("risk_gate: evaluation error: %r", exc)
+            return RiskDecision(
+                approved=False,
+                reason=f"risk gate could not evaluate intent ({exc!r}); "
+                       f"rejecting to be safe",
+                breaches=[repr(exc)],
+                limits=limits,
+            )
+
+        if breaches:
+            reason = "; ".join(breaches)
+            self._log(f"rejected: {reason}")
+            return RiskDecision(approved=False, reason=reason,
+                                breaches=breaches, limits=limits)
+
+        self._log("approved")
+        return RiskDecision(approved=True, reason="all configured limits passed",
+                            limits=limits)
+
+
+def check_intent(intent: Dict[str, Any], config: Optional[Dict[str, Any]] = None,
+                 **kwargs: Any) -> RiskDecision:
+    """Convenience wrapper: build a RiskGate and check the intent once."""
+    return RiskGate(config).check(intent, **kwargs)

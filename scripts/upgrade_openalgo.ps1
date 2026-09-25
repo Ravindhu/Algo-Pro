@@ -1,8 +1,8 @@
-# upgrade_openalgo.ps1 - ONE-COMMAND SAFE UPGRADE of the OpenAlgo platform.
+﻿# upgrade_openalgo.ps1 - ONE-COMMAND SAFE UPGRADE of the OpenAlgo platform.
 # Location: my-trading-system\scripts\upgrade_openalgo.ps1
 #
 # ARCHITECTURE (locked):
-#   Python (pov_engine)  ->  OpenAlgo REST/SDK  ->  Broker  ->  Exchange
+#   Python (blue_engine)  ->  OpenAlgo REST/SDK  ->  Broker  ->  Exchange
 #
 # openalgo\ is a PRISTINE upstream clone. Nothing POV-related is ever patched
 # into it. All local state lives in the SIBLING folder _restored\ :

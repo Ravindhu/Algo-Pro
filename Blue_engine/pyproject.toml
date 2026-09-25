@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blue-engine"
+version = "1.0.0"
+description = "Blue engine suite (economic, market, portfolio, alpha, POV, infrastructure) + OCL dashboard built on the OpenAlgo Python SDK (client-side, upgrade-proof against OpenAlgo platform upgrades)"
+requires-python = ">=3.10"
+# SDK is PINNED: bump deliberately after testing, never silently with platform upgrades.
+dependencies = [
+    "openalgo==2.0.3",
+]
+
+[project.optional-dependencies]
+dashboard = [
+    "dash>=2.14",
+    "plotly>=5.18",
+    "pandas>=2.0",
+    "numpy>=1.26",
+]
+# Economic-engine analytics extras. ALL ARE OPTIONAL: the engine degrades to
+# the dependency-free tanh scorer without them (see ECONOMIC_ENGINE_PLAN.md).
+quant = [
+    "numpy>=1.26",
+    "scikit-learn>=1.3",
+    "statsmodels>=0.14",
+    "requests>=2.31",
+]
+# Opt-in LLM text scoring (M7). Not required - the lexical fallback always runs.
+llm = [
+    "requests>=2.31",
+]
+# Advanced / frontier research (M8). Heavy; never on the production path.
+deep = [
+    "torch>=2.2",
+]
+
+# NOTE: engine sub-packages (alpha, economics, market, portfolio, pov,
+# infrastructure) live FLAT directly under Blue_engine/ -- there is deliberately
+# no intermediate `engines/` folder. Package names are mapped by package-dir
+# below so `blue_engine.<name>` resolves to `<repo>/Blue_engine/<name>`.
+[tool.setuptools]
+packages = [
+    "blue_engine",
+    "blue_engine.core",
+    "blue_engine.alpha",
+    "blue_engine.alpha.signals",
+    "blue_engine.pov",
+    "blue_engine.pov.slicers",
+    "blue_engine.economics",
+    "blue_engine.economics.providers",
+    "blue_engine.economics.features",
+    "blue_engine.economics.models",
+    "blue_engine.economics.nlp",
+    "blue_engine.market",
+    "blue_engine.portfolio",
+    "blue_engine.infrastructure",
+    "blue_engine.dashboard",
+    "blue_engine.dashboard.pages",
+    "blue_engine.input",
+]
+
+[tool.setuptools.package-dir]
+blue_engine = "."
+"blue_engine.alpha" = "alpha"
+"blue_engine.economics" = "economics"
+"blue_engine.economics.providers" = "economics/providers"
+"blue_engine.economics.features" = "economics/features"
+"blue_engine.economics.models" = "economics/models"
+"blue_engine.economics.nlp" = "economics/nlp"
+"blue_engine.market" = "market"
+"blue_engine.portfolio" = "portfolio"
+"blue_engine.pov" = "pov"
+"blue_engine.infrastructure" = "infrastructure"
+
+[tool.setuptools.package-data]
+"blue_engine.input" = ["*.json", "*.md"]

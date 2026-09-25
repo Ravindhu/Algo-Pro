@@ -1,4 +1,4 @@
-"""
+﻿"""
 run_pov.py -- POV engine launcher.
 
 COMPLETE STEP-BY-STEP GUIDE:
@@ -68,24 +68,24 @@ import os
 import sys
 from pathlib import Path
 
-# ── USER_CONFIG ──────────────────────────────────────────────────────
+# â”€â”€ USER_CONFIG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 USER_CONFIG = {
 
-    # ── IDENTITY ───────────────────────────────────────────────────
+    # â”€â”€ IDENTITY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "strategy_label": "POV-INFY-NSE",  # shown in OpenAlgo orderbook
     "api_key": None,                    # None=from OPENALGO_API_KEY env
     "host": None,                       # None=http://127.0.0.1:5000
     "ws_url": None,                     # order-update WS; None=default
 
-    # ── SYMBOL ────────────────────────────────────────────────────
+    # â”€â”€ SYMBOL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "symbol":   "INFY",
     "exchange": "NSE",
 
-    # ── STRATEGY MODE ────────────────────────────────────────────
+    # â”€â”€ STRATEGY MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Toggle each signal/slicer. Enable ocl_keylevel for OCL pattern signals.
     "strategies": {"keylevel": False, "ocl_keylevel": False, "pov": True},
 
-    # ── KEYLEVEL SIGNAL (when strategies.keylevel=True) ───────────
+    # â”€â”€ KEYLEVEL SIGNAL (when strategies.keylevel=True) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "keylevel": {
         "trigger_price":     1480.00,   # price to watch
         "trigger_direction": "ABOVE",    # ABOVE or BELOW
@@ -97,7 +97,7 @@ USER_CONFIG = {
         "quantity":          1000,         # shares to trade on trigger
     },
 
-    # ── OCL KEYLEVEL SIGNAL (when strategies.ocl_keylevel=True) ───
+    # â”€â”€ OCL KEYLEVEL SIGNAL (when strategies.ocl_keylevel=True) â”€â”€â”€
     
     "ocl_keylevel": {
         # [HTF SETTINGS] Higher Timeframe Configuration
@@ -135,7 +135,7 @@ USER_CONFIG = {
         "rearm_on_fire":        False,         # re-scan HTF for new pattern after fire
     },
 
-    # ── POV SLICER ───────────────────────────────────────────────
+    # â”€â”€ POV SLICER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "pov": {
         # CORE EXECUTION
         "action":                    "BUY",       # BUY or SELL
@@ -200,7 +200,7 @@ USER_CONFIG = {
 def _find_project_root(start):
     from pathlib import Path
     for p in [Path(start), *Path(start).parents]:
-        if (p / "pov_engine").is_dir():
+        if (p / "blue_engine").is_dir():
             return str(p)
     return str(Path(start))
 
@@ -214,7 +214,7 @@ if _api:
 
 
 def main():
-    from pov_engine.runner import run_with_config
+    from blue_engine.core.runner import run_with_config
     print("=" * 68)
     print("POV ENGINE  --  single-file launcher")
     print("=" * 68)
