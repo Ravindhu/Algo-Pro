@@ -213,6 +213,10 @@ def _register_refresh_callbacks(app: dash.Dash) -> None:
     page_modules = {
         "terminal-refresh": "terminal",
         "portfolio-refresh": "portfolio",
+        # Phase 6: the portfolio-analytics console. Without this entry the page's
+        # dcc.Interval ticks forever and nothing re-renders, so the panels freeze
+        # at whatever they showed on first paint.
+        "analytics-portfolio-refresh": "analytics_portfolio",
         "risk-refresh": "risk_control",
         "analytics-refresh": "analytics",
         "economic-refresh": "economic",

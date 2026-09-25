@@ -206,8 +206,14 @@ def test_backfilled_rows_are_tagged_and_lose_to_live_rows(tmp_path):
     """Reconstructed history must never overwrite what actually happened.
 
     A panel that silently blends backfill with live data is a panel that lies,
-    so the row carries ``source='backfill'`` and ``daily_returns`` prefers the
-    live row when both exist for a date.
+    so the row carries ``source='backfill'`` and the LIVE row wins when both
+    exist for the same date.
+
+    NOTE ``store_nav`` is an UPSERT keyed on ``date`` — one row per date. An
+    append-only store duplicated the whole curve on every re-run, and
+    ``daily_returns`` then saw repeated dates with different NAVs, producing a
+    +154% curve that reported 532% volatility and a 61% daily VaR. So the
+    assertion is "one row, and it is the live one" — not "both rows kept".
     """
     d = "2026-09-25"
     tr.store_nav({"ts": 1.0, "date": d, "nav": 1_100_000.0,
@@ -215,18 +221,21 @@ def test_backfilled_rows_are_tagged_and_lose_to_live_rows(tmp_path):
     tr.store_nav({"ts": 2.0, "date": d, "nav": 1_050_000.0},
                  directory=tmp_path)                 # live row, same date
     rows = tr.read_nav(months=12, directory=tmp_path)
-    _check(len(rows) == 2, f"both rows are stored, got {len(rows)}")
+    _check(len(rows) == 1,
+           f"the store must hold ONE row per date (upsert), got {len(rows)}")
+    _check(abs(rows[0]["nav"] - 1_050_000.0) < 1e-6,
+           f"the LIVE row must win over the backfilled one, got {rows[0]['nav']}")
 
-    # A live row on a later date makes the return computable.
+    # A later live row makes the return computable, from the live baseline.
     tr.store_nav({"ts": 3.0, "date": "2026-09-26", "nav": 1_060_000.0},
                  directory=tmp_path)
-    # The series must be built from the LIVE 1,050,000, not the backfill 1,100,000.
     rows = tr.read_nav(months=12, directory=tmp_path)
+    _check(len(rows) == 2, f"two dates -> two rows, got {len(rows)}")
     rets = tr.daily_returns(rows)
     _check(len(rets) == 1, f"one return expected, got {len(rets)}")
     expected = 1_060_000.0 / 1_050_000.0 - 1.0
     _check(abs(rets[0] - expected) < 1e-9,
-           f"live row must win: expected {expected:.5f}, got {rets[0]:.5f}")
+           f"live baseline must be used: expected {expected:.5f}, got {rets[0]:.5f}")
 
 
 def test_read_nav_windows_by_date_not_by_file_count(tmp_path):
@@ -249,6 +258,77 @@ def test_read_nav_windows_by_date_not_by_file_count(tmp_path):
     # 6 months back from the last date must EXCLUDE the old month-0 row.
     _check(all(d > "2025-06-01" for d in dates),
            f"the window must be date-based, old rows leaked in: {dates}")
+
+
+# --------------------------------------------------------------------------- #
+# 5. REGRESSION — the append-only store corrupted the whole curve
+# ---------------------------------------------------------------------------
+def test_regression_store_nav_upserts_not_appends(tmp_path):
+    """BUG (fixed): ``store_nav`` appended, so every job re-run DUPLICATED the
+    entire curve. ``daily_returns`` then saw repeated dates with different NAVs
+    and compounded the same day's return up to four times, producing:
+
+        +154% total return on a curve that was really +9.65%
+        532% annualised volatility       (truly ~9.7%)
+        61.6% daily VaR                  (truly ~5.1%)
+        64% max drawdown                 (truly ~9.1%)
+
+    Every one of those numbers looks superficially plausible in isolation, which
+    is exactly why the duplication went unnoticed until a full data audit. The
+    fix is an atomic upsert keyed on ``date``.
+    """
+    d = "2026-09-25"
+    for nav in (1_000_000.0, 1_000_000.0, 1_000_000.0, 1_112_347.0):
+        tr.store_nav({"ts": 1.0, "date": d, "nav": nav,
+                      "source": "backfill"}, directory=tmp_path)
+    rows = tr.read_nav(months=0, directory=tmp_path)
+    _check(len(rows) == 1,
+           f"re-writing the same date must leave exactly ONE row, got {len(rows)}")
+    _check(abs(rows[0]["nav"] - 1_112_347.0) < 1e-6,
+           f"the latest write should win, got {rows[0]['nav']}")
+
+
+def test_regression_duplicate_dates_cannot_inflate_returns(tmp_path):
+    """The end-to-end consequence: duplicates must not compound a day's return."""
+    for _ in range(3):                       # simulate three job re-runs
+        tr.store_nav({"ts": 1.0, "date": "2026-09-24", "nav": 100.0,
+                      "source": "backfill"}, directory=tmp_path)
+        tr.store_nav({"ts": 2.0, "date": "2026-09-25", "nav": 110.0,
+                      "source": "backfill"}, directory=tmp_path)
+    rets = tr.daily_returns(tr.read_nav(months=0, directory=tmp_path))
+    _check(len(rets) == 1,
+           f"one genuine day -> ONE return however often it was written, "
+           f"got {len(rets)}")
+    _check(abs(rets[0] - 0.10) < 1e-9,
+           f"a 100->110 day is +10%, not {rets[0]:.4f} (which would be the "
+           f"duplicates compounding)")
+
+
+def test_regression_full_read_includes_the_inception_row(tmp_path):
+    """A full read must include inception, or the curve starts mid-flight.
+
+    With a clipped window the first visible row can already reflect gains, so
+    total return, drawdown and volatility are all measured from an invisible
+    mid-flight point (the first NAV read 1,112,347 instead of the 1,000,000 that
+    was actually committed).
+    """
+    tr.store_nav({"ts": 1.0, "date": "2024-01-31", "nav": 1_000_000.0,
+                  "source": "backfill", "inception": True}, directory=tmp_path)
+    for i, nav in enumerate((1_050_000.0, 1_100_000.0, 1_112_347.0), start=2):
+        tr.store_nav({"ts": float(i), "date": f"2024-0{i}-28", "nav": nav,
+                      "source": "backfill"}, directory=tmp_path)
+
+    full = tr.read_nav(months=0, directory=tmp_path)
+    _check(len(full) == 4, f"months=0 must read everything, got {len(full)}")
+    _check(full[0]["nav"] == 1_000_000.0,
+           f"the inception row must lead the series, got {full[0]['nav']}")
+    _check(full[0].get("inception") is True, "inception must be flagged")
+
+    # A clipped window legitimately drops it — which is why the readers default
+    # to months=0 and why risk_report prefers the inception row's NAV as capital.
+    clipped = tr.read_nav(months=1, directory=tmp_path)
+    _check(len(clipped) <= len(full),
+           "a window can only ever narrow the series")
 
 
 # --------------------------------------------------------------------------- #

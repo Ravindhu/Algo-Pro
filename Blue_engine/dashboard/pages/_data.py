@@ -420,8 +420,13 @@ def portfolio_manager() -> Optional[Any]:
         return None
 
 
-def equity_curve(months: int = 12) -> Dict[str, Any]:
-    """Phase 1: the stored NAV path and its daily returns (for the curve chart)."""
+def equity_curve(months: int = 0) -> Dict[str, Any]:
+    """Phase 1: the stored NAV path and its daily returns (for the curve chart).
+
+    ``months=0`` (the default) means **the whole stored history**, so the curve
+    always includes its inception row and the chart starts where capital was
+    committed rather than mid-flight.
+    """
     pm = portfolio_manager()
     if pm is None:
         return {"ok": False, "rows": [], "nav": [], "dates": [],
@@ -434,8 +439,14 @@ def equity_curve(months: int = 12) -> Dict[str, Any]:
                 "returns": [], "warnings": [f"equity curve unavailable: {exc}"]}
 
 
-def risk_report(months: int = 12) -> Dict[str, Any]:
-    """Phase 2: the risk & performance report (Risk / Efficiency panels)."""
+def risk_report(months: int = 0) -> Dict[str, Any]:
+    """Phase 2: the risk & performance report (Risk / Efficiency panels).
+
+    ``months=0`` (the default) means **the whole stored history**. That is the
+    right default for a report: a clipped window silently drops the inception row
+    and the curve then starts mid-flight, so total return, drawdown and
+    volatility are all measured from the wrong baseline.
+    """
     pm = portfolio_manager()
     if pm is None:
         return {"ok": False, "performance": {}, "risk": {},

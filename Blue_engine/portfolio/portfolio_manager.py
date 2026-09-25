@@ -105,26 +105,23 @@ def _empty_regime() -> Dict[str, Any]:
 
 
 def _window_warning(rows: List[Dict[str, Any]], months: int) -> Optional[str]:
-    """Warn when a NAV window probably clipped the curve at a month boundary.
+    """Warn when a NAV window probably clipped the curve.
 
-    NAV is stored one file per month, so ``months=1`` means "the current month's
-    file", not "the last 30 days". A caller who reads a curve that starts on the
-    1st of a month and asks for one month may be looking at a partial curve
-    without realising it — and every metric derived from it (Sharpe, VaR,
-    drawdown) would then be computed on the wrong sample.
+    Only fires when a window was actually requested (``months > 0``). A full
+    read (``months=0``, the default) cannot clip anything, so warning about it
+    is pure noise — and noise is what trains an operator to ignore warnings.
 
-    Heuristic: the window is suspicious when we pulled the maximum number of
-    files AND the earliest row is the first day of its month, which is the
-    signature of a boundary clip rather than a genuine start of history.
+    The heuristic: history starting on the 1st of a month is the signature of a
+    date-window cut rather than a genuine start of records.
     """
-    if not rows:
+    if not rows or months <= 0:
         return None
-    first = str((rows[0] if rows else {}).get("date") or "")
+    first = str(rows[0].get("date") or "")
     if len(first) == 10 and first.endswith("-01"):
         return (f"equity curve starts on {first} (the 1st of a month) while "
-                f"reading months={months} monthly file(s) — if you expected "
-                f"earlier history, raise 'months'; metrics on a clipped sample "
-                f"will be wrong")
+                f"reading a {months}-month window — if you expected earlier "
+                f"history, pass months=0; metrics on a clipped sample can be "
+                f"wrong")
     return None
 
 
@@ -371,17 +368,16 @@ class PortfolioManager:
             _log.warning("snapshot_nav failed: %r", exc)
             return {"ok": False, "warnings": [f"nav snapshot failed: {exc}"]}
 
-    def get_equity_curve(self, months: int = 12) -> Dict[str, Any]:
+    def get_equity_curve(self, months: int = 0) -> Dict[str, Any]:
         """The stored daily equity curve + derived daily returns.
+
+        ``months=0`` (default) reads the **whole history**, which is what an
+        analytics reader wants: a clipped window can exclude the inception row,
+        making the first visible NAV look like a baseline when it already
+        reflects gains.
 
         This is the Phase-2 input: Phases 3–5 read this instead of recomputing
         P&L, which keeps one definition of "return" across the whole desk.
-
-        ``months`` counts **monthly FILES**, not calendar months of history.
-        NAV is stored one file per month, so passing ``months=1`` reads only the
-        current month and silently truncates anything that spans a boundary —
-        which corrupts every metric computed from it. We therefore warn when the
-        window looks like it clipped the curve (see ``_window_warning``).
         """
         try:
             rows = tracker_mod.read_nav(
@@ -398,7 +394,7 @@ class PortfolioManager:
             return {"ok": False, "rows": [], "returns": [], "n": 0,
                     "n_returns": 0, "warnings": [f"equity curve unavailable: {exc}"]}
 
-    def get_risk_report(self, months: int = 12, *,
+    def get_risk_report(self, months: int = 0, *,
                         capital: Optional[float] = None,
                         level: float = 0.95,
                         beta: Optional[float] = None,

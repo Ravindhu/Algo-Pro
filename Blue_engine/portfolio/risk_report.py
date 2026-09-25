@@ -336,6 +336,15 @@ def report(nav_rows: Optional[List[Dict[str, Any]]], *,
         # a hard-coded 252 on a monthly series overstates volatility by 4.6x.
         ppy = _tracker.periods_per_year(rows)
         cap = safe_float(capital)
+        if cap is None:
+            # Prefer the INCEPTION row's NAV as the capital base. Taking rows[0]
+            # is wrong whenever the window clips the curve: the first visible row
+            # may already reflect gains, so every metric would be measured from
+            # an invisible mid-flight point rather than from committed capital.
+            for r in rows:
+                if r.get("inception"):
+                    cap = safe_float(r.get("nav"))
+                    break
         if cap is None and rows:
             cap = safe_float(rows[0].get("nav"))
         perf = performance_report(rets, benchmark=benchmark, rf=rf,

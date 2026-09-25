@@ -417,18 +417,69 @@ class EquityTracker:
 
 def store_nav(row: Dict[str, Any], *, directory: Optional[Path] = None
               ) -> Optional[Path]:
-    """Append one NAV snapshot to ``data/portfolio_nav/YYYY-MM.jsonl``.
+    """Write one NAV snapshot to ``data/portfolio_nav/YYYY-MM.jsonl``.
 
-    Monthly files (not daily) because the equity curve is small and a monthly
-    file is far cheaper to read back than 250 one-line files. Never raises:
-    a bookkeeping failure must not abort a trading run.
+    **Upsert, not append.** One row per trading date, keyed on ``date``. This is
+    load-bearing: an append-only store silently duplicates the whole curve every
+    time a job is re-run, and ``daily_returns`` then sees repeated dates whose
+    NAVs differ, producing absurd metrics (a +154% curve reporting 532%
+    volatility and a 61% daily VaR) while looking superficially plausible.
+
+    The rewrite is atomic via a temp file + replace, so a crash mid-write cannot
+    truncate the history. Monthly files (not daily) because the curve is small
+    and one file per month is far cheaper to read back than 250 one-line files.
+
+    Provenance: when a date already exists, a LIVE row (no ``source``, or any
+    source other than ``backfill``) always wins over a reconstructed one —
+    backfill must never overwrite what actually happened. Re-running a backfill
+    therefore updates the reconstructed rows and leaves the live ones alone.
+
+    Never raises: a bookkeeping failure must not abort a trading run.
     """
     try:
         month = str(row.get("date") or ist_date())[:7]
         path = nav_path(month, directory=directory)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row, default=str) + "\n")
+
+        incoming_is_live = str(row.get("source") or "").lower() != "backfill"
+        kept: List[Dict[str, Any]] = []
+        replaced = False
+        if path.is_file():
+            try:
+                with path.open("r", encoding="utf-8") as fh:
+                    for raw in fh:
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        try:
+                            existing = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(existing, dict):
+                            continue
+                        if str(existing.get("date")) == str(row.get("date")):
+                            existing_is_live = (
+                                str(existing.get("source") or "").lower()
+                                != "backfill")
+                            if existing_is_live and not incoming_is_live:
+                                kept.append(existing)      # live beats backfill
+                                replaced = True
+                                continue
+                            replaced = True                # incoming wins
+                            continue
+                        kept.append(existing)
+            except OSError as exc:
+                logger.debug("store_nav read failed for %s: %s", path, exc)
+        kept.append(row)
+        kept.sort(key=lambda r: str(r.get("date") or ""))
+
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            for r in kept:
+                fh.write(json.dumps(r, default=str) + "\n")
+        tmp.replace(path)
+        if not replaced:
+            logger.debug("store_nav appended a new row for %s", row.get("date"))
         return path
     except Exception as exc:  # noqa: BLE001 - bookkeeping must never abort a run
         logger.warning("store_nav failed: %s", exc)
@@ -475,7 +526,7 @@ def read_nav(*, months: int = 12, directory: Optional[Path] = None
             logger.debug("read_nav failed for %s: %s", path, exc)
     rows.sort(key=lambda r: safe_float(r.get("ts")) or 0.0)
     if not rows or months <= 0:
-        return rows
+        return rows          # months=0 (or negative) means "the whole history"
     # Window on the DATE field (ist_date string) so ordering is unambiguous.
     import datetime as _dt
     last_date = str(rows[-1].get("date") or "")[:10]

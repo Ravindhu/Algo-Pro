@@ -180,6 +180,40 @@ def run(*, dry_run: bool = False, start: Optional[str] = None,
         equity = float(capital)
         weights = {n: 0.0 for n in names}
         prev_row: Optional[Dict[str, Any]] = None
+
+        # Write the INCEPTION row before the first rebalance. Without it the
+        # curve starts at the first rebalance date with a NAV that already
+        # reflects the warm-up window, so the first row looks like a baseline
+        # when it is not: every metric (total return, drawdown, vol) is then
+        # measured from an invisible mid-flight point. A curve must start where
+        # the capital was committed.
+        #
+        # NOTE the date is ``dates[window]``, NOT ``dates[0]``. ``dates[0]`` is
+        # the start of the TRAINING window — no capital is at risk during it
+        # (the optimiser is being warmed up), so writing it as an inception row
+        # injects a fake 211-day gap into the series. That distorted the
+        # inferred spacing to 10.25 obs/year instead of ~12, which then mis-scaled
+        # every annualised metric.
+        first_rebalance = min(window, len(dates) - 1)
+        inception = {
+            "ts": datetime.strptime(dates[first_rebalance], "%Y-%m-%d").replace(
+                hour=16, tzinfo=tr_mod.IST).timestamp(),
+            "date": dates[first_rebalance], "nav": round(float(capital), 2),
+            "cash": round(float(capital), 2), "gross_exposure": 0.0,
+            "net_exposure": 0.0, "realized_pnl": 0.0, "unrealized_pnl": 0.0,
+            "total_fees": 0.0, "total_pnl": 0.0,
+            "starting_cash": round(float(capital), 2),
+            "return_since_start": 0.0, "n_positions": 0, "positions": [],
+            "source": "backfill", "optimiser": chosen,
+            "window": window, "step_days": step,
+            "inception": True,
+        }
+        if not dry_run:
+            tr_mod.store_nav(
+                inception, directory=Path(nav_dir) if nav_dir else None)
+        out["rows_written"] += 1
+        prev_row = inception
+
         t = window
         while t < len(dates):
             # --- train on returns STRICTLY before t (no look-ahead) -------- #
