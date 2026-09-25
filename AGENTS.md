@@ -18,3 +18,6 @@ Use statistical analysis ,probability analysis to improve the trading strategy.
 use Artificial intelligence to improve the trading strategy.
 use NLP to improve the trading strategy.
 use GPT to improve the trading strategy.
+use Convolutional Neural Networks (CNNs) in trading statergy
+use Reinforcement Learning (RL) to improve the trading strategy
+use architectural, validation, and risk models to improve the trading statergy

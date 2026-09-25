@@ -11,6 +11,5 @@ Turning a P&L number into *why* it happened. Four views:
 All pure: inputs are weight/return/return-series dicts; outputs are numbers and
 small tables the dashboard renders directly.
 """
-from . import brinson, drift, factor_attr, perf
-
-__all__ = ["brinson", "factor_attr", "perf", "drift"]
+from . import brinson, drift, factor_attr, perf, tearsheet
+__all__ = ["brinson", "factor_attr", "perf", "drift", "tearsheet"]

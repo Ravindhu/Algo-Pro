@@ -55,6 +55,12 @@ packages = [
     "blue_engine.economics.nlp",
     "blue_engine.market",
     "blue_engine.portfolio",
+    "blue_engine.portfolio.providers",
+    "blue_engine.portfolio.risk",
+    "blue_engine.portfolio.optim",
+    "blue_engine.portfolio.sizing",
+    "blue_engine.portfolio.attribution",
+    "blue_engine.portfolio.views",
     "blue_engine.infrastructure",
     "blue_engine.dashboard",
     "blue_engine.dashboard.pages",
@@ -71,6 +77,12 @@ blue_engine = "."
 "blue_engine.economics.nlp" = "economics/nlp"
 "blue_engine.market" = "market"
 "blue_engine.portfolio" = "portfolio"
+"blue_engine.portfolio.providers" = "portfolio/providers"
+"blue_engine.portfolio.risk" = "portfolio/risk"
+"blue_engine.portfolio.optim" = "portfolio/optim"
+"blue_engine.portfolio.sizing" = "portfolio/sizing"
+"blue_engine.portfolio.attribution" = "portfolio/attribution"
+"blue_engine.portfolio.views" = "portfolio/views"
 "blue_engine.pov" = "pov"
 "blue_engine.infrastructure" = "infrastructure"
 
