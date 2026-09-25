@@ -331,12 +331,23 @@ def report(nav_rows: Optional[List[Dict[str, Any]]], *,
         rows = list(nav_rows or [])
         rets = _tracker.daily_returns(rows)
         dates = [r.get("date") for r in rows]
+        # Infer the spacing of the store and annualise with it. A live store is
+        # daily (~252/yr); a backfilled monthly-rebalance store is ~12/yr. Using
+        # a hard-coded 252 on a monthly series overstates volatility by 4.6x.
+        ppy = _tracker.periods_per_year(rows)
         cap = safe_float(capital)
         if cap is None and rows:
             cap = safe_float(rows[0].get("nav"))
-        perf = performance_report(rets, benchmark=benchmark, rf=rf)
-        risk = risk_report(rets, capital=cap, level=level, beta=beta)
-        perf["rolling"] = rolling_series(rets, window=rolling_window)
+        perf = performance_report(rets, benchmark=benchmark, rf=rf,
+                                  periods=ppy)
+        # NOTE: call the module-level function by its real name. Naming a local
+        # ``risk_report`` here would shadow the module function inside this
+        # module (the function IS risk_report), silently breaking every later
+        # call in the process.
+        risk = globals()["risk_report"](rets, capital=cap, level=level,
+                                        beta=beta)
+        perf["rolling"] = rolling_series(rets, window=rolling_window,
+                                         periods=ppy)
         # Align the underwater x-axis with real dates (returns start at day 2).
         perf["underwater"] = underwater(rets, dates=dates[1:] if len(dates) > 1
                                        else None)
@@ -344,6 +355,7 @@ def report(nav_rows: Optional[List[Dict[str, Any]]], *,
             "ok": bool(rets),
             "n_nav_rows": len(rows),
             "n_returns": len(rets),
+            "periods_per_year": ppy,
             "capital": cap,
             "performance": perf,
             "risk": risk,

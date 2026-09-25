@@ -138,13 +138,23 @@ def test_equity_curve_reads_the_seeded_nav_store(tmp_path):
                f"{n} rows -> {n - 1} returns, got {curve.get('n_returns')}")
         _check(len(curve.get("nav") or []) == n, "nav series length must match")
 
-        # A deliberately narrow window must SAY it clipped the curve.
+        # A narrow window now filters by DATE, so it must never return a
+        # disjoint set (which would compute returns across gaps). Assert we get
+        # a contiguous tail, and that any shortfall is monotonic — a narrower
+        # window can only ever return fewer-or-equal rows.
         narrow = _data.equity_curve(months=1)
-        if narrow.get("n", 0) < n:
-            _check(any("1st of a month" in w
-                       for w in (narrow.get("warnings") or [])),
-                   f"a clipped window must be reported, not silent: "
-                   f"{narrow.get('warnings')}")
+        _check(narrow.get("n", 0) <= n,
+               f"a narrower window must not return MORE rows: "
+               f"{narrow.get('n')} > {n}")
+        if narrow.get("n"):
+            ndates = [d for d in (narrow.get("dates") or [])]
+            _check(ndates == sorted(ndates),
+                   f"rows must stay date-ordered: {ndates[:3]}")
+            # Contiguity: the narrow window must end at the same last date.
+            full_dates = [d for d in (curve.get("dates") or [])]
+            _check(ndates[-1] == full_dates[-1],
+                   f"both windows must end on the latest date: "
+                   f"{ndates[-1]} vs {full_dates[-1]}")
     finally:
         pm.config["nav_dir"] = original
 

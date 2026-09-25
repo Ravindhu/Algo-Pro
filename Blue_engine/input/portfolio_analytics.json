@@ -1,0 +1,125 @@
+{
+  "_comment": "portfolio_analytics.json - the desk's portfolio-management configuration (Phases 1-6). Credentials are NEVER stored here. Point BLUE_PORTFOLIO_CONFIG at this file to override the defaults embedded in the module. Every block is optional; the code degrades to documented defaults when a block is absent.",
+
+  "_sleeves_comment": "sleeve -> {bucket, beta}. 'bucket' aggregates sleeves into sectors for concentration analysis; 'beta' is the desk's assumed beta vs NIFTY, used only when no MEASURED beta is available (measured always wins, and a blend is flagged). Matching is exact-first, then rightmost-substring, so 'NIFTY IT' and 'NIFTYIT' both resolve to the IT qualifier. Keep this in sync with providers/universe.py.",
+  "sleeves": {
+    "NIFTY":     {"bucket": "Large Cap / Diversified", "beta": 1.00},
+    "BANKNIFTY": {"bucket": "Financials", "beta": 1.15},
+    "BANK":      {"bucket": "Financials", "beta": 1.15},
+    "FINANCE":   {"bucket": "Financials", "beta": 1.15},
+    "IT":        {"bucket": "Information Technology", "beta": 0.90},
+    "TECH":      {"bucket": "Information Technology", "beta": 0.90},
+    "PHARMA":    {"bucket": "Healthcare", "beta": 0.70},
+    "HEALTH":    {"bucket": "Healthcare", "beta": 0.70},
+    "AUTO":      {"bucket": "Consumer Discretionary", "beta": 1.10},
+    "FMCG":      {"bucket": "Consumer Staples", "beta": 0.65},
+    "METALS":    {"bucket": "Materials", "beta": 1.25},
+    "METAL":     {"bucket": "Materials", "beta": 1.25},
+    "ENERGY":    {"bucket": "Energy", "beta": 1.05},
+    "OIL":       {"bucket": "Energy", "beta": 1.05},
+    "REALTY":    {"bucket": "Real Estate", "beta": 1.30},
+    "MIDCAP":    {"bucket": "Mid/Small Cap", "beta": 1.20},
+    "SMALLCAP":  {"bucket": "Mid/Small Cap", "beta": 1.30},
+    "PSU":       {"bucket": "Public Sector", "beta": 1.10},
+    "INFRA":     {"bucket": "Infrastructure", "beta": 1.15},
+    "COMMODITY": {"bucket": "Commodities", "beta": 0.30},
+    "GOLD":      {"bucket": "Commodities", "beta": 0.10},
+    "CASH":      {"bucket": "Cash", "beta": 0.00}
+  },
+
+  "_constituents_comment": "LOOK-THROUGH map: sleeve -> {sector: fraction}. An index sleeve is NOT one bet. NIFTY is ~35% Financials by construction, so a 60% NIFTY sleeve is already ~21% Financials before any bank sleeve is added. Without this map a desk adds a BANKNIFTY sleeve believing it is diversifying when it is concentrating. Fractions should sum to 1.0 per sleeve; a partial map is renormalised and WARNED about, because a half-specified map silently understates every sector weight. NOTE: these are approximate, rounded, publicly-known Nifty sector weights for illustration - replace them with your own point-in-time index weights before relying on the look-through numbers.",
+  "constituents": {
+    "NIFTY": {
+      "Financials": 0.36,
+      "Information Technology": 0.13,
+      "Energy": 0.10,
+      "Consumer Discretionary": 0.09,
+      "Consumer Staples": 0.08,
+      "Materials": 0.06,
+      "Healthcare": 0.04,
+      "Industrials": 0.05,
+      "Communication Services": 0.04,
+      "Utilities": 0.03,
+      "Real Estate": 0.02
+    },
+    "BANKNIFTY": {
+      "Financials": 1.00
+    },
+    "IT": {
+      "Information Technology": 1.00
+    },
+    "PHARMA": {
+      "Healthcare": 1.00
+    },
+    "AUTO": {
+      "Consumer Discretionary": 0.85,
+      "Industrials": 0.15
+    },
+    "FMCG": {
+      "Consumer Staples": 1.00
+    },
+    "METALS": {
+      "Materials": 1.00
+    },
+    "ENERGY": {
+      "Energy": 1.00
+    },
+    "REALTY": {
+      "Real Estate": 1.00
+    },
+    "MIDCAP": {
+      "Mid/Small Cap": 1.00
+    }
+  },
+
+  "_limits_comment": "Desk risk limits (Phase 4). These are NEUTRAL DEFAULTS, not advice - set them to what your mandate and your stomach allow. max_drawdown is the hard stop: 15% needs a ~17.6% gain to recover, 25% needs ~33%. regime_overrides tighten (or loosen) limits per Economic regime, which is the single most valuable use of the macro engine.",
+  "limits": {
+    "max_drawdown": 0.15,
+    "max_daily_loss": 0.04,
+    "max_weight": 0.30,
+    "max_sector_weight": 0.40,
+    "max_gross": 1.00,
+    "min_gross": 0.0,
+    "max_turnover": 0.10,
+    "beta_lower": 0.90,
+    "beta_upper": 1.10,
+    "min_observations": 60,
+    "max_staleness_days": 5,
+    "regime_overrides": {
+      "RISK_ON":       {"max_gross": 1.00, "beta_lower": 0.95, "beta_upper": 1.15},
+      "MILD_RISK_ON":  {"max_gross": 0.95},
+      "NEUTRAL":       {"max_gross": 0.85},
+      "MILD_RISK_OFF": {"max_gross": 0.65, "beta_upper": 1.05},
+      "RISK_OFF":      {"max_gross": 0.45, "beta_upper": 1.00, "max_weight": 0.25}
+    }
+  },
+
+  "_view_policy_comment": "Phase 5 guard-rails on ML/NLP/LLM views. confidence_scale DISCOUNTS every stated confidence before max_confidence caps it (min(0.99*0.5, 0.35) = 0.35): over-confident models are the norm, and the desk pays for trusting their self-assessment. max_total_tilt bounds how far, in L1 distance, the view-implied book may differ from the view-free book. Views are OFF unless views_enabled is true.",
+  "views_enabled": false,
+  "view_policy": {
+    "confidence_scale": 0.5,
+    "max_confidence": 0.35,
+    "max_total_tilt": 0.15,
+    "max_views": 6,
+    "min_confidence": 0.02
+  },
+
+  "_policy_comment": "Phase 4/6 policy knobs.",
+  "policy_months": 12,
+  "views_months": 12,
+
+  "_costs_comment": "India DELIVERY cost model, bps of notional per SIDE. A round trip pays them twice: on a 10 lakh round trip at 12 bps the charges are ~534 rupees, which is why a strategy with a few-bps edge per trade inverts sign once this is applied. Override for intraday/F&O (STT differs).",
+  "charges_bps": 12.0,
+  "costs": {
+    "brokerage": 3.0,
+    "stt": 10.0,
+    "exchange_txn": 0.33,
+    "gst_on_brokerage_pct": 18.0,
+    "stamp_duty": 1.5,
+    "sebi": 0.01,
+    "slippage": 5.0
+  },
+
+  "_account_comment": "starting_cash is the paper/backfill capital base when no live broker account is connected. capital from the broker's funds() always wins when available.",
+  "starting_cash": 1000000.0
+}

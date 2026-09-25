@@ -70,7 +70,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.results import safe_float
 
@@ -90,8 +90,8 @@ DEFAULT_NAV_DIR = _REPO_ROOT / "data" / "portfolio_nav"
 
 __all__ = [
     "EquityTracker", "Lot", "Fill", "ist_date", "nav_path",
-    "store_nav", "read_nav", "daily_returns", "DEFAULT_NAV_DIR",
-    "DEFAULT_CHARGES_BPS",
+    "store_nav", "read_nav", "daily_returns", "periods_per_year",
+    "DEFAULT_NAV_DIR", "DEFAULT_CHARGES_BPS",
 ]
 
 
@@ -437,15 +437,26 @@ def store_nav(row: Dict[str, Any], *, directory: Optional[Path] = None
 
 def read_nav(*, months: int = 12, directory: Optional[Path] = None
              ) -> List[Dict[str, Any]]:
-    """Read the most recent ``months`` NAV rows, oldest first.
+    """Read the NAV history, oldest first, as the most recent ``months`` of DATA.
 
-    Malformed lines are skipped, so a torn tail write is safe (same contract as
-    ``portfolio_state.read_recent``).
+    Why not "the last N files": because files are monthly but history is not
+    necessarily contiguous. If the store holds 2024-07..2026-09 (27 files) and a
+    caller asks for ``months=12``, slicing the last 12 FILES would return a set
+    spanning 2025-10..2026-09 — which is contiguous and fine — but a *sparse*
+    store (gaps from an outage, a re-clone, a selective backfill) would return a
+    disjoint set, and ``daily_returns`` would then compute returns *across the
+    gaps*. That manufactured a -86% annual return from a +9.65% curve.
+
+    We therefore filter by DATE, not by file count: read the files, then keep
+    only rows inside the trailing ``months`` window. Malformed lines are skipped
+    so a torn tail write is safe.
     """
     base = Path(directory) if directory else DEFAULT_NAV_DIR
     if not base.is_dir():
         return []
-    files = sorted(base.glob("*.jsonl"))[-max(1, months):]
+    # Read every file, then window by date. Cheap: the store is one line per
+    # session, so even 20 years is a few thousand rows.
+    files = sorted(base.glob("*.jsonl"))
     rows: List[Dict[str, Any]] = []
     for path in files:
         try:
@@ -463,28 +474,95 @@ def read_nav(*, months: int = 12, directory: Optional[Path] = None
         except OSError as exc:
             logger.debug("read_nav failed for %s: %s", path, exc)
     rows.sort(key=lambda r: safe_float(r.get("ts")) or 0.0)
-    return rows
+    if not rows or months <= 0:
+        return rows
+    # Window on the DATE field (ist_date string) so ordering is unambiguous.
+    import datetime as _dt
+    last_date = str(rows[-1].get("date") or "")[:10]
+    if len(last_date) != 10:
+        return rows
+    try:
+        cutoff = (_dt.date.fromisoformat(last_date)
+                  - _dt.timedelta(days=int(30.44 * months))).isoformat()
+    except ValueError:
+        return rows
+    return [r for r in rows if str(r.get("date") or "")[:10] >= cutoff]
 
 
 def daily_returns(nav_rows: List[Dict[str, Any]]) -> List[float]:
-    """Convert a NAV path into a daily return series (the Phase 2 input).
+    """Convert a NAV path into a RETURN series, oldest first.
 
     Collapses multiple snapshots on the same IST date to the **last** one
-    (end-of-day), then returns ``nav_t / nav_{t-1} - 1``.
+    (end-of-day), then returns ``nav_t / nav_{t-1} - 1`` for each consecutive
+    pair present in the store.
+
+    IMPORTANT — the spacing is whatever the store holds, not necessarily daily.
+    A live desk writes one row per session, so the series is daily. A *backfilled*
+    store may hold one row per **monthly rebalance**, making the series monthly.
+    Callers must annualise with :func:`periods_per_year` (below), NOT with a
+    hard-coded 252 — annualising a monthly series at 252 overstates volatility by
+    sqrt(252/12) = 4.6x, which turns a 10% book into a "46%" book.
+
     Rows with a non-positive or missing NAV are dropped rather than producing a
-    spurious -100% return.
+    spurious -100% return. When a date carries both a reconstructed row
+    (``source='backfill'``) and a live row, the LIVE one wins — reconstructed
+    history must never overwrite what actually happened.
     """
-    by_day: Dict[str, float] = {}
+    by_day: Dict[str, Tuple[float, bool]] = {}      # date -> (nav, is_live)
     for row in nav_rows or []:
-        d = str(row.get("date") or "")
+        d = str(row.get("date") or "")[:10]
         nav = safe_float(row.get("nav"))
         if not d or nav is None or nav <= 0:
             continue
-        by_day[d] = nav            # later rows overwrite → last wins (EOD)
+        is_live = str(row.get("source") or "").lower() != "backfill"
+        prev = by_day.get(d)
+        if prev is None:
+            by_day[d] = (nav, is_live)
+        elif is_live and not prev[1]:
+            by_day[d] = (nav, is_live)          # live beats reconstructed
+        elif is_live == prev[1]:
+            by_day[d] = (nav, is_live)          # same provenance: last wins (EOD)
     days = sorted(by_day)
     out: List[float] = []
     for prev, cur in zip(days, days[1:]):
-        a, b = by_day[prev], by_day[cur]
+        a = by_day[prev][0]
+        b = by_day[cur][0]
         if a > 0:
             out.append(b / a - 1.0)
     return out
+
+
+def periods_per_year(nav_rows: List[Dict[str, Any]], *,
+                     default: float = 252.0) -> float:
+    """Infer the annualisation factor from the AVERAGE spacing of the store.
+
+    This is the difference between a risk report that means something and one
+    that is off by 4.6x. A live store is ~1 row per trading day (spacing ~1, so
+    the factor is ~252). A backfilled store rebalanced monthly has spacing ~30
+    calendar days (factor ~12).
+
+    Derivation: count the observations, measure the calendar span, and scale to
+    a year. Deliberately calendar-based (365.25 days) rather than session-based,
+    because a sparse store's session count is unknowable.
+
+    Falls back to ``default`` when there are fewer than 3 rows or no usable
+    dates, so a caller never divides by zero.
+    """
+    import datetime as _dt
+    ds: List[_dt.date] = []
+    for row in nav_rows or []:
+        s = str(row.get("date") or "")[:10]
+        try:
+            ds.append(_dt.date.fromisoformat(s))
+        except ValueError:
+            continue
+    ds = sorted(set(ds))
+    if len(ds) < 3:
+        return float(default)
+    span_days = (ds[-1] - ds[0]).days
+    if span_days <= 0:
+        return float(default)
+    obs_per_year = (len(ds) - 1) * 365.25 / span_days
+    if obs_per_year <= 0 or obs_per_year > 366:
+        return float(default)
+    return round(float(obs_per_year), 4)
