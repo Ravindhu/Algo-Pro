@@ -381,18 +381,157 @@ def band_from_inputs(cfg: Dict[str, Any], vwap: float) -> Dict[str, float]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Portfolio analytics (Phases 1-5) - read-only helpers for the Portfolio page
+# ---------------------------------------------------------------------------
+#
+# These mirror ``economic_snapshot()`` above: one function per panel, each
+# best-effort so a data fault blanks a panel instead of killing the page.
+#
+# They go through ``PortfolioManager`` (the stable public API) rather than
+# touching the engine, so the dashboard is insulated from engine internals and
+# a future manager implementation needs no page changes.
+
+#: The manager is stateful (it holds the equity tracker), so we cache ONE
+#: instance per process. Rebuilding it per poll would reset the tracker and
+#: re-book every fill on every refresh.
+_MANAGER: Optional[Any] = None
+
+
+def portfolio_manager() -> Optional[Any]:
+    """The shared :class:`PortfolioManager` instance, or None when unavailable.
+
+    Cached deliberately: the manager owns the equity tracker, and a fresh
+    instance per dashboard poll would forget every ingested fill and re-book it
+    on the next tick — double-counting P&L.
+    """
+    global _MANAGER
+    if _MANAGER is not None:
+        return _MANAGER
+    try:
+        from blue_engine.portfolio import portfolio_manager as pm_mod
+        # persist=False: the dashboard is a READER. Persisting from a UI poll
+        # would write a portfolio run every 5 seconds and bury the real daily
+        # history in noise.
+        _MANAGER = pm_mod.PortfolioManager.create({"persist": False})
+        return _MANAGER
+    except Exception as exc:  # noqa: BLE001 - a dashboard must not die on data
+        logger.debug("portfolio manager unavailable: %s", exc)
+        return None
+
+
+def equity_curve(months: int = 12) -> Dict[str, Any]:
+    """Phase 1: the stored NAV path and its daily returns (for the curve chart)."""
+    pm = portfolio_manager()
+    if pm is None:
+        return {"ok": False, "rows": [], "nav": [], "dates": [],
+                "returns": [], "warnings": ["portfolio manager unavailable"]}
+    try:
+        return pm.get_equity_curve(months=months)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("equity curve unavailable: %s", exc)
+        return {"ok": False, "rows": [], "nav": [], "dates": [],
+                "returns": [], "warnings": [f"equity curve unavailable: {exc}"]}
+
+
+def risk_report(months: int = 12) -> Dict[str, Any]:
+    """Phase 2: the risk & performance report (Risk / Efficiency panels)."""
+    pm = portfolio_manager()
+    if pm is None:
+        return {"ok": False, "performance": {}, "risk": {},
+                "warnings": ["portfolio manager unavailable"]}
+    try:
+        return pm.get_risk_report(months=months)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("risk report unavailable: %s", exc)
+        return {"ok": False, "performance": {}, "risk": {},
+                "warnings": [f"risk report unavailable: {exc}"]}
+
+
+def exposure_snapshot() -> Dict[str, Any]:
+    """Phase 3: sector / long-short / beta / concentration for the Exposure tab."""
+    pm = portfolio_manager()
+    if pm is None:
+        return {"ok": False, "by_sector": {}, "long_short": {}, "beta": {},
+                "concentration": {}, "warnings": ["portfolio manager unavailable"]}
+    try:
+        return pm.get_exposure()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("exposure unavailable: %s", exc)
+        return {"ok": False, "by_sector": {}, "long_short": {}, "beta": {},
+                "concentration": {},
+                "warnings": [f"exposure unavailable: {exc}"]}
+
+
+def attribution_snapshot() -> Dict[str, Any]:
+    """Phase 3: P&L by sleeve / session bucket / strategy."""
+    pm = portfolio_manager()
+    if pm is None:
+        return {"ok": False, "by_sleeve": {}, "by_bucket": {},
+                "by_strategy": {}, "warnings": ["portfolio manager unavailable"]}
+    try:
+        return pm.get_attribution()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("attribution unavailable: %s", exc)
+        return {"ok": False, "by_sleeve": {}, "by_bucket": {},
+                "by_strategy": {},
+                "warnings": [f"attribution unavailable: {exc}"]}
+
+
+def policy_snapshot() -> Dict[str, Any]:
+    """Phase 4: the current optimiser decision (incl. kill-switch state)."""
+    pm = portfolio_manager()
+    if pm is None:
+        return {"ok": False, "action": "UNKNOWN", "trade": None,
+                "warnings": ["portfolio manager unavailable"]}
+    try:
+        return pm.get_policy()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("policy unavailable: %s", exc)
+        return {"ok": False, "action": "UNKNOWN", "trade": None,
+                "warnings": [f"policy unavailable: {exc}"]}
+
+
+def views_snapshot() -> Dict[str, Any]:
+    """Phase 5: stated-vs-allowed view confidences (the Views panel).
+
+    Reads the summary only — never triggers an optimiser run, because a UI poll
+    must not be able to move the book.
+    """
+    pm = portfolio_manager()
+    if pm is None:
+        return {"ok": False, "views": [], "n_in": 0, "n_out": 0,
+                "warnings": ["portfolio manager unavailable"]}
+    try:
+        problem = pm.get_view_problem()
+        return problem.get("view_summary") or {
+            "ok": False, "views": [], "n_in": 0, "n_out": 0,
+            "warnings": ["no view summary available"]}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("views unavailable: %s", exc)
+        return {"ok": False, "views": [], "n_in": 0, "n_out": 0,
+                "warnings": [f"views unavailable: {exc}"]}
+
+
 __all__ = [
     "InputRow",
     "Snapshot",
+    "attribution_snapshot",
     "band_from_inputs",
     "collect_inputs",
     "config_path",
     "economic_history",
     "economic_snapshot",
+    "equity_curve",
+    "exposure_snapshot",
     "fmt",
     "gather",
     "group_for_key",
     "load_config",
     "load_macro_config",
     "macro_config_path",
+    "policy_snapshot",
+    "portfolio_manager",
+    "risk_report",
+    "views_snapshot",
 ]

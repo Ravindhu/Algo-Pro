@@ -73,6 +73,8 @@ def _sidebar() -> html.Div:
             html.H1("POV Terminal"),
             dcc.Link("Terminal", href="/", className="nav-link"),
             dcc.Link("Portfolio", href="/portfolio", className="nav-link"),
+            dcc.Link("Portfolio Analytics", href="/analytics-portfolio",
+                     className="nav-link"),
             dcc.Link("Risk Control", href="/risk", className="nav-link"),
             dcc.Link("Analytics", href="/analytics", className="nav-link"),
             dcc.Link("Economic", href="/economic", className="nav-link"),

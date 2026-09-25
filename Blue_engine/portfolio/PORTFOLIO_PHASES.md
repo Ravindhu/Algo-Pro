@@ -351,36 +351,120 @@ decision: action=OPTIMISE  trade=True
 
 ---
 
-## Phase 6 — Dashboard — ⏳ NEXT
+## Phase 6 — Dashboard — ✅ DONE
 
-| # | Panel | Data source |
-|---|---|---|
-| 1 | Equity curve + underwater (drawdown) plot | `get_equity_curve()` |
-| 2 | Rolling Sharpe / rolling vol | `get_risk_report()` |
-| 3 | Exposure donut (sector) + long/short bar | `get_exposure()` |
-| 4 | P&L attribution waterfall (sleeve / session bucket) | `get_attribution()` |
-| 5 | Risk table: VaR, CVaR, leverage, kill-switch state | `get_risk_report()`, `get_policy()` |
-| 6 | Views panel: stated vs allowed confidence | `get_view_problem()` |
+New page at `/analytics-portfolio`, added to the sidebar as
+**"Portfolio Analytics"**. The existing `/portfolio` page stays as the live
+OMS/EMS view; this page is the *management* view beside it.
 
-Existing `dashboard/pages/portfolio.py` stays as the live OMS/EMS view; these
-become additional panels on the same page (or a new `/analytics` tab).
+| # | Panel | Status | Data source |
+|---|---|---|---|
+| 1 | Equity curve | [x] | `_data.equity_curve()` (Phase 1) |
+| 2 | Under water (drawdown) plot | [x] | Phase 1 + 2 |
+| 3 | Risk & performance KPIs + stress table | [x] | `_data.risk_report()` (Phase 2) |
+| 4 | Exposure donut + concentration KPIs | [x] | `_data.exposure_snapshot()` (Phase 3) |
+| 5 | P&L by sleeve + by IST session bucket | [x] | `_data.attribution_snapshot()` (Phase 3) |
+| 6 | Policy / kill-switch panel with reasons | [x] | `_data.policy_snapshot()` (Phase 4) |
+| 7 | Views: **stated vs allowed** confidence | [x] | `_data.views_snapshot()` (Phase 5) |
+| 8 | Tests (12) | [x] | `test_dashboard_portfolio_data.py` |
+
+### The two traps this page is built to avoid
+
+A portfolio dashboard is not just a viewer — a badly built one is an
+*active* hazard. Two properties are therefore asserted by tests:
+
+1. **A UI poll must never mutate the book.** The page imports no SDK, no ledger
+   and no pipeline (a test greps the source to prove it). If a browser refresh
+   could place an order or trigger an optimiser run, then a refresh moves money.
+2. **A UI poll must never double-count P&L.** The manager is **cached** in
+   `_data`, because it owns the equity tracker: a fresh instance per 5-second
+   poll would forget every ingested fill and re-book it on the next tick. The
+   dashboard's instance is also created with `persist=False`, so a poll cannot
+   write a portfolio run every few seconds and bury the real daily history.
+
+### Other deliberate choices
+
+* **Annotated empty states, never blank frames.** Every chart and table explains
+  *why* it is empty ("no NAV rows yet — run the daily job") instead of rendering
+  a frame the operator has to interpret. A test asserts that any zero-trace
+  figure carries an annotation.
+* **One bad panel cannot blank the page.** Each panel is wrapped, matching the
+  `economic_snapshot()` pattern already in `_data.py`. A dashboard that dies on
+  a torn JSONL line is a dashboard the desk stops trusting.
+* **Warnings are rendered, not logged.** A silently-degraded panel is a trap, so
+  `_warnings_block()` prints them under the panel that produced them.
+* **A non-reconciling attribution is called out loudly** in red — an
+  out-of-balance table is worse than no table, because someone will act on the
+  gap.
+* **Plain English over jargon.** HHI is shown as "effective bets" with the note
+  "1/HHI - how many INDEPENDENT bets the book holds", because the raw number is
+  meaningless to most readers.
+
+### Verification
+
+```
+$ pytest Blue_engine\tests -q
+321 passed in 48.71s
+```
+
+App build check:
+
+```
+registered pages: ['analytics', 'analytics-portfolio', 'economic',
+                   'infra', 'portfolio', 'risk', 'terminal']
+8 panels render; all 4 figure builders return traces with a seeded 70-day curve
+(69 returns, Sharpe computed); empty states annotated as designed.
+```
 
 ---
 
-## Phase 5b — Research track (not started)
+## Summary — all six phases complete
 
-Deliberately deferred. These are *research*, not production, and the desk is not
-blocked without them:
+| Phase | Deliverable | Tests | Status |
+|---|---|---|---|
+| 1 | Equity / P&L accounting core + daily curve | 29 | ✅ |
+| 2 | Risk & performance (VaR/CVaR/stress/drawdown/rolling) | 28 | ✅ |
+| 3 | Exposure, concentration, P&L attribution | 48 | ✅ |
+| 4 | Optimiser policy: kill-switch, data gate, regime | 27 | ✅ |
+| 5 | View bridge: ML/NLP/LLM into BL, safely | 22 | ✅ |
+| 6 | Dashboard analytics page | 12 | ✅ |
+| — | **Total** | **321** | |
+
+Production bugs found and fixed along the way (all pre-existing or introduced
+within these phases, none in `openalgo/`):
+
+1. `parametric_var` / `cornish_fisher_var` returned **0.0000 for every input**
+   (sign error + `max(..., 0)` clip). A risk report claiming "no risk" is worse
+   than none.
+2. `charges_bps=0.0` was silently coerced to the 12 bps default by Python's
+   falsy-zero rule — a paper-trading account would have had charges applied.
+3. Drawdown recovery was measured against a peak **rebuilt from 1.0**, wrong
+   whenever the high-water mark was not at index 0 (reported "recovered" while
+   still 12.8% under water).
+4. `months` counts monthly FILES, so `months=1` silently truncated a curve
+   spanning a month boundary — now warns instead of scoring the wrong sample.
+5. Sleeve→sector matching filed `NIFTY IT` under **Large Cap** (first-substring
+   and longest-substring both fail; rightmost-match is correct for NSE naming).
+6. Two **"never raises" violations in the view bridge** — the docstring promised
+   it, the implementation did not.
+7. A **circular import** from the plugin auto-registry (`core/registry.py`
+   discovers every module under `portfolio/`, so new modules must import
+   `optim.registry` by concrete path).
+
+---
+
+## Research track (deliberately not started)
+
+These are *research*, not production, and the desk is not blocked without them.
+Each plugs into the existing `view_bridge` containment, so building them needs
+**no new safety work** — which is the point of having built Phase 5 first.
 
 | # | Deliverable | Notes |
 |---|---|---|
 | 1 | CNN on candlestick heatmaps | short-horizon signal → BL views |
 | 2 | LSTM/Transformer next-day forecaster | feature store: OHLCV, F&O OI, IV skew, breadth |
 | 3 | RL (PPO) position sizing | state: regime, drawdown, exposure, VIX |
-
-Any of these, once built, plugs into the **existing** `view_bridge` containment —
-no new safety work is needed, which is the whole point of building Phase 5
-first.
+| 4 | Pair-hedge (cointegration) + variance-min hedge | replaces the beta-only hedge |
 
 ---
 
