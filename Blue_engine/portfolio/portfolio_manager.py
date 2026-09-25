@@ -32,6 +32,9 @@ Public methods (the contract the dashboard uses)::
     # Phase 4 — optimiser policy (kill-switch first, and overriding)
     pm.get_policy()                  # optimiser + constraints, or EXIT_TO_CASH
 
+    # Phase 5 — views -> constrained allocation (opt-in; risk layer wins)
+    pm.get_view_problem()            # BL problem + validated/capped ML views
+
 Why the tracker lives here
 --------------------------
 ``EquityTracker`` (``portfolio/tracker.py``) owns the accounting; this class
@@ -536,6 +539,43 @@ class PortfolioManager:
             return {"ok": False, "trade": False, "action": "HALT",
                     "optimiser": None, "constraints": {}, "reasons": [],
                     "warnings": [f"policy unavailable: {exc}"]}
+
+    # -- Phase 5: views -> constrained allocation -------------------------- #
+    def get_view_problem(self, context: Optional[Dict[str, Any]] = None, *,
+                         enabled: Optional[bool] = None,
+                         policy: Optional[Dict[str, Any]] = None
+                         ) -> Dict[str, Any]:
+        """Phase 5: the optimiser problem with validated, capped ML/NLP views.
+
+        Consulted **after** the Phase-4 policy, never before: when the risk
+        layer has halted trading the views are suppressed entirely, so a model
+        cannot talk the desk into trading through a drawdown.
+
+        Views are opt-in (``views_enabled`` in config, default False). Returns
+        the problem plus ``view_info`` (what was stated vs allowed) and
+        ``view_cap`` (what the tilt would have been vs what was permitted).
+        Never raises.
+        """
+        try:
+            from blue_engine.portfolio import view_bridge as vb_mod
+
+            inputs = self._engine._collect(context or {}) or {}
+            decision = self.get_policy(context)
+            flag = (self.config.get("views_enabled", False)
+                    if enabled is None else enabled)
+            pol = {**vb_mod.DEFAULT_VIEW_POLICY,
+                   **(self.config.get("view_policy") or {}), **(policy or {})}
+            problem = vb_mod.build_problem(inputs, decision=decision,
+                                           policy=pol, enabled=flag)
+            problem["view_summary"] = vb_mod.summarise_views(
+                problem.get("view_info"))
+            problem["decision"] = decision
+            return problem
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("get_view_problem failed: %r", exc)
+            return {"universe": [], "views": [], "view_info": {},
+                    "view_summary": {},
+                    "warnings": [f"view problem unavailable: {exc}"]}
 
     def run_optimization(self, method: str,
                          context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

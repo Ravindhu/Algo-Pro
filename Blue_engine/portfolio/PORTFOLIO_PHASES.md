@@ -277,24 +277,110 @@ correct behaviour when the broker feed is unavailable.
 
 ---
 
-## Phase 5 — ML / AI overlay — ⏳ NEXT
+## Phase 5 — ML / AI overlay (containment layer) — ✅ DONE
 
-| # | Deliverable | Status | Notes |
+> Items 1–3 already existed in `views/`. Phase 5 adds the **safe bridge** that
+> lets them reach the optimiser without letting a model become the risk manager.
+
+| # | Deliverable | Status | Where |
 |---|---|---|---|
-| 1 | Regime model (HMM/GMM on vol, ATR%, breadth) → leverage multipliers | [x] | already in `economics/models/hmm_regime.py` |
-| 2 | GBM/XGBoost sleeve-return forecast → BL views | [x] | already in `portfolio/views/ml_views.py` |
-| 3 | Lexical + GPT sentiment → sector tilt | [x] | already in `portfolio/views/nlp_views.py`, `llm_note.py` |
-| 4 | CNN on candlestick heatmaps | [ ] | new — short-horizon signal |
-| 5 | LSTM/Transformer next-day forecaster | [ ] | new — feature store: OHLCV, F&O OI, IV skew, breadth |
-| 6 | RL (PPO) position sizing | [ ] | new — state: regime, drawdown, exposure, VIX |
+| 1 | Regime model (HMM) → leverage multipliers | [x] | `economics/models/hmm_regime.py` (pre-existing) |
+| 2 | GBM sleeve forecasts → BL views | [x] | `portfolio/views/ml_views.py` (pre-existing) |
+| 3 | Lexical + GPT sentiment → views | [x] | `portfolio/views/nlp_views.py`, `llm_note.py` (pre-existing) |
+| 4 | **View validation**: universe check, junk rejection, ranking | [x] | `view_bridge.validate_views()` |
+| 5 | **Confidence discounting** (stated 0.99 → allowed 0.35) | [x] | `view_bridge.DEFAULT_VIEW_POLICY` |
+| 6 | **Tilt cap** that preserves the view ranking (scale, not clamp) | [x] | `view_bridge.cap_tilt()` |
+| 7 | **Risk-layer supremacy**: a halt suppresses all views | [x] | `view_bridge.build_problem()` |
+| 8 | Opt-in by default; dashboard stated-vs-allowed summary | [x] | `view_bridge.summarise_views()` |
+| 9 | Manager API | [x] | `get_view_problem()` |
+| 10 | Tests (22) | [x] | `test_view_bridge.py` |
 
-**Guard (non-negotiable):** ML output is **advisory** to the rule-based risk
-layer. The kill-switch, circuit breakers and data-validity gates are *not*
-ML-gated — a model cannot talk the desk into trading through a drawdown.
+### The containment principles (why this is a safety layer, not a feature)
 
-> Items 1–3 already exist and are tested. Phase 5 in practice means **wiring
-them into the policy decision** (views → BL → optimiser, behind `views_enabled`)
-and then adding the CNN/LSTM/RL work as research.
+An ML forecaster is a **model**. It is wrong regularly, and it is most confident
+*exactly* when it is most wrong — an unseen regime looks, to the model, like a
+clear signal. So:
+
+* **Views are advisory, never authoritative.** They become Black-Litterman
+  *tilts* on the equilibrium prior, never weights. BL structurally bounds the
+  damage: a weak view barely moves the posterior.
+* **Confidence is discounted, then capped** — in that order.
+  ``min(0.99 x 0.5, 0.35) = 0.35``. Capping first would give 0.175 and
+  *under*-state the model. Over-confident models are the norm; the desk pays for
+  trusting their self-assessment.
+* **Total tilt is bounded, and capped by SCALING.** Scaling preserves the
+  model's *ranking* across sleeves; clamping would flatten the strongest views
+  first and leave arbitrary leftovers — the desk would then act on a ranking the
+  model never produced.
+* **The risk layer is consulted first and cannot be overridden.** In
+  ``get_view_problem()`` the Phase-4 decision is evaluated *before* the ML layer
+  is asked, and a ``trade=False`` decision suppresses views entirely. A model
+  cannot talk the desk into trading through a drawdown.
+* **Opt-in by default.** A deployment that has not thought about ML risk gets no
+  ML tilts.
+
+### Bugs found and fixed in Phase 5
+
+Both were **"never raises" violations in my own code** — the docstring promised
+it and the implementation did not:
+
+1. ``views_from_inputs(None)`` raised ``AttributeError`` on ``None.get()``.
+   Fixed with ``data = inputs or {}``.
+2. ``validate_views(views="not-a-list")`` iterated the *string*, yielding
+   individual characters that then failed dict access. Fixed with an explicit
+   ``isinstance(views, (list, tuple))`` guard plus a warning naming the bad type.
+
+These matter because the contract *is* the interface: a caller who trusts
+"never raises" will not wrap the call in a try/except, and the failure surfaces
+in production rather than in a test.
+
+### Verification
+
+```
+$ pytest Blue_engine\tests -q
+309 passed in 48.87s
+```
+
+Live chain (view stated 0.95):
+
+```
+views in problem: 1
+  IT  stated 0.95 -> allowed 0.35
+decision: action=OPTIMISE  trade=True
+```
+
+---
+
+## Phase 6 — Dashboard — ⏳ NEXT
+
+| # | Panel | Data source |
+|---|---|---|
+| 1 | Equity curve + underwater (drawdown) plot | `get_equity_curve()` |
+| 2 | Rolling Sharpe / rolling vol | `get_risk_report()` |
+| 3 | Exposure donut (sector) + long/short bar | `get_exposure()` |
+| 4 | P&L attribution waterfall (sleeve / session bucket) | `get_attribution()` |
+| 5 | Risk table: VaR, CVaR, leverage, kill-switch state | `get_risk_report()`, `get_policy()` |
+| 6 | Views panel: stated vs allowed confidence | `get_view_problem()` |
+
+Existing `dashboard/pages/portfolio.py` stays as the live OMS/EMS view; these
+become additional panels on the same page (or a new `/analytics` tab).
+
+---
+
+## Phase 5b — Research track (not started)
+
+Deliberately deferred. These are *research*, not production, and the desk is not
+blocked without them:
+
+| # | Deliverable | Notes |
+|---|---|---|
+| 1 | CNN on candlestick heatmaps | short-horizon signal → BL views |
+| 2 | LSTM/Transformer next-day forecaster | feature store: OHLCV, F&O OI, IV skew, breadth |
+| 3 | RL (PPO) position sizing | state: regime, drawdown, exposure, VIX |
+
+Any of these, once built, plugs into the **existing** `view_bridge` containment —
+no new safety work is needed, which is the whole point of building Phase 5
+first.
 
 ---
 

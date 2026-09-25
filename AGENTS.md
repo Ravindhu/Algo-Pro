@@ -21,3 +21,4 @@ use GPT to improve the trading strategy.
 use Convolutional Neural Networks (CNNs) in trading statergy
 use Reinforcement Learning (RL) to improve the trading strategy
 use architectural, validation, and risk models to improve the trading statergy
+use Advance precious models in valid place
