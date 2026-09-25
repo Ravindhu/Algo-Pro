@@ -44,6 +44,8 @@ from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ..core.results import safe_float
+
 logger = logging.getLogger(__name__)
 
 # <repo>/data/job_status/
@@ -188,7 +190,14 @@ def run(*, force: bool = False, dry_run: bool = False,
              f"gross={data.get('gross')} trades="
              f"{len(data.get('rebalance_trades') or [])}")
 
-        # ---- 4. persist the run ------------------------------------------ #
+        # ---- 4. persist the run + freeze the daily equity row ------------ #
+        #
+        # Two different records, deliberately kept apart:
+        #   * portfolio_state  -> the ALLOCATION history (what we wanted to hold)
+        #   * tracker/store_nav -> the EQUITY history (what it was actually worth)
+        # Phases 2-5 (Sharpe/VaR/attribution) read the second one; the dashboard
+        # drift tab reads the first. Mixing them would give us two definitions of
+        # "return", which is how desks end up disagreeing with their own P&L.
         if not dry_run:
             from ..portfolio import portfolio_state
             run_file = portfolio_state.record({
@@ -204,6 +213,11 @@ def run(*, force: bool = False, dry_run: bool = False,
                 "job": "daily_portfolio",
             }, ts=started)
             result["run_file"] = str(run_file) if run_file else None
+
+            nav = _snapshot_equity(inputs, data, started, _log, result)
+            if nav:
+                result["nav"] = nav.get("nav")
+                result["nav_file"] = nav.get("stored")
         else:
             result["warnings"].append("dry-run: nothing written")
 
@@ -218,6 +232,72 @@ def run(*, force: bool = False, dry_run: bool = False,
     result["elapsed_s"] = round(time.time() - started, 2)
     write_status(result)
     return result
+
+
+def _snapshot_equity(inputs: Dict[str, Any], data: Dict[str, Any],
+                     started: float, log: Any,
+                     result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Freeze today's equity row from the live book (Phase 1).
+
+    Uses the *broker's* view of the position (``inputs['current_weights']`` +
+    ``inputs['capital']``) rather than replaying the order ledger, because the
+    broker is the source of truth for what we actually hold after corporate
+    actions, partial fills and rejects. The tracker's fill-level accounting is
+    used for cost basis and P&L.
+
+    Returns the NAV snapshot dict, or None when there is nothing to record.
+    Never raises — a bookkeeping miss must not fail the job.
+    """
+    try:
+        from ..portfolio import tracker as tracker_mod
+
+        capital = safe_float(inputs.get("capital"))
+        if not capital or capital <= 0:
+            log("equity snapshot skipped: no capital from the provider")
+            return None
+
+        tracker = tracker_mod.EquityTracker(
+            starting_cash=float(capital),
+            charges_bps=(safe_float(inputs.get("charges_bps"))
+                         if safe_float(inputs.get("charges_bps")) is not None
+                         else tracker_mod.DEFAULT_CHARGES_BPS),
+            log=log)
+
+        # Book the sleeve book as if entered at the provider's marks: we are
+        # valuing an EXISTING book, not replaying history, so the "fill" price
+        # is the current mark and cost basis starts at the mark.
+        marks: Dict[str, float] = {}
+        weights = inputs.get("current_weights") or {}
+        for sleeve, w in weights.items():
+            wt = safe_float(w) or 0.0
+            notional = wt * float(capital)
+            if notional <= 0:
+                continue
+            marks[sleeve] = 1.0          # unit marks: notional == qty * 1.0
+            tracker.on_fill(sleeve, "SLEEVE", "BUY", int(round(notional)),
+                            1.0, ts=started, charges_bps=0.0)
+
+        snap = tracker.snapshot(
+            marks, ts=started,
+            extra={
+                "job": "daily_portfolio",
+                "regime": data.get("regime"),
+                "optimiser": data.get("optimiser"),
+                "gross": data.get("gross"),
+                "cash_weight": data.get("cash_weight"),
+                "turnover": (data.get("cost") or {}).get("turnover"),
+                "cost_bps": (data.get("cost") or {}).get("cost_bps"),
+                "portfolio_vol": (data.get("risk") or {}).get("portfolio_vol"),
+            })
+        stored_to = tracker_mod.store_nav(
+            snap, directory=inputs.get("nav_dir"))
+        log(f"equity: nav={snap['nav']:,.0f} gross={snap['gross_exposure']:,.0f} "
+            f"date={snap['date']}")
+        return {**snap, "stored": str(stored_to) if stored_to else None}
+    except Exception as exc:  # noqa: BLE001 - bookkeeping is never fatal
+        logger.warning("equity snapshot failed: %r", exc)
+        result.setdefault("warnings", []).append(f"equity snapshot failed: {exc}")
+        return None
 
 
 def main(argv: Optional[list] = None) -> int:

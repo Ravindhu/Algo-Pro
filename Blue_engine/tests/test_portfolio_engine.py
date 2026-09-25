@@ -1375,6 +1375,72 @@ def test_job_module_is_runnable_and_has_a_cli():
 
 
 # --------------------------------------------------------------------------- #
+# 23. Phase 1: the post-close job must freeze the daily equity row
+# --------------------------------------------------------------------------- #
+def test_job_snapshots_equity_into_the_nav_file(tmp_path):
+    """The job must write BOTH the allocation run and the equity row.
+
+    These are different records on purpose: ``portfolio_runs`` holds what we
+    wanted to hold (allocation), ``portfolio_nav`` holds what it was worth
+    (equity). Phases 2-5 read the latter.
+    """
+    from blue_engine.jobs import daily_portfolio as job
+    from blue_engine.portfolio import tracker as tr
+
+    inputs = {
+        "capital": 1_000_000.0,
+        "current_weights": {"NIFTY": 0.30, "IT": 0.10},
+        "nav_dir": str(tmp_path),
+        "charges_bps": 0.0,
+    }
+    data = {"regime": "RISK_ON", "optimiser": "risk_parity", "gross": 0.85,
+            "cash_weight": 0.15, "cost": {"turnover": 0.04, "cost_bps": 3.0},
+            "risk": {"portfolio_vol": 0.12}}
+    result = {"warnings": []}
+
+    snap = job._snapshot_equity(inputs, data, 1_790_000_000.0,
+                                lambda m: None, result)
+    _check(snap is not None, f"snapshot should be produced: {result}")
+    _check(abs(snap["nav"] - 1_000_000.0) < 1e-6,
+           f"NAV should equal capital at entry, got {snap['nav']}")
+    _check(abs(snap["gross_exposure"] - 400_000.0) < 1e-6,
+           f"gross = (0.30+0.10)*1e6, got {snap['gross_exposure']}")
+    _check(snap["regime"] == "RISK_ON" and snap["optimiser"] == "risk_parity",
+           "telemetry must be carried into the equity row")
+
+    rows = tr.read_nav(months=1, directory=tmp_path)
+    _check(len(rows) == 1, f"exactly one NAV row should persist, got {len(rows)}")
+    _check(rows[0]["portfolio_vol"] == 0.12,
+           "risk telemetry should survive so the curve can be sliced by vol")
+
+
+def test_job_skips_equity_without_capital(tmp_path):
+    """No capital -> no NAV row (never a zero-NAV row that poisons returns)."""
+    from blue_engine.jobs import daily_portfolio as job
+    from blue_engine.portfolio import tracker as tr
+
+    result = {"warnings": []}
+    snap = job._snapshot_equity({"nav_dir": str(tmp_path)}, {}, 1.0,
+                                lambda m: None, result)
+    _check(snap is None, "no capital should mean no snapshot")
+    _check(tr.read_nav(months=1, directory=tmp_path) == [],
+           "nothing may be written when there is no capital")
+
+
+def test_job_equity_is_never_fatal(tmp_path):
+    """A broken equity snapshot must not fail the job (bookkeeping rule)."""
+    from blue_engine.jobs import daily_portfolio as job
+    result = {"warnings": []}
+    # capital present but a nonsense weights payload
+    snap = job._snapshot_equity({"capital": 1_000.0,
+                                 "current_weights": "not-a-dict",
+                                 "nav_dir": str(tmp_path)},
+                                {}, 1.0, lambda m: None, result)
+    _check(snap is not None or result["warnings"],
+           "either a row is produced, or a warning is recorded — never a raise")
+
+
+# --------------------------------------------------------------------------- #
 # 23. Basket construction (sleeves Yahoo has no index for, e.g. AUTO)
 # --------------------------------------------------------------------------- #
 def test_fetch_basket_needs_tickers():

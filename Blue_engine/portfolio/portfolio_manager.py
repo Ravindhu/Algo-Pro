@@ -17,6 +17,17 @@ Public methods (the contract the dashboard uses)::
     pm.refresh_portfolio()           # force a fresh engine run (new data)
     pm.run_optimization("hrp")       # run one named optimiser, compare weights
 
+    # Phase 1 — the equity curve (foundation for all later analytics)
+    pm.ingest_trades(recent)         # book new fills (idempotent across polls)
+    pm.snapshot_nav(marks)           # freeze + persist one end-of-day NAV row
+    pm.get_equity_curve()            # NAV path + daily returns for Phases 2-5
+
+Why the tracker lives here
+--------------------------
+``EquityTracker`` (``portfolio/tracker.py``) owns the accounting; this class
+only *drives* it. That keeps the maths unit-testable in isolation while the
+dashboard gets one object to talk to.
+
 Degradation contract ("degrade, never halt")
 --------------------------------------------
 * live data unavailable -> cached provider snapshot -> empty book (never raise).
@@ -48,8 +59,9 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from blue_engine.core.results import safe_float
 from blue_engine.portfolio import (
-    attribution, optim, portfolio_state)
+    attribution, optim, portfolio_state, tracker as tracker_mod)
 from blue_engine.portfolio.portfolio_engine import PortfolioEngine
 
 _log = logging.getLogger("portfolio.manager")
@@ -93,6 +105,21 @@ class PortfolioManager:
         self._last_run: Optional[Dict[str, Any]] = None   # cache of EngineResult.data
         self._last_run_ts: float = 0.0
         self._lock = threading.Lock()
+        # Phase 1: the equity/P&L accounting core. Pure object; the NAV file is
+        # written only from snapshot_nav(), so a dashboard poll never mutates disk
+        # unless the caller asks for a snapshot.
+        #
+        # NOTE the explicit ``is None`` checks: ``0.0`` is a *legitimate* config
+        # value (a paper-trading account pays no charges), so it must not be
+        # coerced to the default by Python's falsy-zero rule.
+        _cash = safe_float(self.config.get("starting_cash"))
+        _bps = safe_float(self.config.get("charges_bps"))
+        self.tracker = tracker_mod.EquityTracker(
+            starting_cash=0.0 if _cash is None else _cash,
+            charges_bps=(tracker_mod.DEFAULT_CHARGES_BPS if _bps is None
+                         else _bps),
+            log=self.config.get("log"))
+        self._seen_fills: set = set()      # content keys of booked fills
 
     # -- construction ---------------------------------------------------- #
     @classmethod
@@ -206,6 +233,124 @@ class PortfolioManager:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "days": days, "runs": 0,
                     "warnings": [f"tearsheet unavailable: {exc}"]}
+
+    # -- Phase 1: equity curve ------------------------------------------- #
+    @staticmethod
+    def _fill_key(t: Any) -> Optional[tuple]:
+        """A content hash identifying one fill, for de-duplication.
+
+        Why content and not a count: a caller may hand us a *growing* list (the
+        dashboard's ``recent_trades(200)`` window) or a *single new* fill. A
+        positional cursor breaks the second case and can double-book the first
+        when the window slides. Keying on content is correct for both.
+
+        Returns None when the row lacks the fields needed to be a fill, so
+        malformed rows are skipped rather than colliding on a shared key.
+        """
+        if isinstance(t, dict):
+            g = t.get
+        else:
+            g = lambda k, _d=None, _t=t: getattr(_t, k, _d)  # noqa: E731
+        sym = str(g("symbol", "") or "")
+        side = str(g("side", "") or "").upper()
+        qty = safe_float(g("qty"))
+        px = safe_float(g("price"))
+        if not sym or side not in ("BUY", "SELL") or not qty or px is None:
+            return None
+        exch = str(g("exchange", "") or "")
+        ts = safe_float(g("ts")) or 0.0
+        return (sym, exch, side, int(qty), round(float(px), 6), round(ts, 3))
+
+    def ingest_trades(self, trades: Any, *,
+                      default_exchange: str = "") -> Dict[str, Any]:
+        """Book fills into the equity tracker, de-duplicated by content.
+
+        Safe to call on every dashboard poll: a fill already booked is ignored,
+        whether the caller sends the same window again or a single new fill.
+
+        Returns ``{"ok", "applied", "skipped", "total_ingested", "tracker"}``;
+        never raises.
+        """
+        try:
+            applied = skipped = 0
+            for t in list(trades or []):
+                key = self._fill_key(t)
+                if key is None:
+                    skipped += 1
+                    continue
+                if key in self._seen_fills:
+                    skipped += 1
+                    continue
+                if isinstance(t, dict):
+                    g = t.get
+                    exch = str(t.get("exchange") or default_exchange)
+                else:
+                    g = lambda k, _d=None, _t=t: getattr(_t, k, _d)  # noqa: E731
+                    exch = str(g("exchange", default_exchange)
+                               or default_exchange)
+                if self.tracker.on_fill(str(g("symbol", "") or ""), exch,
+                                        str(g("side", "") or ""),
+                                        int(safe_float(g("qty")) or 0),
+                                        safe_float(g("price")) or 0.0,
+                                        ts=safe_float(g("ts"))):
+                    self._seen_fills.add(key)
+                    applied += 1
+                else:
+                    skipped += 1
+            return {"ok": True, "applied": applied, "skipped": skipped,
+                    "total_ingested": len(self._seen_fills),
+                    "tracker": self.tracker.describe()}
+        except Exception as exc:  # noqa: BLE001 - a poll must never break the page
+            _log.warning("ingest_trades failed: %r", exc)
+            return {"ok": False, "applied": 0, "skipped": 0,
+                    "total_ingested": len(self._seen_fills),
+                    "warnings": [f"trade ingestion failed: {exc}"]}
+
+    def snapshot_nav(self, marks: Optional[Dict[str, float]] = None, *,
+                     ts: Optional[float] = None,
+                     persist: bool = True,
+                     extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Freeze one NAV row and (optionally) append it to the equity curve.
+
+        Called once per session (the post-close job) with end-of-day marks. Pass
+        ``ts`` to date the row explicitly (e.g. a backfill or a simulated day);
+        it defaults to *now*, which is what the live job wants.
+
+        Any telemetry in ``extra`` (regime, optimiser, gross) is merged so later
+        analysis can slice the curve by regime without a join.
+
+        Returns the snapshot dict plus ``{"ok", "stored"}``; never raises.
+        """
+        try:
+            marks = dict(marks or {})
+            row = self.tracker.snapshot(marks, ts=ts, extra=extra)
+            stored_to = None
+            if persist:
+                stored_to = tracker_mod.store_nav(
+                    row, directory=self.config.get("nav_dir"))
+            return {**row, "ok": True,
+                    "stored": str(stored_to) if stored_to else None}
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("snapshot_nav failed: %r", exc)
+            return {"ok": False, "warnings": [f"nav snapshot failed: {exc}"]}
+
+    def get_equity_curve(self, months: int = 12) -> Dict[str, Any]:
+        """The stored daily equity curve + derived daily returns.
+
+        This is the Phase-2 input: Phases 2–5 read this instead of recomputing
+        P&L, which keeps one definition of "return" across the whole desk.
+        """
+        try:
+            rows = tracker_mod.read_nav(
+                months=months, directory=self.config.get("nav_dir"))
+            rets = tracker_mod.daily_returns(rows)
+            return {"ok": True, "rows": rows, "n": len(rows),
+                    "returns": rets, "n_returns": len(rets),
+                    "dates": [r.get("date") for r in rows],
+                    "nav": [safe_float(r.get("nav")) for r in rows]}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "rows": [], "returns": [],
+                    "warnings": [f"equity curve unavailable: {exc}"]}
 
     def run_optimization(self, method: str,
                          context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
