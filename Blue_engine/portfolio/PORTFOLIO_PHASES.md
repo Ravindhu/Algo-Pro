@@ -211,18 +211,90 @@ $ pytest Blue_engine\tests -q
 
 ---
 
-## Phase 4 — Optimiser layer — ⏳ NEXT
+## Phase 4 — Optimiser policy layer — ✅ DONE
 
-| # | Deliverable | Notes |
-|---|---|---|
-| 1 | **HRP** as the robust default | no covariance inversion → survives correlated Indian equity |
-| 2 | Black-Litterman with views from the signal layer | views already flow via `portfolio/views/` |
-| 3 | Constraints: per-symbol, sector, gross/net, kill-switch | kill-switch overrides everything |
-| 4 | Rebalance triggers: drift threshold + EOD, never intraday churn | cost-aware band already exists |
+> The optimiser *primitives* (ERC, HRP, NCO, BL, min-var, max-Sharpe, CVaR)
+> already existed in `optim/`. Phase 4 adds the **policy layer** that chooses,
+> constrains, and — most importantly — decides whether to trade at all.
 
-> **Note:** the optimiser *primitives* (ERC, HRP, NCO, BL, min-var, max-Sharpe,
-> CVaR) already exist in `portfolio/optim/`. Phase 4 is about **choosing and
-> constraining** them from the manager layer, not writing new maths.
+| # | Deliverable | Status | Where |
+|---|---|---|---|
+| 1 | Decision pipeline: kill-switch → data → regime → optimiser → constraints | [x] | `optim_policy.decide()` |
+| 2 | **Kill-switch**: drawdown + daily-loss, latching, explicit reset | [x] | `optim_policy.KillSwitch` |
+| 3 | **Data validity gate**: staleness, short sample, degenerate covariance | [x] | `optim_policy.check_data_validity()` |
+| 4 | Regime-selected optimiser (single source: `optim.registry`) | [x] | `optim_policy.decide()` |
+| 5 | Constraint resolution: defaults < desk limits < regime overrides | [x] | `optim_policy.resolve_constraints()` |
+| 6 | Halt flows as a flat book through the normal weight path | [x] | `optim_policy.apply_to_problem()` |
+| 7 | Manager API (drawdown auto-read from the equity curve) | [x] | `get_policy()` |
+| 8 | Tests (27) | [x] | `test_optim_policy.py` |
+
+### Design decisions that matter
+
+* **The kill-switch is FIRST and overriding.** A desk's losses rarely come from
+  picking the wrong objective function; they come from *continuing to trade*
+  through a drawdown, a data fault, or a broken book. Making "stop" a
+  first-class, testable decision is the single highest-value thing in Phase 4.
+* **It is also LATCHING.** A switch that clears as soon as the drawdown ticks
+  back inside the limit is not a kill-switch — it is a stop-loss, and it
+  re-enters at the exact moment the desk is least able to judge whether the
+  cause is fixed. Clearing requires an explicit named confirmation token.
+* **Stale data is a HALT, not a warning.** This is subtle and important: sleeves
+  whose prices stopped updating show **zero** correlation, so the optimiser
+  treats them as independent and *concentrates into them*. A data fault does not
+  produce an obviously wrong book — it produces a confidently concentrated one.
+* **A halt is a flat book, not an exception.** POV, the risk gate and the
+  dashboard all understand weights, so returning a legitimate zero-weight book
+  (with a recorded reason) makes the halt visible in all the usual places and
+  lets the caller use one code path for both cases.
+* **Every decision carries reasons.** A silent halt is unusable in practice.
+
+### Bug found and fixed in Phase 4
+
+**Circular import from the plugin auto-registry.** ``optim_policy.py`` was
+written with ``from . import registry``, but ``core/registry.py``
+auto-discovers *every* module under ``portfolio/`` at import time. That made the
+new module participate in its own import cycle and fail on first use. Fixed by
+importing the concrete path (``from .optim import registry``).
+*Note for future modules: never import the package-local ``registry`` by
+relative shorthand from inside ``portfolio/``.*
+
+### Verification
+
+```
+$ pytest Blue_engine\tests -q
+287 passed in 51.03s
+```
+
+Live check (platform down, no provider data):
+
+```
+action=HALT  trade=False  optimiser=None
+reasons: ['HALT: universe has 0 sleeve(s); need >= 2 to allocate']
+```
+
+Halted with an explicit reason rather than “optimising” an empty book — the
+correct behaviour when the broker feed is unavailable.
+
+---
+
+## Phase 5 — ML / AI overlay — ⏳ NEXT
+
+| # | Deliverable | Status | Notes |
+|---|---|---|---|
+| 1 | Regime model (HMM/GMM on vol, ATR%, breadth) → leverage multipliers | [x] | already in `economics/models/hmm_regime.py` |
+| 2 | GBM/XGBoost sleeve-return forecast → BL views | [x] | already in `portfolio/views/ml_views.py` |
+| 3 | Lexical + GPT sentiment → sector tilt | [x] | already in `portfolio/views/nlp_views.py`, `llm_note.py` |
+| 4 | CNN on candlestick heatmaps | [ ] | new — short-horizon signal |
+| 5 | LSTM/Transformer next-day forecaster | [ ] | new — feature store: OHLCV, F&O OI, IV skew, breadth |
+| 6 | RL (PPO) position sizing | [ ] | new — state: regime, drawdown, exposure, VIX |
+
+**Guard (non-negotiable):** ML output is **advisory** to the rule-based risk
+layer. The kill-switch, circuit breakers and data-validity gates are *not*
+ML-gated — a model cannot talk the desk into trading through a drawdown.
+
+> Items 1–3 already exist and are tested. Phase 5 in practice means **wiring
+them into the policy decision** (views → BL → optimiser, behind `views_enabled`)
+and then adding the CNN/LSTM/RL work as research.
 
 ---
 

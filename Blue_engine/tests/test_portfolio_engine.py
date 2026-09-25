@@ -1571,6 +1571,66 @@ def test_factory_never_writes_the_real_price_cache():
 
 
 # --------------------------------------------------------------------------- #
+# 25. Phase 4: the manager policy must halt rather than optimise on nothing
+# --------------------------------------------------------------------------- #
+def test_manager_policy_halts_without_a_universe():
+    """With no provider data the policy must HALT, not optimise an empty book.
+
+    This is the real-world case when the platform is down: the engine has no
+    sleeves, so any "allocation" would be meaningless. Halting with a reason is
+    the only honest answer.
+    """
+    pm = pm_mod.PortfolioManager.create({"persist": False})
+    out = pm.get_policy()
+    _check("action" in out, f"policy must always return an action: {out}")
+    _check(out["action"] in ("HALT", "EXIT_TO_CASH", "OPTIMISE"),
+           f"unexpected action: {out['action']}")
+    _check(isinstance(out["reasons"], list),
+           "every decision must carry reasons")
+
+
+def test_manager_policy_uses_supplied_inputs(tmp_path):
+    """With a valid book the policy must choose an optimiser and constraints."""
+    from blue_engine.portfolio import tracker as tr
+    from datetime import datetime, timedelta
+
+    pm = pm_mod.PortfolioManager.create(
+        {"persist": False, "nav_dir": str(tmp_path)})
+    # A flat equity curve: no drawdown, so the kill-switch stays clear.
+    d0 = datetime(2026, 6, 1, 16, 0, tzinfo=tr.IST)
+    for i in range(5):
+        tr.store_nav({"ts": (d0 + timedelta(days=i)).timestamp(),
+                      "date": (d0 + timedelta(days=i)).strftime("%Y-%m-%d"),
+                      "nav": 1_000_000.0}, directory=tmp_path)
+
+    inputs = {
+        "universe": ["NIFTY", "BANKNIFTY", "IT"],
+        "n_obs": 300,
+        "cov": [[0.020, 0.008, 0.004],
+                [0.008, 0.030, 0.010],
+                [0.004, 0.010, 0.040]],
+    }
+    out = pm.get_policy({"portfolio_inputs": inputs},
+                        limits={"max_gross": 0.75})
+    _check(out["action"] == "OPTIMISE",
+           f"a valid book should optimise: {out.get('reasons')}")
+    _check(out["optimiser"], "an optimiser must be selected")
+    _check(abs(out["constraints"]["max_gross"] - 0.75) < 1e-9,
+           f"the operator's limit must be honoured: {out['constraints']}")
+
+
+def test_manager_policy_exits_on_drawdown(tmp_path):
+    """A breached drawdown must force a flat book, whatever the regime says."""
+    pm = pm_mod.PortfolioManager.create({"persist": False})
+    inputs = {"universe": ["NIFTY", "IT"], "n_obs": 300,
+              "cov": [[0.02, 0.004], [0.004, 0.03]]}
+    out = pm.get_policy({"portfolio_inputs": inputs}, drawdown=0.25)
+    _check(out["action"] == "EXIT_TO_CASH",
+           f"a 25% drawdown must flatten the book, got {out['action']}")
+    _check(out["trade"] is False, "must not trade")
+
+
+# --------------------------------------------------------------------------- #
 # Runner (works without pytest)
 # --------------------------------------------------------------------------- #
 def _run_all() -> int:

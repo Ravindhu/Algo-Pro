@@ -29,6 +29,9 @@ Public methods (the contract the dashboard uses)::
     pm.get_exposure()                # sector/long-short/beta/concentration
     pm.get_attribution()             # P&L by sleeve, session bucket, strategy
 
+    # Phase 4 — optimiser policy (kill-switch first, and overriding)
+    pm.get_policy()                  # optimiser + constraints, or EXIT_TO_CASH
+
 Why the tracker lives here
 --------------------------
 ``EquityTracker`` (``portfolio/tracker.py``) owns the accounting; this class
@@ -484,6 +487,55 @@ class PortfolioManager:
             return {"ok": False, "by_sleeve": {}, "by_bucket": {},
                     "by_strategy": {}, "reconciliation": {},
                     "warnings": [f"attribution unavailable: {exc}"]}
+
+    # -- Phase 4: optimiser policy ---------------------------------------- #
+    def get_policy(self, context: Optional[Dict[str, Any]] = None, *,
+                   drawdown: Optional[float] = None,
+                   daily_loss: Optional[float] = None,
+                   limits: Optional[Dict[str, Any]] = None
+                   ) -> Dict[str, Any]:
+        """Phase 4: decide which optimiser to run, or whether to trade at all.
+
+        Evaluates, in order: **kill-switch → data validity → regime → optimiser
+        → constraints**. The kill-switch is deliberately first and overriding.
+
+        Drawdown is taken from the stored equity curve when not supplied, so a
+        tired operator cannot accidentally bypass the halt by forgetting to pass
+        it. Never raises.
+        """
+        try:
+            from blue_engine.portfolio import optim_policy as op_mod
+
+            inputs = self._engine._collect(context or {}) or {}
+            econ = self._engine._econ_data(context or {})
+            regime = econ.get("regime")
+
+            # Drawdown from the live curve unless the caller overrides it.
+            dd = safe_float(drawdown)
+            if dd is None:
+                try:
+                    curve = self.get_equity_curve(
+                        months=self.config.get("policy_months", 12))
+                    navs = [safe_float(x) for x in (curve.get("nav") or [])]
+                    navs = [x for x in navs if x is not None]
+                    if navs:
+                        peak = max(navs)
+                        if peak > 0:
+                            dd = max((peak - navs[-1]) / peak, 0.0)
+                except Exception:  # noqa: BLE001 - absence of history is fine
+                    dd = None
+
+            decision = op_mod.decide(
+                inputs, regime=regime, drawdown=dd, daily_loss=daily_loss,
+                limits=limits or self.config.get("limits"))
+            decision["regime"] = regime
+            decision["drawdown"] = dd
+            return decision
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("get_policy failed: %r", exc)
+            return {"ok": False, "trade": False, "action": "HALT",
+                    "optimiser": None, "constraints": {}, "reasons": [],
+                    "warnings": [f"policy unavailable: {exc}"]}
 
     def run_optimization(self, method: str,
                          context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
