@@ -14,7 +14,7 @@ all creditenial must be safe
 use openalgo Documentation https://openalgo.in/
 use NSE ,nsdl ,rbi website for data sourses ,trusted and reliable live sourse point
 error data should be show in dashboard in red
-comment ,log,description,debugging,testing,performance,security,file organising,code documentation  with example/image explanation/ case studie/in easy english,complete all phases and commit,and audit 
+comment ,log,description,debugging,testing,performance,security,file organising,code documentation  with example/image explanation/ case studie/in easy english,complete all phases ,check redundancy and duplication and then commit,and audit 
 Use advance machine learning and deep learning to improve the trading strategy.
 Use statistical analysis ,probability analysis to improve the trading strategy.
 use Artificial intelligence to improve the trading strategy.
