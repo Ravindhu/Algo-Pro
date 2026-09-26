@@ -92,7 +92,10 @@ def build(**over: Any) -> ModelSpec:
             blended = mean_proba([probs for _, probs in members], w_list)
             sc = skill(y_true, [1 if b >= 0.5 else 0 for b in blended])
             sc = 0.0 if sc is None else float(sc)
-            if sc > best_score:
+            # Tie-break: at equal skill prefer the SMALLER committee — a
+            # dropped member means the gate earned its keep, and carrying a
+            # skill-0 member for a tie is dead weight plus correlation risk.
+            if sc > best_score or (sc == best_score and len(cand) < len(weights)):
                 best_score = sc
                 weights = cand
 

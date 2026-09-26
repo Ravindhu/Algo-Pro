@@ -37,20 +37,28 @@ reading it, which you cannot do with a library call. Sample sizes here are small
 
 from __future__ import annotations
 
-from . import metrics, splits
+from . import metrics, splits, walk_forward as walk_forward_mod
 from .metrics import (
-    auc, base_rate, brier_score, cost_adjusted_edge, deflated_sharpe,
-    fold_summary, hit_rate, max_drawdown, precision_recall, sharpe, skill,
+    accuracy, auc, base_rate, brier_score, cost_adjusted_edge,
+    deflated_sharpe, fold_summary, hit_rate, log_loss, max_drawdown,
+    precision_recall, sharpe, skill,
 )
 from .splits import Split, describe_splits, last_holdout, purged_kfold, walk_forward
+from .walk_forward import (
+    FoldResult, WalkForwardReport, run_walk_forward,
+    strategy_returns_from_probs,
+)
 
 __all__ = [
     # submodules
-    "splits", "metrics",
+    "splits", "metrics", "walk_forward_mod",
     # splits
     "Split", "walk_forward", "purged_kfold", "last_holdout", "describe_splits",
     # metrics
-    "auc", "base_rate", "brier_score", "cost_adjusted_edge", "deflated_sharpe",
-    "fold_summary", "hit_rate", "max_drawdown", "precision_recall", "sharpe",
-    "skill",
+    "accuracy", "auc", "base_rate", "brier_score", "cost_adjusted_edge",
+    "deflated_sharpe", "fold_summary", "hit_rate", "log_loss",
+    "max_drawdown", "precision_recall", "sharpe", "skill",
+    # walk-forward orchestrator
+    "FoldResult", "WalkForwardReport", "run_walk_forward",
+    "strategy_returns_from_probs",
 ]

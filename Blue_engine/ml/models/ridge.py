@@ -128,14 +128,20 @@ def ridge_predict(fitted: Dict[str, Any], X: Sequence[Sequence[float]]
     "probabilities", and downstream (position sizing, calibration) assumes
     [0, 1]. The squash is monotonic, so ranking (AUC) is unchanged — it only
     rescales the numbers into probability-like units.
+
+    NOTE: the score is the CENTRED prediction (y - base rate), so score > 0
+    already means "above base rate" and the 0.5 threshold sits exactly at
+    "y > base rate". y_mu must NOT be added here — adding it inside the
+    squash shifts the decision threshold by the base rate and degrades a
+    perfectly separable rule (the bug that the ridge-recovery test caught).
     """
     beta, centre, y_mu = fitted["beta"], fitted["centre"], fitted["y_mu"]
     out: List[float] = []
     for row in X:
         try:
-            score = sum(b * (float(v) - c) for b, v, c in zip(beta, row, centre)) + y_mu
+            score = sum(b * (float(v) - c) for b, v, c in zip(beta, row, centre))
         except (TypeError, ValueError):
-            score = y_mu                      # unknown row -> predict the base rate
+            score = 0.0                       # unknown row -> predict the base rate
         # logistic squash into [0, 1]
         p = 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, score))))
         out.append(p)
