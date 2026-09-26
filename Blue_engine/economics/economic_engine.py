@@ -238,6 +238,18 @@ class EconomicEngine(BaseEngine):
                 "direction": direction,
                 "weight": weight,
                 "score": signed,
+                # Provenance, carried through from the macro provider so the UI
+                # can distinguish a LIVE reading from the static config
+                # fallback. Without this the two are indistinguishable, which
+                # is how 'currency' sat at 84.5 while USD/INR was near 95.
+                # Absent == the fallback (macro_master.json) supplied it.
+                "source": (raw or {}).get("source") if isinstance(raw, dict) else None,
+                "as_of": (raw or {}).get("as_of") if isinstance(raw, dict) else None,
+                # Static-block citations (macro_master.json). Carried through
+                # untouched so the UI can show what a fallback number actually
+                # refers to, rather than just that it is a fallback.
+                "src": (raw or {}).get("src") if isinstance(raw, dict) else None,
+                "period": (raw or {}).get("period") if isinstance(raw, dict) else None,
                 "views": views,
                 "views_used": scored["views_used"],
                 "surprise_method": surprise_methods.get(key, "none"),

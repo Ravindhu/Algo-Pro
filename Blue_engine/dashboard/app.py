@@ -116,11 +116,24 @@ class LiveDashboard:
         *,
         history_fn: HistoryFn,
         quotes_fn: QuotesFn,
+        client: Any = None,
         max_ticks_to_process: Optional[int] = None,
     ) -> None:
         self.config = config
         self.history_fn = history_fn
         self.quotes_fn = quotes_fn
+        #: The OpenAlgo SDK client, when one is available.
+        #:
+        #: Only the *mode read* uses this (see core/mode.read_mode): the
+        #: terminal must show LIVE vs ANALYZER, and only the SDK can answer
+        #: that. It is optional because the terminal is designed to run
+        #: read-only without any broker connection -- in that case the theme
+        #: intentionally falls back to "unknown" and says so on the banner.
+        #:
+        #: Note the asymmetry: `history_fn`/`quotes_fn` may be paper stubs,
+        #: but a paper stub cannot report the mode, so passing a real client
+        #: here is what makes the banner truthful even in paper mode.
+        self.client = client
         self._max_ticks_to_process = max_ticks_to_process
 
         wl = resolve_watchlist(

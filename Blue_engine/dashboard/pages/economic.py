@@ -102,6 +102,38 @@ def _wrap(text: str, width: int = 46) -> str:
     return fig
 
 
+#: A persisted run older than this is called out on the page header.
+_STALE_RUN_HOURS = 24
+
+
+def _run_age_note(ts) -> tuple:
+    """Return (text, colour) describing how old the displayed run is.
+
+    The page renders the last persisted run, so its age is not cosmetic -- it
+    is the difference between "this is the current macro picture" and "this is
+    yesterday's". Returns amber past ``_STALE_RUN_HOURS``, red past a week.
+    """
+    from datetime import datetime
+
+    try:
+        when = datetime.fromtimestamp(float(ts))
+    except (TypeError, ValueError, OSError):
+        return "run timestamp unreadable - freshness unknown", _AMBER
+
+    age_h = (datetime.now() - when).total_seconds() / 3600.0
+    stamp = when.strftime("%d-%b-%Y %H:%M")
+    if age_h < 0:
+        return f"run {stamp} (clock skew?)", _AMBER
+    if age_h < _STALE_RUN_HOURS:
+        return f"run {stamp} ({age_h:.1f}h ago) - current", _SLATE
+    days = age_h / 24.0
+    if days < 7:
+        return (f"run {stamp} ({days:.1f}d ago) - STALE: re-run the engine to "
+                f"refresh", _AMBER)
+    return (f"run {stamp} ({days:.0f}d ago) - VERY STALE: values below are not "
+            f"current", _RED)
+
+
 # --------------------------------------------------------------------------- #
 # 1. Regime gauge (the headline number)
 # --------------------------------------------------------------------------- #
@@ -353,6 +385,15 @@ def _posterior_bar(model: dict):
 # Tables
 # --------------------------------------------------------------------------- #
 def _signal_table(signals: dict) -> html.Table:
+    """Signal detail table, with the data provenance made visible.
+
+    The Source column exists because of a real incident: 'currency' read 84.50
+    for months while USD/INR traded near 95. The value was correct in the file
+    it came from -- it was simply the *static config fallback*, quietly winning
+    because the live provider could not resolve USDINR on this broker. A
+    number with no stated origin is impossible to audit, so every row now says
+    where it came from and how old it is.
+    """
     if not signals:
         return html.Div("No signals in the latest run.", className="empty")
     body = []
@@ -360,6 +401,23 @@ def _signal_table(signals: dict) -> html.Table:
         s = s or {}
         score = float(s.get("score") or 0.0)
         views = s.get("views") or {}
+
+        # Provenance. `source` is set by providers; absent means the value came
+        # from the macro_master.json fallback (the engine's last resort).
+        source = s.get("source") or "config fallback"
+        as_of = s.get("as_of") or "-"
+        is_fallback = not s.get("source")
+        # `src` is the human-readable citation from macro_master.json; `period`
+        # is the reference period (e.g. "Aug 2026"). Surfaced on hover so a
+        # number can be traced to its release without opening the JSON.
+        src = s.get("src") or ""
+        period = s.get("period") or ""
+        provenance = f"{source} ({as_of})"
+        if period and period != "-":
+            provenance = f"{source} ({period})"
+        if src:
+            provenance += f"\n{src}"
+
         body.append(html.Tr([
             html.Td(s.get("label", name), className="mono"),
             html.Td(name, className="mono"),
@@ -370,12 +428,20 @@ def _signal_table(signals: dict) -> html.Table:
             html.Td(f"L={views.get('level', '-')} D={views.get('delevel', '-')} "
                     f"S={views.get('surprise', '-')}", className="mono"),
             html.Td(s.get("surprise_method", "-"), className="mono"),
+            # Amber for fallback: readable, but unmistakably "not live".
+            # `title` carries the full citation on hover.
+            html.Td(provenance.split("\n")[0],
+                    className="mono",
+                    title=provenance,
+                    style={"color": _AMBER, "fontWeight": 700}
+                    if is_fallback else None),
         ]))
     return html.Table([
         html.Thead(html.Tr([html.Th("Signal"), html.Th("Key"), html.Th("Value"),
                             html.Th("Weight"), html.Th("Score"),
                             html.Th("Views (level/delevel/surprise)"),
-                            html.Th("Surprise src")])),
+                            html.Th("Surprise src"),
+                            html.Th("Source (as of)")])),
         html.Tbody(body),
     ], className="data-table")
 
@@ -426,10 +492,24 @@ def body():
             "data/economic_runs/.",
             className="empty")
     else:
-        header_note = html.Div(
-            f"Regime: {regime}  ·  risk-on {score:+.2f}  ·  "
-            f"gross {mult:.2f}x  ·  model: {model.get('method', 'none')}",
-            className="kpi-label")
+        # Freshness banner.
+        #
+        # This page renders the last PERSISTED run, not live config. Editing
+        # macro_master.json therefore does NOT change what is displayed until a
+        # new run is recorded -- which is precisely how 'currency' kept showing
+        # 84.50 after the value was corrected to 95.0. Stating the run's age
+        # makes that impossible to misread, and turns a silent staleness into a
+        # visible one.
+        age_note, age_color = _run_age_note(latest.get("ts"))
+        header_note = html.Div([
+            html.Div(
+                f"Regime: {regime}  ·  risk-on {score:+.2f}  ·  "
+                f"gross {mult:.2f}x  ·  model: {model.get('method', 'none')}",
+                className="kpi-label"),
+            html.Div(age_note, className="mono",
+                     style={"color": age_color, "fontWeight": 700,
+                            "fontSize": "12px", "marginTop": "4px"}),
+        ])
 
     return [
         html.H2("Economic - Macro Regime Engine"),

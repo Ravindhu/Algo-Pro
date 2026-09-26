@@ -183,15 +183,54 @@ def _index_html(initial_mode: str = "analyzer") -> str:
       if (new URLSearchParams(window.location.search).get('embed') === '1') {{
         document.body.classList.add('embedded');
       }}
-      (async function syncMode() {{
-        try {{
-          const r = await fetch('/pov/mode');
-          if (!r.ok) return;
-          const j = await r.json();
+
+      // -----------------------------------------------------------------
+      // Mode sync: keep the analyzer/live banner INSTANT.
+      //
+      // The banner is the one signal that must never lag, because it is what
+      // tells the operator whether they are about to trade real money. A
+      // version of this that only ran on page load meant a mid-session flip
+      // in the OpenAlgo UI was invisible until a manual refresh -- measured
+      // 0 self-updates in 13s of idle observation.
+      //
+      // Three triggers, because each covers a case the others miss:
+      //   1. poll  every MODE_POLL_MS  - catches a flip while watching
+      //   2. focus                     - catches a flip made in OpenAlgo's
+      //                                  tab and then switched back to
+      //   3. visibilitychange          - same, for tab-hide (mobile/alt-tab),
+      //                                  and it avoids polling a hidden tab
+      //
+      // Deliberately a plain fetch loop and not a WebSocket: this endpoint is
+      // one tiny JSON read, the Dash server owns no socket here, and a poll
+      // keeps working if the WS proxy on :8765 is down.
+      // -----------------------------------------------------------------
+      (function modeSync() {{
+        var MODE_POLL_MS = 2000;
+        var last = null;
+
+        function apply(j) {{
+          // Skip no-op DOM writes; a needless setAttribute on every poll
+          // would retrigger style recalc (and any MutationObserver) 30x/min.
+          if (j.mode === last) return;
+          last = j.mode;
           document.body.setAttribute('data-mode', j.mode);
-          const b = document.querySelector('.mode-banner > span');
+          var b = document.querySelector('.mode-banner > span');
           if (b) b.textContent = j.label;
-        }} catch (e) {{ /* keep initial mode */ }}
+        }}
+
+        function refresh() {{
+          return fetch('/pov/mode', {{ cache: 'no-store' }})
+            .then(function (r) {{ return r.ok ? r.json() : null; }})
+            .then(function (j) {{ if (j) apply(j); }})
+            .catch(function () {{ /* keep last known mode; never blank it */ }});
+        }}
+
+        refresh();                                  // 1. immediate, on load
+        setInterval(refresh, MODE_POLL_MS);         // 1. steady poll
+        window.addEventListener('focus', refresh);  // 2. tab/window focus
+        document.addEventListener('visibilitychange', function () {{
+          if (!document.hidden) refresh();          // 3. became visible
+        }});
       }})();
     </script>
   </body>
@@ -273,15 +312,44 @@ def main(argv: Optional[list] = None) -> int:
         from blue_engine.dashboard.app import DashboardConfig, LiveDashboard
         from blue_engine.dashboard.cli import _resolve_history_fn, _resolve_quotes_fn
 
+        # Attach a real SDK client purely so the mode banner can be truthful.
+        #
+        # The terminal is read-only and runs in paper mode, so history/quotes
+        # stay stubbed. But `read_mode()` needs an OpenAlgo SDK client to call
+        # /api/v1/analyzer, and a paper stub cannot answer that call -- with no
+        # client the banner degraded to "MODE UNKNOWN - VERIFY IN OPENALGO UI"
+        # on every page. Building the client here costs one HTTP round trip at
+        # startup and makes LIVE vs ANALYZER accurate for the whole session.
+        #
+        # This is blocked deliberately: if OpenAlgo is not running, the banner
+        # SHOULD say unknown rather than pretend to know the mode.
+        client = None
+        if os.getenv("OPENALGO_API_KEY"):
+            try:
+                from blue_engine.core.client import init_client
+
+                client = init_client()
+                logger.info("mode probe: SDK client attached")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("mode probe: no SDK client (%s); "
+                               "banner will read 'MODE UNKNOWN'", exc)
+        else:
+            logger.warning("mode probe: OPENALGO_API_KEY unset; banner will "
+                           "read 'MODE UNKNOWN'")
+
         # Paper mode by default: no broker calls, but lets the terminal
         # show the state machines for the default watchlist.
         engine = LiveDashboard(
             DashboardConfig(),
             history_fn=_resolve_history_fn(False),
             quotes_fn=_resolve_quotes_fn(False),
+            client=client,
         )
-        logger.info("attached in-process engine (paper): %d symbols",
-                    len(engine._machines))  # noqa: SLF001
+        from blue_engine.core.mode import read_mode
+
+        logger.info("attached in-process engine (paper): %d symbols, mode=%s",
+                    len(engine._machines),  # noqa: SLF001
+                    read_mode(client))
     except Exception as exc:  # pragma: no cover - optional
         logger.info("running without a live engine (config+ledger only): %s", exc)
 

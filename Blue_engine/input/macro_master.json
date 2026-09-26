@@ -16,19 +16,87 @@
       "mpc_dates": [],
       "fixed_events": [],
       "macro": {
-        "gdp_growth":     {"value": 6.8, "previous": 6.5, "unit": "pct"},
-        "bond_return":    {"value": 7.1, "previous": 7.0, "unit": "pct"},
-        "debt":           {"value": 82.0, "previous": 81.5, "unit": "pct_gdp"},
-        "employment":     {"value": 7.6, "previous": 7.9, "unit": "pct"},
-        "inflation":      {"value": 5.1, "previous": 4.8, "unit": "pct", "forecast": 5.6},
-        "climate":        {"value": 42.0, "previous": 40.0, "unit": "index"},
-        "tax":            {"value": 27.0, "previous": 26.5, "unit": "pct"},
-        "currency":       {"value": 84.5, "previous": 83.9, "unit": "usd_local"},
-        "forex_reserves": {"value": 690.0, "previous": 685.0, "unit": "bn_usd"}
+        "_comment": [
+          "FALLBACK macro block. STATIC values, used only when no live provider",
+          "supplies a signal. They do NOT auto-update, so they drift silently -",
+          "which is how 'currency' sat at 84.5 while USD/INR was near 95.9.",
+          "",
+          "LIVE now (fetched every 6h, provenance shown on the dashboard):",
+          "  currency       FBIL reference rate via RBI",
+          "  inflation      MoSPI CPI, All-India Combined",
+          "  gdp_growth     MoSPI NAS, real GDP YoY computed from constant prices",
+          "  employment     MoSPI PLFS unemployment rate, person, rural+urban",
+          "The values here are only the last-resort fallback for those four.",
+          "",
+          "STILL STATIC (no scriptable source found - see notes per key):",
+          "  debt, forex_reserves, bond_return",
+          "",
+          "REMOVED as signals (see engines.economic.signals):",
+          "  climate, tax - no citable source exists, so their weights were set",
+          "  to 0. Scoring an invented number is worse than scoring nothing."
+        ],
+        "as_of": "2026-09-26",
+        "gdp_growth": {
+          "value": 7.82, "previous": 7.8, "unit": "pct", "as_of": "2026-09-26",
+          "src": "MoSPI NAS real GDP YoY, Q1 FY27 computed from constant-price levels (LIVE via MospiProvider)",
+          "period": "Q1 FY2026-27"
+        },
+        "bond_return": {
+          "value": 6.68, "previous": 6.72, "unit": "pct", "as_of": "2026-09-26",
+          "src": "FBIL/CCIL 10Y G-Sec benchmark yield. NOT live: FBIL+CCIL render via JS, NSE allIndices exposes index LEVELS only (NIFTY GS 10YR = 2644, which is ~2644 not a yield), FRED unreachable. Do not substitute the index for the yield.",
+          "period": "Sep 2026"
+        },
+        "debt": {
+          "value": 81.92, "previous": 81.76, "unit": "pct_gdp",
+          "as_of": "2026-09-26",
+          "src": "RBI/IMF general government debt/GDP. Annual release; SOTW (IMF WEO) gives 83.4 for 2026 but its API silently ignores the country filter, so it is not wired.",
+          "period": "FY2024-25 actual"
+        },
+        "employment": {
+          "value": 4.8, "previous": 4.7, "unit": "pct", "as_of": "2026-09-26",
+          "src": "MoSPI PLFS unemployment rate, All-India, person, rural+urban, all ages (LIVE via MospiProvider)",
+          "period": "Dec 2025"
+        },
+        "inflation": {
+          "value": 4.82, "previous": 4.31, "unit": "pct", "as_of": "2026-09-26",
+          "src": "MoSPI CPI All-India Combined (LIVE via MospiProvider). Rural is 5.23 and Urban 4.31 - the Combined row is the headline.",
+          "period": "Aug 2026"
+        },
+        "climate": {
+          "value": 42.0, "previous": 40.0, "unit": "index",
+          "as_of": "2026-09-26",
+          "src": "UNSOURCED placeholder. Weight is 0 - not scored. No free citable series exists for this input.",
+          "period": "-"
+        },
+        "tax": {
+          "value": 27.0, "previous": 26.5, "unit": "pct",
+          "as_of": "2026-09-26",
+          "src": "UNSOURCED placeholder. Weight is 0 - not scored. No citable series; note the only candidate (GC.TAX.TOTL.GD.ZS) measures tax REVENUE, not the effective corporate rate, and ends FY2022.",
+          "period": "-"
+        },
+        "currency": {
+          "value": 95.8918, "previous": 94.4, "unit": "usd_local",
+          "as_of": "25-Sep-2026 13:00 IST",
+          "src": "FBIL reference rate via RBI (LIVE via RbiReferenceRateProvider)",
+          "period": "1.00pm fix 25-Sep-2026"
+        },
+        "forex_reserves": {
+          "value": 765.9, "previous": 780.78, "unit": "bn_usd",
+          "as_of": "2026-09-26",
+          "src": "RBI Weekly Statistical Supplement. NOT live: data.rbi.org.in refuses scripted access (SAP token needs a browser fingerprint) and the WSS HTML pages carry only a 3.4KB JS template. Weekly release, so a dated value is defensible.",
+          "period": "Sep 2026"
+        }
       },
       "signals": {
         "bond_return": {"direction": -1, "weight": 1.0},
-        "currency":    {"direction": -1, "weight": 0.5}
+        "currency":    {"direction": -1, "weight": 0.5},
+        "inflation":   {"direction": -1, "weight": 1.0},
+        "employment":  {"direction": -1, "weight": 0.5},
+        "gdp_growth":  {"direction": 1,  "weight": 1.0},
+        "debt":        {"direction": -1, "weight": 0.5},
+        "forex_reserves": {"direction": 1, "weight": 0.5},
+        "climate":     {"direction": -1, "weight": 0.0},
+        "tax":         {"direction": -1, "weight": 0.0}
       }
     },
     "market": {
