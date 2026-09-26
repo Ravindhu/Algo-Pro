@@ -1,5 +1,5 @@
 {
-  "_comment": "Master JSON config for pov_engine. Edit the 'strategies' block to enable/disable each strategy. Each enabled strategy must have its own config block at the top level (with the same name).",
+  "_comment": "Master JSON config for blue_engine. Edit the 'strategies' block to enable/disable each strategy. Each enabled strategy must have its own config block at the top level (with the same name).",
 
   "strategy_label": "POV-INFY-NSE",
 

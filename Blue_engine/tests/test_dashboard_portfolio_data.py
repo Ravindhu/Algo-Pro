@@ -219,8 +219,11 @@ def test_page_imports_no_execution_or_sdk_modules():
     """
     path = (Path(_ROOT) / "dashboard" / "pages" / "analytics_portfolio.py")
     src = path.read_text(encoding="utf-8")
-    for banned in ("openalgo", "placeorder", "core.ledger", "pov_engine",
-                   "core.pipeline"):
+    # `blue_engine.dashboard.pages._data` is a legitimate read-only import, so the
+    # package name itself is allowed. What is banned is anything that can execute:
+    # the SDK, the order API, the ledger, or the pipeline.
+    for banned in ("openalgo", "placeorder", "core.ledger",
+                   "core.pipeline", "core.runner", "core.orchestrator"):
         _check(banned not in src,
                f"the dashboard page must not import/reference '{banned}'")
 

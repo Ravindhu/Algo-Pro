@@ -255,7 +255,7 @@ rate = lerp(min_pov, max_pov, f_band)
 
 ### Phase 2 - Slippage Feedback Loop
 
-When a child order fills, `pov_engine.core.order_updates` records
+When a child order fills, `blue_engine.core.order_updates` records
 one slippage sample in basis points:
 
 ```

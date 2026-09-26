@@ -2,7 +2,7 @@
 
 **Repository:** https://github.com/Ravindhu/my-trading-system
 
-**Architecture (locked):** `Python (pov_engine) → OpenAlgo (server) → Broker → Exchange`
+**Architecture (locked):** `Python (Blue_engine) → OpenAlgo (server) → Broker → Exchange`
 
 The engine talks to the platform **only** through the public OpenAlgo SDK
 (`from openalgo import api`) and its REST/WebSocket endpoints. It never imports
@@ -19,24 +19,37 @@ my-trading-system/
 │                               db/       SQLite DBs — broker session tokens live here, encrypted
 │                               keys/     Fernet / oauth key material
 │                               download/ master-contract symbol cache
-├── pov_engine/               YOUR engine. Own package, installed editable.
+├── Blue_engine/               YOUR engine. Own package, installed editable.
 │                             Talks only via the SDK. No OpenAlgo imports.
+│                               alpha/          signal generators
+│                               core/           pipeline, ledger, risk gate, orchestrator
+│                               dashboard/      Plotly Dash terminal (port 8050)
+│                               economics/      macro data (MoSPI, RBI)
+│                               infrastructure/ plumbing
+│                               input/          config (master.json) — pure data
+│                               jobs/           scheduled tasks
+│                               market/         market data and quotes
+│                               portfolio/      NAV, risk, performance analytics
+│                               pov/            POV execution (order slicing)
+│                               tests/          test suite
+│                               pyproject.toml  editable install
+├── Servers/                  Ubuntu VPS deployment
+│   ├── install_ubuntu.sh     one-shot installer
+│   ├── DEPLOY_UBUNTU.md      deploy runbook
+│   └── deploy.env.example    deploy config template (real deploy.env is gitignored)
 ├── scripts/
 │   ├── start_openalgo.py     launcher; bridges _restored/ into the clone on start
 │   ├── run_pov.py            engine launcher
+│   ├── run_economic_engine.py macro engine launcher
 │   ├── upgrade_openalgo.ps1  ONE-COMMAND safe upgrade (market-hours + position gates)
 │   ├── smoke_test.py         post-upgrade acceptance gate
 │   ├── probe_sdk.py          SDK contract probe
-│   └── START_OPENALGO.bat    wrapper for start_openalgo.py
-├── patches/                  Custom platform patches (NOT POV — see archive/)
+│   ├── verify_live_stack.py  end-to-end live verification
+│   └── diagnostics/          ad-hoc probes (read-only forensics)
+├── patches/                  Custom platform patches (NOT engine — see below)
 │   ├── openalgo-custom.patch
 │   └── openalgo-custom-other.patch
-├── archive/                  Retired code. Reference only — never executed.
-│   ├── server_pov_nse/       The old server-side POV (ran inside Flask)
-│   ├── ubuntu_pov_wiring/    Old deploy scripts that injected POV into app.py
-│   ├── scripts_retired/      One-shot migration scripts
-│   └── retired_old_openalgo/ The pre-migration tree
-└── data/                     engine ledger/state (persistent)
+└── data/                     engine ledger/state (persistent, gitignored)
 ```
 
 ## Why `_restored/` is a sibling, not a subfolder
@@ -90,10 +103,10 @@ It is **not** embedded in the OpenAlgo UI — no blueprint, no `app.py` wiring.
 
 ## Engine upgrades
 
-`pov_engine` is its own package. After changing engine code:
+`Blue_engine` is its own package. After changing engine code:
 
 ```powershell
-pip install -e .\pov_engine      # if dependencies changed
+pip install -e .\Blue_engine      # if dependencies changed
 .\scripts\smoke_test.py           # verify it still imports and passes
 ```
 
@@ -101,14 +114,20 @@ Nothing in `openalgo/` changes — the engine is a *consumer* of the platform.
 
 ## Retired components (do not act on these)
 
-`archive/` holds the old architecture. Kept for reference and forensics only:
+The old architecture was retired during the `pov_engine` → `Blue_engine` migration and
+is **not tracked in this repository** (`.gitignore` excludes `archive/`). It is kept
+locally for forensics only. If you find an `archive/` folder on a dev machine, do not
+execute anything inside it:
 
 - **`server_pov_nse/`** — server-side POV. Ran its loop inside the Flask process via
   `socketio.start_background_task`, so a live execution died on any platform reload.
-  Replaced by `pov_engine`, which runs in its own process.
+  Replaced by `Blue_engine`, which runs in its own process.
 - **`ubuntu_pov_wiring/`** — deploy scripts that copied `patches/pov_terminal.py`
   into `blueprints/` and `sed`-edited `app.py`. Under the current architecture the
   dashboard is opened directly, so no wiring is needed — and those scripts will fail
   their own `die` checks against a pristine clone.
 - **`scripts_retired/`** — one-shot migration helpers (`complete_move.ps1`) whose job
   is finished.
+
+`patches/*.patch` are historical records and still reference the old `pov_engine/`
+path. That is intentional — a patch must match the tree it was generated against.

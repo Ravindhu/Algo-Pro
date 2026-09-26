@@ -5,9 +5,9 @@
 #
 # THE RULE: this repository contains YOUR CODE ONLY.
 #
-#   TRACKED    Blue_engine/, scripts/, Servers/, README.md, .env.example
+#   TRACKED    Blue_engine/, scripts/, Servers/, patches/, README.md, .env.example
 #   NEVER      openalgo/ (upstream - the installer clones it), _restored/ (secrets),
-#              archive/ (retired code and backups)
+#              archive/ (retired code and backups), data/ (runtime ledger)
 #
 # If a secret ever reaches a commit, rotating the key is the ONLY fix. Removing
 # the file in a later commit does not remove it from history.
