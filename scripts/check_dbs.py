@@ -5,8 +5,15 @@ app opens. A corrupt SQLite file is the one failure mode that looks like
 "everything works" right up until an order is placed, so it is worth checking
 explicitly rather than assuming.
 
-Usage (from the openalgo/ folder):
-    .venv\\Scripts\\python.exe ..\\Scripts\\check_dbs.py
+Databases are resolved against the OpenAlgo clone root (``../openalgo/``), not
+against the current working directory. The first version used bare relative
+paths (``db/openalgo.db``) and therefore reported all five databases MISSING
+when invoked from anywhere except inside the clone -- a false alarm that reads
+exactly like real corruption. Paths are now anchored, so the script works from
+anywhere.
+
+Usage (from my-trading-system/):
+    openalgo\\Scripts\\python.exe Scripts\\check_dbs.py
 """
 
 from __future__ import annotations
@@ -14,6 +21,10 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+from pathlib import Path
+
+#: OpenAlgo keeps its SQLite files here, relative to the clone root.
+CLONE_ROOT = Path(__file__).resolve().parent.parent / "openalgo"
 
 DATABASES = [
     "db/openalgo.db",
@@ -31,16 +42,17 @@ def count_tables(cur: sqlite3.Cursor) -> int:
 
 def main() -> int:
     failures = 0
-    print(f"{'database':<18} {'size':>10}  {'integrity':<12} tables")
-    print("-" * 55)
-    for path in DATABASES:
-        if not os.path.exists(path):
-            print(f"{path:<18} {'-':>10}  {'MISSING':<12} -")
+    print(f"{'database':<24} {'size':>12}  {'integrity':<12} tables")
+    print("-" * 62)
+    for rel in DATABASES:
+        path = CLONE_ROOT / rel
+        if not path.exists():
+            print(f"{rel:<24} {'-':>12}  {'MISSING':<12} -")
             failures += 1
             continue
-        size = os.path.getsize(path)
+        size = path.stat().st_size
         try:
-            conn = sqlite3.connect(path)
+            conn = sqlite3.connect(str(path))
             cur = conn.cursor()
             cur.execute("PRAGMA integrity_check")
             integrity = cur.fetchone()[0]
@@ -48,11 +60,11 @@ def main() -> int:
             conn.close()
             if integrity != "ok":
                 failures += 1
-            print(f"{path:<18} {size:>10,}  {integrity:<12} {tables}")
+            print(f"{rel:<24} {size:>12,}  {integrity:<12} {tables}")
         except Exception as exc:  # noqa: BLE001
             failures += 1
-            print(f"{path:<18} {size:>10,}  ERROR: {exc}")
-    print("-" * 55)
+            print(f"{rel:<24} {size:>12,}  ERROR: {exc}")
+    print("-" * 62)
     print("RESULT:", "ALL OK" if failures == 0 else f"{failures} PROBLEM(S)")
     return 0 if failures == 0 else 1
 
