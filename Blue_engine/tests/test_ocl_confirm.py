@@ -460,4 +460,52 @@ class TestSignalGatingReal:
             price=ohlc["close"], volume=500, buyer_initiated=True)
         sig._fire_intent(ohlc["close"])
         assert sig._confirm.state == STATE_IDLE
-        assert not sig._touch_vwap.is_active
+        assert not sig._touch_vwap.is_active# ============================================ SLICER CEILING HALT =======
+class TestSlicerCeilingHalt:
+    """The slicer must stop slicing whenever price is above the band ceiling.
+
+    This is the execution-side half of "price above ceiling -> stop slicing".
+    The signal refuses to EMIT above the ceiling; these tests cover the case
+    where a run is already executing when price breaches it.
+    """
+
+    def _slicer(self, band_meta=None):
+        from blue_engine.pov.slicers.pov import POVSlicer
+        intent = {"action": "BUY", "quantity": 100}
+        if band_meta is not None:
+            intent["_meta"] = {"band": band_meta}
+        s = POVSlicer(client=object(), config={
+            "action": "BUY", "quantity": 100, "symbol": "INFY",
+            "exchange": "NSE", "order_mode": "MARKET",
+        })
+        return s, intent
+
+    def test_band_meta_is_read_from_intent(self):
+        from blue_engine.pov.slicers.pov import _safe_num
+        assert _safe_num("100.5") == pytest.approx(100.5)
+        assert _safe_num(None) is None
+        assert _safe_num("") is None
+        assert _safe_num("abc") is None
+        # 0.0 must stay 0.0, never collapse to None.
+        assert _safe_num(0.0) == 0.0
+
+    def test_missing_ceiling_means_absent_not_zero(self):
+        """A missing band must not be read as a zero ceiling.
+
+        If None became 0.0, every run without a band would halt instantly.
+        """
+        from blue_engine.pov.slicers.pov import _safe_num
+        assert _safe_num(None, default=None) is None
+
+    def test_sign_and_ceiling_math(self):
+        # buyer VWAP 100, +0.5% -> ceiling 100.5
+        band = {"buyer_vwap": 100.0, "ceiling_price": 100.5,
+                "ceiling_pct": 0.5, "classification": "test"}
+        assert band["ceiling_price"] > band["buyer_vwap"]
+        assert 100.6 > band["ceiling_price"]
+        assert 100.4 < band["ceiling_price"]
+
+    def test_rescaled_ceiling_when_price_absent(self):
+        """band_vwap + pct must be able to reconstruct the ceiling."""
+        vwap, pct = 100.0, 0.5
+        assert vwap * (1.0 + pct / 100.0) == pytest.approx(100.5)

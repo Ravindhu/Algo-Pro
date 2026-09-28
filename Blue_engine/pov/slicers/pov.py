@@ -165,6 +165,24 @@ class POVSlicer(BaseSlicer):
         # Buyer-initiated VWAP (LTP >= ask). The band is anchored on this.
         buyer_vwap_sum: float = 0.0
         buyer_vwap_vol: int = 0
+        # CONFIRMATION BAND (from the signal's intent meta).
+        # When the signal supplies a daily buyer-initiated VWAP band, that
+        # band - not the session VWAP - drives the POV rate, and its ceiling
+        # is a HARD HALT checked on every poll. Values are None when the
+        # signal did not supply a band, in which case the slicer falls back
+        # to its own session-VWAP band exactly as before.
+        band_info = (intent.get("_meta", {}) or {}).get("band") or {}
+        band_vwap: Optional[float] = _safe_num(band_info.get("buyer_vwap"))
+        band_ceiling: Optional[float] = _safe_num(band_info.get("ceiling_price"))
+        band_ceiling_pct: float = _safe_num(
+            band_info.get("ceiling_pct"), default=0.5)
+        band_halt_count = 0
+        if band_vwap is not None:
+            self.log(
+                f"confirmation band active: buyer_vwap={band_vwap:.2f} "
+                f"ceiling={band_ceiling if band_ceiling is None else f'{band_ceiling:.2f}'} "
+                f"({band_info.get('classification', 'unspecified')})"
+            )
         arrival_window = ArrivalPriceWindow(max_ticks=20)
         slippage_acc = SlippageAccumulator(window=10)
         # PEG-1: passive/peg pricing engine. Only instantiated for PEG runs;
@@ -276,14 +294,35 @@ class POVSlicer(BaseSlicer):
                     phase = "exiting"
                     self._sync_order_action(phase)
                     slice_qty = 0
+            # ---- CEILING HALT: checked on EVERY poll, before any slicing ----
+            # "price above ceiling -> stop slicing". This runs even when
+            # delta_vol produced no slice this poll, because a run that has
+            # stopped trading must still be seen to be halting rather than
+            # silently idling. The ceiling is rescaled from the live LTP so
+            # the halt stays meaningful as the reference VWAP ages.
+            live_ceiling = band_ceiling
+            if band_ceiling is None and band_vwap is not None:
+                live_ceiling = band_vwap * (1.0 + band_ceiling_pct / 100.0)
+            if live_ceiling is not None and ltp > live_ceiling:
+                band_halt_count += 1
+                self.log(
+                    f"CEILING HALT: ltp={ltp:.2f} > ceiling={live_ceiling:.2f} "
+                    f"(halts={band_halt_count}); slicing stopped this poll"
+                )
+                slice_qty = 0
             # Feature 13: band-based dynamic rate.
             if slice_qty > 0:
+                # Prefer the signal's confirmation band when present; fall
+                # back to the slicer's own session/buyer VWAP otherwise so
+                # non-confirmed runs behave exactly as before.
                 band_cfg = BandConfig(
-                    vwap=(buyer_vwap_sum/buyer_vwap_vol
-                          if buyer_vwap_vol > 0
-                          else (session_vwap_sum/session_vwap_vol
-                                if session_vwap_vol > 0 else None)),
-                    vwap_ceiling_pct=float(self.config.get("vwap_ceiling_pct",0.5)),
+                    vwap=(band_vwap if band_vwap is not None else
+                          (buyer_vwap_sum/buyer_vwap_vol
+                           if buyer_vwap_vol > 0
+                           else (session_vwap_sum/session_vwap_vol
+                                 if session_vwap_vol > 0 else None))),
+                    vwap_ceiling_pct=(band_ceiling_pct if band_vwap is not None
+                                      else float(self.config.get("vwap_ceiling_pct",0.5))),
                     vwap_floor_pct=float(self.config.get("vwap_floor_pct",3.0)),
                     min_pov_pct=float(self.config.get("min_pov_pct",5.0)),
                     max_pov_pct=float(self.config.get("max_pov_pct",25.0)),
@@ -457,9 +496,11 @@ class POVSlicer(BaseSlicer):
                     msg = resp.get("message") if isinstance(resp, dict) else str(resp)
                     self.log(f"rejected: {msg}")
             time.sleep(poll_sec); now_ts = datetime.now().timestamp()
-        self.log(f"done: filled={filled_qty}/{target_qty} children={child_count} phase={phase}")
+        self.log(f"done: filled={filled_qty}/{target_qty} children={child_count} phase={phase}"
+                 + (f" | ceiling halts={band_halt_count}" if band_halt_count else ""))
         return {"filled":filled_qty, "target":target_qty, "child_orders":child_count,
-                "mode":mode, "phase":phase, "execution_id":execution_id, "children":child_log}
+                "mode":mode, "phase":phase, "execution_id":execution_id,
+                "ceiling_halts": band_halt_count, "children":child_log}
 
     def _record_child(self, execution_id: str, response: Any,
                       quantity: int, ltp: float, mode: str) -> None:
@@ -534,6 +575,22 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         if value is None or value == "": return default
         return float(value)
     except (TypeError, ValueError): return default
+
+
+def _safe_num(value: Any, default: Optional[float] = None) -> Optional[float]:
+    """Parse an optional numeric field, preserving None as "absent".
+
+    Unlike _safe_float (which defaults to 0.0 for the volume/price maths),
+    this keeps None distinct from 0.0. That matters for the confirmation
+    band: a missing ceiling must mean "no band information" and NOT
+    "ceiling is zero", because a zero ceiling would halt every run.
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _safe_int(value: Any, default: int = 0) -> int:

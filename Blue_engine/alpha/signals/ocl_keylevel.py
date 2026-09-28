@@ -157,6 +157,8 @@ class OCLKeylevelSignal(BaseSignal):
         # timeframes, while the execution band is a daily construct.
         self.band_interval = config.get("band_interval", "day")
         self.band_ceiling_pct = float(config.get("band_ceiling_pct", 0.5))
+        #: ISO date of the keylevel touch. The daily band window starts here.
+        self._touch_date: Optional[str] = None
 
         self.confirm_enabled = bool(config.get("confirm_enabled", False))
         self.roc_period = int(config.get("roc_period", 10))
@@ -443,14 +445,20 @@ class OCLKeylevelSignal(BaseSignal):
                 action=self.action,
                 bar_idx=bar,
             )
+            # Anchor the daily band at the TOUCH CANDLE. The touch date is
+            # recorded explicitly (not just a bar index) because the band is
+            # rebuilt from a separate daily history frame whose positions do
+            # not correspond to LTF bar indices.
+            self._touch_date = ist_now().strftime("%Y-%m-%d")
             self._touch_vwap.reset(
                 level=self._trigger_level,
                 action=self.action,
-                start_bar=bar,
+                start_bar=0,
             )
             self.log(
                 f"[CONFIRM ARMED] level={self._trigger_level:.2f} "
-                f"action={self.action} bar={bar} - awaiting ROC flip"
+                f"action={self.action} bar={bar} touch_date={self._touch_date} "
+                f"- awaiting ROC flip"
             )
 
         # -- Daily band: rebuild the buyer-initiated daily VWAP each poll --
@@ -574,14 +582,38 @@ class OCLKeylevelSignal(BaseSignal):
             self.log(f"[BAND] daily history error: {exc}")
             return
 
-        start = self._touch_vwap.start_bar or 0
-        candles = frame.iloc[start:] if start else frame
-        # Rebuild from scratch: the accumulator is a pure function of the
-        # daily window, so re-deriving avoids double-counting a partial day.
+        start = 0
+        if self._touch_date:
+            # Anchor at the touch candle: keep only daily candles dated on or
+            # after the touch date. This is the "from the touch candle"
+            # window - NOT the whole daily history, and not a positional
+            # slice of a differently-indexed frame.
+            try:
+                dates = frame["datetime"].astype(str).str[:10].tolist()
+            except (KeyError, TypeError, AttributeError):
+                try:
+                    dates = frame.index.astype(str).tolist()
+                except (AttributeError, TypeError):
+                    dates = []
+            if dates:
+                try:
+                    start = next(
+                        i for i, d in enumerate(dates)
+                        if d[:10] >= self._touch_date
+                    )
+                except StopIteration:
+                    start = len(frame)      # touch is newer than all history
+            self.log(
+                f"[BAND] anchoring from touch_date={self._touch_date} "
+                f"-> {len(frame) - start} daily candle(s)"
+            )
+        candles = frame.iloc[start:]
+        # Rebuild from scratch: the band is a pure function of the daily
+        # window, so re-deriving avoids double-counting a partial day.
         level_before = self._touch_vwap.level
         action_before = self._touch_vwap.action
         self._touch_vwap.reset(
-            level=level_before, action=action_before, start_bar=start)
+            level=level_before, action=action_before, start_bar=0)
 
         for _, row in candles.iterrows():
             ohlc = self._extract_ohlc(row)
