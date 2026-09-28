@@ -132,10 +132,17 @@ class POVSlicer(BaseSlicer):
         except Exception as exc:
             self.log(f"circuit probe failed (non-fatal): {exc}")
         execution_id = self._create_execution_record(mode)
+        # The intent carries the signal's confirmation band (daily buyer VWAP
+        # + ceiling) at _meta.band. It must be passed INTO _run explicitly:
+        # _run has no `intent` in scope, and reaching for it there raised
+        # NameError, which silently prevented the band from ever reaching
+        # the slicer.
+        band_meta = ((intent or {}).get("_meta") or {}).get("band") or {}
         summary = self._run(execution_id=execution_id, mode=mode,
                            lot_size=lot,
                            upper_circuit=upper_circuit,
-                           lower_circuit=lower_circuit)
+                           lower_circuit=lower_circuit,
+                           band_meta=band_meta)
         summary["execution_id"] = execution_id
         return summary
 
@@ -157,7 +164,8 @@ class POVSlicer(BaseSlicer):
     def _run(self, *, execution_id: str, mode: str,
              lot_size: Optional[int],
              upper_circuit: Optional[float],
-             lower_circuit: Optional[float]) -> Dict[str, Any]:
+             lower_circuit: Optional[float],
+             band_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         throttle: Dict[str, Any] = self.config.copy()
         prev_volume: Optional[int] = None
         session_vwap_sum: float = 0.0
@@ -171,7 +179,7 @@ class POVSlicer(BaseSlicer):
         # is a HARD HALT checked on every poll. Values are None when the
         # signal did not supply a band, in which case the slicer falls back
         # to its own session-VWAP band exactly as before.
-        band_info = (intent.get("_meta", {}) or {}).get("band") or {}
+        band_info = band_meta or {}
         band_vwap: Optional[float] = _safe_num(band_info.get("buyer_vwap"))
         band_ceiling: Optional[float] = _safe_num(band_info.get("ceiling_price"))
         band_ceiling_pct: float = _safe_num(
@@ -189,7 +197,6 @@ class POVSlicer(BaseSlicer):
         # MARKET/LIMIT runs are untouched by the peg state machine.
         peg_engine = None
         peg_open_child = False   # a resting PEG child we believe is still working
-        peg_phase = phase        # reset the peg when the run flips to exiting
         if self.order_mode == "PEG":
             from .peg import PegEngine
             peg_engine = PegEngine(self.config)
@@ -203,6 +210,11 @@ class POVSlicer(BaseSlicer):
         child_count = 0
         child_log: List[Dict[str, Any]] = []
         phase = "accumulating"
+        #: Tracks the phase the PEG engine last saw, so a flip into the exit
+        #: phase resets the peg anchor. Declared here (after `phase` exists)
+        #: because referring to `phase` above this point raised
+        #: UnboundLocalError in a live run.
+        peg_phase = phase
         poll_sec = self.interval
         quote_health = QuoteHealthMonitor(
             threshold=int(self.config.get("quote_failure_threshold", 3)))

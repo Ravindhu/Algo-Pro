@@ -446,10 +446,11 @@ class OCLKeylevelSignal(BaseSignal):
                 bar_idx=bar,
             )
             # Anchor the daily band at the TOUCH CANDLE. The touch date is
-            # recorded explicitly (not just a bar index) because the band is
-            # rebuilt from a separate daily history frame whose positions do
-            # not correspond to LTF bar indices.
-            self._touch_date = ist_now().strftime("%Y-%m-%d")
+            # resolved from the DATA during _refresh_daily_band (see below),
+            # not from the wall clock: anchoring on ist_now() would point the
+            # window at today's date even when replaying older data, so the
+            # band would cover the wrong candles entirely.
+            self._touch_date = None
             self._touch_vwap.reset(
                 level=self._trigger_level,
                 action=self.action,
@@ -457,8 +458,7 @@ class OCLKeylevelSignal(BaseSignal):
             )
             self.log(
                 f"[CONFIRM ARMED] level={self._trigger_level:.2f} "
-                f"action={self.action} bar={bar} touch_date={self._touch_date} "
-                f"- awaiting ROC flip"
+                f"action={self.action} bar={bar} - awaiting ROC flip"
             )
 
         # -- Daily band: rebuild the buyer-initiated daily VWAP each poll --
@@ -583,18 +583,21 @@ class OCLKeylevelSignal(BaseSignal):
             return
 
         start = 0
+        if self._touch_date is None:
+            # First framing pass: bind the band anchor to the LAST daily
+            # candle present in the data (the candle that is live at the
+            # moment of the touch). This is data-derived rather than
+            # clock-derived, so replay, backtest and live all anchor to the
+            # same real candle.
+            self._touch_date = self._last_frame_date(frame)
+            self.log(f"[BAND] touch anchored to data date={self._touch_date}")
+
         if self._touch_date:
-            # Anchor at the touch candle: keep only daily candles dated on or
-            # after the touch date. This is the "from the touch candle"
-            # window - NOT the whole daily history, and not a positional
-            # slice of a differently-indexed frame.
-            try:
-                dates = frame["datetime"].astype(str).str[:10].tolist()
-            except (KeyError, TypeError, AttributeError):
-                try:
-                    dates = frame.index.astype(str).tolist()
-                except (AttributeError, TypeError):
-                    dates = []
+            # Keep only daily candles dated on or after the touch candle.
+            # This is the "from the touch candle" window - NOT the whole
+            # daily history, and not a positional slice of a frame whose
+            # indices do not correspond to LTF bar numbers.
+            dates = self._frame_dates(frame)
             if dates:
                 try:
                     start = next(
@@ -602,9 +605,9 @@ class OCLKeylevelSignal(BaseSignal):
                         if d[:10] >= self._touch_date
                     )
                 except StopIteration:
-                    start = len(frame)      # touch is newer than all history
+                    start = len(frame)      # touch newer than all history
             self.log(
-                f"[BAND] anchoring from touch_date={self._touch_date} "
+                f"[BAND] anchoring from touch date={self._touch_date} "
                 f"-> {len(frame) - start} daily candle(s)"
             )
         candles = frame.iloc[start:]
@@ -641,6 +644,40 @@ class OCLKeylevelSignal(BaseSignal):
             f"[BAND] daily buyer-VWAP="
             f"{v:.2f}" if v is not None else "[BAND] daily buyer-VWAP=n/a"
         )
+
+    def _frame_dates(self, frame) -> list:
+        """Extract YYYY-MM-DD date strings from a candle frame.
+
+        Tries a datetime-like column first, then the frame index. Returns an
+        empty list when the frame carries no usable dates, which makes the
+        caller fall back to using the whole frame rather than guessing.
+        """
+        for key in ("datetime", "date", "timestamp", "time"):
+            try:
+                col = frame[key]
+            except (KeyError, TypeError):
+                continue
+            try:
+                vals = col.astype(str).str[:10].tolist()
+            except (AttributeError, TypeError):
+                try:
+                    vals = [str(v)[:10] for v in col.tolist()]
+                except (AttributeError, TypeError):
+                    continue
+            if vals and any(v.strip() for v in vals):
+                return vals
+        try:
+            return [str(v)[:10] for v in frame.index.tolist()]
+        except (AttributeError, TypeError):
+            return []
+
+    def _last_frame_date(self, frame) -> Optional[str]:
+        """The data date of the newest candle in the frame."""
+        dates = self._frame_dates(frame)
+        for d in reversed(dates):
+            if d and d.strip():
+                return d
+        return None
 
     def _classify_buyer_initiated(self, ohlc, ask) -> Optional[bool]:
         """Decide whether a daily candle counts as buyer-initiated.
