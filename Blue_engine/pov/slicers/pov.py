@@ -46,10 +46,17 @@ class POVSlicer(BaseSlicer):
         self.pct: float = float(config.get("participation_pct", 10.0))
         if not (0 < self.pct <= 100):
             raise ValueError("participation_pct must be between 0 and 100")
-        self.duration: int = int(
-            config.get("duration") or config.get("duration_seconds", 300))
-        self.interval: int = int(
-            config.get("interval") or config.get("poll_interval_seconds", 15))
+        # Duration/interval are coerced with max(1, int(...)) rather than a
+        # bare int(). A bare int() truncated any sub-second value to 0, and a
+        # duration of 0 makes the execution loop's end_ts land in the past
+        # before the first quote fetch - so the loop body never ran, no slice
+        # was attempted, and a caller asking for a fast run silently got NO
+        # run at all. Rounding up to 1s keeps every caller to at least one
+        # poll, which is the only behaviour that can be called "executing".
+        self.duration: int = max(1, int(
+            config.get("duration") or config.get("duration_seconds", 300)))
+        self.interval: int = max(1, int(
+            config.get("interval") or config.get("poll_interval_seconds", 15)))
         self.symbol: str = str(config.get("symbol", ""))
         self.exchange: str = str(config.get("exchange", ""))
         self.product: str = str(config.get("product", "CNC")).upper()
