@@ -53,6 +53,7 @@ __all__ = [
     "accuracy", "base_rate", "skill", "auc", "precision_recall",
     "brier_score", "log_loss", "hit_rate", "sharpe",
     "max_drawdown", "deflated_sharpe", "fold_summary", "cost_adjusted_edge",
+    "majority_bar",
 ]
 
 
@@ -410,6 +411,70 @@ def cost_adjusted_edge(gross_edge_bps: float, *,
 
 
 # --------------------------------------------------------------------------- #
+# the majority-class bar
+# --------------------------------------------------------------------------- #
+
+
+#: Accuracy a model must EXCEED for `skill` to be positive, given the folds.
+#: Exposed as a named constant because it is the single most misunderstood
+#: number in the report: `skill` is measured against the majority CLASS, so in
+#: a market that rose 54% of the time the bar is 54%, not 50%.
+def majority_bar(base_rate: Optional[float]) -> Optional[float]:
+    """The accuracy an always-predict-the-majority model achieves.
+
+    This is the bar `skill` is measured against. In a trending market it is
+    well above 0.5, which is why a model can look "about right" at 50%
+    accuracy and still score negative skill.
+
+    Worked example (the real NIFTY diagnosis, h=5):
+        base_rate 0.5425 -> bar 0.5425. A model at 0.4732 scores -0.0693.
+        The model was not broken; it was simply worse than always-long.
+    """
+    if base_rate is None:
+        return None
+    b = float(base_rate)
+    return max(b, 1.0 - b)
+
+
+def _bar_verdict(out: Dict[str, Any]) -> Optional[str]:
+    """Explain the skill result against the majority-class bar.
+
+    Returns a sentence for the report, or None when there is not enough
+    information (e.g. no base_rate recorded, which happens for a regression
+    target that has no classes).
+
+    WHY THIS EXISTS: a bare `skill = -0.0693` reads like a bug. The same number
+    with its bar attached reads as the finding it actually is: *the model did
+    worse than simply always predicting the majority class*. That single
+    sentence is the difference between an operator hunting a phantom bug and
+    one moving on to a better target.
+    """
+    sk = out.get("skill")
+    acc = out.get("accuracy")
+    if not isinstance(sk, dict) or not isinstance(acc, dict):
+        return None
+    mean_acc = acc.get("mean")
+    if mean_acc is None:
+        return None
+
+    # Recover the bar from the recorded skill: skill = acc - bar, so
+    # bar = acc - skill. This avoids needing base_rate threaded through every
+    # fold record, and it stays correct if a caller supplies skill directly.
+    mean_skill = sk.get("mean")
+    if mean_skill is None:
+        return None
+    bar = mean_acc - mean_skill
+
+    if mean_skill <= 0:
+        return (f"BELOW THE MAJORITY-CLASS BAR — accuracy {mean_acc:.4f} vs a "
+                f"bar of {bar:.4f}. The model did WORSE than always predicting "
+                f"the majority class (skill {mean_skill:+.4f}). This is not "
+                f"necessarily a bug: check the feature screen before hunting one.")
+    return (f"ABOVE THE MAJORITY-CLASS BAR — accuracy {mean_acc:.4f} vs a bar of "
+            f"{bar:.4f} (skill {mean_skill:+.4f}).")
+
+
+# --------------------------------------------------------------------------- #
 # fold aggregation
 # --------------------------------------------------------------------------- #
 
@@ -422,9 +487,13 @@ def fold_summary(fold_metrics: Sequence[Dict[str, Any]],
     a different animal from skill 0.05 ± 0.15. The second is a coin flip that
     averaged out well, and trading it is how accounts get blown. The std and the
     min are the risk information; the mean is only the centre.
+
+    The returned dict always carries a `verdict` when `skill` is present, and
+    that verdict names the majority-class bar explicitly. See
+    :func:`_bar_verdict` for why that matters more than it looks.
     """
     if not fold_metrics:
-        return {"n_folds": 0}
+        return {"n_folds": 0, "verdict": "NO FOLDS (nothing to aggregate)"}
 
     keys = list(keys) if keys else sorted({
         k for m in fold_metrics for k, v in m.items()
@@ -447,16 +516,30 @@ def fold_summary(fold_metrics: Sequence[Dict[str, Any]],
                   "min": round(min(vals), 4), "max": round(max(vals), 4),
                   "n": len(vals)}
 
-    # A direct warning when the dispersion swamps the signal. This is the single
-    # most useful derived number in the whole module, so it is computed here
-    # rather than left to the reader.
+    # The bar first (it is what every other verdict is read against), then the
+    # edge, then the dispersion. Order matters: it is the order the questions
+    # actually get asked.
     if isinstance(out.get("skill"), dict):
         mu, sd = out["skill"]["mean"], out["skill"]["std"]
+        acc = out.get("accuracy") or {}
+        mean_acc = acc.get("mean")
+        bar = majority_bar(None if mean_acc is None else mean_acc - mu)
+
         if mu <= 0:
-            out["verdict"] = "NO EDGE (mean skill <= 0)"
+            out["verdict"] = (
+                f"NO EDGE — mean skill {mu:+.4f} <= 0. "
+                + (f"Majority-class bar {(bar or 0):.4f}; the model is worse "
+                   f"than always predicting the majority class." if bar else ""))
         elif sd > abs(mu):
-            out["verdict"] = (f"UNSTABLE (std {sd:.3f} > mean {mu:.3f}) — the "
-                              f"edge is not consistent across folds")
+            out["verdict"] = (f"UNSTABLE — skill {mu:.4f} +/- {sd:.4f}: the std "
+                              f"exceeds the mean, so the edge is not consistent "
+                              f"across folds")
         else:
-            out["verdict"] = f"CONSISTENT (skill {mu:.3f} +/- {sd:.3f})"
+            out["verdict"] = (f"CONSISTENT — skill {mu:.4f} +/- {sd:.4f}"
+                              + (f", clearing a majority-class bar of "
+                                 f"{bar:.4f}" if bar else ""))
+
+        bar_note = _bar_verdict(out)
+        if bar_note:
+            out["bar_check"] = bar_note
     return out

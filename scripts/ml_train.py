@@ -77,6 +77,21 @@ def _parse_args(argv=None):
     p.add_argument("--horizon", type=int, default=5,
                    help="label horizon in bars; also the purge length "
                         "(default: 5)")
+    p.add_argument("--target", default="binary",
+                   choices=["binary", "triple_barrier", "triple_barrier_cost",
+                            "vol_ratio"],
+                   help="what to predict (default: binary = sign of the forward "
+                        "return). 'vol_ratio' predicts whether forward "
+                        "realised volatility exceeds its trailing norm, which "
+                        "is materially more forecastable on index data — see "
+                        "docs/ML_SKILL_DIAGNOSIS.md. 'triple_barrier_cost' nets "
+                        "the barriers of the round-trip cost.")
+    p.add_argument("--cross-section", default=None,
+                   help="comma-separated instruments to train ACROSS, instead "
+                        "of on one time series. The label becomes each "
+                        "instrument's rank against its peers on the same date, "
+                        "which cancels the market component. Needs loosely-"
+                        "correlated instruments to be meaningful.")
     p.add_argument("--splits", type=int, default=5,
                    help="number of walk-forward folds (default: 5)")
     p.add_argument("--min-train", type=int, default=250,
@@ -182,6 +197,12 @@ def _print_report(out, symbol):
         print(f"  {name}: {v}")
         if v.startswith("ESTABLISHED"):
             any_edge = True
+        elif v.startswith("EDGE, but UNVERIFIED"):
+            # A real edge whose deflation/cost checks could not run is NOT a
+            # pass, but it is not a failure either. --require-edge deliberately
+            # does not accept it: an unverified edge must not satisfy a gate.
+            print("        ^ not counted as cleared: an unverified edge must "
+                  "not satisfy a gate")
     if not any_edge:
         print()
         print("  No candidate cleared its gates. This is a valid, useful result:")
@@ -210,6 +231,7 @@ def main(argv=None) -> int:
 
     candidates = _split_csv(args.candidates)
     sources = _split_csv(args.sources) or ["price_cache"]
+    cross_section = _split_csv(args.cross_section)
 
     # Registering needs a signing key. Without one the registry refuses to
     # sign, so fail EARLY with a clear message rather than after a long fit.
@@ -231,6 +253,8 @@ def main(argv=None) -> int:
             min_train=args.min_train,
             candidates=candidates,
             n_trials=args.trials,
+            target=args.target,
+            cross_section=cross_section,
             register=not args.no_register,
         )
     except KeyboardInterrupt:

@@ -93,6 +93,8 @@ class TrainRun:
                  horizon: int = 5, n_splits: int = 5, min_train: int = 250,
                  candidates: Optional[List[str]] = None,
                  n_trials: Optional[int] = None,
+                 target: str = "binary",
+                 cross_section: Optional[List[str]] = None,
                  log: Optional[DegradationLog] = None):
         self.symbol = symbol
         self.horizon = horizon
@@ -104,7 +106,19 @@ class TrainRun:
         # the operator actually ran), not a flattering "1".
         self.n_trials = n_trials if n_trials is not None else 1
         self.candidate_names = candidates
+        #: The label kind. "binary" is the sign of the forward return (the
+        #: target measured to be unlearnable on NIFTY — see
+        #: docs/ML_SKILL_DIAGNOSIS.md). "vol_ratio" predicts whether forward
+        #: realised volatility exceeds its trailing norm, which is materially
+        #: more forecastable. "triple_barrier_cost" nets the barriers of the
+        #: round-trip cost.
+        self.target = target
+        #: When set, train CROSS-SECTIONALLY over these instruments instead of
+        #: on one instrument's time series. The market component cancels in
+        #: the ranking, which is the statistical argument for the approach.
+        self.cross_section = list(cross_section) if cross_section else None
         self.reports: Dict[str, Dict[str, Any]] = {}
+        self.dataset_meta: Dict[str, Any] = {}
         self.run_id = f"train-{self.symbol}-{int(time.time())}"
 
     # ---- steps 1-4 -------------------------------------------------------- #
@@ -141,8 +155,17 @@ class TrainRun:
 
         # Step 3-4: features (backward) then labels (forward). The shift test
         # in audit_features is the mechanical proof that step 3 does not leak.
+        #
+        # Cross-sectional mode takes a different route: the label is the
+        # member's RANK against its peers on the same date, so the market
+        # component cancels. See ml/features/cross_section.py for why that is
+        # the point and what its limits are.
+        if self.cross_section:
+            return self._build_cross_section_dataset(used)
+
         feats = engineering.build_price_features(rows)
-        lab = labels_mod.make_labels(rows, horizon=self.horizon)
+        lab = labels_mod.make_labels(rows, horizon=self.horizon,
+                                     kind=self.target)
 
         n = len(rows)
         names = sorted(feats)
@@ -173,6 +196,85 @@ class TrainRun:
                 "as_of": [rows[i].get("as_of_ts") for i in keep]}
 
     # ---- steps 5-8 -------------------------------------------------------- #
+
+    def _build_cross_section_dataset(self, used: List[str]) -> Dict[str, Any]:
+        """Build the panel dataset: one row per (date, instrument).
+
+        Fetches each requested instrument and delegates the ranking to
+        ml.features.cross_section. The panel's own provenance (width, tier
+        size, resolution) is carried into the manifest so a model trained on a
+        narrow panel can never be presented as if it were a wide one.
+        """
+        from ..features import cross_section as cs
+
+        symbols = list(self.cross_section or [])
+        if self.symbol not in symbols:
+            symbols.insert(0, self.symbol)
+
+        series: Dict[str, List[Dict[str, Any]]] = {}
+        for sym in symbols:
+            got = None
+            for name in self.sources:
+                src = build_source(name, log=self.deg)
+                if src is None:
+                    continue
+                res = src.fetch(sym, None, None)
+                if res.ok and res.rows:
+                    got = res.rows
+                    if name not in used:
+                        used.append(name)
+                    break
+            if got:
+                series[sym] = got
+            else:
+                self.deg.degraded("dataset", "cross_section", "symbol_missing",
+                                  f"no data for {sym}; excluded from the panel",
+                                  symbol=sym)
+
+        if len(series) < 2:
+            raise RuntimeError(
+                "training blocked: cross-sectional mode needs >= 2 instruments "
+                f"with data; got {len(series)} ({sorted(series)})")
+
+        ds = cs.build_cross_sectional_dataset(
+            series, horizon=self.horizon, min_width=min(5, len(series)))
+        if not ds.get("ok"):
+            self.deg.fatal("dataset", "cross_section", "panel_rejected",
+                           str(ds.get("reason")))
+            raise RuntimeError(
+                f"training blocked: cross-section not usable — "
+                f"{ds.get('reason')}")
+
+        if len(ds["X"]) < self.min_train:
+            self.deg.fatal(
+                "dataset", "cross_section", "too_short",
+                f"{len(ds['X'])} panel rows < min_train {self.min_train}")
+            raise RuntimeError(
+                f"training blocked: {len(ds['X'])} panel rows < "
+                f"{self.min_train}")
+
+        self.dataset_meta = dict(ds.get("meta") or {})
+        self.dataset_meta["panel"] = ds.get("panel")
+        self.dataset_meta["symbols"] = sorted(series)
+        logger.info("cross-section dataset ready: %d rows over %d instruments "
+                    "(%s)", len(ds["X"]), len(series),
+                    (ds.get("panel") or {}).get("resolution"))
+        return {
+            "rows": [{"as_of_ts": d} for d in ds["dates"]],
+            "feature_names": ds["feature_names"],
+            "X": ds["X"],
+            "y": ds["y"],
+            "keep_idx": list(range(len(ds["X"]))),
+            "labels_meta": {
+                "kind": "cross_section",
+                "horizon": self.horizon,
+                "balance": {"n": len(ds["y"]),
+                            "base_rate": (ds.get("meta") or {}).get("base_rate"),
+                            "note": "cross-sectional top-vs-bottom tier"},
+            },
+            "forward_returns": ds["forward_returns"],
+            "as_of": ds["dates"],
+        }
 
     def evaluate(self, ds: Dict[str, Any]) -> Dict[str, Any]:
         """Run every available candidate through the walk-forward runner.
@@ -218,6 +320,9 @@ class TrainRun:
             "python": platform.python_version(),
             "ml_version": ML_VERSION,
             "sources": self.sources,
+            "target": self.target,
+            "cross_section": self.cross_section,
+            "dataset": self.dataset_meta,
             "horizon": self.horizon,
             "n_splits": self.n_splits,
             "min_train": self.min_train,
@@ -235,19 +340,31 @@ def run_training(symbol: str, *, sources: Optional[List[str]] = None,
                  horizon: int = 5, n_splits: int = 5, min_train: int = 250,
                  candidates: Optional[List[str]] = None,
                  n_trials: Optional[int] = None,
+                 target: str = "binary",
+                 cross_section: Optional[List[str]] = None,
                  register: bool = True,
                  log: Optional[DegradationLog] = None) -> Dict[str, Any]:
-    """The full pipeline, in order, for one symbol.
+    """The full pipeline, in order, for one symbol (or one panel).
 
     Returns ``{"ok", "run_id", "manifest", "saved", "warnings"}``. Every
     candidate's report is inside ``manifest["reports"]``. Artifacts are saved
     as DRAFT even when the verdict is bad: a recorded failure is evidence, and
     the registry is where evidence lives. Only a ``promote()`` (a human or a
     policy gate) moves anything to VALIDATED.
+
+    Args:
+        target: label kind — "binary" (sign of the forward return), "vol_ratio"
+            (forward realised vol vs its trailing norm) or "triple_barrier_cost".
+            See ml/features/labels.py:LABEL_KINDS and docs/ML_SKILL_DIAGNOSIS.md
+            for which of these has actually shown signal on real data.
+        cross_section: when set, train across these instruments rather than on
+            one time series. The label becomes the member's rank against its
+            peers on the same date, which removes the market component.
     """
     run = TrainRun(symbol, sources=sources, horizon=horizon,
                    n_splits=n_splits, min_train=min_train,
-                   candidates=candidates, n_trials=n_trials, log=log)
+                   candidates=candidates, n_trials=n_trials,
+                   target=target, cross_section=cross_section, log=log)
     try:
         ds = run.build_dataset()
         run.evaluate(ds)

@@ -10,6 +10,7 @@ Modules
 point_in_time   the as-of join: attach only what was KNOWN at each timestamp
 engineering     shift-disciplined price features (returns, vol, RSI, momentum)
 labels          the targets — the only code allowed to read forward
+cross_section   relative targets: rank instruments against each other per date
 
 THE CONTRACT IN ONE SENTENCE
 ----------------------------
@@ -49,6 +50,6 @@ a beautiful backtest and then lose money.
 
 from __future__ import annotations
 
-from . import engineering, labels, point_in_time
+from . import cross_section, engineering, labels, point_in_time
 
-__all__ = ["engineering", "labels", "point_in_time"]
+__all__ = ["cross_section", "engineering", "labels", "point_in_time"]

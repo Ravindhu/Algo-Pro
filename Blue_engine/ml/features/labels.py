@@ -14,8 +14,8 @@ separate modules means:
   * the last row of a dataset is always label-less, which is a *feature*: it is
     exactly the row you would predict on live.
 
-THE THREE THINGS THAT GO WRONG WITH LABELS (and what we do about each)
-----------------------------------------------------------------------
+THE FOUR THINGS THAT GO WRONG WITH LABELS (and what we do about each)
+---------------------------------------------------------------------
 1. **The label horizon leaks into the split.** If the label at `t` uses
    `t+5`, then a training set ending at `t` and a test set starting at `t+1`
    share five days of information. This is why `ml/evaluation/splits.py` purges
@@ -33,6 +33,21 @@ THE THREE THINGS THAT GO WRONG WITH LABELS (and what we do about each)
    the majority class gets 80% accuracy and zero edge. `label_balance()` exists so
    the trainer can log the real base rate and the evaluator can report skill
    *above that base rate* rather than raw accuracy.
+
+4. **The target can simply be the wrong one.** Measured on real NIFTY daily
+   bars (see `docs/ML_SKILL_DIAGNOSIS.md`), the SIGN of a 5-day index return is
+   not predictable from standard price features — even in-sample, no feature
+   beat the 54.25% majority class by more than 0.6 percentage points. That is a
+   statement about the TARGET, not the model. So this module also offers:
+
+     * ``kind="vol_ratio"`` — predict whether forward REALISED VOLATILITY is
+       above its trailing norm. Volatility clustering is among the most
+       robustly documented facts in finance (Engle 1982, Bollerslev 1986):
+       high-volatility days cluster, which makes the level of vol materially
+       more forecastable than its direction.
+     * ``kind="triple_barrier_cost"`` — the López de Prado barriers with the
+       round-trip cost INSIDE the barriers, so a "win" is only a win if it
+       paid for the trade.
 
 DEFINITION OF THE DEFAULT LABEL
 -------------------------------
@@ -57,14 +72,20 @@ themselves overfit. Start with the simple label, prove the pipeline, then switch
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Sequence
 
 from .. import logger
 
 __all__ = [
-    "forward_return", "binary_label", "triple_barrier", "label_balance",
-    "make_labels", "LABEL_VERSION",
+    "forward_return", "binary_label", "triple_barrier", "vol_ratio_label",
+    "realised_forward_vol", "trailing_vol", "label_balance",
+    "make_labels", "LABEL_VERSION", "DEFAULT_COST_BPS", "LABEL_KINDS",
 ]
+
+#: Every label kind this module can build. The trainer validates against this
+#: rather than a hand-typed list, so adding a kind touches one place.
+LABEL_KINDS = ("binary", "triple_barrier", "triple_barrier_cost", "vol_ratio")
 
 #: Bump when a label definition changes. Stored in the artifact manifest: a model
 #: trained against a different label definition is not comparable and must be
@@ -178,6 +199,136 @@ def triple_barrier(closes: Sequence[Optional[float]], *,
     return out
 
 
+def trailing_vol(closes: Sequence[Optional[float]], window: int = 20, *,
+                 shift: int = 0) -> List[Optional[float]]:
+    """Realised vol over the TRAILING `window` bars, ending at `t - shift`.
+
+    Daily log-return standard deviation, annualised by sqrt(252). Used as the
+    *norm* a forward volatility label is compared against.
+
+    Args:
+        shift: 0 includes the current bar's return (correct when the label is a
+            FORWARD volatility, because today's realised vol is knowable now).
+            Use shift>=1 only if you also exclude today's return.
+    """
+    n = len(closes)
+    rets: List[Optional[float]] = [None] * n
+    for i in range(1, n):
+        a, b = closes[i - 1], closes[i]
+        if a is None or b is None or a <= 0 or b <= 0:
+            continue
+        rets[i] = math.log(b / a)
+
+    out: List[Optional[float]] = [None] * n
+    for i in range(n):
+        end = i - shift + 1
+        start = end - window
+        if start < 1 or end > n:
+            continue
+        vals = [r for r in rets[start:end] if r is not None]
+        if len(vals) < max(5, window // 2):
+            continue
+        mu = sum(vals) / len(vals)
+        var = sum((v - mu) ** 2 for v in vals) / (len(vals) - 1)
+        out[i] = math.sqrt(var) * math.sqrt(252.0)
+    return out
+
+
+def realised_forward_vol(closes: Sequence[Optional[float]], horizon: int = 5
+                         ) -> List[Optional[float]]:
+    """Realised vol over the FORWARD `horizon` bars [t+1 .. t+horizon].
+
+    This is the quantity a volatility model predicts, and it is the one place
+    in this module (alongside `forward_return`) that legitimately reads ahead.
+    The last `horizon` rows are None — exactly the rows a live model would
+    predict on.
+    """
+    n = len(closes)
+    out: List[Optional[float]] = [None] * n
+    for i in range(n):
+        j = i + horizon
+        if j >= n:
+            continue
+        vals: List[float] = []
+        for k in range(i + 1, j + 1):
+            a, b = closes[k - 1], closes[k]
+            if a is None or b is None or a <= 0 or b <= 0:
+                continue
+            vals.append(math.log(b / a))
+        if len(vals) < max(2, horizon // 2):
+            continue
+        mu = sum(vals) / len(vals)
+        var = sum((v - mu) ** 2 for v in vals) / (len(vals) - 1)
+        out[i] = math.sqrt(var) * math.sqrt(252.0)
+    return out
+
+
+def vol_ratio_label(closes: Sequence[Optional[float]], *,
+                    horizon: int = 5,
+                    norm_window: int = 20,
+                    ratio: float = 1.0) -> List[Optional[int]]:
+    """1 when FORWARD realised vol exceeds `ratio` x trailing realised vol.
+
+    WHY VOLATILITY AND NOT DIRECTION
+    --------------------------------
+    Predicting the sign of an index return is close to the hardest available
+    target: measured on real NIFTY daily bars, standard price features could
+    not beat a 54.25% majority class (docs/ML_SKILL_DIAGNOSIS.md). Volatility
+    is a different problem. Volatility clusters — today's vol is informative
+    about tomorrow's — so a model has a genuine, well-documented signal to
+    find (Engle 1982; Bollerslev 1986).
+
+    The label is *relative* (forward vol vs its own trailing norm), not
+    absolute. That matters: an absolute threshold would put every 2020 bar in
+    one class and every 2017 bar in the other, and the model would simply
+    learn the calendar.
+
+    Args:
+        ratio: 1.0 asks "is forward vol above its trailing norm?". Tune this
+            on TRAIN data only — it is a threshold, and thresholds overfit.
+
+    Returns:
+        0/1 per row, None where either vol estimate is undefined (the warm-up
+        and the label-less tail).
+    """
+    fwd = realised_forward_vol(closes, horizon)
+    norm = trailing_vol(closes, norm_window)
+    out: List[Optional[int]] = []
+    for f, t in zip(fwd, norm):
+        if f is None or t is None or t <= 0:
+            out.append(None)
+        else:
+            out.append(1 if f > ratio * t else 0)
+    return out
+
+
+def triple_barrier_cost(closes: Sequence[Optional[float]], *,
+                       profit_pct: float = 0.02,
+                       stop_pct: float = 0.01,
+                       horizon: int = 10,
+                       cost_bps: float = DEFAULT_COST_BPS
+                       ) -> List[Optional[int]]:
+    """Triple barrier with the round-trip cost INSIDE the profit barrier.
+
+    The plain :func:`triple_barrier` calls a 2% up-move a win. After a 10 bps
+    round trip the realised gain is 1.9% — still a win, but the *breakeven*
+    case is the one that matters: a move that just reaches the profit barrier
+    can be a net loss. This variant raises the profit barrier by the cost, so
+    a row labelled 1 is one that would have cleared the trade after charges.
+
+    Example (2% profit target, 10 bps cost):
+        plain           barrier at +2.00%   -> labels a +2.00% move as a win
+        cost-aware      barrier at +2.10%   -> requires +2.10% to be a win
+
+    The stop is left unchanged on purpose. Costs are symmetric, but a stop is
+    a *risk* control: raising it would cut losses later than intended, which
+    is the opposite of what a stop is for.
+    """
+    return triple_barrier(closes,
+                          profit_pct=profit_pct + cost_bps / 10_000.0,
+                          stop_pct=stop_pct, horizon=horizon)
+
+
 def label_balance(labels: Sequence[Optional[int]]) -> Dict[str, Any]:
     """Class balance report. Logged by the trainer, shown by the evaluator.
 
@@ -210,6 +361,8 @@ def make_labels(rows: Sequence[Dict[str, Any]], *,
                 cost_bps: float = DEFAULT_COST_BPS,
                 profit_pct: float = 0.02,
                 stop_pct: float = 0.01,
+                norm_window: int = 20,
+                vol_ratio: float = 1.0,
                 ) -> Dict[str, Any]:
     """Build labels for a dataset. Returns the labels plus their provenance.
 
@@ -217,7 +370,9 @@ def make_labels(rows: Sequence[Dict[str, Any]], *,
     always be traced back to the exact label definition that produced it.
 
     Args:
-        kind: "binary" (default) or "triple_barrier".
+        kind: one of :data:`LABEL_KINDS` — "binary" (default), "triple_barrier",
+            "triple_barrier_cost" (barriers net of charges) or "vol_ratio"
+            (forward volatility vs its trailing norm).
         horizon: forward bars. Must be >= the splitter's embargo (documented, not
             enforced here, because the splitter owns the split).
 
@@ -238,11 +393,20 @@ def make_labels(rows: Sequence[Dict[str, Any]], *,
     if kind == "triple_barrier":
         labels = triple_barrier(closes, profit_pct=profit_pct,
                                 stop_pct=stop_pct, horizon=horizon)
+    elif kind == "triple_barrier_cost":
+        labels = triple_barrier_cost(closes, profit_pct=profit_pct,
+                                     stop_pct=stop_pct, horizon=horizon,
+                                     cost_bps=cost_bps)
+    elif kind == "vol_ratio":
+        labels = vol_ratio_label(closes, horizon=horizon,
+                                 norm_window=norm_window, ratio=vol_ratio)
     elif kind == "binary":
         labels = binary_label(fwd, threshold=threshold, cost_bps=cost_bps)
     else:
-        raise ValueError(f"unknown label kind {kind!r}; "
-                         f"expected 'binary' or 'triple_barrier'")
+        # Name the accepted values in the error: a typo in a config file is the
+        # most likely cause, and the fix should be readable in the message.
+        raise ValueError(f"unknown label kind {kind!r}; expected one of "
+                         f"{list(LABEL_KINDS)}")
 
     bal = label_balance(labels)
     logger.info("labels: kind=%s horizon=%d n=%d base_rate=%s (%s)",
@@ -252,11 +416,22 @@ def make_labels(rows: Sequence[Dict[str, Any]], *,
         "labels": labels,
         "kind": kind,
         "horizon": horizon,
-        "threshold": threshold,
-        "cost_bps": cost_bps if kind == "binary" else None,
-        "profit_pct": profit_pct if kind == "triple_barrier" else None,
-        "stop_pct": stop_pct if kind == "triple_barrier" else None,
+        "threshold": threshold if kind == "binary" else None,
+        "cost_bps": cost_bps if kind in ("binary", "triple_barrier_cost") else None,
+        "profit_pct": (profit_pct
+                       if kind in ("triple_barrier", "triple_barrier_cost")
+                       else None),
+        "stop_pct": (stop_pct
+                     if kind in ("triple_barrier", "triple_barrier_cost")
+                     else None),
+        "norm_window": norm_window if kind == "vol_ratio" else None,
+        "vol_ratio": vol_ratio if kind == "vol_ratio" else None,
         "forward_returns": fwd,
+        # For a vol target the *magnitude* being predicted is vol, not return.
+        # Recording it lets the evaluator compute a cost-adjusted edge that is
+        # about vol forecating rather than a phantom price P&L.
+        "forward_vol": (realised_forward_vol(closes, horizon)
+                        if kind == "vol_ratio" else None),
         "balance": bal,
         "label_version": LABEL_VERSION,
     }

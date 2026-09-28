@@ -425,6 +425,18 @@ def _verdict(rep: WalkForwardReport) -> str:
       4. did the search survive deflation?-> NOT ESTABLISHED (likely selection luck)
       5. did the edge survive costs?      -> NO EDGE AFTER COSTS
       6. all four passed                  -> ESTABLISHED
+
+    THE "COULD NOT MEASURE" CASE IS NOT A PASS
+    -------------------------------------------
+    Checks 4 and 5 need a per-period RETURN series. A volatility target
+    forecasts vol, not return, so it has no price P&L for the cost gate to
+    test and no Sharpe to deflate. Previously the code let a missing check
+    fall through and still print ESTABLISHED, which is the most misleading
+    output this module can produce: it reads as "passed everything" when the
+    truth is "the two hardest checks could not run at all".
+
+    Such a run now reports ESTABLISHED (UNVERIFIED) and names what is missing.
+    A researcher may still act on it, but they cannot do so by accident.
     """
     if rep.n_errors and rep.n_folds == 0:
         return f"FAIL — all {rep.n_errors} folds errored"
@@ -451,6 +463,18 @@ def _verdict(rep: WalkForwardReport) -> str:
         return (f"NO EDGE AFTER COSTS — gross {cc.get('gross_bps')} bps vs "
                 f"cost {cc.get('cost_bps')} bps: do not trade this")
 
-    return (f"ESTABLISHED — skill {mean_skill:.3f} ± {std_skill:.3f} over "
-            f"{rep.n_folds} folds, p_real={prob_real if prob_real is None else round(prob_real, 2)}, "
+    # Which of the two hard checks actually ran?
+    unverified: List[str] = []
+    if prob_real is None:
+        unverified.append("deflation (no return series to deflate)")
+    if cc.get("survives") is None:
+        unverified.append("the cost gate (no return series to charge costs to)")
+
+    head = (f"skill {mean_skill:.3f} ± {std_skill:.3f} over {rep.n_folds} folds")
+    if unverified:
+        return (f"EDGE, but UNVERIFIED — {head}. NOT checked: "
+                f"{'; '.join(unverified)}. The skill is real on these folds; "
+                f"whether it survives the search and transaction costs is "
+                f"UNMEASURED, not passed. Do not read this as validated.")
+    return (f"ESTABLISHED — {head}, p_real={round(prob_real, 2)}, "
             f"net {cc.get('net_bps')} bps/period")
