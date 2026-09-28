@@ -62,9 +62,10 @@ def validate_pattern(
     Args:
         c1, c2, c3: OHLC dicts for candles 1..3 (oldest to newest).
         pattern_type: "RRG" or "GRR".
-        min_body_pct: Minimum body/range ratio per candle. Filters
-            doji-like noise where the body is too small to be meaningful.
-            Set to 0.0 to disable the filter.
+        min_body_pct: RETAINED FOR SIGNATURE COMPATIBILITY ONLY. The
+            body-size filter was removed by operator instruction, so this
+            value is accepted and ignored. Pattern validation is now a pure
+            candlestick-shape test.
     """
     pattern_type = (pattern_type or "").upper()
     if pattern_type not in VALID_PATTERNS:
@@ -84,13 +85,16 @@ def validate_pattern(
     if not pattern_match:
         return False
 
-    # Body-size filter: skip candles whose body is too small relative to their range
-    if min_body_pct and min_body_pct > 0:
-        for candle in (c1, c2, c3):
-            body = abs(candle["close"] - candle["open"])
-            range_size = candle["high"] - candle["low"]
-            if range_size > 0 and (body / range_size) < min_body_pct:
-                return False
+    # NOTE: the body-size filter was REMOVED here (operator instruction).
+    # The old rule rejected any candle whose
+    #     |close - open| / (high - low)  <  min_body_pct
+    # which discarded ~60% of shape-matching patterns on real INFY daily bars
+    # (113 raw shapes -> 45 with the 0.3 default). Pattern validation is now a
+    # pure candlestick-shape test; candle quality is no longer part of it.
+    #
+    # min_body_pct remains in the signature so existing callers and JSON
+    # configs keep working unchanged - it is simply no longer consulted.
+    _ = min_body_pct
 
     return True
 
