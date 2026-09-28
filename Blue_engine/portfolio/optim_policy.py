@@ -218,6 +218,52 @@ def check_data_validity(inputs: Optional[Dict[str, Any]], *,
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Process-level latching switch (crash-recovery safety gate)              #
+# --------------------------------------------------------------------------- #
+#: A single latching switch shared by every ``decide()`` call in the
+#: process. This is what makes the halt survive a restart: the first
+#: ``decide()`` after a breach latches it, and every later recovery probe
+#: (fresh data, recovered drawdown) still sees ``tripped=True`` until an
+#: operator resets it explicitly via :func:`reset_kill_switch`. Without
+#: this, ``decide()`` built a fresh switch per call and a restart silently
+#: re-armed trading — exactly the auto-resume the recovery policy forbids.
+_PROCESS_KILL_SWITCH: Optional[KillSwitch] = None
+
+
+def _process_kill_switch(limits: Optional[Dict[str, Any]] = None) -> KillSwitch:
+    """Return the process-level latching switch, creating it on first use."""
+    global _PROCESS_KILL_SWITCH
+    lim = {**DEFAULT_LIMITS, **(limits or {})}
+    max_dd = safe_float(lim.get("max_drawdown")) or 0.15
+    max_dl = safe_float(lim.get("max_daily_loss")) or 0.04
+    if _PROCESS_KILL_SWITCH is None:
+        _PROCESS_KILL_SWITCH = KillSwitch(max_drawdown=max_dd,
+                                          max_daily_loss=max_dl)
+    return _PROCESS_KILL_SWITCH
+
+
+def reset_kill_switch(confirm: str = "") -> Dict[str, Any]:
+    """Operator-only re-arm of the process-level kill-switch.
+
+    This is the ONLY path back to trading after a tripped halt — matching the
+    recovery policy: resume requires manual intervention, never an automatic
+    consequence of the market ticking back up.
+    """
+    if _PROCESS_KILL_SWITCH is None:
+        return {"ok": True, "tripped": False, "warnings": ["switch was clear"]}
+    return _PROCESS_KILL_SWITCH.reset(confirm=confirm)
+
+
+def kill_switch_state() -> Dict[str, Any]:
+    """Snapshot of the latching switch for dashboards / recovery checks."""
+    if _PROCESS_KILL_SWITCH is None:
+        return {"tripped": False, "reason": None}
+    return {"tripped": _PROCESS_KILL_SWITCH.tripped,
+            "reason": _PROCESS_KILL_SWITCH.reason,
+            "trigger_value": _PROCESS_KILL_SWITCH.trigger_value}
+
+
 def resolve_constraints(limits: Optional[Dict[str, Any]] = None, *,
                         regime: Optional[str] = None,
                         regime_overrides: Optional[Dict[str, Dict[str, Any]]]
@@ -277,8 +323,12 @@ def decide(inputs: Optional[Dict[str, Any]], *,
     warnings: List[str] = []
 
     # ---- 1. kill-switch (first, and overriding) ------------------------- #
-    ks = KillSwitch(max_drawdown=safe_float(lim.get("max_drawdown")) or 0.15,
-                    max_daily_loss=safe_float(lim.get("max_daily_loss")) or 0.04)
+    # The switch is PROCESS-LEVEL and latching: once a breach trips it, every
+    # later decide() call — including post-crash recovery probes with fully
+    # recovered inputs — still sees tripped=True until an operator calls
+    # reset_kill_switch(confirm=...). A per-call switch would let a restart
+    # silently re-arm trading, which the recovery policy forbids.
+    ks = _process_kill_switch(limits)
     kill = ks.evaluate(drawdown, daily_loss)
     if kill["tripped"]:
         reasons.append(f"HALT: kill-switch tripped ({kill['reason']})")
