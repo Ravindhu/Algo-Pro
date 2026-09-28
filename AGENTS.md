@@ -596,6 +596,5 @@ restart after agent terminate automatically.
 
 Write all the Ready-to-paste AGENTS.md rules under below after every file committed.  
 ## Agent 
-## Honesty & Verification Rules
 
 

@@ -151,6 +151,13 @@ class OCLKeylevelSignal(BaseSignal):
         # touch only ARMS the setup; the trade fires once a z-scored ROC
         # momentum flip confirms that the reversal is actually happening.
         # Keeping the default off means existing runs are byte-identical.
+        # [BAND SETTINGS] Buyer-initiated daily VWAP band
+        # The band is ALWAYS daily, independent of htf_interval/ltf_interval:
+        # the OCL pattern and the momentum confirmation run on their own
+        # timeframes, while the execution band is a daily construct.
+        self.band_interval = config.get("band_interval", "day")
+        self.band_ceiling_pct = float(config.get("band_ceiling_pct", 0.5))
+
         self.confirm_enabled = bool(config.get("confirm_enabled", False))
         self.roc_period = int(config.get("roc_period", 10))
         self.z_window = int(config.get("z_window", 100))
@@ -174,14 +181,15 @@ class OCLKeylevelSignal(BaseSignal):
         # Confirmation-layer state (only used when confirm_enabled)
         if self.confirm_enabled:
             from blue_engine.alpha.confirm import ConfirmMachine
-            from blue_engine.core.band import TouchAnchoredVWAP
+            from blue_engine.core.band import BuyerInitiatedDailyVWAP
 
             self._confirm = ConfirmMachine()
-            self._touch_vwap = TouchAnchoredVWAP()
+            self._touch_vwap = BuyerInitiatedDailyVWAP()
             self._bar_idx = 0                     # Bar counter for the LTF
             self.log(
                 f"[CONFIRM] enabled: ROC({self.roc_period}) "
-                f"z-window={self.z_window} entry_z={self.entry_z}"
+                f"z-window={self.z_window} entry_z={self.entry_z} "
+                f"| daily buyer-VWAP band, ceiling=+{self.band_ceiling_pct}%"
             )
         else:
             self._confirm = None
@@ -445,9 +453,20 @@ class OCLKeylevelSignal(BaseSignal):
                 f"action={self.action} bar={bar} - awaiting ROC flip"
             )
 
-        # -- Accumulate touch-anchored flow from every bar on/after the touch --
-        volume = self._bar_volume(df)
-        self._touch_vwap.add(price=ltp, volume=volume)
+        # -- Daily band: rebuild the buyer-initiated daily VWAP each poll --
+        # The band is a DAILY construct. It is recomputed from daily candles
+        # (not accumulated per LTF poll) so the window is the set of daily
+        # candles from the touch forward, matching the operator's spec.
+        self._refresh_daily_band()
+
+        # -- Ceiling gate: price above the band ceiling STOPS slicing --
+        if self._above_band_ceiling(ltp):
+            self.log(
+                f"[BAND HALT] ltp={ltp:.2f} above ceiling "
+                f"({self._band_ceiling_price():.2f}); slicing stopped"
+            )
+            time.sleep(self.poll_seconds)
+            return None
 
         # -- Stage 2: evaluate the momentum flip --
         z_series = self._roc_z_series(df)
@@ -512,6 +531,128 @@ class OCLKeylevelSignal(BaseSignal):
             return 0.0
 
     # ============================================================
+    # [DAILY BAND] Buyer-initiated daily VWAP from the touch forward
+    # ============================================================
+    def _refresh_daily_band(self) -> None:
+        """Rebuild the buyer-initiated daily VWAP from daily history.
+
+        Classification uses the SAME rule the POV slicer applies to its tick
+        stream (``ltp >= ask``). Daily OHLCV carries no ``ask``, so the
+        classification input has to come from somewhere. This method supports
+        both shapes and prefers the real one:
+
+          * If the daily frame carries an ``ask`` column AND the caller has
+            configured ``band_use_quote_rule`` (default True), the literal
+            ``ltp >= ask`` test is applied.
+          * Otherwise the caller-supplied proxy column is used. The proxy is
+            ``band_buyer_proxy`` in config, naming a boolean column, or the
+            documented close-position proxy when that column is absent.
+
+        Honesty note: the close-position fallback is an APPROXIMATION of
+        buyer-initiated flow, not the real tape rule. It is recorded in the
+        intent metadata as ``classification`` so no downstream reader can
+        mistake it for quote-based classification.
+        """
+        if self._touch_vwap is None:
+            return
+        try:
+            end_date = ist_now().strftime("%Y-%m-%d")
+            start_date = (ist_now() - timedelta(days=120)).strftime("%Y-%m-%d")
+            resp = self.client.history(
+                symbol=self.symbol, exchange=self.exchange,
+                interval=self.band_interval, start_date=start_date,
+                end_date=end_date,
+            )
+            if resp.get("status") != "success":
+                self.log(f"[BAND] daily history failed: {resp.get('message')}")
+                return
+            frame = resp.get("data")
+            if frame is None or len(frame) == 0:
+                self.log("[BAND] no daily candles returned")
+                return
+        except Exception as exc:
+            self.log(f"[BAND] daily history error: {exc}")
+            return
+
+        start = self._touch_vwap.start_bar or 0
+        candles = frame.iloc[start:] if start else frame
+        # Rebuild from scratch: the accumulator is a pure function of the
+        # daily window, so re-deriving avoids double-counting a partial day.
+        level_before = self._touch_vwap.level
+        action_before = self._touch_vwap.action
+        self._touch_vwap.reset(
+            level=level_before, action=action_before, start_bar=start)
+
+        for _, row in candles.iterrows():
+            ohlc = self._extract_ohlc(row)
+            vol = 0.0
+            try:
+                vol = float(row["volume"])
+            except (KeyError, TypeError, ValueError):
+                vol = 0.0
+            ltp = ohlc["close"]
+            ask = None
+            try:
+                ask = float(row["ask"]) if "ask" in row else None
+            except (TypeError, ValueError):
+                ask = None
+
+            buyer = self._classify_buyer_initiated(ohlc, ask)
+            self._touch_vwap.add_daily_candle(
+                price=ltp, volume=vol,
+                ltp=(ltp if ask is not None else None),
+                ask=ask, buyer_initiated=buyer,
+            )
+
+        v = self._touch_vwap.vwap
+        self.log(
+            f"[BAND] daily buyer-VWAP="
+            f"{v:.2f}" if v is not None else "[BAND] daily buyer-VWAP=n/a"
+        )
+
+    def _classify_buyer_initiated(self, ohlc, ask) -> Optional[bool]:
+        """Decide whether a daily candle counts as buyer-initiated.
+
+        Returns None when no decision can be made (the accumulator fails
+        closed on None, so an unclassifiable day is excluded rather than
+        silently counted).
+        """
+        if ask is not None:
+            # Real quote-based rule; the accumulator applies ltp >= ask.
+            return None
+        try:
+            high, low, close = ohlc["high"], ohlc["low"], ohlc["close"]
+        except (KeyError, TypeError):
+            return None
+        rng = high - low
+        if rng <= 0:
+            return None
+        # Documented approximation: a close in the upper half of the day's
+        # range is treated as buyer-dominated. NOT equivalent to ltp >= ask.
+        return (close - low) / rng >= 0.5
+
+    def _band_ceiling_price(self) -> Optional[float]:
+        """Ceiling price = buyer daily VWAP * (1 + band_ceiling_pct/100)."""
+        if self._touch_vwap is None:
+            return None
+        v = self._touch_vwap.vwap
+        if v is None or v <= 0:
+            return None
+        return v * (1.0 + self.band_ceiling_pct / 100.0)
+
+    def _above_band_ceiling(self, ltp: float) -> bool:
+        """True when the band ceiling says: stop slicing.
+
+        ``False`` whenever the ceiling is not measurable. If the band cannot
+        be computed there is no information to halt on, and refusing to halt
+        is safer than halting every run where the daily fetch failed.
+        """
+        ceiling = self._band_ceiling_price()
+        if ceiling is None:
+            return False
+        return ltp > ceiling
+
+    # ============================================================
     # [TOUCH CHECK] Price-vs-Level Comparison
     # ============================================================
     def _check_touch(self, ltp, candle):
@@ -572,10 +713,6 @@ class OCLKeylevelSignal(BaseSignal):
         # actually earns its filtering cost.
         if self.confirm_enabled and self._confirm is not None:
             snap = self._confirm.snapshot()
-            vwap_val = (self._touch_vwap.vwap
-                        if self._touch_vwap is not None else None)
-            dev_pct = (self._touch_vwap.deviation_pct(ltp)
-                       if self._touch_vwap is not None else None)
             intent["_meta"]["confirm"] = {
                 "state": snap["state"],
                 "roc_z": snap["confirm_z"],
@@ -585,11 +722,21 @@ class OCLKeylevelSignal(BaseSignal):
                 "roc_period": self.roc_period,
                 "z_window": self.z_window,
                 "entry_z": self.entry_z,
-                "touch_vwap": vwap_val,
-                "vwap_deviation_pct": dev_pct,
-                "touch_observations": (
-                    self._touch_vwap.count if self._touch_vwap else 0),
                 "invalidation": self._trigger_level,
+            }
+            # The daily buyer-initiated VWAP band. The slicer consumes these
+            # fields to drive its POV rate and to halt at the ceiling.
+            band_snap = (self._touch_vwap.snapshot()
+                         if self._touch_vwap is not None else {})
+            intent["_meta"]["band"] = {
+                "interval": self.band_interval,
+                "buyer_vwap": band_snap.get("buyer_vwap"),
+                "ceiling_pct": self.band_ceiling_pct,
+                "ceiling_price": self._band_ceiling_price(),
+                "daily_candles_counted": band_snap.get("daily_candles_counted"),
+                "buyer_volume": band_snap.get("buyer_volume"),
+                "classification": band_snap.get("classification"),
+                "anchor_level": self._trigger_level,
             }
             intent["reason"] += (
                 f" + confirmed (z={snap['confirm_z']:.2f}, "

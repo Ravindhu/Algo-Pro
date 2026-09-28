@@ -320,33 +320,36 @@ __all__ = [
 ]
 
 # -----------------------------------------------------------------------------
-# Touch-anchored VWAP (confirmation layer, "REVCONF" step 3)
+# Buyer-initiated daily VWAP (confirmation layer)
 # -----------------------------------------------------------------------------
-class TouchAnchoredVWAP:
-    """VWAP accumulated FROM the bar that touched a keylevel.
+class BuyerInitiatedDailyVWAP:
+    """VWAP over DAILY candles counting only buyer-initiated volume.
 
-    Why anchor at the touch instead of a fixed 20-bar window
-    --------------------------------------------------------
-    A fixed-window VWAP mixes pre-touch and post-touch flow. Volume that
-    traded hours before the level was reached says nothing about whether the
-    level is being defended *now*. Anchoring at the touch makes the VWAP a
-    measure of the flow that exists because of the level - the population
-    this setup is actually trying to trade with.
+    Classification (identical to the POV slicer)
+    --------------------------------------------
+    A daily candle counts toward this VWAP only when it is buyer-initiated,
+    using the SAME rule the POV slicer applies to its tick stream:
 
-    The window therefore has no fixed length: it grows from the touch until
-    the setup resolves. That is intentional.
+        ltp >= ask   ->  buyer-initiated
 
-    Usage
-    -----
-        acc = TouchAnchoredVWAP()
-        acc.reset(level=22000.0, action="BUY", start_bar=42)   # on touch
-        acc.add(price=22001.5, volume=1200)                    # each later bar
-        vwap = acc.vwap                                        # or None
-        acc.bars_since_touch(60)                               # -> 18
+    On daily bars there is no live ``ask``, so the caller supplies the
+    classification inputs. Two supported modes:
 
-    This class is pure: no SDK, no I/O, no clock access. Bar indices are
-    supplied by the caller, which keeps tests deterministic and lets the
-    backtest harness drive it directly.
+    Mode 1 - real quote data available (intraday polling of the daily
+             candle): pass ``ltp`` and ``ask`` and the exact slicer rule is
+             applied unchanged.
+
+    Mode 2 - OHLCV only (backtests, daily history): pass
+             ``buyer_initiated=True/False`` computed by the caller from
+             whatever proxy it has chosen. This class does NOT invent a
+             proxy, because any OHLCV-only substitute (e.g. close position
+             within the day's range) is an approximation, not the real
+             tape rule, and must be labelled as such by the caller rather
+             than hidden inside this accumulator.
+
+    The window starts at the keylevel touch and accumulates each subsequent
+    daily candle until the setup resolves. If the armed setup spans N daily
+    candles, the VWAP covers those N candles - not the whole series.
     """
 
     __slots__ = ("level", "action", "start_bar", "_pv", "_vol", "_bars")
@@ -362,16 +365,17 @@ class TouchAnchoredVWAP:
     # -- lifecycle ---------------------------------------------------------
     @property
     def is_active(self) -> bool:
-        """True once a touch has anchored this accumulator."""
+        """True once the keylevel touch has opened the window."""
         return self.start_bar is not None
 
     @property
     def count(self) -> int:
-        """Number of (price, volume) observations added since the anchor."""
+        """Daily candles that qualified as buyer-initiated."""
         return self._bars
 
     @property
     def total_volume(self) -> float:
+        """Buyer-initiated volume accumulated (not total market volume)."""
         return self._vol
 
     def reset(
@@ -381,13 +385,7 @@ class TouchAnchoredVWAP:
         action: Optional[str] = None,
         start_bar: Optional[int] = None,
     ) -> None:
-        """Re-anchor the window, discarding all previously accumulated flow.
-
-        Call this on the FIRST touch of a level. Later touches of the same
-        level must NOT re-anchor (the operator's first-touch-only rule) -
-        that is enforced by the caller's state machine, not here, so this
-        class stays a plain accumulator.
-        """
+        """Open a fresh window at the keylevel touch, discarding prior flow."""
         self.level = None if level is None else float(level)
         self.action = None if action is None else str(action).upper()
         self.start_bar = None if start_bar is None else int(start_bar)
@@ -396,51 +394,70 @@ class TouchAnchoredVWAP:
         self._bars = 0
 
     # -- accumulation ------------------------------------------------------
-    def add(self, *, price: float, volume: float) -> None:
-        """Add one observation. Non-positive volume or price is ignored.
+    def add_daily_candle(
+        self,
+        *,
+        price: float,
+        volume: float,
+        ltp: Optional[float] = None,
+        ask: Optional[float] = None,
+        buyer_initiated: Optional[bool] = None,
+    ) -> bool:
+        """Add one DAILY candle. Returns True if it counted.
 
-        Zero-volume bars are common at the open and in illiquid names. They
-        carry no price information, so counting them would either divide by
-        zero or silently bias the VWAP toward a stale price.
+        Precedence: if ``ltp`` and ``ask`` are both given, the real slicer
+        rule (``ltp >= ask``) decides. Otherwise ``buyer_initiated`` decides.
+        If neither is supplied the candle is NOT counted - failing closed is
+        the safe behaviour here, because silently counting every candle
+        would turn this into a plain VWAP while still being treated as a
+        buyer-initiated one.
         """
         try:
             p = float(price)
             v = float(volume)
         except (TypeError, ValueError):
-            return
+            return False
         if p <= 0 or v <= 0:
-            return
+            return False
+
+        if ltp is not None and ask is not None:
+            try:
+                counted = float(ltp) >= float(ask)
+            except (TypeError, ValueError):
+                return False
+        elif buyer_initiated is not None:
+            counted = bool(buyer_initiated)
+        else:
+            return False          # fail closed: unclassifiable candle
+
+        if not counted:
+            return False
         self._pv += p * v
         self._vol += v
         self._bars += 1
+        return True
 
     # -- readout -----------------------------------------------------------
     @property
     def vwap(self) -> Optional[float]:
-        """Volume-weighted average price since the anchor, or None if empty.
+        """Buyer-initiated daily VWAP, or None when nothing qualified yet.
 
-        ``None`` (rather than 0.0) means "not measurable yet" - the caller
-        must treat it as absent data, never as a price.
+        ``None`` means "not measurable" - never a price. A run where every
+        day was seller-initiated legitimately has no buyer VWAP, and the
+        band must be treated as absent rather than defaulted to zero.
         """
         if self._vol <= 0:
             return None
         return self._pv / self._vol
 
     def bars_since_touch(self, current_bar: int) -> Optional[int]:
-        """Bars elapsed since the anchoring touch, or None if not anchored."""
+        """Daily candles elapsed since the touch, or None if not started."""
         if self.start_bar is None:
             return None
         return int(current_bar) - int(self.start_bar)
 
     def deviation_pct(self, price: float) -> Optional[float]:
-        """How far ``price`` sits from the anchored VWAP, in percent.
-
-        Positive means above the VWAP. Returns None when the VWAP is not
-        yet measurable. Recorded in the intent metadata so the operator can
-        see after the fact whether entries were made near or far from the
-        post-touch value - the evidence needed to decide later whether this
-        should become a hard entry filter.
-        """
+        """Distance of ``price`` from the VWAP in percent (None if absent)."""
         v = self.vwap
         if v is None or v <= 0:
             return None
@@ -456,7 +473,8 @@ class TouchAnchoredVWAP:
             "level": self.level,
             "action": self.action,
             "start_bar": self.start_bar,
-            "observations": self._bars,
-            "total_volume": self._vol,
-            "vwap": self.vwap,
+            "daily_candles_counted": self._bars,
+            "buyer_volume": self._vol,
+            "buyer_vwap": self.vwap,
+            "classification": "daily buyer-initiated (ltp >= ask)",
         }

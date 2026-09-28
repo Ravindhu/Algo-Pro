@@ -4,7 +4,7 @@ test_ocl_confirm.py - tests for the keylevel momentum-confirmation layer.
 Covers the three new pieces plus their wiring into OCLKeylevelSignal:
     1. alpha/confirm/roc.py    - z-scored ROC and flip detection
     2. alpha/confirm/state.py  - IDLE -> ARMED -> CONFIRMED machine
-    3. core/band.py            - TouchAnchoredVWAP accumulator
+    3. core/band.py            - BuyerInitiatedDailyVWAP accumulator
     4. ocl_keylevel.py         - the gate, and that it stays OFF by default
 
 No SDK, no network, no sleeps: the signal's market-data methods are driven
@@ -25,7 +25,7 @@ from blue_engine.alpha.confirm.state import (
     STATE_IDLE,
     ConfirmMachine,
 )
-from blue_engine.core.band import TouchAnchoredVWAP
+from blue_engine.core.band import BuyerInitiatedDailyVWAP
 
 
 # ============================================================ ROC ==========
@@ -165,64 +165,112 @@ class TestConfirmMachine:
         json.dumps(m.snapshot())          # must not raise
 
 
-# ================================================ TOUCH-ANCHORED VWAP ======
-class TestTouchAnchoredVWAP:
+# ================================ BUYER-INITIATED DAILY VWAP ========
+class TestBuyerInitiatedDailyVWAP:
+    """The daily band counts ONLY buyer-initiated volume.
+
+    Classification mirrors the POV slicer: ltp >= ask. The fail-closed
+    behaviour when a candle cannot be classified is tested explicitly,
+    because silently counting every candle would turn this into a plain
+    VWAP that is then mislabelled as buyer-initiated.
+    """
+
     def test_inactive_before_reset(self):
-        acc = TouchAnchoredVWAP()
+        acc = BuyerInitiatedDailyVWAP()
         assert not acc.is_active
         assert acc.vwap is None
 
-    def test_vwap_of_single_observation_is_that_price(self):
-        acc = TouchAnchoredVWAP()
+    def test_quote_rule_counts_ltp_at_or_above_ask(self):
+        acc = BuyerInitiatedDailyVWAP()
         acc.reset(level=100.0, action="BUY", start_bar=10)
-        acc.add(price=101.0, volume=500)
+        # ltp >= ask -> buyer-initiated -> counts
+        assert acc.add_daily_candle(price=101.0, volume=500,
+                                    ltp=101.0, ask=101.0) is True
         assert acc.vwap == pytest.approx(101.0)
 
-    def test_vwap_is_volume_weighted(self):
-        acc = TouchAnchoredVWAP()
-        acc.reset(level=100.0, action="BUY", start_bar=0)
-        acc.add(price=100.0, volume=100)
-        acc.add(price=102.0, volume=300)
-        # (100*100 + 102*300) / 400 = 101.5
-        assert acc.vwap == pytest.approx(101.5)
+    def test_quote_rule_excludes_ltp_below_ask(self):
+        acc = BuyerInitiatedDailyVWAP()
+        acc.reset(level=100.0, action="BUY", start_bar=10)
+        # ltp < ask -> seller-initiated -> must NOT count
+        assert acc.add_daily_candle(price=99.0, volume=900,
+                                    ltp=99.0, ask=99.5) is False
+        assert acc.vwap is None
+        assert acc.count == 0
 
-    def test_zero_volume_ignored(self):
-        acc = TouchAnchoredVWAP()
+    def test_seller_volume_does_not_dilute_buyer_vwap(self):
+        """A big seller day must not move the buyer VWAP."""
+        acc = BuyerInitiatedDailyVWAP()
         acc.reset(level=100.0, action="BUY", start_bar=0)
-        acc.add(price=999.0, volume=0)       # must not bias the VWAP
-        acc.add(price=100.0, volume=10)
+        acc.add_daily_candle(price=100.0, volume=100,
+                             ltp=100.0, ask=100.0)      # counts
+        acc.add_daily_candle(price=50.0, volume=10_000,
+                             ltp=50.0, ask=50.5)        # excluded
+        assert acc.vwap == pytest.approx(100.0)
+        assert acc.total_volume == pytest.approx(100.0)
+
+    def test_explicit_flag_when_quote_data_absent(self):
+        """OHLCV-only path: the caller supplies the classification."""
+        acc = BuyerInitiatedDailyVWAP()
+        acc.reset(level=100.0, action="BUY", start_bar=0)
+        acc.add_daily_candle(price=100.0, volume=100, buyer_initiated=True)
+        acc.add_daily_candle(price=200.0, volume=100, buyer_initiated=False)
         assert acc.vwap == pytest.approx(100.0)
         assert acc.count == 1
 
-    def test_reset_discards_prior_flow(self):
-        """Re-anchoring must not carry old volume into the new window."""
-        acc = TouchAnchoredVWAP()
+    def test_unclassifiable_candle_fails_closed(self):
+        """No ltp/ask AND no flag -> must NOT be counted."""
+        acc = BuyerInitiatedDailyVWAP()
         acc.reset(level=100.0, action="BUY", start_bar=0)
-        acc.add(price=100.0, volume=1000)
+        assert acc.add_daily_candle(price=100.0, volume=100) is False
+        assert acc.vwap is None
+
+    def test_zero_volume_ignored(self):
+        acc = BuyerInitiatedDailyVWAP()
+        acc.reset(level=100.0, action="BUY", start_bar=0)
+        acc.add_daily_candle(price=999.0, volume=0, buyer_initiated=True)
+        acc.add_daily_candle(price=100.0, volume=10, buyer_initiated=True)
+        assert acc.vwap == pytest.approx(100.0)
+        assert acc.count == 1
+
+    def test_vwap_is_volume_weighted(self):
+        acc = BuyerInitiatedDailyVWAP()
+        acc.reset(level=100.0, action="BUY", start_bar=0)
+        acc.add_daily_candle(price=100.0, volume=100, buyer_initiated=True)
+        acc.add_daily_candle(price=102.0, volume=300, buyer_initiated=True)
+        assert acc.vwap == pytest.approx(101.5)
+
+    def test_reset_discards_prior_flow(self):
+        acc = BuyerInitiatedDailyVWAP()
+        acc.reset(level=100.0, action="BUY", start_bar=0)
+        acc.add_daily_candle(price=100.0, volume=1000, buyer_initiated=True)
         acc.reset(level=105.0, action="BUY", start_bar=20)
-        acc.add(price=105.0, volume=10)
+        acc.add_daily_candle(price=105.0, volume=10, buyer_initiated=True)
         assert acc.vwap == pytest.approx(105.0)
         assert acc.total_volume == pytest.approx(10.0)
 
     def test_bars_since_touch(self):
-        acc = TouchAnchoredVWAP()
+        acc = BuyerInitiatedDailyVWAP()
         acc.reset(level=100.0, action="BUY", start_bar=40)
         assert acc.bars_since_touch(60) == 20
-        assert TouchAnchoredVWAP().bars_since_touch(60) is None
+        assert BuyerInitiatedDailyVWAP().bars_since_touch(60) is None
 
     def test_deviation_pct_sign(self):
-        acc = TouchAnchoredVWAP()
+        acc = BuyerInitiatedDailyVWAP()
         acc.reset(level=100.0, action="BUY", start_bar=0)
-        acc.add(price=100.0, volume=100)
+        acc.add_daily_candle(price=100.0, volume=100, buyer_initiated=True)
         assert acc.deviation_pct(101.0) == pytest.approx(1.0)
         assert acc.deviation_pct(99.0) == pytest.approx(-1.0)
 
-    def test_snapshot_json_safe(self):
+    def test_snapshot_declares_classification(self):
+        """The snapshot must state how the VWAP was classified, so no
+        downstream reader can mistake a proxy for real tape data."""
         import json
-        acc = TouchAnchoredVWAP()
+        acc = BuyerInitiatedDailyVWAP()
         acc.reset(level=100.0, action="SELL", start_bar=1)
-        acc.add(price=100.0, volume=5)
-        json.dumps(acc.snapshot())
+        acc.add_daily_candle(price=100.0, volume=5, buyer_initiated=True)
+        snap = acc.snapshot()
+        assert "buyer-initiated" in snap["classification"]
+        json.dumps(snap)          # must be serialisable
 
 
 # ================================================= SIGNAL INTEGRATION =====
@@ -346,7 +394,8 @@ class TestSignalGatingReal:
         sig._bar_idx += 1
         sig._confirm.arm(level=sig._trigger_level, action="BUY", bar_idx=1)
         sig._touch_vwap.reset(level=sig._trigger_level, action="BUY", start_bar=1)
-        sig._touch_vwap.add(price=ohlc["close"], volume=1000)
+        sig._touch_vwap.add_daily_candle(
+            price=ohlc["close"], volume=1000, buyer_initiated=True)
         sig._confirm.confirm(z_value=1.42, bar_idx=6)
         assert sig._confirm.state == STATE_CONFIRMED
 
@@ -355,8 +404,37 @@ class TestSignalGatingReal:
         assert c["roc_z"] == pytest.approx(1.42)
         assert c["bars_waited"] == 5
         assert c["invalidation"] == pytest.approx(sig._trigger_level)
-        assert c["touch_vwap"] == pytest.approx(ohlc["close"])
+        band = intent["_meta"]["band"]
+        assert band["buyer_vwap"] == pytest.approx(ohlc["close"])
+        assert band["interval"] == "day"
+        assert band["ceiling_price"] > band["buyer_vwap"]
+        assert "buyer-initiated" in band["classification"]
         assert "confirmed" in intent["reason"]
+
+    def test_ceiling_gate_stops_slicing(self, tmp_path):
+        """Price above the daily band ceiling must halt the gate."""
+        sig, _ = self._sig(tmp_path, confirm_enabled=True)
+        sig._touch_vwap.reset(level=100.0, action="BUY", start_bar=0)
+        sig._touch_vwap.add_daily_candle(
+            price=100.0, volume=100, buyer_initiated=True)
+        sig.band_ceiling_pct = 0.5
+        assert sig._band_ceiling_price() == pytest.approx(100.5)
+        assert sig._above_band_ceiling(100.4) is False
+        assert sig._above_band_ceiling(100.6) is True
+
+    def test_ceiling_unmeasurable_does_not_halt(self, tmp_path):
+        """No daily-buyer VWAP -> no information -> must NOT halt."""
+        sig, _ = self._sig(tmp_path, confirm_enabled=True)
+        assert sig._band_ceiling_price() is None
+        assert sig._above_band_ceiling(999_999.0) is False
+
+    def test_buyer_proxy_classification(self, tmp_path):
+        """OHLCV-only proxy: close in the upper half of the range."""
+        sig, _ = self._sig(tmp_path, confirm_enabled=True)
+        assert sig._classify_buyer_initiated(
+            {"open": 100, "high": 110, "low": 100, "close": 109}, None) is True
+        assert sig._classify_buyer_initiated(
+            {"open": 110, "high": 110, "low": 100, "close": 101}, None) is False
 
     def test_insufficient_bars_for_zscore_is_safe(self, tmp_path):
         """Too-short frame -> no flip signal, no crash, no fire."""
@@ -378,7 +456,8 @@ class TestSignalGatingReal:
         ohlc = sig._extract_ohlc(frame.iloc[-1])
         sig._confirm.arm(level=sig._trigger_level, action="BUY", bar_idx=1)
         sig._touch_vwap.reset(level=sig._trigger_level, action="BUY", start_bar=1)
-        sig._touch_vwap.add(price=ohlc["close"], volume=500)
+        sig._touch_vwap.add_daily_candle(
+            price=ohlc["close"], volume=500, buyer_initiated=True)
         sig._fire_intent(ohlc["close"])
         assert sig._confirm.state == STATE_IDLE
         assert not sig._touch_vwap.is_active
