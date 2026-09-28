@@ -39,6 +39,10 @@ from ._pattern import (
 )
 from .base import BaseSignal
 
+# Confirmation-layer math. Imported at module level (not inside the gate) so
+# an ImportError surfaces at import time, not halfway through a live run.
+from blue_engine.alpha.confirm import find_flip, zscored_roc
+
 
 # Execution mode constants (user-selectable per run)
 EXEC_MODE_ONE_SHOT = "ONE_SHOT"          # Fire once, then stop
@@ -140,6 +144,24 @@ class OCLKeylevelSignal(BaseSignal):
             config.get("rearm_on_fire", self.exec_mode == EXEC_MODE_AUTO)
         )
 
+        # [CONFIRMATION SETTINGS] Momentum confirmation gate (OPT-IN)
+        # -------------------------------------------------------------
+        # When confirm_enabled is False (the default) this signal behaves
+        # EXACTLY as before: a keylevel touch fires immediately. When True, a
+        # touch only ARMS the setup; the trade fires once a z-scored ROC
+        # momentum flip confirms that the reversal is actually happening.
+        # Keeping the default off means existing runs are byte-identical.
+        self.confirm_enabled = bool(config.get("confirm_enabled", False))
+        self.roc_period = int(config.get("roc_period", 10))
+        self.z_window = int(config.get("z_window", 100))
+        self.entry_z = float(config.get("entry_z", 1.0))
+        if self.roc_period <= 0:
+            raise ValueError("roc_period must be > 0")
+        if self.z_window <= 0:
+            raise ValueError("z_window must be > 0")
+        if self.entry_z <= 0:
+            raise ValueError("entry_z must be > 0")
+
         # Internal state
         self._fired = False                       # Legacy one-shot guard
         self._fire_count = 0                      # Total fires so far
@@ -148,6 +170,23 @@ class OCLKeylevelSignal(BaseSignal):
         self._trigger_level: Optional[float] = None
         self._pattern_detected = False
         self._exhausted = False                   # All fires done
+
+        # Confirmation-layer state (only used when confirm_enabled)
+        if self.confirm_enabled:
+            from blue_engine.alpha.confirm import ConfirmMachine
+            from blue_engine.core.band import TouchAnchoredVWAP
+
+            self._confirm = ConfirmMachine()
+            self._touch_vwap = TouchAnchoredVWAP()
+            self._bar_idx = 0                     # Bar counter for the LTF
+            self.log(
+                f"[CONFIRM] enabled: ROC({self.roc_period}) "
+                f"z-window={self.z_window} entry_z={self.entry_z}"
+            )
+        else:
+            self._confirm = None
+            self._touch_vwap = None
+            self._bar_idx = 0
 
         # Validate quantity budget vs qty_per_fire
         if self.qty_per_fire > self.total_quantity and self.total_quantity > 0:
@@ -345,6 +384,11 @@ class OCLKeylevelSignal(BaseSignal):
 
             self.log(f"[LTF DATA] H={ohlc["high"]:.2f} L={ohlc["low"]:.2f} C={ltp:.2f}")
 
+            # ---- Confirmation-gated path (opt-in) ----
+            if self.confirm_enabled:
+                return self._monitor_with_confirmation(df, ohlc, ltp)
+
+            # ---- Legacy path: touch fires immediately ----
             if self._check_touch(ltp, ohlc):
                 return self._fire_intent(ltp)
 
@@ -356,6 +400,116 @@ class OCLKeylevelSignal(BaseSignal):
             self.log(f"[LTF ERROR] {e}")
             time.sleep(self.poll_seconds)
             return None
+
+    # ============================================================
+    # [CONFIRMATION GATE] Touch -> ARM -> z-ROC flip -> fire
+    # ============================================================
+    def _monitor_with_confirmation(self, df, ohlc, ltp):
+        """Two-stage gate: a touch ARMS the setup, a momentum flip fires it.
+
+        Stage 1 (touch): the first touch of the trigger level starts the
+            touch-anchored VWAP window and moves the machine to ARMED.
+            Later touches of the same level do NOT re-arm it.
+        Stage 2 (flip): on every subsequent poll the z-scored ROC is
+            evaluated. When it flips in the setup's direction, the trade
+            fires with the confirmation metadata attached.
+
+        There is NO bar-count discard (operator-confirmed): an armed setup
+        stays armed until the flip arrives or the run ends.
+        """
+        self._bar_idx += 1
+        bar = self._bar_idx
+
+        # -- Stage 1: arm on first touch --
+        if self._confirm.is_idle():
+            if not self._check_touch(ltp, ohlc):
+                self.log(
+                    f"[CONFIRM WAIT] LTP={ltp:.2f} "
+                    f"Trigger={self._trigger_level:.2f}"
+                )
+                time.sleep(self.poll_seconds)
+                return None
+
+            self._confirm.arm(
+                level=self._trigger_level,
+                action=self.action,
+                bar_idx=bar,
+            )
+            self._touch_vwap.reset(
+                level=self._trigger_level,
+                action=self.action,
+                start_bar=bar,
+            )
+            self.log(
+                f"[CONFIRM ARMED] level={self._trigger_level:.2f} "
+                f"action={self.action} bar={bar} - awaiting ROC flip"
+            )
+
+        # -- Accumulate touch-anchored flow from every bar on/after the touch --
+        volume = self._bar_volume(df)
+        self._touch_vwap.add(price=ltp, volume=volume)
+
+        # -- Stage 2: evaluate the momentum flip --
+        z_series = self._roc_z_series(df)
+        flip_idx = find_flip(
+            z_series,
+            start_idx=len(z_series) - 1,   # only the newest bar can trigger
+            entry_z=self.entry_z,
+            direction=self.action,
+        )
+
+        if flip_idx is None:
+            z_now = z_series[-1] if z_series else None
+            z_txt = f"{z_now:.2f}" if isinstance(z_now, (int, float)) else "n/a"
+            self.log(
+                f"[CONFIRM ARMED] z={z_txt} (need {'>' if self.action == 'BUY' else '<'} "
+                f"{-self.entry_z if self.action == 'SELL' else self.entry_z:.2f}); "
+                f"bars_armed={self._confirm.s.bars_waited or bar - (self._confirm.s.arm_idx or bar)}"
+            )
+            time.sleep(self.poll_seconds)
+            return None
+
+        z_at_flip = z_series[flip_idx]
+        self._confirm.confirm(z_value=z_at_flip, bar_idx=bar)
+        self.log(
+            f"[CONFIRM OK] z flipped to {z_at_flip:.2f} at bar {bar} "
+            f"(armed at bar {self._confirm.s.arm_idx})"
+        )
+        return self._fire_intent(ltp)
+
+    # ============================================================
+    # [CONFIRM HELPERS] Data extraction for the gate
+    # ============================================================
+    def _roc_z_series(self, df):
+        """Compute the z-scored ROC series over the LTF closes.
+
+        Returns an empty list when the frame is too short to compute a
+        z-score, so the caller treats it as "no flip yet" rather than
+        crashing mid-run.
+        """
+        try:
+            closes = [float(c) for c in df["close"].tolist()]
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return []
+
+        # Need roc_period for the first ROC plus z_window ROC observations.
+        if len(closes) < self.roc_period + self.z_window:
+            self.log(
+                f"[CONFIRM] insufficient bars for z-score "
+                f"({len(closes)} < {self.roc_period + self.z_window}); "
+                f"flip cannot be evaluated yet"
+            )
+            return []
+        return zscored_roc(
+            closes, period=self.roc_period, z_window=self.z_window
+        )
+
+    def _bar_volume(self, df) -> float:
+        """Volume of the newest bar, or 0.0 when unavailable."""
+        try:
+            return float(df["volume"].iloc[-1])
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError):
+            return 0.0
 
     # ============================================================
     # [TOUCH CHECK] Price-vs-Level Comparison
@@ -412,6 +566,37 @@ class OCLKeylevelSignal(BaseSignal):
             },
         }
 
+        # Confirmation metadata: recorded so the operator can audit AFTER the
+        # fact whether entries were taken near the post-touch value, and so
+        # the backtest harness can measure whether the confirmation layer
+        # actually earns its filtering cost.
+        if self.confirm_enabled and self._confirm is not None:
+            snap = self._confirm.snapshot()
+            vwap_val = (self._touch_vwap.vwap
+                        if self._touch_vwap is not None else None)
+            dev_pct = (self._touch_vwap.deviation_pct(ltp)
+                       if self._touch_vwap is not None else None)
+            intent["_meta"]["confirm"] = {
+                "state": snap["state"],
+                "roc_z": snap["confirm_z"],
+                "bars_waited": snap["bars_waited"],
+                "arm_idx": snap["arm_idx"],
+                "confirm_idx": snap["confirm_idx"],
+                "roc_period": self.roc_period,
+                "z_window": self.z_window,
+                "entry_z": self.entry_z,
+                "touch_vwap": vwap_val,
+                "vwap_deviation_pct": dev_pct,
+                "touch_observations": (
+                    self._touch_vwap.count if self._touch_vwap else 0),
+                "invalidation": self._trigger_level,
+            }
+            intent["reason"] += (
+                f" + confirmed (z={snap['confirm_z']:.2f}, "
+                f"bars_waited={snap['bars_waited']})"
+                if snap["confirm_z"] is not None else " + confirmed"
+            )
+
         self.log("=" * 60)
         self.log(
             f"FIRED #{self._fire_count}: {intent['action']} {fire_qty} shares -> {intent['reason']}"
@@ -419,6 +604,16 @@ class OCLKeylevelSignal(BaseSignal):
         self.log("=" * 60)
 
         # ---- Post-fire state management (per user-defined exec_mode) ----
+        # The confirmation layer is per-setup: whatever the exec_mode decides
+        # about re-arming, the touch VWAP and the ARM/CONFIRM state must start
+        # clean for the *next* setup. Leaving them populated would let a stale
+        # anchor leak into the following setup's VWAP.
+        if self.confirm_enabled and self._confirm is not None:
+            self._confirm.reset()
+            if self._touch_vwap is not None:
+                self._touch_vwap.reset()
+            self.log("[CONFIRM] state + touch VWAP reset for next setup")
+
         if self.exec_mode == EXEC_MODE_ONE_SHOT:
             self._exhausted = True
             self.log("[MODE] ONE_SHOT -> signal exhausted (will not fire again)")

@@ -594,10 +594,8 @@ No strategy improvement should compromise security, data integrity, execution sa
 restart after agent terminate automatically.
 
 
-Write all the auto learing command under below after every file committed.
-## Agent setup (do not lose)
-- Python interpreter: `C:\Users\KanagalakshmiM\my-trading-system\openalgo\.venv\Scripts\python.exe`
-- Git executable: `C:\Program Files\Git\cmd\git.exe`
-- Test framework: pytest, tests live in `Blue_engine/tests/`
-- Run full ML test suite: `cd Blue_engine; ..\openalgo\.venv\Scripts\python.exe tests\test_ml_models.py`
-- ML layer committed at `7fc13a8`
+Write all the Ready-to-paste AGENTS.md rules under below after every file committed.  
+## Agent 
+## Honesty & Verification Rules
+
+

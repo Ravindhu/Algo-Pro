@@ -1,4 +1,4 @@
-﻿"""
+"""
 band.py - VWAP Value Filter Band (Phase 1, Feature 13).
 
 ================================================================================
@@ -78,6 +78,7 @@ USAGE
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 
 # -----------------------------------------------------------------------------
@@ -318,3 +319,144 @@ __all__ = [
     "compute_target_pov_rate",
 ]
 
+# -----------------------------------------------------------------------------
+# Touch-anchored VWAP (confirmation layer, "REVCONF" step 3)
+# -----------------------------------------------------------------------------
+class TouchAnchoredVWAP:
+    """VWAP accumulated FROM the bar that touched a keylevel.
+
+    Why anchor at the touch instead of a fixed 20-bar window
+    --------------------------------------------------------
+    A fixed-window VWAP mixes pre-touch and post-touch flow. Volume that
+    traded hours before the level was reached says nothing about whether the
+    level is being defended *now*. Anchoring at the touch makes the VWAP a
+    measure of the flow that exists because of the level - the population
+    this setup is actually trying to trade with.
+
+    The window therefore has no fixed length: it grows from the touch until
+    the setup resolves. That is intentional.
+
+    Usage
+    -----
+        acc = TouchAnchoredVWAP()
+        acc.reset(level=22000.0, action="BUY", start_bar=42)   # on touch
+        acc.add(price=22001.5, volume=1200)                    # each later bar
+        vwap = acc.vwap                                        # or None
+        acc.bars_since_touch(60)                               # -> 18
+
+    This class is pure: no SDK, no I/O, no clock access. Bar indices are
+    supplied by the caller, which keeps tests deterministic and lets the
+    backtest harness drive it directly.
+    """
+
+    __slots__ = ("level", "action", "start_bar", "_pv", "_vol", "_bars")
+
+    def __init__(self) -> None:
+        self.level: Optional[float] = None
+        self.action: Optional[str] = None
+        self.start_bar: Optional[int] = None
+        self._pv: float = 0.0
+        self._vol: float = 0.0
+        self._bars: int = 0
+
+    # -- lifecycle ---------------------------------------------------------
+    @property
+    def is_active(self) -> bool:
+        """True once a touch has anchored this accumulator."""
+        return self.start_bar is not None
+
+    @property
+    def count(self) -> int:
+        """Number of (price, volume) observations added since the anchor."""
+        return self._bars
+
+    @property
+    def total_volume(self) -> float:
+        return self._vol
+
+    def reset(
+        self,
+        *,
+        level: Optional[float] = None,
+        action: Optional[str] = None,
+        start_bar: Optional[int] = None,
+    ) -> None:
+        """Re-anchor the window, discarding all previously accumulated flow.
+
+        Call this on the FIRST touch of a level. Later touches of the same
+        level must NOT re-anchor (the operator's first-touch-only rule) -
+        that is enforced by the caller's state machine, not here, so this
+        class stays a plain accumulator.
+        """
+        self.level = None if level is None else float(level)
+        self.action = None if action is None else str(action).upper()
+        self.start_bar = None if start_bar is None else int(start_bar)
+        self._pv = 0.0
+        self._vol = 0.0
+        self._bars = 0
+
+    # -- accumulation ------------------------------------------------------
+    def add(self, *, price: float, volume: float) -> None:
+        """Add one observation. Non-positive volume or price is ignored.
+
+        Zero-volume bars are common at the open and in illiquid names. They
+        carry no price information, so counting them would either divide by
+        zero or silently bias the VWAP toward a stale price.
+        """
+        try:
+            p = float(price)
+            v = float(volume)
+        except (TypeError, ValueError):
+            return
+        if p <= 0 or v <= 0:
+            return
+        self._pv += p * v
+        self._vol += v
+        self._bars += 1
+
+    # -- readout -----------------------------------------------------------
+    @property
+    def vwap(self) -> Optional[float]:
+        """Volume-weighted average price since the anchor, or None if empty.
+
+        ``None`` (rather than 0.0) means "not measurable yet" - the caller
+        must treat it as absent data, never as a price.
+        """
+        if self._vol <= 0:
+            return None
+        return self._pv / self._vol
+
+    def bars_since_touch(self, current_bar: int) -> Optional[int]:
+        """Bars elapsed since the anchoring touch, or None if not anchored."""
+        if self.start_bar is None:
+            return None
+        return int(current_bar) - int(self.start_bar)
+
+    def deviation_pct(self, price: float) -> Optional[float]:
+        """How far ``price`` sits from the anchored VWAP, in percent.
+
+        Positive means above the VWAP. Returns None when the VWAP is not
+        yet measurable. Recorded in the intent metadata so the operator can
+        see after the fact whether entries were made near or far from the
+        post-touch value - the evidence needed to decide later whether this
+        should become a hard entry filter.
+        """
+        v = self.vwap
+        if v is None or v <= 0:
+            return None
+        try:
+            p = float(price)
+        except (TypeError, ValueError):
+            return None
+        return (p - v) / v * 100.0
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Serialisable view for logs, dashboards and intent metadata."""
+        return {
+            "level": self.level,
+            "action": self.action,
+            "start_bar": self.start_bar,
+            "observations": self._bars,
+            "total_volume": self._vol,
+            "vwap": self.vwap,
+        }
