@@ -310,12 +310,12 @@ class POVSlicer(BaseSlicer):
             # "price above ceiling -> stop slicing". This runs even when
             # delta_vol produced no slice this poll, because a run that has
             # stopped trading must still be seen to be halting rather than
-            # silently idling. The ceiling is rescaled from the live LTP so
-            # the halt stays meaningful as the reference VWAP ages.
+            # silently idling. The ceiling is rescaled from the reference
+            # VWAP so the halt stays meaningful as that reference ages.
             live_ceiling = band_ceiling
             if band_ceiling is None and band_vwap is not None:
                 live_ceiling = band_vwap * (1.0 + band_ceiling_pct / 100.0)
-            if live_ceiling is not None and ltp > live_ceiling:
+            if live_ceiling is not None and _above(live_ceiling, ltp):
                 band_halt_count += 1
                 self.log(
                     f"CEILING HALT: ltp={ltp:.2f} > ceiling={live_ceiling:.2f} "
@@ -446,6 +446,11 @@ class POVSlicer(BaseSlicer):
                     limit_expiry_pct=self.limit_expiry_pct,
                     execution_id=execution_id)
             price_type = self.order_mode
+            # MUST be initialised before the branches below: MARKET runs never
+            # enter the PEG/LIMIT arms, and reading an unassigned name here
+            # raised UnboundLocalError - crashing every MARKET slice, which is
+            # the default for a confirmation-band execution.
+            place_price: Optional[float] = None
             if slice_qty > 0:
                 if self.order_mode == "PEG":
                     # PEG-1 decides the price from the live top-of-book; the
@@ -597,6 +602,29 @@ def _safe_num(value: Any, default: Optional[float] = None) -> Optional[float]:
     band: a missing ceiling must mean "no band information" and NOT
     "ceiling is zero", because a zero ceiling would halt every run.
     """
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _above(ceiling: float, price: float, tick: float = 0.05) -> bool:
+    """True when ``price`` is meaningfully ABOVE ``ceiling``.
+
+    A naive ``price > ceiling`` is wrong here because the ceiling is
+    computed as ``vwap * (1 + pct/100)``. In IEEE-754 that product is
+    imprecise: 100.0 * 1.005 == 100.50000000000001, so a price of exactly
+    100.50 - a real, quotable tick - would be judged to be above the
+    ceiling and halt slicing. Measured live in this codebase, that turned
+    a boundary case into a spurious total halt.
+
+    Half a tick of tolerance makes the boundary ``>= ceiling`` behave as
+    intended while leaving a genuine one-tick breach (which is a full tick
+    above the ceiling) firmly inside the halt.
+    """
+    return price > (ceiling + tick / 2.0)
     if value is None or value == "":
         return default
     try:
