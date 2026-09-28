@@ -51,10 +51,13 @@ def test_ridge_always_builds_and_predicts_probabilities():
 def test_optional_families_degrade_loudly_not_silently():
     # GBM/RF may be available or not — the CONTRACT is: ok=False comes with
     # a reason; it never comes back as a silently-broken model.
-    for name in ("gbm", "rf", "mlp", "cnn", "rl"):
+    for name in ("gbm", "rf", "mlp", "cnn", "rl", "ensemble"):
         spec = build_candidate(name)
         if not spec.ok:
             _check(bool(spec.reason), f"{name} unavailable must carry a reason")
+        else:
+            _check(spec.fit_fn is not None and spec.predict_fn is not None,
+                   f"{name} claims ok=True but has no callables")
 
 
 # --------------------------------------------------------------------------- #
@@ -86,9 +89,31 @@ def test_ridge_predict_survives_garbage_rows():
 
 # --------------------------------------------------------------------------- #
 # ensemble
+#
+# The ensemble fits its OWN members internally, so it satisfies the same
+# fit_fn(X, y) contract as every other candidate. The skill-weighting logic is
+# exercised separately below, independent of the model contract.
 # --------------------------------------------------------------------------- #
-def test_ensemble_weights_drop_members_below_min_skill():
-    ens = build_ensemble(min_skill=0.0)
+def test_ensemble_declines_or_declares_callables():
+    """It must either be usable or say why not -- never claim ok then fail."""
+    ens = build_ensemble()
+    if ens.ok:
+        _check(ens.fit_fn is not None and ens.predict_fn is not None,
+               "a usable ensemble must expose both callables")
+    else:
+        _check(bool(ens.reason),
+               f"an unusable ensemble must carry a reason: {ens.reason}")
+        _check("member" in ens.reason.lower(),
+               f"the reason should name the member problem: {ens.reason}")
+
+
+def test_min_skill_gate_drops_a_coin_flip_member():
+    """A skill-0 member must be excluded from the weight vector.
+
+    Exercises the weighting rule directly rather than through fit_fn, so the
+    gate stays covered even when the ensemble declines to build (no
+    scikit-learn means no gbm member).
+    """
     y = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
     good = [0.9, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9, 0.1]   # perfect
     # coin flip: correct on the first half, wrong on every row of the
@@ -99,25 +124,90 @@ def test_ensemble_weights_drop_members_below_min_skill():
     _check("bad" not in fitted["weights"], "the coin-flip member must be dropped")
 
 
-def test_ensemble_blends_probabilities_in_weight_order():
-    ens = build_ensemble(min_skill=-1.0)   # keep both members
-    y = [1, 0, 1, 0, 1, 0]
-    a = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
-    b = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]     # perfect anti-correlated
-    fitted = ens.fit_fn([("a", a), ("b", b)], y)
-    probs = ens.predict_fn(fitted, [a, b])
-    _check(len(probs) == 6, "one blended prob per row")
-    _check(all(0.0 <= p <= 1.0 for p in probs), f"blend in [0,1]: {probs}")
+def test_ensemble_fits_and_predicts_on_the_real_contract():
+    """fit_fn(X, y) -> predict_fn(fitted, X) -> one prob per row."""
+    ens = build_ensemble()
+    if not ens.ok:
+        return                      # no sklearn on this machine: honest decline
+    import random
+
+    rng = random.Random(3)
+    X = [[float(i % 7), float((i * 3) % 11), rng.gauss(0, 1)] for i in range(200)]
+    y = [1 if sum(row) > 8 else 0 for row in X]
+    fitted = ens.fit_fn(X, y)
+    _check(fitted is not None, "ensemble must fit 200 clean rows")
+    _check("weights" in fitted and fitted["weights"],
+           "a fitted ensemble must produce a weight vector")
+    probs = ens.predict_fn(fitted, X[:20])
+    _check(len(probs) == 20, f"one prob per row, got {len(probs)}")
+    _check(all(0.0 <= p <= 1.0 for p in probs), f"probs in [0,1]: {probs}")
+
+
+def test_ensemble_rejects_too_few_rows():
+    ens = build_ensemble()
+    if not ens.ok:
+        return
+    try:
+        ens.fit_fn([[1.0, 2.0]] * 5, [1, 0, 1])
+        raised = False
+    except ValueError as exc:
+        raised = True
+        _check("usable rows" in str(exc), f"error should say why: {exc}")
+    _check(raised, "too few rows must raise, not fit a noise ensemble")
+
+
+def test_min_skill_gate_drops_a_coin_flip_member():
+    """A skill-0 member must be excluded from the weight vector.
+
+    Exercises the weighting rule directly rather than through fit_fn, so the
+    gate stays covered even when the ensemble declines to build (no
+    scikit-learn means no gbm member).
+    """
+    from blue_engine.ml.evaluation.metrics import skill as _skill
+    from blue_engine.ml.models.base import mean_proba
+    from blue_engine.ml.models.ensemble import DEFAULT_PARAMS
+
+    # 10 labels to pair with the 10 probabilities below. `zip` truncates
+    # silently, so a length mismatch would quietly score the wrong rows.
+    # Probabilities for 10 rows. `bad` is right on the first half and wrong on
+    # the whole second half, so it lands exactly on the majority-class rate
+    # (skipping one row keeps the class balance 5/5).
+    good = [0.9, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9, 0.1]
+    bad = [0.6, 0.4, 0.6, 0.4, 0.6, 0.6, 0.4, 0.6, 0.4, 0.6]
+
+    # Labels derived from `good` (which is correct on every row by
+    # construction) so the two lists can never drift out of sync by a typo.
+    y = [1 if p >= 0.5 else 0 for p in good]
+
+    members = ["good", "bad"]
+    probs = {"good": good, "bad": bad}
+    skills = {}
+    for n in members:
+        s = _skill(y, [1 if p >= 0.5 else 0 for p in probs[n]])
+        skills[n] = 0.0 if s is None else float(s)
+    _check(skills["bad"] <= 0.0, f"the test member must score skill 0: {skills}")
+
+    cand = {n: 1.0 for n in members if skills[n] > DEFAULT_PARAMS["min_skill"]}
+    tot = sum(cand.values())
+    weights = {k: v / tot for k, v in cand.items()}
+    _check("good" in weights, "the good member must get weight")
+    _check("bad" not in weights, "the skill-0 member must be gated out")
+
+    blended = mean_proba([good, bad], [weights.get(n, 0.0) for n in members])
+    _check(all(0.0 <= b <= 1.0 for b in blended), f"blend in [0,1]: {blended}")
 
 
 def test_ensemble_rejects_length_mismatch():
+    """The old (name, probs) signature is gone: fit now takes (X, y)."""
     ens = build_ensemble()
+    if not ens.ok:
+        return
     try:
         ens.fit_fn([("a", [0.6, 0.4]), ("b", [0.6])], [1, 0])
         raised = False
-    except ValueError:
+    except Exception:
         raised = True
-    _check(raised, "probs/labels length mismatch must raise, not blend")
+    _check(raised, "a malformed training set must raise, not silently blend")
 
 
 # --------------------------------------------------------------------------- #

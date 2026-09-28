@@ -129,6 +129,17 @@ scripts/_*.py
 _diag.ps1
 move_log.txt
 
+# Temp/ is the designated STAGING workspace (see AGENTS.md): research,
+# experiments, downloaded docs, diagnostic probes. It is deliberately NOT
+# tracked, for two reasons:
+#   1. it is scratch by definition - a probe answers one question and is then
+#      obsolete, and committing it turns the repo into a junk drawer;
+#   2. the probes are run against real data and so are a place a credential can
+#      leak by accident (a tqdm bar echoing a URL, a repr of a config object).
+# Nothing in this repo imports from Temp/, so ignoring it breaks nothing.
+# A probe worth keeping belongs in docs/ (its findings) or Scripts/ (its code).
+Temp/
+
 # -----------------------------------------------------------------------------
 # EXCEPTIONS — things that look ignored but must be tracked
 # -----------------------------------------------------------------------------

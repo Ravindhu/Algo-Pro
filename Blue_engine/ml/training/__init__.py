@@ -20,6 +20,7 @@ in a runbook.
 
 from __future__ import annotations
 
+import os
 import platform
 import time
 from typing import Any, Dict, List, Optional
@@ -36,19 +37,52 @@ from ..registry import STATUS_DRAFT, Registry, content_hash
 __all__ = ["TrainRun", "run_training"]
 
 
+def _find_git() -> Optional[str]:
+    """Locate a git executable, including the common Windows install path.
+
+    WHY THIS IS NOT JUST ``"git"``
+    -----------------------------
+    On this machine git is installed but NOT on PATH (verified: the repo's own
+    setup notes pin it at ``C:\Program Files\Git\cmd\git.exe``). A bare
+    ``subprocess.run(["git", ...])`` therefore fails SILENTLY and every
+    manifest records ``git_commit: null`` — which quietly defeats the point of
+    a provenance record. Checking the usual absolute locations costs nothing
+    and makes the recorded commit actually correspond to the code that ran.
+    """
+    from shutil import which
+
+    found = which("git")
+    if found:
+        return found
+    for cand in (r"C:\Program Files\Git\cmd\git.exe",
+                 r"C:\Program Files (x86)\Git\cmd\git.exe",
+                 "/usr/bin/git", "/usr/local/bin/git"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
 def _git_commit() -> Optional[str]:
-    """Best-effort repo commit for the manifest. Never raises; None is fine
-    (a manifest without a commit is still verifiable via the content hashes)."""
-    for cmd in ("git",):
-        try:
-            import subprocess
-            out = subprocess.run(
-                [cmd, "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=5)
-            if out.returncode == 0:
-                return out.stdout.strip() or None
-        except Exception:  # noqa: BLE001
-            pass
+    """Best-effort repo commit for the manifest. Never raises.
+
+    Returns None only when git genuinely cannot be found or this is not a
+    repository — in which case the manifest still stands on its content
+    hashes (X_hash / y_hash), which are the stronger guarantee.
+    """
+    exe = _find_git()
+    if not exe:
+        logger.info("manifest: git not found; commit will be recorded as null")
+        return None
+    try:
+        import subprocess
+
+        out = subprocess.run([exe, "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=5,
+                             cwd=os.path.dirname(os.path.abspath(__file__)))
+        if out.returncode == 0:
+            return out.stdout.strip() or None
+    except Exception as exc:  # noqa: BLE001
+        logger.info("manifest: git rev-parse failed: %r", exc)
     return None
 
 

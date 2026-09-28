@@ -1,5 +1,17 @@
 # User Setup
 
+## Agent setup (do not lose)
+- Python interpreter: `C:\Users\KanagalakshmiM\my-trading-system\openalgo\.venv\Scripts\python.exe`
+- Git executable: `C:\Program Files\Git\cmd\git.exe` (NOT on PATH — use the full path)
+- Test framework: pytest, tests live in `Blue_engine/tests/`
+- Run full ML test suite: `cd Blue_engine; ..\openalgo\.venv\Scripts\python.exe tests\test_ml_models.py`
+- Run the FULL suite (regression): `& .\openalgo\.venv\Scripts\python.exe -m pytest Blue_engine/tests -q`
+- Train a model: `$env:BLUE_ML_SIGNING_KEY="<key>"; & .\openalgo\.venv\Scripts\python.exe Scripts\ml_train.py --symbol NIFTY`
+- ML layer committed at `7fc13a8`; ML dashboard page at `85ea3c1`
+- Skill diagnosis (why ridge fails on NIFTY): `docs/ML_SKILL_DIAGNOSIS.md`
+- NOT INSTALLED on this machine: `scikit-learn`, `torch` — only the pure-Python
+  ridge candidate can run. GBM/RF/MLP/CNN/RL/ensemble all decline with a reason.
+
 Build a world-class, fully automated algorithmic trading system for the Indian market.
 
 The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
@@ -162,8 +174,8 @@ Act as a combination of:
 
 Provide recommendations, architecture improvements, research directions, and development plans for building an advanced quantitative trading system.
 
-Recommendations must be based on:
-
+Recommendations must every task finished  based on:
+* Next priority one with say word("")
 * Verified information
 * Reliable documentation
 * Statistical evidence
@@ -269,6 +281,9 @@ Classify events appropriately as:
 * CRITICAL
 
 Critical errors must be clearly visible and should trigger the appropriate safety mechanism.
+
+write the script every sucessful commit 
+  Scripts/ml_train.py
 
 ## Development and Engineering Standards
 
