@@ -105,6 +105,7 @@ Include:
 * Position monitoring
 * Portfolio monitoring
 * Risk monitoring
+* AI Insight header  in each module
 * P&L
 * Execution analytics
 * Strategy performance
@@ -401,6 +402,10 @@ Potential applications include:
 * Anomaly detection
 * Feature selection
 * Market-state classification
+* statery optimization 
+* execution optimization
+* To find edge in the statergy
+* to inprove singal Quality
 
 Potential technologies include:
 
@@ -417,8 +422,16 @@ Potential technologies include:
 * Regression models
 * Clustering
 * Anomaly detection
+* Bayesian optimization model  for execution
+* Hyperparameter Optimization (HPO) for simulation
+* Walk-Forward optimization routine o prevent your model from    over-optimizing to historical noise 
+* Tree-structured Parzen Estimator (TPE)-instead of checking every variable sequentially
 
-Do not use advanced AI/ML models merely for complexity.
+
+
+
+
+
 
 Use them only where:
 
@@ -428,6 +441,7 @@ Use them only where:
 * Out-of-sample testing is possible
 * The model provides measurable improvement
 * Risk is controlled
+* Use for perameter optimization
 
 ## NLP and GPT
 

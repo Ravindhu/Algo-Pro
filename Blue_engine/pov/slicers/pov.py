@@ -54,6 +54,9 @@ class POVSlicer(BaseSlicer):
         self.exchange: str = str(config.get("exchange", ""))
         self.product: str = str(config.get("product", "CNC")).upper()
         self.order_mode: str = str(config.get("order_mode", "MARKET")).upper()
+        if self.order_mode not in ("MARKET", "LIMIT", "PEG"):
+            raise ValueError(
+                f"order_mode must be MARKET, LIMIT or PEG, got {self.order_mode!r}")
         self.max_slice: Optional[int] = (
             int(config["max_slice_quantity"])
             if config.get("max_slice_quantity") is not None else None)
@@ -164,6 +167,14 @@ class POVSlicer(BaseSlicer):
         buyer_vwap_vol: int = 0
         arrival_window = ArrivalPriceWindow(max_ticks=20)
         slippage_acc = SlippageAccumulator(window=10)
+        # PEG-1: passive/peg pricing engine. Only instantiated for PEG runs;
+        # MARKET/LIMIT runs are untouched by the peg state machine.
+        peg_engine = None
+        peg_open_child = False   # a resting PEG child we believe is still working
+        peg_phase = phase        # reset the peg when the run flips to exiting
+        if self.order_mode == "PEG":
+            from .peg import PegEngine
+            peg_engine = PegEngine(self.config)
         sme_cfg = (
             self.sme_periodic_call_auction
             if self.sme_periodic_call_auction is not None
@@ -245,8 +256,8 @@ class POVSlicer(BaseSlicer):
                 time.sleep(poll_sec)
                 now_ts = datetime.now().timestamp()
                 continue
-            # Price-side LIMIT guards.
-            if slice_qty > 0 and self.order_mode == "LIMIT":
+            # Price-side LIMIT guards (PEG places LIMITs, so it obeys them too).
+            if slice_qty > 0 and self.order_mode in ("LIMIT", "PEG"):
                 if self.action == "BUY" and self.ceiling_price                         and ltp > self.ceiling_price:
                     self.log(f"BUY LIMIT ltp={ltp}>{self.ceiling_price}; skip")
                     slice_qty = 0
@@ -285,6 +296,7 @@ class POVSlicer(BaseSlicer):
             # Re-anchor the fill count from the durable ledger so partial and
             # delayed fills are accounted for. The in-memory counter is only a
             # fallback for when the ledger has nothing to report.
+            filled_before_sync = filled_qty
             try:
                 from blue_engine.core import ledger as _ledger
                 durable_filled = _ledger.recover_filled_quantity(execution_id)
@@ -294,6 +306,13 @@ class POVSlicer(BaseSlicer):
                 if durable_filled != filled_qty:
                     self.log(f"fill sync: {filled_qty} -> {durable_filled}")
                 filled_qty = durable_filled
+            # PEG-1: a detected fill means the current slice is done; reset the
+            # peg anchor and patience window so the next slice starts passive
+            # again instead of inheriting a stale chase cap.
+            if peg_engine is not None and filled_qty > filled_before_sync:
+                self.log("peg: fill detected; peg state reset for next slice")
+                peg_engine.reset_for_new_slice()
+                peg_open_child = False
             if slice_qty > 0:
                 remaining = target_qty - filled_qty
                 if slice_qty > remaining: slice_qty = remaining
@@ -336,7 +355,7 @@ class POVSlicer(BaseSlicer):
                 guard_cfg = dict(self.config)
                 guard_cfg["slice_qty"] = slice_qty
                 guard_cfg["action"] = self.order_action
-                if self.order_mode == "LIMIT" and self.config.get("limit_price") is not None:
+                if self.order_mode in ("LIMIT", "PEG") and self.config.get("limit_price") is not None:
                     guard_cfg["limit_price"] = float(self.config["limit_price"])
                 result = evaluate_guards(
                     tob, action=self.order_action, cfg=guard_cfg,
@@ -375,16 +394,42 @@ class POVSlicer(BaseSlicer):
                     exchange=self.exchange, strategy_label=self.strategy_label,
                     limit_expiry_pct=self.limit_expiry_pct,
                     execution_id=execution_id)
+            price_type = self.order_mode
             if slice_qty > 0:
-                # Prefer the guard-computed depth-aware price; fall back to the
-                # static limit_price for LIMIT runs, else None (MARKET).
-                if self.order_mode == "LIMIT":
+                if self.order_mode == "PEG":
+                    # PEG-1 decides the price from the live top-of-book; the
+                    # depth cap from the guards still applies to quantity.
+                    if peg_phase != phase:
+                        self.log("peg: phase change; peg state reset")
+                        peg_engine.reset_for_new_slice()
+                        peg_open_child = False
+                        peg_phase = phase
+                    decision = peg_engine.decide(
+                        tob, action=self.order_action, now_ts=now_ts)
+                    if decision.price is None:
+                        self.log(f"peg skip ({decision.reason}); no child")
+                    elif peg_open_child and decision.reason == "passive_at_touch":
+                        # A resting child is already working at this price;
+                        # never stack a second passive order on top of it.
+                        self.log("peg holding resting child; skip placement")
+                    else:
+                        if peg_open_child:
+                            # Peg moved (re-peg or cross): retire the old child.
+                            self._cancel_stale_limits(
+                                client=self.client, symbol=self.symbol,
+                                exchange=self.exchange,
+                                strategy_label=self.strategy_label,
+                                limit_expiry_pct=self.limit_expiry_pct,
+                                execution_id=execution_id)
+                            peg_open_child = False
+                        place_price = decision.price
+                        price_type = "LIMIT"   # PEG always works as LIMIT
+                        self.log(f"peg: {decision.reason} @ {place_price}")
+                elif self.order_mode == "LIMIT":
                     place_price = (
                         guard_price if guard_price is not None
                         else (float(self.config["limit_price"])
                               if self.config.get("limit_price") is not None else None))
-                else:
-                    place_price = None
                 self.log(f"[poll {child_count+1}] {self.order_action} {slice_qty} "
                           f"{self.symbol}/{self.exchange} {self.order_mode} "
                           f"@ {place_price or 'MARKET'}")
@@ -393,7 +438,8 @@ class POVSlicer(BaseSlicer):
                     resp = self.client.placeorder(
                         strategy=self.strategy_label, symbol=self.symbol,
                         action=self.order_action, exchange=self.exchange,
-                        price_type=self.order_mode, product=self.product,
+                    price_type=("LIMIT" if self.order_mode == "PEG"
+                                else self.order_mode), product=self.product,
                         quantity=slice_qty, price=place_price)
                 except Exception as exc:
                     self.log(f"placeorder raised {exc!r}")
@@ -402,6 +448,8 @@ class POVSlicer(BaseSlicer):
                 if isinstance(resp, dict) and resp.get("status") == "success":
                     oid = resp.get("order_id") or (resp.get("data") or {}).get("order_id")
                     child_count += 1; _LAST_ORDER_AT[execution_id] = datetime.now()
+                    if self.order_mode == "PEG":
+                        peg_open_child = True
                     child_log.append({"attempted": slice_qty, "order_id": oid,
                                       "ltp_at_place": ltp, "phase": phase})
                     self.log(f"child placed: oid={oid}")
