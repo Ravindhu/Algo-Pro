@@ -88,21 +88,48 @@ def data_root() -> str:
     return os.environ.get("BLUE_ML_DATA_ROOT", _default_data_root())
 
 
-class config:  # noqa: N801 - lowercase intentional: it reads as a namespace, not a class to instantiate
+class _ConfigMeta(type):
+    """Make the config's directory constants resolve the env *on each read*.
+
+    WHY THIS EXISTS (a real bug this fixed)
+    ---------------------------------------
+    Computing these once at import time breaks the documented override:
+    ``BLUE_ML_DATA_ROOT`` is read at import, so any process that sets it later
+    (a test harness, a dashboard launched with an env block, a job that
+    switches roots between runs) silently keeps writing to and reading from
+    the DEFAULT root. Nothing errors — the artifacts just are not where the
+    caller looked, which is the worst kind of bug: a wrong answer, not a
+    crash.
+
+    Resolving on read makes the env var authoritative whenever it is set.
+    """
+
+    def __getattr__(cls, item: str):
+        if item in cls._DERIVED:  # directory constants derived from the root
+            sub = cls._DERIVED[item]
+            return os.path.join(data_root(), sub) if sub else data_root()
+        raise AttributeError(item)
+
+
+class config(metaclass=_ConfigMeta):  # noqa: N801 - reads as a namespace, not a class to instantiate
     """Tiny configuration namespace for the offline ML layer.
 
     Kept as plain constants so that offline scripts import one obvious place.
+    The directory paths resolve the ``BLUE_ML_DATA_ROOT`` env var on every
+    read (see :class:`_ConfigMeta`); everything else is a true constant.
     Anything that must vary per-run belongs in the run manifest, not here.
     """
 
-    # Datasets
-    DATA_ROOT = data_root()
-    RAW_DIR = os.path.join(DATA_ROOT, "ml_raw")          # verbatim vendor responses
-    CURATED_DIR = os.path.join(DATA_ROOT, "ml_curated")  # leakage-safe, typed tables
-    FEATURES_DIR = os.path.join(DATA_ROOT, "ml_features")
-    ARTIFACT_DIR = os.path.join(DATA_ROOT, "ml_artifacts")
-    REGISTRY_FILE = os.path.join(DATA_ROOT, "ml_artifacts", "registry.jsonl")
-    AUDIT_DIR = os.path.join(DATA_ROOT, "ml_audit")
+    #: Sub-paths derived from ``data_root()``. Literal paths, joined on read.
+    _DERIVED = {
+        "DATA_ROOT": "",              # the root itself, resolved live
+        "RAW_DIR": "ml_raw",          # verbatim vendor responses
+        "CURATED_DIR": "ml_curated",  # leakage-safe, typed tables
+        "FEATURES_DIR": "ml_features",
+        "ARTIFACT_DIR": "ml_artifacts",
+        "REGISTRY_FILE": os.path.join("ml_artifacts", "registry.jsonl"),
+        "AUDIT_DIR": "ml_audit",
+    }
 
     # Point-in-time contract
     KNOWLEDGE_TS_COL = "as_of_ts"
@@ -121,7 +148,7 @@ class config:  # noqa: N801 - lowercase intentional: it reads as a namespace, no
 
 
 # Make the module import side-effect-free but loud about misconfiguration.
-if not os.path.isdir(config.DATA_ROOT):  # pragma: no cover - environment dependent
+if not os.path.isdir(data_root()):  # pragma: no cover - environment dependent
     logger.warning(
         "ML data root %s does not exist yet; it will be created on first write.",
         config.DATA_ROOT,

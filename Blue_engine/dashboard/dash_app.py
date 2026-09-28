@@ -79,6 +79,7 @@ def _sidebar() -> html.Div:
             dcc.Link("Analytics", href="/analytics", className="nav-link"),
             dcc.Link("Economic", href="/economic", className="nav-link"),
             dcc.Link("Infrastructure", href="/infra", className="nav-link"),
+            dcc.Link("ML Models", href="/ml", className="nav-link"),
         ],
         className="sidebar",
     )
@@ -260,6 +261,11 @@ def _register_refresh_callbacks(app: dash.Dash) -> None:
         "analytics-refresh": "analytics",
         "economic-refresh": "economic",
         "infra-refresh": "infrastructure",
+        # ML scoreboard. Reads the signed artifacts the training orchestrator
+        # wrote; without this entry the page's Interval ticks and nothing
+        # re-renders, so a finished training run would be invisible until a
+        # manual browser refresh.
+        "ml-refresh": "ml_models",
     }
 
     for interval_id, page_name in page_modules.items():

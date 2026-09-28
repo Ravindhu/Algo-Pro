@@ -13,6 +13,7 @@ Pages
     analytics      Page 4: Alpha analytics + backtest/statistics
     economic       Page 5: Macro regime engine (gauges, signals, history)
     infrastructure Page 6: System health and raw logs
+    ml_models      Page 7: Offline ML scoreboard (fold metrics, deflated Sharpe)
 
 Design notes
 ------------
@@ -37,4 +38,5 @@ __all__ = [
     "analytics",
     "economic",
     "infrastructure",
+    "ml_models",
 ]

@@ -524,6 +524,204 @@ def views_snapshot() -> Dict[str, Any]:
                 "warnings": [f"views unavailable: {exc}"]}
 
 
+# ---------------------------------------------------------------------------
+# ML training (offline learning layer) - read-only helpers for the ML page
+# ---------------------------------------------------------------------------
+#
+# Same contract as the economic/portfolio helpers above: ONE function per
+# panel, each best-effort, so a missing artifact blanks a panel instead of
+# killing the page.
+#
+# READ-ONLY, and deliberately so. This module never calls ``run_training``:
+# a UI poll must never start a training run. It reads the registry index that
+# the training orchestrator already wrote (``data/ml_artifacts/``), which keeps
+# the dashboard's cost at one file read per poll and means an operator can
+# leave the page open without a model fitting in the background.
+
+
+def ml_registry_history(limit: int = 100) -> List[Dict[str, Any]]:
+    """The artifact index (oldest first). Empty list when nothing trained yet.
+
+    Backed by ``blue_engine.ml.registry.Registry.history``. Best-effort: any
+    import or IO failure yields [] so the page shows "no artifacts" rather
+    than an error box. The registry itself already tolerates a torn last line
+    (a killed process mid-append), so this is safe on a flaky disk.
+    """
+    try:
+        from blue_engine.ml.registry import Registry
+        return Registry().history(limit=limit)
+    except Exception as exc:  # noqa: BLE001 - a dashboard must not die on data
+        logger.debug("ml registry history unavailable: %s", exc)
+        return []
+
+
+def ml_artifact(address: str) -> Optional[Dict[str, Any]]:
+    """Load one artifact's record (payload + manifest), or None.
+
+    ``require_status=None`` on purpose: the dashboard shows DRAFT artifacts
+    too — an operator needs to see the candidate that FAILED the gates, not
+    just the one that passed. The live-trading gate is the registry's
+    ``load(require_status=validated)`` default, which live code uses and this
+    page does not.
+    """
+    if not address:
+        return None
+    try:
+        from blue_engine.ml.registry import Registry
+        return Registry().load(address, require_status=None)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("ml artifact %s unreadable: %s", str(address)[:12], exc)
+        return None
+
+
+def ml_training_snapshot(limit: int = 50) -> Dict[str, Any]:
+    """Everything the ML page renders: the runs, their fold metrics, verdicts.
+
+    Shape (all keys always present, so the page never has to guard):
+
+        {
+          "ok":            bool,          # did we find any artifacts?
+          "n_runs":        int,
+          "runs":          [run, ...],    # NEWEST FIRST (index order reversed)
+          "latest":        run | None,
+          "candidates":    [cand, ...],   # flattened from the latest run
+          "errors":        [str, ...],    # unreadable artifacts, shown not hidden
+          "warnings":      [str, ...],
+        }
+
+    Each ``run`` carries the flattened provenance an operator actually checks:
+    symbol, when, status, git commit, row count, and per-candidate results.
+
+    Each ``cand`` is the walk-forward report flattened for display:
+    name, family, verdict, skill mean/std, deflated-Sharpe prob_real, the cost
+    gate, and the per-fold rows. Nothing is recomputed here — every number is
+    exactly what the walk-forward runner reported at training time. Recomputing
+    in the UI would let the page and the manifest disagree, which is the one
+    thing a provenance display must never do.
+    """
+    hist = ml_registry_history(limit=limit)
+    out: Dict[str, Any] = {"ok": bool(hist), "n_runs": 0, "runs": [],
+                           "latest": None, "candidates": [],
+                           "errors": [], "warnings": []}
+    if not hist:
+        out["warnings"].append(
+            "no ML artifacts found — run the trainer to produce one")
+        return out
+
+    # The index is append-only with one line per SAVE and per PROMOTE, so the
+    # same address appears more than once. De-duplicate keeping the LAST
+    # occurrence (the newest status), or a promoted artifact would still show
+    # as draft and the operator would think the promotion failed.
+    by_address: Dict[str, Dict[str, Any]] = {}
+    for rec in hist:
+        addr = rec.get("address")
+        if addr:
+            by_address[addr] = rec
+    records = list(by_address.values())
+
+    for rec in reversed(records):          # newest first for display
+        addr = rec.get("address", "")
+        full = ml_artifact(addr)
+        if full is None:
+            out["errors"].append(f"artifact {str(addr)[:12]} unreadable")
+            continue
+        manifest = full.get("manifest") or {}
+        payload = full.get("payload") or {}
+        reports = manifest.get("reports") or {}
+
+        out["runs"].append({
+            "address": addr,
+            "short_address": str(addr)[:12],
+            "name": rec.get("name", "-"),
+            "status": full.get("status", "draft"),
+            "symbol": manifest.get("symbol", "-"),
+            "run_id": manifest.get("run_id", "-"),
+            "created_at": rec.get("created_at") or manifest.get("created_at"),
+            "git_commit": manifest.get("git_commit") or "-",
+            "ml_version": manifest.get("ml_version", "-"),
+            "n_rows": manifest.get("n_rows"),
+            "n_features": len(manifest.get("feature_names") or []),
+            "horizon": manifest.get("horizon"),
+            "n_splits": manifest.get("n_splits"),
+            "n_trials": manifest.get("n_trials"),
+            "sources": manifest.get("sources") or [],
+            "best_candidate": payload.get("best_candidate"),
+            "n_candidates": len(reports),
+            "candidates": [_flatten_candidate(n, r)
+                           for n, r in sorted(reports.items())],
+        })
+
+    out["n_runs"] = len(out["runs"])
+    if out["runs"]:
+        out["latest"] = out["runs"][0]
+        out["candidates"] = out["latest"]["candidates"]
+    return out
+
+
+def _flatten_candidate(name: str, rep: Dict[str, Any]) -> Dict[str, Any]:
+    """One candidate's walk-forward report, flattened for a table row.
+
+    Kept as a pure function of the stored report (no recomputation) so the
+    panel and the manifest can never disagree.
+    """
+    summary = rep.get("summary") or {}
+    sk = summary.get("skill") or {}
+    aucs = summary.get("auc") or {}
+    deflation = rep.get("deflation") or {}
+    cost = rep.get("cost_check") or {}
+    spec = rep.get("spec") or {}
+    return {
+        "name": name,
+        "family": spec.get("family") or summary.get("family") or "-",
+        "ok": bool(rep.get("n_folds") or 0),
+        "verdict": rep.get("verdict") or "NO VERDICT",
+        "n_folds": rep.get("n_folds"),
+        "n_errors": rep.get("n_errors"),
+        # skill is the number that decides everything else (see metrics.skill)
+        "skill_mean": sk.get("mean"),
+        "skill_std": sk.get("std"),
+        "skill_min": sk.get("min"),
+        "auc_mean": aucs.get("mean"),
+        # deflated Sharpe: the probability the result is not selection luck
+        "prob_real": deflation.get("prob_real"),
+        "deflated_sharpe": deflation.get("deflated_sharpe"),
+        "expected_max_sharpe": deflation.get("expected_max_sharpe"),
+        "n_trials": deflation.get("n_trials"),
+        "deflation_verdict": deflation.get("verdict"),
+        # the Indian-cost gate
+        "gross_bps": cost.get("gross_bps"),
+        "cost_bps": cost.get("cost_bps"),
+        "net_bps": cost.get("net_bps"),
+        "survives_cost": cost.get("survives"),
+        "cost_verdict": cost.get("verdict"),
+        "wall_seconds": rep.get("wall_seconds"),
+        "folds": _flatten_folds(rep.get("folds") or []),
+    }
+
+
+def _flatten_folds(folds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per-fold rows for the drill-down table, with a display-ready date pair."""
+    rows: List[Dict[str, Any]] = []
+    for f in folds:
+        tr = f.get("train_end_date") or "-"
+        ts = f.get("test_start_date") or "-"
+        rows.append({
+            "fold": f.get("fold"),
+            "train_rows": f.get("train_rows"),
+            "test_rows": f.get("test_rows"),
+            "train_end": tr,
+            "test_start": ts,
+            "window": f"< {tr}  ->  {ts} >",
+            "accuracy": f.get("accuracy"),
+            "base_rate": f.get("base_rate"),
+            "skill": f.get("skill"),
+            "auc": f.get("auc"),
+            "sharpe": f.get("sharpe"),
+            "error": f.get("error"),
+        })
+    return rows
+
+
 __all__ = [
     "InputRow",
     "Snapshot",
@@ -541,6 +739,9 @@ __all__ = [
     "load_config",
     "load_macro_config",
     "macro_config_path",
+    "ml_artifact",
+    "ml_registry_history",
+    "ml_training_snapshot",
     "policy_snapshot",
     "portfolio_manager",
     "risk_report",

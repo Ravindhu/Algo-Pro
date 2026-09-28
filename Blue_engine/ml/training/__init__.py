@@ -152,18 +152,24 @@ class TrainRun:
                 "no candidate could be built (missing deps?) — see logs; "
                 "refusing to report a search with zero candidates")
         fwd = ds["forward_returns"]
+        # The splitter needs row DICTS carrying `as_of_ts` (it reads
+        # rows[i][ts_col] to stamp each fold's date range). `ds["as_of"]` is
+        # only a bare list of stamps, so we rebuild the minimal dicts here —
+        # passing the raw strings would raise in splits._dates().
+        ts_col = "as_of_ts"
+        rows = [{ts_col: ts} for ts in ds["as_of"]]
         for spec in built:
             if not spec.ok:
                 self.deg.degraded("train", spec.name, "candidate_unavailable",
                                   spec.reason or "unavailable")
                 continue
             rep = run_walk_forward(
-                ds["as_of"], ds["X"], ds["y"],
+                rows, ds["X"], ds["y"],
                 fit_fn=spec.fit_fn, predict_fn=spec.predict_fn,
                 forward_returns=fwd,
                 horizon=self.horizon, n_splits=self.n_splits,
                 min_train=self.min_train, n_trials=max(self.n_trials, 1),
-                ts_col="as_of_ts")
+                ts_col=ts_col)
             self.reports[spec.name] = {**rep.to_dict(),
                                        "spec": spec.to_dict()}
         return self.reports
