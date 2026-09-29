@@ -1,9 +1,0 @@
-{
-  "ok": false,
-  "note": "Regime reads RISK_ON. Target gross exposure 0.90x. Forecast portfolio volatility 12.0% annualised. NIFTY is the dominant risk contributor.",
-  "method": "template",
-  "warnings": [
-    "no LLM backend configured (OPENAI_API_KEY or OLLAMA_HOST)"
-  ],
-  "cache": "miss"
-}

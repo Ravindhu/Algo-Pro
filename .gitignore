@@ -1,8 +1,151 @@
-# Ignore all files in this directory
-*
+# =============================================================================
+# .gitignore — my-trading-system
+# =============================================================================
+# Architecture: Python (blue_engine) -> OpenAlgo (server) -> Broker -> Exchange
+#
+# THE RULE: this repository contains YOUR CODE ONLY.
+#
+#   TRACKED    Blue_engine/, scripts/, Servers/, patches/, README.md, .env.example
+#   NEVER      openalgo/ (upstream - the installer clones it), _restored/ (secrets),
+#              archive/ (retired code and backups), data/ (runtime ledger)
+#
+# If a secret ever reaches a commit, rotating the key is the ONLY fix. Removing
+# the file in a later commit does not remove it from history.
+# =============================================================================
 
-# Except this .gitignore file
-!.gitignore
+# -----------------------------------------------------------------------------
+# SECRETS AND LOCAL STATE — never commit, ever
+# -----------------------------------------------------------------------------
+# _restored/ holds .env AND db/. The .env carries FERNET_SALT and
+# API_KEY_PEPPER, which are the KDF inputs that encrypt the broker session
+# tokens stored in db/openalgo.db. Both are credentials.
+_restored/
+.env
+.env.*
+!.env.example
 
-# This directory contains sensitive encryption keys
-# NEVER commit these files to version control
+# Databases — encrypted broker tokens, positions, order history
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Key material
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Convenience copies of any of the above
+deploy_*/
+mts-state/
+*_env_*
+*_db_*
+
+# -----------------------------------------------------------------------------
+# UPSTREAM PLATFORM — cloned by the installer, never tracked here
+# -----------------------------------------------------------------------------
+# Tracking openalgo/ would either duplicate 3,175 files or create a submodule
+# that `git pull` fights on every upgrade. Servers/install_ubuntu.sh clones it.
+openalgo/
+openalgo_new/
+openalgo_fresh/
+openalgo_OLD_*/
+openalgo_retired_*/
+
+# -----------------------------------------------------------------------------
+# RETIRED CODE AND BACKUPS — reference only, large, not needed on the VPS
+# -----------------------------------------------------------------------------
+archive/
+_backup/
+_retired_*/
+_venv_hold/
+
+# -----------------------------------------------------------------------------
+# RUNTIME STATE AND LOGS
+# -----------------------------------------------------------------------------
+data/
+log/
+logs/
+*.log
+*.out
+*.err
+tmp/
+*.tmp
+
+# -----------------------------------------------------------------------------
+# PYTHON
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+.python-version
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# -----------------------------------------------------------------------------
+# ENGINE RUNTIME ARTIFACTS
+# -----------------------------------------------------------------------------
+blue_engine/input/*.local.json
+blue_engine/**/state.json
+blue_engine/**/*.jsonl
+
+# -----------------------------------------------------------------------------
+# TOOLING AND EDITORS
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# -----------------------------------------------------------------------------
+# SCRATCH / DIAGNOSTIC SCRIPTS
+# -----------------------------------------------------------------------------
+# Ad-hoc probes and scanners. These have historically contained a literal API
+# key inside their regex patterns, so they are excluded by default. Put real
+# tools in scripts/ with a proper name rather than an underscore prefix.
+scripts/_*.ps1
+scripts/_*.py
+_diag.ps1
+move_log.txt
+
+# Temp/ is the designated STAGING workspace (see AGENTS.md): research,
+# experiments, downloaded docs, diagnostic probes. It is deliberately NOT
+# tracked, for two reasons:
+#   1. it is scratch by definition - a probe answers one question and is then
+#      obsolete, and committing it turns the repo into a junk drawer;
+#   2. the probes are run against real data and so are a place a credential can
+#      leak by accident (a tqdm bar echoing a URL, a repr of a config object).
+# Nothing in this repo imports from Temp/, so ignoring it breaks nothing.
+# A probe worth keeping belongs in docs/ (its findings) or Scripts/ (its code).
+Temp/
+
+# -----------------------------------------------------------------------------
+# EXCEPTIONS — things that look ignored but must be tracked
+# -----------------------------------------------------------------------------
+!.env.example
+!Blue_engine/input/master.json
+!Blue_engine/pyproject.toml
+# Deployment config with the API key - the .example template IS tracked
+Servers/deploy.env
+
