@@ -50,6 +50,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..core import kill_switch_store as _ks_store
 from ..core.results import clamp, safe_float
 from .optim import registry as optim_registry
 
@@ -131,6 +132,14 @@ class KillSwitch:
                 self.reason = (f"daily loss {dl:.2%} >= limit "
                                f"{self.max_daily_loss:.2%}")
                 self.trigger_value = dl
+            if self.tripped:
+                # Persist the trip so a process crash cannot silently re-arm
+                # trading (recovery policy: no auto-resume after a critical
+                # failure). Best-effort; failure only logs.
+                try:
+                    _ks_store.save_state(self.reason, self.trigger_value)
+                except Exception as exc:  # noqa: BLE001 - defensive
+                    logger.warning("kill-switch persist failed: %s", exc)
         if self.tripped:
             self._logmsg(f"TRIPPED: {self.reason} — no new risk")
         return {"tripped": self.tripped, "reason": self.reason,
@@ -152,6 +161,10 @@ class KillSwitch:
         self.tripped = False
         self.reason = None
         self.trigger_value = None
+        try:
+            _ks_store.clear_state()
+        except Exception as exc:  # noqa: BLE001 - defensive
+            logger.warning("kill-switch clear persist failed: %s", exc)
         return {"ok": True, "tripped": False}
 
 
@@ -240,6 +253,21 @@ def _process_kill_switch(limits: Optional[Dict[str, Any]] = None) -> KillSwitch:
     if _PROCESS_KILL_SWITCH is None:
         _PROCESS_KILL_SWITCH = KillSwitch(max_drawdown=max_dd,
                                           max_daily_loss=max_dl)
+        # Durable re-arm: if a previous process tripped the switch and did
+        # not reset it, this process MUST come up halted (no auto-resume).
+        try:
+            persisted = _ks_store.load_state()
+        except Exception:  # noqa: BLE001 - store is fail-soft already
+            persisted = {"tripped": False}
+        if persisted.get("tripped"):
+            _PROCESS_KILL_SWITCH.tripped = True
+            _PROCESS_KILL_SWITCH.reason = (
+                f"persisted: {persisted.get('reason') or 'unknown breach'}")
+            _PROCESS_KILL_SWITCH.trigger_value = persisted.get("trigger_value")
+            logger.warning(
+                "[kill-switch] restored a PERSISTED TRIP from %s (%s); "
+                "an operator reset is required before trading resumes",
+                _ks_store.default_db_path(), _PROCESS_KILL_SWITCH.reason)
     return _PROCESS_KILL_SWITCH
 
 

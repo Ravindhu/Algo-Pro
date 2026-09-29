@@ -91,6 +91,119 @@ _IN_MEMORY_EXECUTIONS = {}
 _DB_DEGRADED = False
 
 
+# ---------------------------------------------------------------------------
+# Durable store (audit F3) - optional sqlite mirror so filled quantity and
+# child lifecycle survive a process crash. Implemented in ledger_store.py
+# (plain sqlite3, no platform dependency). Every call is fail-soft: on error
+# the store degrades for the process and the in-memory ledger continues as
+# the authoritative state, exactly like before this mirror existed.
+# ---------------------------------------------------------------------------
+from . import ledger_store as _store  # noqa: E402
+
+_SNAPSHOT_FIELDS = (
+    "id", "request_data", "phase", "order_count", "cancel_count",
+    "filled_quantity", "exit_filled_quantity", "exit_target_quantity",
+    "exit_submitted_quantity", "reserved_quantity", "submitted_quantity",
+    "last_order_at", "last_cancel_at", "children",
+    "_vwap_num", "_vwap_den",
+)
+
+
+def _snapshot_row(row) -> dict:
+    """Serialize an in-memory ledger row into a JSON-safe dict.
+
+    The arrival-price window is intentionally NOT persisted: it is a
+    transient per-child measurement, and a restored run must not present
+    pre-crash ticks as fresh arrival data.
+    """
+    snap: dict = {}
+    for key in _SNAPSHOT_FIELDS:
+        value = getattr(row, key, None)
+        if key == "slippage_samples":
+            continue  # handled below (deque)
+        if isinstance(value, datetime):
+            value = value.isoformat()
+        snap[key] = value
+    snap["slippage_samples"] = [float(s) for s in row.slippage_samples]
+    return snap
+
+
+def _row_from_snapshot(snap: dict) -> _InMemoryExecution:
+    """Rebuild an in-memory row from a persisted snapshot."""
+    def _dt(value):
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return value
+
+    row = _InMemoryExecution(
+        id=snap.get("id"),
+        request_data=dict(snap.get("request_data") or {}),
+        phase=str(snap.get("phase", "accumulating") or "accumulating"),
+        order_count=int(snap.get("order_count", 0) or 0),
+        cancel_count=int(snap.get("cancel_count", 0) or 0),
+        filled_quantity=int(snap.get("filled_quantity", 0) or 0),
+        exit_filled_quantity=int(snap.get("exit_filled_quantity", 0) or 0),
+        exit_target_quantity=int(snap.get("exit_target_quantity", 0) or 0),
+        exit_submitted_quantity=int(snap.get("exit_submitted_quantity", 0) or 0),
+        reserved_quantity=int(snap.get("reserved_quantity", 0) or 0),
+        submitted_quantity=int(snap.get("submitted_quantity", 0) or 0),
+        last_order_at=_dt(snap.get("last_order_at")),
+        last_cancel_at=_dt(snap.get("last_cancel_at")),
+        children=list(snap.get("children") or []),
+    )
+    row._vwap_num = float(snap.get("_vwap_num", 0.0) or 0.0)
+    row._vwap_den = float(snap.get("_vwap_den", 0.0) or 0.0)
+    slippage = snap.get("slippage_samples") or []
+    row.slippage_samples = deque(
+        float(s) for s in slippage
+        if isinstance(s, (int, float)) and s == s
+        and s not in (float("inf"), float("-inf")))
+    row.slippage_samples = deque(
+        row.slippage_samples, maxlen=_DEFAULT_SLIPPAGE_WINDOW)
+    return row
+
+
+def _persist(row) -> None:
+    """Best-effort durable write of one in-memory row. Never raises."""
+    try:
+        _store.store_row(row.id, _snapshot_row(row))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("ledger: durable persist failed for %s: %s", row.id, exc)
+
+
+def _try_restore(execution_id) -> bool:
+    """Load one row from the durable store into memory if present."""
+    try:
+        snap = _store.fetch_row(execution_id)
+    except Exception:  # pragma: no cover - store is fail-soft already
+        return False
+    if not snap:
+        return False
+    try:
+        row = _row_from_snapshot(snap)
+        _IN_MEMORY_EXECUTIONS[row.id] = row
+        logger.info("ledger: restored execution %s from durable store "
+                    "(filled=%s)", row.id, row.filled_quantity)
+        return True
+    except Exception as exc:  # noqa: BLE001 - corrupt snapshot, stay safe
+        logger.error("ledger: snapshot for %s unreadable: %s", execution_id, exc)
+        return False
+
+
+def _restore_all_ids() -> None:
+    """Bulk-restore every persisted execution into memory (used by fills)."""
+    try:
+        ids = _store.fetch_all_ids()
+    except Exception:  # pragma: no cover - store is fail-soft already
+        return
+    for eid in ids:
+        if eid not in _IN_MEMORY_EXECUTIONS:
+            _try_restore(eid)
+
+
 def _use_db() -> bool:
     """True only when the DB mirror is importable AND not yet degraded."""
     return _LEDGER_AVAILABLE and _pov_db is not None and not _DB_DEGRADED
@@ -109,6 +222,12 @@ def _degrade_db(exc) -> None:
 
 def _in_memory_get(execution_id):
     row = _IN_MEMORY_EXECUTIONS.get(execution_id)
+    if row is None:
+        # Audit F3: before declaring the row unknown, check the durable
+        # store (e.g. after a process restart). A restored row is the
+        # broker-truthful state; a genuinely unknown id stays unknown.
+        _try_restore(execution_id)
+        row = _IN_MEMORY_EXECUTIONS.get(execution_id)
     if row is None:
         raise KeyError(execution_id)
     return row
@@ -181,6 +300,7 @@ def create_execution(*, execution_id, api_key=None, request_data=None, **extra):
         arrival_window=None,  # populated lazily on first child
     )
     _IN_MEMORY_EXECUTIONS[execution_id] = row
+    _persist(row)
     return {"execution_id": execution_id, "status": "pending", "filled_quantity": 0}
 
 
@@ -258,6 +378,7 @@ def claim_child(execution_id, quantity, observed_volume, phase):
         "status": "pending",
     })
     row.reserved_quantity += int(quantity)
+    _persist(row)
     return child_number
 
 
@@ -296,6 +417,7 @@ def finish_child(execution_id, child_number, *, success, order_id=None, message=
                     row.submitted_quantity += int(child.get("quantity", 0))
                 row.order_count += 1
                 row.last_order_at = datetime.utcnow()
+            _persist(row)
             break
     return {"execution_id": execution_id, "order_count": row.order_count}
 
@@ -323,6 +445,27 @@ def record_fill(order_id, filled_quantity, status):
                         row.exit_filled_quantity += delta
                     else:
                         row.filled_quantity += delta
+                    _persist(row)
+                return
+    # Order id not in memory: this can happen after a process restart when
+    # a late fill event arrives for a pre-restart execution. Restore every
+    # persisted row once and retry the scan (audit F3 recovery path).
+    _restore_all_ids()
+    for row in _IN_MEMORY_EXECUTIONS.values():
+        for child in row.children:
+            if str(child.get("orderid")) == str(order_id):
+                old = int(child.get("filled_quantity", 0))
+                new = max(old, min(int(filled_quantity), int(child["quantity"])))
+                child["filled_quantity"] = new
+                child["status"] = status
+                delta = new - old
+                if delta > 0:
+                    if _phase_label(child) == "exiting":
+                        row.exit_filled_quantity += delta
+                    else:
+                        row.filled_quantity += delta
+                    _persist(row)
+                return
 
 
 def recover_filled_quantity(execution_id):
@@ -372,6 +515,7 @@ def update_execution(execution_id, **fields):
     for key, value in fields.items():
         if hasattr(row, key):
             setattr(row, key, value)
+    _persist(row)
     return {"execution_id": execution_id}
 
 
@@ -418,6 +562,7 @@ def update_vwap(execution_id, *, price, volume):
         return None if row._vwap_den == 0 else row._vwap_num / row._vwap_den
     row._vwap_num += float(price) * float(volume)
     row._vwap_den += float(volume)
+    _persist(row)
     if row._vwap_den <= 0:
         return None
     return row._vwap_num / row._vwap_den
@@ -486,23 +631,6 @@ def close_arrival_window(execution_id):
         row.arrival_window.clear()
 
 
-def record_slippage_sample(execution_id, bps):
-    """Append one slippage sample (in basis points) to the rolling window."""
-    if bps is None:
-        return
-    try:
-        value = float(bps)
-    except (TypeError, ValueError):
-        return
-    if value != value or value in (float("inf"), float("-inf")):
-        return
-    try:
-        row = _in_memory_get(execution_id)
-    except KeyError:
-        return
-    row.slippage_samples.append(value)
-
-
 def recent_slippage_bps(execution_id, *, window: int = 10):
     """Return the rolling-mean slippage in basis points.
 
@@ -527,6 +655,24 @@ def slippage_sample_count(execution_id):
     except KeyError:
         return 0
     return len(row.slippage_samples)
+
+
+def record_slippage_sample(execution_id, bps):
+    """Append one slippage sample (in basis points) to the rolling window."""
+    if bps is None:
+        return
+    try:
+        value = float(bps)
+    except (TypeError, ValueError):
+        return
+    if value != value or value in (float("inf"), float("-inf")):
+        return
+    try:
+        row = _in_memory_get(execution_id)
+    except KeyError:
+        return
+    row.slippage_samples.append(value)
+    _persist(row)
 
 
 def ledger_available():

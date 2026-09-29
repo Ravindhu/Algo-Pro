@@ -256,13 +256,33 @@ def run_with_config(raw: Dict[str, Any]) -> int:
     # configured, so an operator who sets no limits keeps the old behaviour.
     # NOTE: read limits from the RAW config -- parse_master_config() normalises
     # to a whitelist of keys and drops the "risk" block, so cfg would lose it.
-    # day_pnl / open_exposure, when supplied, sharpen the checks.
+    # WIRE_PNL: day_pnl / open_exposure now come from the LIVE broker feed
+    # (risk_context.fetch_risk_context -> client.positionbook()) unless the
+    # operator set them explicitly in the config (config wins). This keeps the
+    # max_daily_loss / max_open_exposure checks from silently skipping.
     from blue_engine.core.risk_gate import RiskGate
+    from blue_engine.core.risk_context import fetch_risk_context
+
+    # Normalise the operator override: an explicit top-level day_pnl/
+    # open_exposure (or one inside the risk block) is treated as config truth.
+    rc_cfg = dict(raw)
+    rc_risk = rc_cfg.get("risk") if isinstance(rc_cfg.get("risk"), dict) else {}
+    for _key in ("day_pnl", "open_exposure"):
+        if rc_cfg.get(_key) is not None and rc_risk.get(_key) is None:
+            rc_risk[_key] = rc_cfg.get(_key)
+    rc_cfg["risk"] = rc_risk
+
+    rc = fetch_risk_context(client, rc_cfg)
+    for _warn in rc.get("warnings") or []:
+        print(f"[runner] RISK CONTEXT warning: {_warn}")
+    print(f"[runner] risk context: source={rc['source']} "
+          f"day_pnl={rc['day_pnl']} open_exposure={rc['open_exposure']}")
+
     gate = RiskGate(raw, log=print)
     decision = gate.check(
         intent,
-        day_pnl=raw.get("day_pnl"),
-        open_exposure=raw.get("open_exposure"),
+        day_pnl=rc.get("day_pnl"),
+        open_exposure=rc.get("open_exposure"),
     )
     if not decision.approved:
         print(f"[runner] RISK GATE REJECTED intent: {decision.reason}")

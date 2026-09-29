@@ -27,8 +27,26 @@ from .registry import (
     clear_registry,
     discover_all,
 )
-from .orchestrator import EngineOrchestrator, OrchestrationError, run_pipeline
+# LEGACY (audit F1): the 4-engine orchestrator below is deprecated.
+# The canonical orchestration path is core/pipeline.MacroPipeline.
+# Kept exported for backward compatibility only.
+from .orchestrator import EngineOrchestrator, OrchestrationError, run_pipeline  # noqa: F401
 from .risk_gate import RiskDecision, RiskGate, check_intent
+
+
+def __getattr__(name: str):
+    """Lazy exports to avoid a circular import (audit F1).
+
+    ``pipeline`` imports the engine sub-packages, which import ``core`` —
+    so importing it at module time here would loop. Resolving lazily keeps
+    ``from blue_engine.core import MacroPipeline`` working for callers while
+    breaking the cycle. ``run_pipeline``/``MacroPipeline`` resolve to the
+    CANONICAL pipeline module, not the legacy orchestrator.
+    """
+    if name in ("MacroPipeline", "run_pipeline"):
+        from . import pipeline as _pipeline
+        return getattr(_pipeline, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "init_client",
@@ -56,9 +74,9 @@ __all__ = [
     "unregister_engine",
     "clear_registry",
     "discover_all",
-    "EngineOrchestrator",
-    "OrchestrationError",
-    "run_pipeline",
+    "MacroPipeline",  # canonical orchestration
+    "EngineOrchestrator",  # legacy, deprecated
+    "OrchestrationError",  # legacy, kept for compat
     "RiskDecision",
     "RiskGate",
     "check_intent",
