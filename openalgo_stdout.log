@@ -1,0 +1,9 @@
+[OpenAlgo] Bootstrap: _restored/ -> openalgo/
+[OpenAlgo]   - .env      up to date
+[OpenAlgo]   - db        0 file(s) restored
+[OpenAlgo]   - keys      0 file(s) restored
+[OpenAlgo]   - download  0 file(s) restored
+[OpenAlgo] Starting WebSocket proxy on port 8765 ...
+[OpenAlgo] Starting web app on http://127.0.0.1:5000 ...
+ * Serving Flask app 'app'
+ * Debug mode: on

@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "ok": true,
+    "warnings": [
+      "FII/DII flow unavailable",
+      "India VIX unavailable"
+    ],
+    "source": "fii",
+    "stale": false,
+    "latency_ms": 16451
+  }
+}

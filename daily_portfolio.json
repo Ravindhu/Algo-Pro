@@ -1,0 +1,19 @@
+{
+  "ok": false,
+  "ts": 1790597270.1774888,
+  "date": "2026-09-28",
+  "stage": "failed",
+  "cached_rows": 0,
+  "rows_available": 0,
+  "sleeves": [],
+  "target_weights": {},
+  "gross": null,
+  "turnover": null,
+  "cost_bps": null,
+  "run_file": null,
+  "warnings": [],
+  "error": "RuntimeError('boom')",
+  "dry_run": true,
+  "forced": true,
+  "elapsed_s": 0.02
+}

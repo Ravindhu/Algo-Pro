@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "ok": true,
+    "warnings": [
+      "data.gov.in: DATAGOVIN_API_KEY=<unset> not set; CPI/IIP/GDP skipped"
+    ],
+    "source": "india",
+    "requests_available": true,
+    "stale": false,
+    "latency_ms": 0
+  }
+}
