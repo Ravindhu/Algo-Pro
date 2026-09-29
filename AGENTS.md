@@ -1,31 +1,21 @@
 # User Setup
 
-## Agent setup (do not lose)
-- Python interpreter: `C:\Users\KanagalakshmiM\my-trading-system\openalgo\.venv\Scripts\python.exe`
-- Git executable: `C:\Program Files\Git\cmd\git.exe` (NOT on PATH — use the full path)
-- Test framework: pytest, tests live in `Blue_engine/tests/`
-- Run full ML test suite: `cd Blue_engine; ..\openalgo\.venv\Scripts\python.exe tests\test_ml_models.py`
-- Run the FULL suite (regression): `& .\openalgo\.venv\Scripts\python.exe -m pytest Blue_engine/tests -q`
-- Train a model: `$env:BLUE_ML_SIGNING_KEY="<key>"; & .\openalgo\.venv\Scripts\python.exe Scripts\ml_train.py --symbol NIFTY`
-- ML layer committed at `7fc13a8`; ML dashboard page at `85ea3c1`
-- Skill diagnosis (why ridge fails on NIFTY): `docs/ML_SKILL_DIAGNOSIS.md`
-- NOT INSTALLED on this machine: `scikit-learn`, `torch` — only the pure-Python
-  ridge candidate can run. GBM/RF/MLP/CNN/RL/ensemble all decline with a reason.
 
-Build a world-class, fully automated algorithmic trading system for the Indian market.
+Build a world-class, fully automated algorithmic trading system for the Indian market.in english only
+ Always Openalgo,My trading system should be run
 
 The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
 
 ## Temporary / Staging Workspace
 
-Use the following directory as the temporary/staging workspace for research, experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work:
+Use the following directory C:\Users\Admin\CodeGPT\my-trading-system\Temp\Staging Workspace as the temporary/staging workspace for research, advance features,Moudles,optimized backtesting with statergy development,experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work,Dashboard image,terminal page:
 
-`C:\Users\KanagalakshmiM\my-trading-system\Temp`
 
 Use this directory as a temporary workspace only.
+C:\Users\Admin\CodeGPT\my-trading-system\Temp
 
-Do not place production-critical files, credentials, permanent configuration, or live-trading state in this directory unless explicitly required.
 
+keep credential open 
 Before committing code, review the Temp directory and move any required permanent files to the appropriate project location.
 
 ## Project Discovery
@@ -136,8 +126,8 @@ The system should be designed so that brokers can be added, removed, replaced, o
 ## OpenAlgo Project Path
 
 Current OpenAlgo project path:
+C:\Users\Admin\CodeGPT\my-trading-system\openalgo
 
-`C:\Users\KanagalakshmiM\my-trading-system\openalgo`
 
 This architecture must be:
 
@@ -172,6 +162,8 @@ Act as a combination of:
 * Investor
 * Machine Learning Engineer
 * AI Engineer
+* investor
+* economist
 
 Provide recommendations, architecture improvements, research directions, and development plans for building an advanced quantitative trading system.
 
@@ -186,45 +178,6 @@ Recommendations must every task finished  based on:
 * Clearly identified assumptions
 
 Do not present guesses, assumptions, or unverified information as facts.
-
-## Credential and Security Requirements
-
-All credentials must be stored and handled securely.
-
-Never hard-code or expose:
-
-* API keys
-* API secrets
-* Broker credentials
-* Passwords
-* Authentication tokens
-* Database credentials
-* Encryption keys
-* Private keys
-* Session tokens
-* Other sensitive information
-
-Use appropriate security mechanisms such as:
-
-* Environment variables
-* Secure configuration
-* Secret managers
-* Encrypted storage
-* Access controls
-
-Credentials must never be exposed in:
-
-* Source code
-* Git commits
-* Logs
-* Dashboard output
-* Screenshots
-* Reports
-* Error messages
-* Test output
-* Documentation
-
-Before every commit, perform a security check for accidentally exposed credentials or secrets.
 
 ## Official Documentation and Data Sources
 
@@ -595,6 +548,5 @@ restart after agent terminate automatically.
 
 
 Write all the Ready-to-paste AGENTS.md rules under below after every file committed.  
-## Agent 
 
 
