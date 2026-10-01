@@ -1,4 +1,4 @@
-﻿""""
+""""
 ocl_keylevel.py - OCL (Open-Close-Low) Keylevel Signal Strategy
 ===============================================================
 
@@ -54,7 +54,16 @@ EXEC_MODE_AUTO = "AUTO"                  # One-shot per pattern detection
 class OCLKeylevelSignal(BaseSignal):
     """OCL (Open-Close-Low) Keylevel Signal - Pattern-based POV trigger.
 
+    The class-level ``name`` is the registry key the optimizer dropdown
+    surfaces (and the live runner references from the JSON config). It
+    is set explicitly to ``ocl_keylevel`` so the registration does not
+    collide with other "Keylevel" strategies and matches the
+    convention ``<family>_<name>`` used across the alpha engine.
+
     Execution Behavior (User-Defined per run):
+    -------------------------------------------
+    - exec_mode = ONE_SHOT (default):
+        Fires ONCE per run when the trigger is first touched, then stops.
     -------------------------------------------
     - exec_mode = ONE_SHOT (default):
         Fires ONCE per run when the trigger is first touched, then stops.
@@ -65,12 +74,66 @@ class OCLKeylevelSignal(BaseSignal):
     - exec_mode = AUTO:
         Fires once per NEW pattern detection (re-arms when fresh RRG/GRR forms).
 
-    Slicing Per Fire (User-Defined per run):
-    ----------------------------------------
-    - qty_per_fire: shares/contracts to fire on each signal
-    - cooldown_seconds: minimum gap between consecutive fires
-    - max_fires: total fires allowed (only for COUNT_LIMITED mode)
+    The class-level ``name`` is the registry key the optimizer dropdown
+    surfaces (and the live runner references from the JSON config). It
+    is set explicitly to ``ocl_keylevel`` so the registration does not
+    collide with other "Keylevel" strategies and matches the
+    convention ``<family>_<name>`` used across the alpha engine.
     """
+
+    # Registry key for the optimizer dropdown and the live runner.
+    # Set explicitly so a future "EngulfingKeylevelSignal" or
+    # similar can coexist without a name collision.
+    name = "ocl_keylevel"
+
+    # Tunable parameter space, read by the AI Insight header in the
+    # Optimizer dashboard and by the ``Blue_engine/optimizer/spaces.py``
+    # built-in space. Each entry has:
+    #   - kind:     "int" | "float" | "cat"
+    #   - default:  the value the strategy uses when the JSON config
+    #               does not override it
+    #   - low/high: numeric bounds (int / float only)
+    #   - choices:  list of legal values (cat only)
+    #   - note:     one-line human description for the header table
+    params_space = {
+        "htf_interval":     {"kind": "cat",   "default": "15minute",
+                              "choices": ["5minute", "15minute", "60minute"],
+                              "note": "higher timeframe to scan"},
+        "htf_candles":      {"kind": "int",   "default": 5,
+                              "low": 3, "high": 10,
+                              "note": "bars to scan on the HTF"},
+        "min_body_pct":     {"kind": "float", "default": 0.30,
+                              "low": 0.10, "high": 0.60,
+                              "note": "min candle body size as a fraction"},
+        "pattern_type":     {"kind": "cat",   "default": "RRG",
+                              "choices": ["RRG", "GRR"],
+                              "note": "bullish (RRG) or bearish (GRR)"},
+        "trade_direction":  {"kind": "cat",   "default": "AUTO",
+                              "choices": ["AUTO", "BUY", "SELL"],
+                              "note": "BUY/SELL/AUTO from pattern"},
+        "ltf_interval":     {"kind": "cat",   "default": "5minute",
+                              "choices": ["1minute", "5minute", "15minute"],
+                              "note": "lower timeframe to monitor"},
+        "ltf_touch_buffer": {"kind": "float", "default": 0.05,
+                              "low": 0.0, "high": 0.50,
+                              "note": "price tolerance around the trigger"},
+        "poll_seconds":     {"kind": "int",   "default": 10,
+                              "low": 1, "high": 60,
+                              "note": "poll cadence on the LTF"},
+        "exec_mode":        {"kind": "cat",   "default": "ONE_SHOT",
+                              "choices": ["ONE_SHOT", "CONTINUOUS",
+                                          "COUNT_LIMITED", "AUTO"],
+                              "note": "how many times the signal may fire"},
+        "qty_per_fire":     {"kind": "int",   "default": 0,
+                              "low": 1, "high": 10000,
+                              "note": "quantity per fire (0 = total)"},
+        "cooldown_seconds": {"kind": "float", "default": 0,
+                              "low": 0.0, "high": 3600.0,
+                              "note": "min gap between fires"},
+        "max_fires":        {"kind": "int",   "default": 1,
+                              "low": 1, "high": 100,
+                              "note": "max fires (COUNT_LIMITED mode)"},
+    }
 
     def __init__(self, client: Any, config: Dict[str, Any]):
         super().__init__(client, config)

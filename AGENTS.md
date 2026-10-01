@@ -1,10 +1,20 @@
 # User Setup
+act as an multi hyperperameter statergy optimizer anayist. and impliment and find my slected statergy's multiple perameter optimized and plot visual image in dash ploty using optuna to see my proper statrgy perameters to get max sharp ratio of my statergy.
 
+always focus  on impliment the  C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\optimizer
 
 Build a world-class, fully automated algorithmic trading system for the Indian market.in english only
+
+git enviroment is 
+c:\Program Files/Git/cmd
  Always Openalgo,My trading system should be run
+ always thinking about to make profitable  algarithom 
+
 
 The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
+
+
+ 
 
 ## Temporary / Staging Workspace
 
@@ -50,6 +60,7 @@ Do not duplicate functionality that already exists.
 
 Reuse, improve, refactor, or extend existing components when appropriate instead of creating unnecessary parallel implementations.
 
+Start with discovery, then build the plan and implement through phases.
 ## Project Architecture
 
 The overall system should follow this architecture:
@@ -68,8 +79,8 @@ The Python engine should contain the core:
 * Position management
 * Order management
 * Execution algorithms
-* Backtesting
-* Simulation
+* statergy Backtesting optune hyperperameter optimizer
+* Simulation 
 * Machine learning
 * Artificial intelligence
 * Analytics
@@ -79,7 +90,7 @@ The Python engine should contain the core:
 
 Build a professional, institutional-style trading dashboard using Dash and Plotly.
 
-The dashboard should operate as an integrated algo-trading terminal with all important functions available in one place.
+The dashboard (Dash martine component DCM)should operate as an integrated algo-trading terminal with all important functions available in one place.
 
 Include:
 
@@ -236,8 +247,6 @@ Classify events appropriately as:
 
 Critical errors must be clearly visible and should trigger the appropriate safety mechanism.
 
-write the script every sucessful commit 
-  Scripts/ml_train.py
 
 ## Development and Engineering Standards
 
@@ -462,6 +471,17 @@ Each production model should have:
 * Model documentation
 * Rollback capability
 
+
+online statergy Backtesting optune hyperperameter optimizer
+
+1.select one statergy 
+  The Ultimate 10-Parameter Visual Workflow in dashboard
+To get the absolute clearest picture of your strategy without feeling overwhelmed, you should look at your charts in this exact order:
+1. Run plot_param_importances to find out which 3 or 4 parameters are driving the ship.
+2. Open plot_slice for those specific highly important parameters to find their individual sweet-spot numbers.
+3. Launch plot_parallel_coordinate filtering only for those important parameters to see how they weave together to hit peak sharp ratio.
+
+
 ## Risk Management
 
 Risk management must remain independent from strategy logic wherever practical.
@@ -546,7 +566,5 @@ No strategy improvement should compromise security, data integrity, execution sa
 
 restart after agent terminate automatically.
 
-
-Write all the Ready-to-paste AGENTS.md rules under below after every file committed.  
 
 

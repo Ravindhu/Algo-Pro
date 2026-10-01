@@ -742,8 +742,294 @@ __all__ = [
     "ml_artifact",
     "ml_registry_history",
     "ml_training_snapshot",
+    "optimizer_snapshot",
     "policy_snapshot",
     "portfolio_manager",
     "risk_report",
     "views_snapshot",
 ]
+# --------------------------------------------------------------------------- #
+# Optimizer studies
+# --------------------------------------------------------------------------- #
+
+
+def _optimizer_study_paths() -> List[Path]:
+    """Every study journal on disk, newest first. Never raises."""
+    try:
+        from blue_engine.optimizer import config as _cfg
+        root = Path(_cfg.STUDIES_DIR)
+    except Exception:  # noqa: BLE001
+        return []
+    if not root.is_dir():
+        return []
+    try:
+        files = [p for p in root.glob("*.jsonl") if p.is_file()]
+    except Exception:  # noqa: BLE001
+        return []
+    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def optimizer_snapshot(name: Optional[str] = None, limit: int = 40
+                       ) -> Dict[str, Any]:
+    """Everything the Optimizer page renders, read from the study journals.
+
+    WHY THIS READS THE JOURNAL RATHER THAN RE-RUNNING ANYTHING
+    ---------------------------------------------------------
+    A study costs real time, and its result is a *measurement* - if the page
+    recomputed it, the page and the report could disagree, which is the one
+    thing a provenance display must never do. So every number here is exactly
+    what the engine recorded at run time.
+
+    Shape (all keys always present, so the page never has to guard):
+
+        {
+          "ok":         bool,          # did we find any study?
+          "studies":    [name, ...],   # newest first
+          "name":       str | None,
+          "n_trials":   int,
+          "n_ok":       int,
+          "n_failed":   int,
+          "verdict":    dict,          # as recorded, or {}
+          "importance": dict,          # {"importance":{}, "ranking":[], ...}
+          "top_k":      [str, ...],
+          "recommended": dict,
+          "baseline":   dict,
+          "trials":     [trial, ...],  # full records, for the plots
+          "workflow":   dict,          # importance/slice/parallel data
+          "report":     dict | None,   # the JSON report, when it exists
+          "errors":     [str, ...],
+          "warnings":   [str, ...],
+        }
+
+    Degrades to ``ok=False`` with a warning - it never raises, because a page
+    that crashes on a malformed study is worse than one that says so.
+    """
+    out: Dict[str, Any] = {
+        "ok": False, "studies": [], "name": None, "n_trials": 0, "n_ok": 0,
+        "n_failed": 0, "verdict": {}, "importance": {}, "top_k": [],
+        "recommended": {}, "baseline": {}, "trials": [], "workflow": {},
+        "report": None, "errors": [], "warnings": [],
+        # AUDIT FINDING D2 (2026-10-01). The per-trial cost-gate (gross_bps,
+        # cost_bps, net_bps, verdict) is mirrored into ``study.meta`` after
+        # the F2 handoff; the Markdown report surfaces it under
+        # "Cost gate (best trial)". The dashboard must show the same number,
+        # or the page and the report disagree. Default to None so the
+        # verdict panel renders "-" when there is no gate to display.
+        "cost_gate_best": None,
+    }
+
+    paths = _optimizer_study_paths()
+    out["studies"] = [p.stem for p in paths]
+    if not paths:
+        out["warnings"].append(
+            "no optimizer studies found - run Scripts/optimize_strategy.py")
+        return out
+
+    target = None
+    if name:
+        target = next((p for p in paths if p.stem == name), None)
+        if target is None:
+            out["warnings"].append(
+                f"study {name!r} not found; showing the newest instead")
+    target = target or paths[0]
+    out["name"] = target.stem
+
+    # --- replay the journal ------------------------------------------------ #
+    try:
+        from blue_engine.optimizer.store import load_study_jsonl
+        rows = load_study_jsonl(target.stem)
+    except Exception as exc:  # noqa: BLE001
+        out["errors"].append(f"could not read {target.name}: {exc}")
+        return out
+    if not rows:
+        out["errors"].append(f"{target.name} is empty or unreadable")
+        return out
+
+    out["n_trials"] = len(rows)
+    out["n_ok"] = sum(1 for r in rows if r.get("ok"))
+    out["n_failed"] = out["n_trials"] - out["n_ok"]
+
+    # --- rebuild a Study so we can reuse the analysis module --------------- #
+    # The workflow maths (importance, plateau detection, parallel coordinates)
+    # lives in the optimizer package and is already tested. Re-implementing it
+    # for the page would create a second source of truth for the same numbers.
+    try:
+        from blue_engine.optimizer.analysis import visual_workflow
+        from blue_engine.optimizer.study import Study, TrialRecord
+
+        meta = _read_study_meta(target.stem)
+        study = Study(name=target.stem,
+                      space_name=meta.get("space_name", ""),
+                      strategy=meta.get("strategy", ""),
+                      objective_version=meta.get("objective_version", "unknown"),
+                      seed=int(meta.get("seed") or 0))
+        for r in rows:
+            study.add(TrialRecord(
+                number=int(r.get("number", 0)),
+                params=dict(r.get("params") or {}),
+                value=r.get("value"), ok=bool(r.get("ok")),
+                reason=r.get("reason"),
+                mean_sharpe=r.get("mean_sharpe"),
+                std_sharpe=r.get("std_sharpe"),
+                min_sharpe=r.get("min_sharpe"),
+                n_folds=int(r.get("n_folds") or 0),
+                n_obs=int(r.get("n_obs") or 0),
+                seconds=float(r.get("seconds") or 0.0),
+                cached=bool(r.get("cached")),
+                # AUDIT FINDING F2. The cost gate is round-tripped through
+                # the journal so the dashboard can show the same numbers the
+                # report does. Missing on older journals -> None, harmless.
+                cost_gate=(dict(r["cost_gate"])
+                           if isinstance(r.get("cost_gate"), dict) else None)))
+
+        out["trials"] = rows
+        out["verdict"] = study.verdict()
+        out["importance"] = study.param_importance()
+        # AUDIT FINDING D2 (2026-10-01). Surface the best trial's cost gate
+        # at the top level so the verdict panel can render a "Cost gate"
+        # row. The Markdown report already has this; the dashboard now
+        # matches. ``_best_cost_gate`` is wrapped in try/except because a
+        # missing or malformed gate (old journal, no scoreable trial) must
+        # not bring the page down - degrade to None and the panel shows
+        # "-".
+        try:
+            from blue_engine.optimizer.report import _best_cost_gate
+            out["cost_gate_best"] = _best_cost_gate(study)
+        except Exception:  # noqa: BLE001
+            out["cost_gate_best"] = None
+        wf = visual_workflow(study)
+        out["workflow"] = wf
+        out["top_k"] = wf.get("important_params") or []
+
+        # Recommended params = the best trial's, snapped by the space when the
+        # space is available. A missing space is not fatal - we then show the
+        # raw winning values rather than nothing.
+        best = study.best()
+        if best and out["verdict"].get("ok"):
+            try:
+                sp = _load_space_for(meta.get("space_name"))
+                out["recommended"] = sp.coerce(dict(best.params)) if sp \
+                    else dict(best.params)
+                out["baseline"] = sp.defaults() if sp else {}
+            except Exception:  # noqa: BLE001
+                out["recommended"] = dict(best.params)
+        out["ok"] = True
+    except Exception as exc:  # noqa: BLE001
+        out["errors"].append(f"could not analyse {target.stem}: {exc}")
+        return out
+
+    # --- the report, when one was written ---------------------------------- #
+    try:
+        from blue_engine.optimizer import config as _cfg
+        rp = Path(_cfg.REPORTS_DIR) / f"{target.stem}.json"
+        if rp.is_file():
+            out["report"] = json.loads(rp.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        out["warnings"].append(f"report unreadable: {exc}")
+
+    return out
+
+
+def _read_study_meta(name: str) -> Dict[str, Any]:
+    """Read the sidecar meta written by the CLI, if present. Never raises."""
+    try:
+        from blue_engine.optimizer import config as _cfg
+        mp = Path(_cfg.REPORTS_DIR) / f"{name}.json"
+        if mp.is_file():
+            blob = json.loads(mp.read_text(encoding="utf-8"))
+            st = blob.get("study") or {}
+            return {"space_name": st.get("space"),
+                    "strategy": st.get("strategy"),
+                    "objective_version": st.get("objective_version"),
+                    "seed": st.get("seed")}
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
+def optimizer_available_filters() -> Dict[str, Any]:
+    """Read-only scan of every study on disk, used to populate the page's
+    input header.
+
+    Returns a dict shaped for three ``dcc.Dropdown`` controls:
+
+        {
+          "ok":           bool,                # are there any studies at all?
+          "studies":      [name, ...],         # ALL study names, newest first
+          "strategies":   [label, ...],        # unique space_name values,
+                                               # one dropdown entry per space
+          "symbols":      [label, ...],        # distinct "SYMBOL" tokens parsed
+                                               # from study names when they
+                                               # follow the convention
+          "periods":      [label, ...],        # distinct "PERIOD" tokens parsed
+                                               # the same way
+        }
+
+    The ``symbol`` and ``time period`` axes are CONVENTION-BASED. The optimizer
+    itself does not record either; the CLI accepts a ``--name <...>`` flag
+    and the operator is expected to follow the convention
+    ``<SYMBOL>_<PERIOD>_<strategy>`` (e.g. ``NIFTY50_2024Q1_ocl_keylevel``)
+    so the dashboard can group studies. Studies whose names do not parse
+    still appear in ``studies`` - the dropdown falls back to a flat list of
+    study names and the operator can pick by hand. This is the honest,
+    non-fabricating behaviour the page requires.
+
+    Never raises. Degrades to ``ok=False`` with empty lists on any failure.
+    """
+    out: Dict[str, Any] = {
+        "ok": False,
+        "studies": [],
+        "strategies": [],
+        "symbols": [],
+        "periods": [],
+    }
+    try:
+        paths = _optimizer_study_paths()
+    except Exception:  # noqa: BLE001
+        return out
+    out["studies"] = [p.stem for p in paths]
+    if not paths:
+        return out
+
+    strategies: set = set()
+    symbols: set = set()
+    periods: set = set()
+    # Convention: study names shaped like ``<TOKEN>_<TOKEN>_<space>``. The
+    # LAST token is the space_name (matches ``spaces.available_spaces()``).
+    # The first two tokens, if they look like SYMBOL / PERIOD (uppercase,
+    # no underscores inside), are surfaced as filter axes. Anything else
+    # silently falls into the flat ``studies`` list.
+    try:
+        from blue_engine.optimizer.spaces import available_spaces
+        known_spaces = set(available_spaces() or [])
+    except Exception:  # noqa: BLE001
+        known_spaces = set()
+    import re as _re
+    _tok = _re.compile(r"^[A-Z0-9]+$")
+    for p in paths:
+        stem = p.stem
+        meta = _read_study_meta(stem)
+        if meta.get("space_name"):
+            strategies.add(str(meta["space_name"]))
+        parts = stem.split("_")
+        if len(parts) >= 3 and (not known_spaces or parts[-1] in known_spaces):
+            head = parts[:-1]
+            if len(head) >= 2 and _tok.match(head[0]) and _tok.match(head[1]):
+                symbols.add(head[0])
+                periods.add(head[1])
+    out["strategies"] = sorted(strategies)
+    out["symbols"] = sorted(symbols)
+    out["periods"] = sorted(periods)
+    out["ok"] = True
+    return out
+
+
+def _load_space_for(name: Optional[str]):
+    """Load a search space by name, or None. Never raises."""
+    if not name:
+        return None
+    try:
+        from blue_engine.optimizer.spaces import load_space
+        return load_space(str(name))
+    except Exception:  # noqa: BLE001
+        return None

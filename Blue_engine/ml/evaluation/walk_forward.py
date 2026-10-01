@@ -124,6 +124,14 @@ class FoldResult:
             "skill": self.skill, "auc": self.auc, "brier": self.brier,
             "sharpe": self.sharpe, "fit_seconds": round(self.fit_seconds, 3),
             "error": self.error,
+            # The per-period strategy returns MUST travel with the fold.
+            # `run_walk_forward` aggregates them across folds to build the one
+            # series that deflation and the cost gate consume. Omitting this key
+            # (as this dict did) silently empties that series, so both hard gates
+            # were reported as "could not measure" on every run - which reads as
+            # a caveat but was in fact a bug. Rounded to 8 dp: enough to keep the
+            # Sharpe stable, short enough to stay readable in the manifest.
+            "returns": [round(float(r), 8) for r in self.returns],
         }
 
 

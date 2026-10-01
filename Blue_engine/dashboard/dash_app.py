@@ -80,6 +80,7 @@ def _sidebar() -> html.Div:
             dcc.Link("Economic", href="/economic", className="nav-link"),
             dcc.Link("Infrastructure", href="/infra", className="nav-link"),
             dcc.Link("ML Models", href="/ml", className="nav-link"),
+            dcc.Link("Optimizer", href="/optimizer", className="nav-link"),
         ],
         className="sidebar",
     )
@@ -266,6 +267,13 @@ def _register_refresh_callbacks(app: dash.Dash) -> None:
         # re-renders, so a finished training run would be invisible until a
         # manual browser refresh.
         "ml-refresh": "ml_models",
+        # AUDIT FINDING D1 (2026-10-01). The strategy Optimizer page is
+        # read-only and replays the journal on every tick; without this entry
+        # the page's Interval fires every 60 s but no callback listens, so
+        # the operator would have to hard-refresh the browser to see a newly
+        # completed study. The fix is symmetric with the ML scoreboard above:
+        # 60s polling because a study is a measurement, not a stream.
+        "optimizer-refresh": "optimizer",
     }
 
     for interval_id, page_name in page_modules.items():
@@ -286,6 +294,19 @@ def _register_refresh_callbacks(app: dash.Dash) -> None:
         if not hasattr(module, "body"):
             logger.warning("refresh callback skipped: %s has no body()",
                            page_name)
+            continue
+
+        # AUDIT FINDING D11 (2026-10-01). If a page exposes a
+        # ``register_callbacks(app)`` helper, that helper fully owns the
+        # page's wiring (the helper itself wires the refresh callback).
+        # The generic ``m.body()`` poller below is skipped to avoid a
+        # ``DuplicateCallbackOutput`` for the same target.
+        if hasattr(module, "register_callbacks"):
+            try:
+                module.register_callbacks(app)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("page %s register_callbacks failed: %s",
+                               page_name, exc)
             continue
 
         def _make(m=module):
