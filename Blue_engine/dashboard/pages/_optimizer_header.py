@@ -228,7 +228,14 @@ def _safe_cache_status(symbol: str, exchange: str, interval: str) -> Dict[str, A
         return {"cached": False, "n_bars": 0, "error": "data_cache unavailable"}
     try:
         cache = _OptimizerDataCache()
-        return cache.status(exchange=exchange, symbol=symbol, interval=interval)
+        result = cache.status(exchange=exchange, symbol=symbol, interval=interval)
+        # Normalize dataclass / NamedTuple to a plain dict so the formatter
+        # does not have to know which shape the cache returns.
+        if hasattr(result, "__dict__") and not isinstance(result, dict):
+            return dict(result.__dict__)
+        if not isinstance(result, dict):
+            return {"cached": False, "n_bars": 0, "error": "unknown cache status shape"}
+        return result
     except Exception as exc:  # noqa: BLE001
         return {"cached": False, "n_bars": 0, "error": str(exc)}
 

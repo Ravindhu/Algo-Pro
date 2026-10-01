@@ -456,8 +456,8 @@ def body(study_name: str | None = None):
         # recommendation table, the honest footer, and the provenance
         # panel are all preserved exactly as the previous audits shipped
         # them. The page is still a pure function of the journal.
-        _ai_insight_header(snap),
-        _control_bar(snap),
+        _opt_hdr._ai_insight_header(snap),
+        _opt_hdr._control_bar(snap),
         # --- AUDIT FINDING D11 (2026-10-01). User input header.
         # Three read-only inputs that pick which existing study the page
         # displays. The page never writes to disk: the inputs only steer
