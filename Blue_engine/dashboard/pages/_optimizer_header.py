@@ -320,30 +320,62 @@ def _ai_insight_header(snap: Dict[str, Any],
     watch = _safe_watchlist()
 
     # --- the four top lines ------------------------------------------------ #
+    # The Mode row colours the "Auto-Live" / "Offline" token so the
+    # operator can read the current mode at a glance. Auto-Live is
+    # GREEN because it means "this page is reflecting the LIVE
+    # system"; Offline is GREY because the page is in research mode
+    # only. The colour is applied via an inline Span - we do not
+    # change the surrounding text colour so the rest of the row
+    # stays consistent with the other rows.
+    _MODE_LABEL = {"auto_live": "Auto-Live", "offline": "Offline"}
+    mode_label = _MODE_LABEL.get(mode, mode)
     if mode == "auto_live":
+        mode_token_color = _GREEN
         if live and not live.get("error"):
-            mode_line = (
-                f"Mode: Auto-Live  -  read from live system "
+            mode_suffix = (
+                f"  -  read from live system "
                 f"(strategy={live.get('strategy', '?')}, "
                 f"symbol={live.get('symbol', '?')}, "
                 f"interval={live.get('interval', '?')})"
             )
         else:
             err = (live or {}).get("error") or "no live config file found"
-            mode_line = (
-                f"Mode: Auto-Live  -  {err}. "
+            mode_suffix = (
+                f"  -  {err}. "
                 f"Run is disabled until the live system writes "
                 f"Blue_engine/input/strategy.active.json."
             )
     else:
-        mode_line = (
-            f"Mode: Offline  -  user-driven research. "
+        mode_token_color = _GREY
+        mode_suffix = (
+            f"  -  user-driven research. "
             f"Run dispatches the CLI subprocess; the page stays read-only."
         )
 
+    mode_value_cell = html.Td(
+        [
+            html.Span(
+                "Mode: ",
+                style={"color": _GREY, "fontSize": "12px"},
+            ),
+            html.Span(
+                mode_label,             # pretty-printed "Auto-Live" / "Offline"
+                style={
+                    "color": mode_token_color,
+                    "fontWeight": "600",
+                    "fontSize": "12px",
+                },
+            ),
+            html.Span(
+                mode_suffix,
+                style={"color": _GREY, "fontSize": "12px"},
+            ),
+        ],
+        style=_value_style(),
+    )
+
     setting_rows = [
-        html.Tr([html.Td("Mode", style=_label_style()),
-                 html.Td(mode_line, style=_value_style())]),
+        html.Tr([html.Td("Mode", style=_label_style()), mode_value_cell]),
         html.Tr([html.Td("Symbol", style=_label_style()),
                  html.Td(f"{symbol}  ({exchange} cash)", style=_value_style())]),
         html.Tr([html.Td("Strategy", style=_label_style()),

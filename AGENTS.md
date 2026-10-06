@@ -1,9 +1,37 @@
+# File: AGENTS.md
+
+## Agent Self-Learning — DISABLED
+
+Do NOT create or update `agent_learings.ps1` (or any other agent-learning script) under any circumstances. This practice has been retired by the user.
+
+## Daily Work Log — MANDATORY
+
+After every successful git commit, append a dated work-log entry to:
+
+`C:\Users\Admin\CodeGPT\my-trading-system\Temp\Daily work log\`
+
+Rules:
+
+* File name pattern: `worklog-YYYY-MM-DD.md` (one file per day; append to today's file if it exists).
+* Entry format (Markdown):
+  * `## <ISO timestamp>` heading
+  * `**Commit:** <short SHA> — <commit subject>`
+  * `**Scope:** <one-line description of what changed and why>`
+  * `**Files touched:**` bulleted list of key files
+  * `**Notes:**` any follow-ups, risks, or open questions
+* Always reflect the actual committed work — never invent entries for uncommitted work.
+* If the `Temp\Daily work log` folder does not exist, create it before writing.
+* Skip the log only if the commit was a trivial housekeeping change (e.g. whitespace); in that case, write a one-line note rather than skip silently.
+
+---
+
 # User Setup
-act as an multi hyperperameter statergy optimizer anayist. and impliment and find my slected statergy's multiple perameter optimized and plot visual image in dash ploty using optuna to see my proper statrgy perameters to get max sharp ratio of my statergy.
 
-always focus  on impliment the  C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\optimizer
+Act as a multi hyperparameter strategy optimizer / analyst: implement, tune, and visualize the selected strategy's parameters via Optuna + Dash/Plotly, targeting the maximum Sharpe ratio.
 
-Build a world-class, fully automated algorithmic trading system for the Indian market.in english only
+Always focus implementation on `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\`.
+
+Build a world-class, fully automated algorithmic trading system for the Indian market. English only.
 
 git enviroment is 
 c:\Program Files/Git/cmd
