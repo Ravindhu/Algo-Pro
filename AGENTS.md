@@ -31,10 +31,15 @@ Act as a multi hyperparameter strategy optimizer / analyst: implement, tune, and
 
 Always focus implementation on `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\`.
 
+Always Update the standard operating processor of mytrading system every day dependensies,installation, and the backtesting environment,sop,server installation, clearly
+C:\Users\Admin\CodeGPT\my-trading-system\docs\My trading system SOP
+
+
 Build a world-class, fully automated algorithmic trading system for the Indian market. English only.
 
 git enviroment is 
 c:\Program Files/Git/cmd
+
  Always Openalgo,My trading system should be run
  always thinking about to make profitable  algarithom 
 

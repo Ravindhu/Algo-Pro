@@ -50,7 +50,11 @@ explicitly pass --allow-external.
 
 USAGE
 -----
+    # Preferred (Docker-style, isolated openalgo venv):
     openalgo\.venv\Scripts\python.exe my-trading-system\scripts\start_openalgo.py
+
+    # Fallback (project venv, when openalgo/.venv has not been created):
+    .venv\Scripts\python.exe my-trading-system\scripts\start_openalgo.py
 
     # or via the .bat wrapper:
     my-trading-system\scripts\START_OPENALGO.bat
@@ -59,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -66,7 +71,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent      # my-trading-system/
 OPENALGO_DIR = ROOT / "openalgo"
 RESTORED_DIR = ROOT / "_restored"
-VENV_PY = OPENALGO_DIR / ".venv" / "Scripts" / "python.exe"
+# Prefer openalgo/.venv (the Docker-style install); fall back to the
+# project-level .venv at the repo root when the openalgo venv is missing.
+# The project venv already has the openalgo SDK; we just install the
+# additional server-side deps (flask-socketio, eventlet, etc.) into it.
+_VENV_CANDIDATES = [
+    OPENALGO_DIR / ".venv" / "Scripts" / "python.exe",
+    ROOT / ".venv" / "Scripts" / "python.exe",
+]
+VENV_PY = next((p for p in _VENV_CANDIDATES if p.exists()), _VENV_CANDIDATES[0])
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 
@@ -78,6 +91,14 @@ RESTORE_ITEMS = [
     ("keys", "keys"),
     ("download", "download"),
 ]
+
+# Files we *scrub* on clean exit. We do NOT scrub db/, keys/, or download/ -
+# those contain state that survives the OpenAlgo process (broker sessions,
+# master-contract cache) and removing them would force a re-login on the
+# next start. The .env is the only file we scrub because it is the only
+# file that contains broker credentials in plaintext, and it is re-bootstrapped
+# from _restored/.env at the next start.
+SCRUB_ON_EXIT = [".env"]
 
 
 def _newer(src: Path, dst: Path) -> bool:
@@ -158,7 +179,66 @@ def parse_args() -> argparse.Namespace:
                    help="Skip the _restored/ bootstrap step")
     p.add_argument("--force-restore", action="store_true",
                    help="Restore every _restored/ file, ignoring timestamps")
+    p.add_argument("--strict-pin", action="store_true",
+                   help="Refuse to start if the openalgo/ folder does not match the "
+                        "upstream pin in openalgo.UPSTREAM_PIN. Use scripts/"
+                        "upgrade_check.py --update-pin after a deliberate upgrade.")
+    p.add_argument("--no-scrub-on-exit", action="store_true",
+                   help="Skip the secret-scrub on exit. Only useful for debugging; "
+                        "leaves your mstock secret in openalgo/.env on disk.")
+    p.add_argument("--check-only", action="store_true",
+                   help="Run the bootstrap + upgrade check, then exit (no app start)")
     return p.parse_args()
+
+
+def scrub_secrets(only: list[str] | None = None) -> list[str]:
+    """Delete the secret-bearing files we placed in openalgo/ at bootstrap.
+
+    The point of `_restored/` is that the .env and any other secret-bearing
+    files live ONLY there. If we leave them in openalgo/ after OpenAlgo
+    stops, anyone who later runs `git init` inside openalgo/ would stage
+    them as a fresh commit. We therefore delete them on clean exit so
+    openalgo/ remains a *pristine* upstream copy with no local secrets.
+
+    The next `start_openalgo.py` run will re-bootstrap them from
+    `_restored/`, so this is safe to do on every exit.
+
+    Returns the list of files that were actually removed.
+    """
+    targets = only if only is not None else SCRUB_ON_EXIT
+    removed: list[str] = []
+    for name in targets:
+        p = OPENALGO_DIR / name
+        if not p.exists():
+            continue
+        try:
+            if p.is_dir():
+                shutil.rmtree(p)
+            else:
+                p.unlink()
+            removed.append(name)
+        except OSError as e:
+            print(f"[WARN] could not scrub {p}: {e}")
+    return removed
+
+
+def run_upgrade_check(strict: bool) -> int:
+    """Invoke scripts/upgrade_check.py as a subprocess and return its exit code.
+
+    Doing it as a subprocess (rather than importing) means the pin logic
+    stays in one place and the launcher never duplicates the fingerprint
+    code. The trade-off is one extra Python startup (~150 ms on this box),
+    which is invisible next to OpenAlgo's own import cost.
+    """
+    script = ROOT / "scripts" / "upgrade_check.py"
+    if not script.is_file():
+        print(f"[WARN] {script} missing - skipping upgrade check")
+        return 0
+    cmd = [sys.executable, str(script), "--strict", "--allow-unpinned"]
+    rc = subprocess.call(cmd)
+    if strict and rc != 0:
+        return rc
+    return 0
 
 
 def main() -> int:
@@ -174,6 +254,17 @@ def main() -> int:
         rc = bootstrap_restored(force=args.force_restore)
         if rc != 0:
             return rc
+
+    # Upgrade check: print a one-line diff of the watched files (cheap), and
+    # refuse to start if --strict-pin was passed and the pin does not match.
+    rc = run_upgrade_check(strict=args.strict_pin)
+    if rc != 0:
+        return rc
+
+    if args.check_only:
+        print("[OpenAlgo] --check-only: bootstrap + upgrade check done, exiting.")
+        scrub_secrets()  # leave no secret behind when only checking
+        return 0
 
     # app.py resolves paths relative to CWD, so run from the openalgo folder.
     os.chdir(OPENALGO_DIR)
@@ -230,6 +321,11 @@ def main() -> int:
                 ws_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 ws_proc.kill()
+        if not args.no_scrub_on_exit:
+            removed = scrub_secrets()
+            if removed:
+                print(f"[OpenAlgo] Scrubbed from openalgo/ on exit: {', '.join(removed)}")
+                print("             (will be re-bootstrapped from _restored/ on next start)")
     return 0
 
 

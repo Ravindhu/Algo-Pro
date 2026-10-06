@@ -1,0 +1,5 @@
+# OpenAlgo upstream fingerprint pin
+#
+# Previous pin: 50f83da0d46c
+# Regenerate with: python scripts/upgrade_check.py --update-pin
+018a1dd4b9bc
