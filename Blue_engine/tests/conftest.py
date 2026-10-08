@@ -13,7 +13,33 @@ starts from a clean slate while the production behaviour is unchanged.
 """
 from __future__ import annotations
 
-import pytest
+import os
+import platform
+
+# ---------------------------------------------------------------------------
+# Windows platform-probe guard (suite-wide).
+#
+# The autouse fixture below imports ``blue_engine`` -> openalgo -> pandas.
+# pandas' import calls ``platform.machine()`` -> ``platform.win32_ver()`` ->
+# ``subprocess.check_output("cmd /c ver")``, which NEVER RETURNS when stdio is
+# redirected (pytest captures stdio). The result is a suite that hangs with no
+# error. The OS arch of a running 64-bit interpreter is knowable without
+# subprocessing, so answer it directly.
+#
+# This lives in conftest so it runs before ANY test module or fixture imports
+# blue_engine -- a per-file guard cannot help, because pytest imports conftest
+# (and its fixtures) first. Same reasoning as
+# ``Blue_engine/dashboard/run_server.py``.
+# ---------------------------------------------------------------------------
+if os.name == "nt":
+    _ARCH = os.environ.get("PROCESSOR_ARCHITECTURE", "") or "AMD64"
+    platform.machine = lambda: _ARCH                       # type: ignore[assignment]
+    platform.win32_ver = lambda *a, **k: ("10", "", "", "")  # type: ignore[assignment]
+    platform.uname = lambda *a, **k: platform.uname_result(  # type: ignore[assignment]
+        "Windows", platform.node(), "10", "", "", _ARCH
+    )
+
+import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

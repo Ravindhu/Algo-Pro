@@ -28,8 +28,14 @@ Start-Process -FilePath "C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\
 ```
 
 - ALWAYS launch via `Blue_engine\dashboard\run_server.py`, never `dash_app.py` directly. The launcher pre-seeds `platform.machine()` — on this host a detached process otherwise blocks forever inside `pandas → platform.win32_ver() → subprocess("cmd /c ver")` with no error.
-- Set `OPENALGO_API_KEY` in the environment before launch if you want the banner to show LIVE/ANALYZER instead of "MODE UNKNOWN".
-- Verify: `http://127.0.0.1:8050/` and `/pov/mode` both return 200.
+- The banner resolves `OPENALGO_API_KEY` through
+  `blue_engine.economics.providers.secrets.get_secret` (env -> `_restored/.env`
+  -> repo `.env`). You do NOT need to export it; the key in `_restored/.env`
+  is enough. Fixed 2026-10-08 — the gate previously read `os.getenv(...)` only,
+  so the banner said "MODE UNKNOWN" on every page even with the key on disk.
+- Verify: `http://127.0.0.1:8050/` and `/pov/mode` both return 200. `/pov/mode`
+  returns `{"mode": "analyzer"|"live", ...}`; `"unknown"` means the read
+  failed (OpenAlgo down or key unusable), never "not configured".
 
 ## 4. Dashboard (DMC migration, 2026-10-07)
 
@@ -87,8 +93,18 @@ and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
 
 ## 7. Data-flow facts (verified live 2026-10-08)
 
-- **Suite is green as of 2026-10-08: `613 passed`.** Run it with
-  `python -m pytest Blue_engine/tests -q -p no:cacheprovider`.
+- **Suite is green as of 2026-10-08: `626 passed`.** Run it with
+  `python -m pytest Blue_engine/tests -q -p no:cacheprovider` (~100 s; the
+  first run after a restart is slower while scipy/pandas warm up).
+- **The suite-wide Windows platform guard lives in `tests/conftest.py`.** Any
+  test that imports `blue_engine` pulls in openalgo -> pandas and, via the
+  `economics` package `__init__`, scipy. `pandas` calls `platform.machine()` ->
+  `platform.win32_ver()` -> `subprocess("cmd /c ver")`, which HANGS FOREVER
+  under pytest's captured stdio. The guard must be in `conftest` (imported
+  first); a per-file guard cannot help. If a new test needs one small module
+  from a heavy package, load it by file with `importlib.util.spec_from_file_location`
+  rather than importing the package — see `tests/test_dash_mode_resolution.py`,
+  which needs `economics/providers/secrets.py` but must not drag in scipy.
   Two blockers were removed the same day: `test_optimizer_engine.py` imported a
   non-existent public `SYNTHETIC_DEMO` (the real symbol is the private
   `_SYNTHETIC_DEMO`), which aborted the WHOLE run at collection; and the stale

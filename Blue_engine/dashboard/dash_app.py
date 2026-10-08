@@ -356,19 +356,33 @@ def main(argv: Optional[list] = None) -> int:
         #
         # This is blocked deliberately: if OpenAlgo is not running, the banner
         # SHOULD say unknown rather than pretend to know the mode.
+        #
+        # FIXED 2026-10-08 ("MODE UNKNOWN" on every page): the gate used to be
+        # ``os.getenv("OPENALGO_API_KEY")``, i.e. the PROCESS environment only.
+        # Nothing ever exports the key into the dashboard's environment, so the
+        # gate was always false and the banner read "MODE UNKNOWN" even with
+        # OpenAlgo up and the key sitting in ``_restored/.env``. The rest of the
+        # system resolves credentials through
+        # ``economics.providers.secrets.get_secret`` (env -> _restored/.env ->
+        # repo/.env), so the dashboard was the one surface that disagreed with
+        # it. We now use the SAME resolver, which is the single place AGENTS.md
+        # says credentials may be read, and hand the key to init_client
+        # explicitly so the SDK does not re-derive it from a stale env.
         client = None
-        if os.getenv("OPENALGO_API_KEY"):
-            try:
-                from blue_engine.core.client import init_client
+        try:
+            from blue_engine.economics.providers.secrets import has_secret, get_secret
+            from blue_engine.core.client import init_client
 
-                client = init_client()
-                logger.info("mode probe: SDK client attached")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("mode probe: no SDK client (%s); "
-                               "banner will read 'MODE UNKNOWN'", exc)
-        else:
-            logger.warning("mode probe: OPENALGO_API_KEY unset; banner will "
-                           "read 'MODE UNKNOWN'")
+            if has_secret("OPENALGO_API_KEY"):
+                client = init_client(api_key=get_secret("OPENALGO_API_KEY"))
+                logger.info("mode probe: SDK client attached (key resolved)")
+            else:
+                logger.warning("mode probe: OPENALGO_API_KEY not found in env, "
+                               "_restored/.env or .env; banner will read "
+                               "'MODE UNKNOWN'")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mode probe: no SDK client (%s); "
+                           "banner will read 'MODE UNKNOWN'", exc)
 
         # Paper mode by default: no broker calls, but lets the terminal
         # show the state machines for the default watchlist.
