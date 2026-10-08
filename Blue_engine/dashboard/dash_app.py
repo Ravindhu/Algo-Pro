@@ -126,6 +126,15 @@ def create_app(*, engine: Optional[Any] = None, config_path: Optional[str] = Non
     _register_refresh_callbacks(app)
     _register_mode_callbacks(app)
 
+    # Service Control (Infrastructure page): status probes + the guarded
+    # OpenAlgo START button. Registered here so the control has one owner;
+    # it lives in ui/service_control.py alongside its safety rationale.
+    try:
+        from blue_engine.dashboard.ui import service_control
+        service_control.register_callbacks(app)
+    except Exception as exc:  # noqa: BLE001 - a missing control must not
+        logger.warning("service_control callbacks not registered: %r", exc)
+
     # JSON endpoint the page shell polls so a mid-session analyzer/live
     # toggle re-themes the whole UI without a hard reload.
     #

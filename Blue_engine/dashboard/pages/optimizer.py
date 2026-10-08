@@ -38,10 +38,13 @@ reason shown, never as a silently empty chart.
 from __future__ import annotations
 
 import dash
+import dash_mantine_components as dmc
 from dash import dcc, html
+from dash_mantine_components import Badge
 
 from blue_engine.dashboard.pages import _data
 from blue_engine.dashboard.pages import _optimizer_header as _opt_hdr
+from blue_engine.dashboard.ui.kpi import KpiCard
 
 dash.register_page(__name__, path="/optimizer", name="Optimizer", order=9)
 
@@ -63,16 +66,27 @@ _VERDICT_COLOUR = {
 
 
 def _kpi(label: str, value: str, colour: str | None = None) -> html.Div:
-    return html.Div(
-        [html.Div(label, className="kpi-label"),
-         html.Div(value, className="kpi-value",
-                  style={"color": colour} if colour else {})],
-        className="kpi")
+    """Thin shim over ``ui.kpi.KpiCard`` (keeps this page's call sites)."""
+    return KpiCard(label, value, colour=colour)
 
 
-def _pill(text: str, colour: str) -> html.Span:
-    return html.Span(text, className="pill",
-                     style={"background": "#1e293b", "color": colour})
+def _pill(text: str, colour: str) -> Any:
+    """A DMC badge.
+
+    The old version took a raw hex colour and forced a slate background; DMC
+    needs a named colour. We map the handful of hexes this page actually passes
+    so the badges keep their meaning instead of all turning grey.
+    """
+    named = {
+        "#22c55e": "green",
+        "#ef4444": "red",
+        "#f59e0b": "yellow",
+        "#38bdf8": "blue",
+        "#94a3b8": "gray",
+        "#a855f7": "violet",
+    }.get((colour or "").lower(), "gray")
+    return Badge(str(text), color=named, variant="filled", size="sm",
+                 radius="xl", className="pill")
 
 
 def _num(value, digits: int = 4, default: str = "-") -> str:

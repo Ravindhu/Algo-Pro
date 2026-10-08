@@ -35,6 +35,8 @@ import dash
 from dash import dcc, html
 
 from blue_engine.dashboard.pages import _data
+from blue_engine.dashboard.pages._ai_insight import ai_insight_card
+from blue_engine.dashboard.ui.kpi import KpiCard, KpiRow
 
 dash.register_page(__name__, path="/economic", name="Economic", order=5)
 
@@ -511,34 +513,40 @@ def body():
                             "fontSize": "12px", "marginTop": "4px"}),
         ])
 
+    # --- AI Insight header (read-only summary card) ------------------------ #
+    ai_rows = [
+        ("Regime", regime, _REGIME_COLORS.get(regime, _SLATE)),
+        ("Risk-on score", f"{score:+.2f}", _score_color(score)),
+        ("Gross multiplier", f"{mult:.2f}x", _SLATE),
+        ("Model", str(model.get("method", "none")), _SLATE),
+        ("Signals available", str(n_signals), _SLATE),
+        ("Has history", "yes" if snap["has_history"] else "no",
+         _SLATE),
+    ]
+
     return [
+        ai_insight_card(
+            "Economic Setting - macro regime engine",
+            ai_rows,
+            note="Renders the last PERSISTED run (data/economic_runs/), not "
+                 "live config. Editing macro_master.json does not change the "
+                 "display until a new run is recorded.",
+        ),
         html.H2("Economic - Macro Regime Engine"),
         header_note,
 
         # ---- KPI row ---------------------------------------------------- #
-        html.Div([
-            html.Div([html.Div("Regime", className="kpi-label"),
-                      html.Div(regime, className="kpi-value",
-                               style={"color": _REGIME_COLORS.get(regime, _SLATE)})],
-                     className="kpi-card"),
-            html.Div([html.Div("Risk-on score", className="kpi-label"),
-                      html.Div(f"{score:+.2f}", className="kpi-value",
-                               style={"color": _score_color(score)})],
-                     className="kpi-card"),
-            html.Div([html.Div("Gross multiplier", className="kpi-label"),
-                      html.Div(f"{mult:.2f}x", className="kpi-value",
-                               style={"color": _ACCENT})],
-                     className="kpi-card"),
-            html.Div([html.Div("P(RISK_ON)", className="kpi-label"),
-                      html.Div(
-                          "-" if model.get("p_risk_on") is None
-                          else f"{float(model['p_risk_on']):.0%}",
-                          className="kpi-value")],
-                     className="kpi-card"),
-            html.Div([html.Div("Signals", className="kpi-label"),
-                      html.Div(str(n_signals), className="kpi-value")],
-                     className="kpi-card"),
-        ], className="kpi-row"),
+        KpiRow([
+            KpiCard("Regime", regime,
+                    colour=_REGIME_COLORS.get(regime, _SLATE)),
+            KpiCard("Risk-on score", f"{score:+.2f}",
+                    colour=_score_color(score)),
+            KpiCard("Gross multiplier", f"{mult:.2f}x", colour=_ACCENT),
+            KpiCard("P(RISK_ON)",
+                    "-" if model.get("p_risk_on") is None
+                    else f"{float(model['p_risk_on']):.0%}"),
+            KpiCard("Signals", n_signals),
+        ]),
 
         # ---- Gauges ----------------------------------------------------- #
         html.Div([

@@ -43,6 +43,8 @@ import dash
 from dash import dcc, html
 
 from blue_engine.dashboard.pages import _data
+from blue_engine.dashboard.pages._ai_insight import ai_insight_card
+from blue_engine.dashboard.ui.kpi import KpiCard
 
 dash.register_page(__name__, path="/ml", name="ML Models", order=7)
 
@@ -124,13 +126,8 @@ def _cost_colour(survives) -> str:
 
 
 def _kpi(label: str, value: str, colour: str = "#e2e8f0") -> html.Div:
-    return html.Div(
-        [
-            html.Div(label, className="kpi-label"),
-            html.Div(value, className="kpi-value", style={"color": colour}),
-        ],
-        className="kpi-card",
-    )
+    """Thin shim over ``ui.kpi.KpiCard`` (keeps this page's call sites)."""
+    return KpiCard(label, value, colour=colour)
 
 
 # --------------------------------------------------------------------------- #
@@ -428,6 +425,22 @@ def body():
     )
 
     children = [
+        ai_insight_card(
+            "ML Setting - training scoreboard",
+            [
+                ("Runs recorded", str(n_runs), _GREY),
+                ("Validated models", str(n_validated),
+                 _GREEN if n_validated else _GREY),
+                ("Latest status", str(status).upper(),
+                 _GREEN if status == "validated" else _AMBER),
+                ("Best candidate", str(best) if best else "none",
+                 best_colour),
+                ("Best skill", best_skill_txt, best_colour),
+            ],
+            note="Read-only. Numbers are exactly what the walk-forward "
+                 "runner recorded — nothing is recomputed here, and no "
+                 "model is promoted from the browser.",
+        ),
         html.H2("ML Models — training scoreboard"),
         html.P(
             "Read-only. Numbers are exactly what the walk-forward runner "
