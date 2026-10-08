@@ -23,6 +23,10 @@ What is genuinely new here
   3 months, even at identical Sharpe.
 * **Rolling series** — rolling vol and Sharpe at a chosen window, so the
   dashboard can show whether the risk profile is drifting.
+* **Cash-flow-aware returns** — ``twrr`` (time-weighted / manager return, the
+  fair benchmark-relative number) and ``xirr`` (money-weighted / actual investor
+  return). Both are attached to ``performance.summary`` when the NAV store
+  carries the needed dates/flows; otherwise they are omitted, never faked.
 * **One report dict** — everything the Risk panel needs, in a single call.
 
 India-specific notes
@@ -39,7 +43,7 @@ Everything is pure: feed it returns; get dicts. No I/O, no network.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.results import safe_float
 from . import attribution as _attr_pkg
@@ -212,6 +216,70 @@ def rolling_series(returns: Optional[Sequence[float]], *,
 # Reports
 # --------------------------------------------------------------------------- #
 
+def _r6(v: Optional[float]) -> Optional[float]:
+    return None if v is None else round(v, 6)
+
+
+def _valuations_from_rows(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Build the TWRR valuation path from stored NAV rows.
+
+    Each row contributes ``{"date", "value", "flow"}``. ``value`` is the row's
+    ``nav``; ``flow`` is the external cash flow recorded on that row (``flow`` /
+    ``cash_flow``, defaulting to 0). Rows lacking a date or a usable NAV are
+    skipped - one bad row must not blank the whole metric.
+
+    Until the store records external flows every ``flow`` is 0, and the chained
+    TWRR then equals the compounded return - which is correct, not a bug: with no
+    external flows the time-weighted and simple returns coincide.
+    """
+    out: List[Dict[str, Any]] = []
+    for r in (rows or []):
+        d = r.get("date")
+        nav = safe_float(r.get("nav"))
+        if d is None or nav is None:
+            continue
+        flow = safe_float(r.get("flow", r.get("cash_flow", 0.0))) or 0.0
+        out.append({"date": d, "value": nav, "flow": flow})
+    return out
+
+
+def _cash_flows_from_rows(rows: Sequence[Dict[str, Any]]
+                          ) -> List[Tuple[Any, float]]:
+    """Build dated XIRR cash flows from stored NAV rows.
+
+    XIRR is money-weighted: it needs the external flows in and out, not just the
+    NAV path. This returns ``[(date, amount), ...]`` using the contribution
+    convention (deposit NEGATIVE, withdrawal POSITIVE - the money the investor
+    put in is an outflow from their pocket), plus the terminal NAV as the final
+    positive inflow.
+
+    Returns an empty list when no row records a nonzero external flow, so the
+    caller omits XIRR rather than reporting a misleading synonym of the simple
+    return. A single opening investment paired with the final NAV still yields a
+    meaningful XIRR and IS returned.
+    """
+    flows: List[Tuple[Any, float]] = []
+    for r in (rows or []):
+        d = r.get("date")
+        f = safe_float(r.get("flow", r.get("cash_flow")))
+        if d is not None and f is not None and f != 0.0:
+            # Row flow is a CONTRIBUTION (+ = money in); XIRR wants the
+            # investor's perspective (- = money paid in), so negate it.
+            flows.append((d, -f))
+    if not flows:
+        return []
+    # Terminal NAV is the value the investor could take out today.
+    last_nav = None
+    last_d = None
+    for r in (rows or []):
+        nav = safe_float(r.get("nav"))
+        if r.get("date") is not None and nav is not None:
+            last_d, last_nav = r.get("date"), nav
+    if last_d is not None and last_nav is not None:
+        flows.append((last_d, last_nav))
+    return flows
+
+
 def performance_report(returns: Optional[Sequence[float]], *,
                        benchmark: Optional[Sequence[float]] = None,
                        rf: float = 0.0, periods: float = 252.0
@@ -349,6 +417,19 @@ def report(nav_rows: Optional[List[Dict[str, Any]]], *,
             cap = safe_float(rows[0].get("nav"))
         perf = performance_report(rets, benchmark=benchmark, rf=rf,
                                   periods=ppy)
+        # Cash-flow-aware returns. TWRR chains the NAV path (neutralising any
+        # external flow recorded on a row), so it is the fair number to compare
+        # against the benchmark. XIRR needs dated external flows plus the current
+        # NAV as the terminal inflow; when the store records no external flows
+        # there is nothing money-weighted to compute, so we omit it rather than
+        # report a synonym of the simple return.
+        valuations = _valuations_from_rows(rows)
+        cash_flows = _cash_flows_from_rows(rows)
+        summary = perf.setdefault("summary", {})
+        if valuations:
+            summary["twrr"] = _r6(_attr_pkg.perf.twrr(valuations))
+        if cash_flows:
+            summary["xirr"] = _r6(_attr_pkg.perf.xirr(cash_flows))
         # NOTE: call the module-level function by its real name. Naming a local
         # ``risk_report`` here would shadow the module function inside this
         # module (the function IS risk_report), silently breaking every later

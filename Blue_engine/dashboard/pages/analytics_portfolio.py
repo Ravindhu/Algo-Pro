@@ -41,9 +41,12 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import dash
+import dash_mantine_components as dmc
 from dash import dcc, html
 
 from blue_engine.dashboard.pages import _data
+from blue_engine.dashboard.pages._ai_insight import ai_insight_card
+from blue_engine.dashboard.ui.kpi import KpiCard
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +106,14 @@ def _empty_fig(message: str, height: int = 300):
 
 def _kpi(label: str, value: str, color: Optional[str] = None,
          note: Optional[str] = None) -> html.Div:
-    """A KPI card. ``note`` carries the one-line plain-English explanation."""
-    children = [
-        html.Div(label, className="kpi-label"),
-        html.Div(value, className="kpi-value",
-                 style={"color": color} if color else None),
-    ]
-    if note:
-        children.append(html.Div(note, className="kpi-note",
-                                 style={"color": _SLATE, "fontSize": "11px"}))
-    return html.Div(children, className="kpi-card")
+    """Thin backward-compatible wrapper over ``ui.kpi.KpiCard``.
+
+    Kept as a local shim (rather than editing ~20 call sites in this 537-line
+    page) so the migration is reviewable: the visual change comes from the kit,
+    and the page's own structure is untouched. New pages should call KpiCard
+    directly -- this wrapper exists only for this file.
+    """
+    return KpiCard(label, value, colour=color, note=note)
 
 
 def _pct(v: Optional[float], digits: int = 2) -> str:
@@ -123,13 +124,23 @@ def _num(v: Optional[float], digits: int = 2) -> str:
     return "-" if v is None else f"{v:,.{digits}f}"
 
 
-def _warnings_block(warnings: Optional[List[str]]) -> Optional[html.Div]:
-    """Render warnings visibly — a silently-degraded panel is a trap."""
+def _warnings_block(warnings: Optional[List[str]]) -> Optional[Any]:
+    """Render warnings visibly -- a silently-degraded panel is a trap.
+
+    Uses a DMC Alert so a warning is styled as a warning (the native build's
+    ``.warn-line`` class had no CSS left once _THEME_CSS was trimmed, which
+    would have made these render as plain body text).
+    """
     if not warnings:
         return None
-    return html.Div(
-        [html.Div(f"- {w}", className="warn-line") for w in warnings],
-        className="warn-block")
+    return dmc.Alert(
+        dmc.List([dmc.ListItem(str(w)) for w in warnings], size="xs",
+                 spacing=2),
+        title="Degraded",
+        color="yellow",
+        variant="light",
+        mb="sm",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -195,6 +206,10 @@ def _risk_kpis(rep: Dict[str, Any]) -> List[html.Div]:
              note="return per unit of total risk"),
         _kpi("Sortino", _num(s.get("sortino"), 2),
              note="return per unit of DOWNSIDE risk"),
+        _kpi("TWRR (manager)", _pct(s.get("twrr")),
+             note="time-weighted - the fair number vs the benchmark"),
+        _kpi("XIRR (your money)", _pct(s.get("xirr")),
+             note="money-weighted - what the capital actually earned"),
         _kpi("Max drawdown", _pct(s.get("max_drawdown")),
              color=_RED if (s.get("max_drawdown") or 0) > 0.10 else None,
              note="deepest fall from a high"),
@@ -522,6 +537,31 @@ def body() -> List[Any]:
         _views_table(views),
         _warnings_block(views.get("warnings")),
     ], className="panel"))
+
+    # -- AI Insight header (read-only summary card) ---------------------- #
+    # Inserted at the top (after the H2 + intro paragraph) so the operator
+    # sees the summary first. Built from the Phase-2 report + Phase-3
+    # snapshots; anything missing degrades to a grey dash, never a crash.
+    summary = (rep.get("performance") or {}).get("summary") or {}
+    sharpe = summary.get("sharpe")
+    max_dd = summary.get("max_drawdown")
+    ai_rows = [
+        ("Sharpe", "-" if sharpe is None else f"{sharpe:.2f}", _SLATE),
+        ("Max drawdown",
+         "-" if max_dd is None else f"{max_dd:.1%}",
+         _RED if (max_dd or 0) > 0.15 else _SLATE),
+        ("Sectors", str(len((exp or {}).get("sectors") or []))
+         if isinstance(exp, dict) else "-", _SLATE),
+        ("P&L sleeves", str(len((attr or {}).get("sleeves") or []))
+         if isinstance(attr, dict) else "-", _SLATE),
+    ]
+
+    panels.insert(2, ai_insight_card(
+        "Portfolio Analytics Setting - risk & performance",
+        ai_rows,
+        note="Read-only. Every number comes from the persisted NAV/report "
+             "artefacts; nothing is recomputed and no order is placed.",
+    ))
 
     return panels
 
