@@ -196,6 +196,13 @@ class EquityTracker:
         self._lots: Dict[str, Lot] = {}
         self._fills: List[Fill] = []
         self._log = log
+        # External cash-flow ledger. External money is NOT trading P&L: a deposit
+        # raises NAV without the book having earned anything. Keeping it separate
+        # is what lets the curve charge a deposit as a flow (XIRR/TWRR) instead of
+        # as a return, which would silently inflate every risk metric.
+        self._flows: List[Tuple[float, float]] = []      # (ts, amount, + = in)
+        self._day_flow: Dict[str, float] = {}            # ist_date -> net flow
+        self.net_deposits: float = 0.0                   # lifetime cumulative
 
     # ---- logging -------------------------------------------------------- #
     def _logmsg(self, msg: str) -> None:
@@ -314,6 +321,61 @@ class EquityTracker:
             n += 1 if fill else 0
         return n
 
+    # ---- external cash flows (deposits / withdrawals) ------------------- #
+    def deposit(self, amount: float, *, ts: Optional[float] = None) -> float:
+        """Add EXTERNAL capital to the account and record it as a cash flow.
+
+        A deposit is not trading P&L: it raises ``cash`` (and therefore NAV) but
+        must never be counted as a return. The tracker records it so that
+        ``daily_returns`` can strip it and so XIRR has a dated flow to work from.
+
+        Convention: the recorded amount is POSITIVE (money paid IN). Returns the
+        amount actually applied (0.0 for a non-positive/NaN input).
+        """
+        amt = safe_float(amount)
+        if amt is None or amt <= 0:
+            self._logmsg(f"skipped invalid deposit {amount!r}")
+            return 0.0
+        self._record_flow(amt, ts)
+        return amt
+
+    def withdraw(self, amount: float, *, ts: Optional[float] = None) -> float:
+        """Remove capital from the account and record it as a cash flow.
+
+        A withdrawal is the mirror of :meth:`deposit`: it lowers NAV but is not a
+        loss. Withdrawals are allowed to take cash negative, exactly as buying on
+        margin does — the ledger records reality rather than refusing it. The
+        recorded amount is NEGATIVE (money taken OUT). Returns the magnitude
+        applied (0.0 for a non-positive/NaN input).
+        """
+        amt = safe_float(amount)
+        if amt is None or amt <= 0:
+            self._logmsg(f"skipped invalid withdrawal {amount!r}")
+            return 0.0
+        self._record_flow(-amt, ts)
+        return amt
+
+    def _record_flow(self, signed_amount: float, ts: Optional[float]) -> None:
+        """Book one signed external flow into cash and the dated ledgers."""
+        stamp = float(ts if ts is not None else time.time())
+        self.cash += signed_amount
+        self.net_deposits += signed_amount
+        self._flows.append((stamp, signed_amount))
+        day = ist_date(stamp)
+        self._day_flow[day] = self._day_flow.get(day, 0.0) + signed_amount
+        self._logmsg(f"external flow {signed_amount:+,.2f} on {day} "
+                     f"cash={self.cash:,.0f}")
+
+    def flows(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """The external cash-flow ledger, oldest first (for XIRR)."""
+        rows = [{"ts": t, "date": ist_date(t), "amount": a}
+                for t, a in self._flows]
+        return rows[-limit:] if limit else rows
+
+    def flow_on(self, day: str) -> float:
+        """Net external flow booked on an IST date (``+`` = money in)."""
+        return self._day_flow.get(str(day)[:10], 0.0)
+
     # ---- valuation ------------------------------------------------------ #
     def exposure(self, marks: Dict[str, float]) -> float:
         """Gross exposure = sum |qty * mark| across open lots."""
@@ -340,6 +402,16 @@ class EquityTracker:
     def total_fees(self) -> float:
         return sum(lot.fees for lot in self._lots.values())
 
+    @property
+    def contributions(self) -> float:
+        """Total capital ever contributed = starting cash + lifetime net flows.
+
+        This is the correct denominator for a money-weighted simple return; the
+        original ``starting_cash`` alone understates it the moment the account is
+        topped up, turning a deposit into phantom profit.
+        """
+        return self.starting_cash + self.net_deposits
+
     def nav(self, marks: Dict[str, float]) -> float:
         """Net asset value = cash + open position value (marked).
 
@@ -361,11 +433,18 @@ class EquityTracker:
         stamp = float(ts if ts is not None else time.time())
         upnl = self.unrealized_pnl(marks)
         nav = self.nav(marks)
+        day = ist_date(stamp)
         row: Dict[str, Any] = {
             "ts": stamp,
-            "date": ist_date(stamp),
+            "date": day,
             "nav": round(nav, 4),
             "cash": round(self.cash, 4),
+            # Net EXTERNAL flow booked today (+ = money in). Zero on a normal
+            # session. This is the field that lets daily_returns strip a deposit
+            # and lets risk_report compute a real XIRR/TWRR instead of reporting
+            # the account's funding as profit.
+            "flow": round(self.flow_on(day), 4),
+            "net_deposits": round(self.net_deposits, 4),
             "gross_exposure": round(self.exposure(marks), 4),
             "net_exposure": round(self.net_exposure(marks), 4),
             "realized_pnl": round(self.realized_pnl, 4),
@@ -373,8 +452,13 @@ class EquityTracker:
             "total_fees": round(self.total_fees, 4),
             "total_pnl": round(self.realized_pnl + upnl, 4),
             "starting_cash": round(self.starting_cash, 4),
-            "return_since_start": (round(nav / self.starting_cash - 1.0, 6)
-                                   if self.starting_cash else None),
+            # Money-weighted simple return on CONTRIBUTED capital. Dividing by the
+            # original starting_cash would report a fresh deposit as profit; the
+            # denominator is therefore starting_cash + lifetime net deposits.
+            # This is a coarse cumulative figure - XIRR is the time-aware number.
+            "return_since_start": (round(nav / self.contributions - 1.0, 6)
+                                   if self.contributions > 0 else None),
+            "contributions": round(self.contributions, 4),
             "n_positions": sum(1 for lot in self._lots.values() if lot.qty != 0),
             "positions": [lot.to_dict() for lot in self._lots.values()
                           if lot.qty != 0],
@@ -406,6 +490,9 @@ class EquityTracker:
         return {"starting_cash": self.starting_cash, "cash": round(self.cash, 2),
                 "open_positions": len(self.positions()),
                 "fills": len(self._fills),
+                "flows": len(self._flows),
+                "net_deposits": round(self.net_deposits, 2),
+                "contributions": round(self.contributions, 2),
                 "realized_pnl": round(self.realized_pnl, 2),
                 "total_fees": round(self.total_fees, 2),
                 "charges_bps": self.charges_bps}
@@ -540,12 +627,29 @@ def read_nav(*, months: int = 12, directory: Optional[Path] = None
     return [r for r in rows if str(r.get("date") or "")[:10] >= cutoff]
 
 
-def daily_returns(nav_rows: List[Dict[str, Any]]) -> List[float]:
+def daily_returns(nav_rows: List[Dict[str, Any]], *,
+                  strip_flows: bool = True) -> List[float]:
     """Convert a NAV path into a RETURN series, oldest first.
 
     Collapses multiple snapshots on the same IST date to the **last** one
-    (end-of-day), then returns ``nav_t / nav_{t-1} - 1`` for each consecutive
-    pair present in the store.
+    (end-of-day), then returns the sub-period return for each consecutive pair
+    present in the store.
+
+    **External flows are stripped.** A deposit raises NAV without the book
+    earning anything. Computing ``nav_t / nav_{t-1} - 1`` naively books that
+    deposit as a return, which inflates every metric downstream (vol, Sharpe,
+    VaR, drawdown) - a 10 lakh top-up on a 10 lakh book reads as a +100% day.
+    When a row carries a ``flow`` (``+`` = money in), the return is::
+
+        (nav_t - flow_t) / nav_{t-1} - 1
+
+    i.e. the day's own flow is removed from the closing value before the ratio,
+    because money that arrived *today* had no time to earn. This is the same
+    time-weighted decomposition ``twrr`` uses, applied at daily granularity.
+
+    ``strip_flows=False`` restores the legacy, flow-blind behaviour for a caller
+    that wants the raw NAV ratio (e.g. comparing against a stored account
+    statement that itself does not adjust for flows).
 
     IMPORTANT — the spacing is whatever the store holds, not necessarily daily.
     A live desk writes one row per session, so the series is daily. A *backfilled*
@@ -559,27 +663,34 @@ def daily_returns(nav_rows: List[Dict[str, Any]]) -> List[float]:
     (``source='backfill'``) and a live row, the LIVE one wins — reconstructed
     history must never overwrite what actually happened.
     """
-    by_day: Dict[str, Tuple[float, bool]] = {}      # date -> (nav, is_live)
+    by_day: Dict[str, Tuple[float, bool, float]] = {}   # date -> (nav, live, flow)
     for row in nav_rows or []:
         d = str(row.get("date") or "")[:10]
         nav = safe_float(row.get("nav"))
         if not d or nav is None or nav <= 0:
             continue
+        flow = safe_float(row.get("flow", row.get("cash_flow"))) or 0.0
         is_live = str(row.get("source") or "").lower() != "backfill"
         prev = by_day.get(d)
         if prev is None:
-            by_day[d] = (nav, is_live)
+            by_day[d] = (nav, is_live, flow)
         elif is_live and not prev[1]:
-            by_day[d] = (nav, is_live)          # live beats reconstructed
+            by_day[d] = (nav, is_live, flow)         # live beats reconstructed
         elif is_live == prev[1]:
-            by_day[d] = (nav, is_live)          # same provenance: last wins (EOD)
+            by_day[d] = (nav, is_live, flow)         # same provenance: last wins
     days = sorted(by_day)
     out: List[float] = []
     for prev, cur in zip(days, days[1:]):
         a = by_day[prev][0]
-        b = by_day[cur][0]
+        b, _, flow_cur = by_day[cur]
         if a > 0:
-            out.append(b / a - 1.0)
+            base = b - flow_cur if strip_flows else b
+            ret = base / a - 1.0
+            # A flow larger than the closing value can invert the ratio into a
+            # nonsensical <-100% "return" (e.g. a big same-day withdrawal); such a
+            # day is dropped rather than poisoning the whole series.
+            if ret > -1.0:
+                out.append(ret)
     return out
 
 

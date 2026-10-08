@@ -263,6 +263,23 @@ def _snapshot_equity(inputs: Dict[str, Any], data: Dict[str, Any],
                          else tracker_mod.DEFAULT_CHARGES_BPS),
             log=log)
 
+        # ---- external cash flow detection ------------------------------- #
+        # The tracker is rebuilt every run with starting_cash = the broker's
+        # capital, so it cannot see yesterday. A deposit/withdrawal therefore
+        # shows up as a CHANGE in the broker's contributed capital between the
+        # previous stored row and today. Detecting it here is what makes XIRR
+        # meaningful: without it, a top-up is indistinguishable from a gain.
+        #
+        # `flow` is written in the tracker's contribution convention AND as a
+        # row-level `flow` field that read_nav/risk_report/daily_returns consume.
+        prev_contrib = _previous_contributions(inputs.get("nav_dir"))
+        flow_today = 0.0
+        if prev_contrib is not None:
+            # Only the DELTA is external money. The row's baseline capital is the
+            # broker's current capital, so the ledger contribution is today's
+            # capital and the flow is the difference from the last recorded one.
+            flow_today = float(capital) - prev_contrib
+
         # Book the sleeve book as if entered at the provider's marks: we are
         # valuing an EXISTING book, not replaying history, so the "fill" price
         # is the current mark and cost basis starts at the mark.
@@ -289,6 +306,16 @@ def _snapshot_equity(inputs: Dict[str, Any], data: Dict[str, Any],
                 "cost_bps": (data.get("cost") or {}).get("cost_bps"),
                 "portfolio_vol": (data.get("risk") or {}).get("portfolio_vol"),
             })
+        # Overwrite the tracker's own (always-zero) day-flow with the detected
+        # DELTA, and record the cumulative contributions so the next run can
+        # diff against it. Writing the row AFTER the snapshot is deliberate: the
+        # snapshot reflects the book, the flow describes how it was funded.
+        # Always written - a first run records flow=0 and contributions=capital
+        # so the NEXT run has a baseline to diff against.
+        snap["flow"] = round(flow_today, 4)
+        snap["contributions"] = round(float(capital), 4)
+        snap["net_deposits"] = round(float(capital) - _first_contributions(
+            inputs.get("nav_dir"), float(capital)), 4)
         stored_to = tracker_mod.store_nav(
             snap, directory=inputs.get("nav_dir"))
         log(f"equity: nav={snap['nav']:,.0f} gross={snap['gross_exposure']:,.0f} "
@@ -298,6 +325,51 @@ def _snapshot_equity(inputs: Dict[str, Any], data: Dict[str, Any],
         logger.warning("equity snapshot failed: %r", exc)
         result.setdefault("warnings", []).append(f"equity snapshot failed: {exc}")
         return None
+
+
+def _previous_contributions(nav_dir: Optional[str]) -> Optional[float]:
+    """Contributed capital recorded on the MOST RECENT stored NAV row.
+
+    Returns ``None`` when there is no history yet (the first run has nothing to
+    diff against, so no flow is recorded) or when the last row predates the
+    ``contributions`` field. Never raises - a bookkeeping probe must not fail
+    the job. Only rows that actually carry ``contributions`` are considered, so
+    the comparison is against real recorded capital rather than an inferred one.
+    """
+    try:
+        from ..portfolio import tracker as tracker_mod
+        rows = tracker_mod.read_nav(months=0,
+                                    directory=Path(nav_dir) if nav_dir else None)
+        for row in reversed(rows):
+            c = safe_float(row.get("contributions"))
+            if c is not None and c > 0:
+                return c
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("previous-contributions probe failed: %r", exc)
+        return None
+
+
+def _first_contributions(nav_dir: Optional[str],
+                         fallback: float) -> float:
+    """Earliest recorded contributed capital (the account's opening capital).
+
+    Used only to report the cumulative ``net_deposits`` on a row. Falls back to
+    the current capital when no history exists, which yields ``net_deposits=0``
+    on the very first row - the honest answer for a brand-new account.
+    """
+    try:
+        from ..portfolio import tracker as tracker_mod
+        rows = tracker_mod.read_nav(months=0,
+                                    directory=Path(nav_dir) if nav_dir else None)
+        for row in rows:
+            c = safe_float(row.get("contributions"))
+            if c is not None and c > 0:
+                return c
+        return float(fallback)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("first-contributions probe failed: %r", exc)
+        return float(fallback)
 
 
 def main(argv: Optional[list] = None) -> int:

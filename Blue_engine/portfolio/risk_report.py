@@ -248,32 +248,53 @@ def _cash_flows_from_rows(rows: Sequence[Dict[str, Any]]
     """Build dated XIRR cash flows from stored NAV rows.
 
     XIRR is money-weighted: it needs the external flows in and out, not just the
-    NAV path. This returns ``[(date, amount), ...]`` using the contribution
-    convention (deposit NEGATIVE, withdrawal POSITIVE - the money the investor
-    put in is an outflow from their pocket), plus the terminal NAV as the final
+    NAV path. This returns ``[(date, amount), ...]`` from the INVESTOR's
+    perspective (money paid in is NEGATIVE), plus the terminal NAV as the final
     positive inflow.
 
-    Returns an empty list when no row records a nonzero external flow, so the
-    caller omits XIRR rather than reporting a misleading synonym of the simple
-    return. A single opening investment paired with the final NAV still yields a
-    meaningful XIRR and IS returned.
+    Two sources, in order of preference:
+
+    1. **``contributions``** - the cumulative contributed capital recorded per
+       row. The OPENING contribution is an outflow on the first date, and each
+       later change is an outflow (deposit) or inflow (withdrawal). This is the
+       robust path: a single missed ``flow`` field cannot silently lose capital.
+    2. **``flow``** - a per-row external flow, used when ``contributions`` is
+       absent (older rows, hand-written tests).
+
+    Returns an empty list when NEITHER is present, so the caller omits XIRR
+    rather than reporting a misleading synonym of the simple return.
     """
+    rows = [r for r in (rows or []) if r.get("date") is not None]
+    if not rows:
+        return []
+
     flows: List[Tuple[Any, float]] = []
-    for r in (rows or []):
-        d = r.get("date")
-        f = safe_float(r.get("flow", r.get("cash_flow")))
-        if d is not None and f is not None and f != 0.0:
-            # Row flow is a CONTRIBUTION (+ = money in); XIRR wants the
-            # investor's perspective (- = money paid in), so negate it.
-            flows.append((d, -f))
+    have_contrib = any(safe_float(r.get("contributions")) is not None
+                       for r in rows)
+    if have_contrib:
+        prev = 0.0
+        for r in rows:
+            c = safe_float(r.get("contributions"))
+            if c is None:
+                continue
+            delta = c - prev           # + = new money contributed
+            if delta != 0.0:
+                flows.append((r.get("date"), -delta))   # investor pays out
+            prev = c
+    else:
+        for r in rows:
+            f = safe_float(r.get("flow", r.get("cash_flow")))
+            if f is not None and f != 0.0:
+                flows.append((r.get("date"), -f))
+
     if not flows:
         return []
     # Terminal NAV is the value the investor could take out today.
     last_nav = None
     last_d = None
-    for r in (rows or []):
+    for r in rows:
         nav = safe_float(r.get("nav"))
-        if r.get("date") is not None and nav is not None:
+        if nav is not None:
             last_d, last_nav = r.get("date"), nav
     if last_d is not None and last_nav is not None:
         flows.append((last_d, last_nav))
