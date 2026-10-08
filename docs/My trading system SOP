@@ -1,0 +1,113 @@
+# My Trading System — SOP
+_Updated: 2026-10-08_
+
+## 1. Environment
+
+- Python venv: `C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe`
+- OpenAlgo platform clone: `openalgo\` (pristine upstream; local state lives in `_restored\`)
+- Dashboard stack: Dash 4.4.1 + Dash Mantine Components 2.8.0 + dash-iconify (installed 2026-10-07)
+
+## 2. Starting OpenAlgo (broker bridge, ports 5000 + 8765)
+
+```powershell
+$env:APP_MODE = "standalone"   # stops app.py from double-starting the WS proxy
+Start-Process cmd -ArgumentList "/c start /B C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe C:\Users\Admin\CodeGPT\my-trading-system\scripts\start_openalgo.py --no-scrub-on-exit"
+```
+
+- Do NOT run `gunicorn` on Windows (needs fcntl). The launcher uses Werkzeug with `allow_unsafe_werkzeug=True`.
+- `_restored\.env` + `_restored\db\` are cryptographically married (FERNET_SALT + API_KEY_PEPPER encrypt the broker tokens in `openalgo.db`). Restore/keep them together.
+- Verify: `http://127.0.0.1:5000/` returns 200; WS `ws://127.0.0.1:8765` accepts a handshake.
+
+## 3. Starting the Dash/Plotly (DMC) terminal (port 8050)
+
+```powershell
+Start-Process -FilePath "C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe" `
+  -ArgumentList "C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\dashboard\run_server.py" `
+  -WorkingDirectory "C:\Users\Admin\CodeGPT\my-trading-system" `
+  -RedirectStandardOutput "logs\dash_dmc.log" -RedirectStandardError "logs\dash_dmc_err.log"
+```
+
+- ALWAYS launch via `Blue_engine\dashboard\run_server.py`, never `dash_app.py` directly. The launcher pre-seeds `platform.machine()` — on this host a detached process otherwise blocks forever inside `pandas → platform.win32_ver() → subprocess("cmd /c ver")` with no error.
+- Set `OPENALGO_API_KEY` in the environment before launch if you want the banner to show LIVE/ANALYZER instead of "MODE UNKNOWN".
+- Verify: `http://127.0.0.1:8050/` and `/pov/mode` both return 200.
+
+## 4. Dashboard (DMC migration, 2026-10-07)
+
+- Option A implemented: **config-only inputs.** Terminal controls write `blue_engine/input/master.json` (atomic temp+replace); the engine re-reads on its next cycle. Nothing in the dashboard places/modifies/cancels orders.
+- Writes target the nested `pov` block when one exists (the block the reader prefers) — otherwise the value is a silent no-op.
+- Shared kit: `Blue_engine/dashboard/ui/` (kpi, panel, table, log_view, inputs, mode, provider). Old hand-written theme CSS removed from `pages/theme.py` (now a shim).
+- Regression test: `Temp\Staging Workspace\test_dmc_migration.py` (25 checks — clamping, atomic write, page contract).
+
+## 5. Known Windows pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Python import of pandas/openalgo hangs forever in background jobs | `platform.machine()` shells out to `cmd /c ver` with no console | launch via `run_server.py` (pre-seeds the probes) |
+| Engine discovery hangs | `market/sqlite_downloader.py` had module-level `while True` | fixed 2026-10-07 (guarded behind `__main__`) |
+| Dashboard EOFError on boot | `market/ieod.py` ran `input()` at import | fixed 2026-10-07 (guarded behind `__main__`) |
+| Duplicate `run_server.py` / `websocket_proxy` processes accumulate | detached `Start-Process` launches without killing the old PID first | kill by command-line match before relaunch (see §6) |
+
+## 6. Full-stack start / restart (verified 2026-10-08)
+
+Run this when the three services are down or duplicated. Order matters:
+OpenAlgo first (the engine reads its mode at boot), dashboard last.
+
+```powershell
+$R = "C:\Users\Admin\CodeGPT\my-trading-system"
+# 1. Stop any stale instances (match the command line, never a blind kill).
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like '*run_server.py*' -or
+                 $_.CommandLine -like '*start_openalgo*' -or
+                 $_.CommandLine -like '*websocket_proxy*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Start-Sleep -Seconds 4
+# 2. OpenAlgo (5000 + 8765).
+$env:APP_MODE = "standalone"
+Start-Process cmd -ArgumentList "/c start /B $R\.venv\Scripts\python.exe $R\scripts\start_openalgo.py --no-scrub-on-exit"
+Start-Sleep -Seconds 40
+# 3. Dashboard (8050).
+Start-Process -FilePath "$R\.venv\Scripts\python.exe" `
+  -ArgumentList "$R\Blue_engine\dashboard\run_server.py" -WorkingDirectory $R `
+  -RedirectStandardOutput "$R\logs\dash_dmc.log" -RedirectStandardError "$R\logs\dash_dmc_err.log"
+```
+
+**Acceptance gate — all must hold before calling the stack "up":**
+
+| Check | Command | Expected |
+|---|---|---|
+| OpenAlgo REST | `curl http://127.0.0.1:5000/` | HTTP 200 |
+| WS proxy | TCP connect to `127.0.0.1:8765` + WS handshake | `HTTP/1.1 101 Switching Protocols` |
+| Live quote | `client.quotes("INFY","NSE")` | non-null `ltp` |
+| History | `OptimizerDataCache.download(...)` | `ok=True`, dates not `1970-*` |
+| Terminal | `http://127.0.0.1:8050/` and `/pov/mode` | HTTP 200 |
+| No callback 500s | grep `logs\dash_dmc_err.log` for `read_mode` | zero matches |
+
+One-command regression: `python "Temp\Staging Workspace\e2e_dataflow_probe.py"` (9 stages)
+and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
+
+## 7. Data-flow facts (verified live 2026-10-08)
+
+- **Strategy now lives at `blue_engine.alpha.Statergy.ocl_keylevel`**, NOT
+  `blue_engine.alpha.signals.ocl_keylevel`. The old path is gone; tests still
+  importing it (`test_ocl_confirm.py`, 11 tests) fail at collection with
+  `ModuleNotFoundError`. Fix the import path in those tests, do not re-add the
+  old module.
+- **Broker session expiry.** `_restored\.env` holds `BROKER_API_KEY='MA3581625'`
+  but the daily mStock session is NOT auto-restored. Symptoms: quotes return
+  `HTTP 500 ... 401 Unauthorized for url 'https://api.mstock.trade/...'` and
+  history returns `No data available for the specified period`. Fix: log in
+  again in the OpenAlgo UI (daily login) or restart OpenAlgo (§6) — a restart
+  re-establishes the session from the restored DB (verified: a restart took the
+  quote call from 401 to `ltp=1004.7` and history from `no_data` to 20 bars).
+- **Restarting OpenAlgo drops the cached session, not the data.** Send one
+  throwaway `quotes` call after a restart to confirm the session before trusting
+  any history window.
+- **Timestamp caveat.** The OpenAlgo SDK `history` frame index is
+  `floor(epoch_seconds / 1000)`. `price_cache._ts` undoes the `/1000` and snaps
+  to the nearest whole day, because the floor loses up to 999 s which can cross
+  midnight and shift the date back one day. Day bars are therefore correct; the
+  exact intraday instant inside a day is NOT recoverable from that index alone
+  (see `Blue_engine/portfolio/providers/price_cache.py::_ts`).
+- **Stale rows.** Bars downloaded before 2026-10-08 keep their old shifted
+  timestamps in `data/optimizer/ohlcv.sqlite`. They are not re-derived. To
+  refresh, delete the instrument's rows and re-download.

@@ -1,10 +1,10 @@
 ﻿"""
 dash_app.py - Dash/Plotly terminal for the POV engine.
 
-A **read-only**, multi-page dashboard that surfaces everything
-``blue_engine`` produces but OpenAlgo's own dashboard does not: the
-buyer-initiated VWAP band, dynamic POV rate, execution-quality stats,
-risk-guard matrix and raw logs.
+A **read-only**, multi-page dashboard built on Dash Mantine Components (DMC).
+It surfaces everything ``blue_engine`` produces but OpenAlgo's own dashboard
+does not: the buyer-initiated VWAP band, dynamic POV rate, execution-quality
+stats, risk-guard matrix and raw logs.
 
 Run it:
 
@@ -34,7 +34,12 @@ Dash app and the engine in the same process::
     app = create_app(engine=engine)
     app.run(debug=False)
 
-Nothing in this module places an order.
+NOTHING IN THIS MODULE PLACES AN ORDER
+--------------------------------------
+The Terminal page exposes config-only controls (see
+:mod:`blue_engine.dashboard.ui.inputs`): they write parameters to the config
+the engine reads. No code path here reaches a broker. That is what makes the
+dashboard safe to leave open.
 """
 from __future__ import annotations
 
@@ -46,7 +51,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import dash
+import dash_mantine_components as dmc
 from dash import dcc, html
+
 logger = logging.getLogger(__name__)
 
 # Pages live next to this module in ./pages.
@@ -56,34 +63,6 @@ _PAGES_DIR = Path(__file__).resolve().parent / "pages"
 # page callbacks below. Kept as a module global because Dash's Pages
 # callbacks are registered at import time, before app.run() is called.
 _STATE: dict = {"engine": None}
-
-
-# ---------------------------------------------------------------------------
-# Theme (analyzer = black, live = white) â€” see pages/theme.py
-# ---------------------------------------------------------------------------
-
-from blue_engine.dashboard.pages.theme import _THEME_CSS as _PALETTE_CSS
-from blue_engine.core.mode import read_mode
-
-
-def _sidebar() -> html.Div:
-    """The left nav. Dash Pages marks links active via ``use_pages``."""
-    return html.Div(
-        [
-            html.H1("POV Terminal"),
-            dcc.Link("Terminal", href="/", className="nav-link"),
-            dcc.Link("Portfolio", href="/portfolio", className="nav-link"),
-            dcc.Link("Portfolio Analytics", href="/analytics-portfolio",
-                     className="nav-link"),
-            dcc.Link("Risk Control", href="/risk", className="nav-link"),
-            dcc.Link("Analytics", href="/analytics", className="nav-link"),
-            dcc.Link("Economic", href="/economic", className="nav-link"),
-            dcc.Link("Infrastructure", href="/infra", className="nav-link"),
-            dcc.Link("ML Models", href="/ml", className="nav-link"),
-            dcc.Link("Optimizer", href="/optimizer", className="nav-link"),
-        ],
-        className="sidebar",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,54 +97,86 @@ def create_app(*, engine: Optional[Any] = None, config_path: Optional[str] = Non
         suppress_callback_exceptions=True,
     )
 
-    # Mode-aware theme: black = analyzer, white = live. Read once at
-    # startup; the client JS at the bottom of _index_html re-syncs
-    # data-mode on every page refresh so a mid-session toggle is picked up.
-    from blue_engine.dashboard.pages.theme import mode_badge, theme
+    # Mode-aware theming is now a MantineProvider prop, not a stylesheet.
+    # `forceColorScheme` pins dark/light to the OpenAlgo mode so a user with a
+    # dark OS theme cannot be shown a light UI while trading live.
+    from blue_engine.core.mode import read_mode
+    from blue_engine.dashboard.ui.mode import theme
+    from blue_engine.dashboard.ui.provider import app_shell
 
-    _initial_mode = theme(read_mode(getattr(engine, "client", None)))
+    _mode = read_mode(getattr(engine, "client", None))
+    _initial_mode = theme(_mode)
     app.index_string = _index_html(_initial_mode["key"])
-    # Layout: a full-width mode banner on TOP, then the sidebar + content in a
-    # flex row BELOW it. The banner must NOT be a flex sibling of the sidebar -
-    # otherwise it stretches to full height as a flex column and covers the page
-    # (the "MODE UNKNOWN covers half the page" bug).
-    app.layout = html.Div(
-        [
-            mode_badge(_initial_mode),
-            html.Div(
-                [
-                    _sidebar(),
-                    html.Div(dash.page_container, className="content"),
-                ],
-                className="app-body",
-            ),
-        ],
-        className="app-shell",
-    )
+    app.layout = app_shell(dash.page_container, mode=_mode)
 
     _register_refresh_callbacks(app)
+    _register_mode_callbacks(app)
 
     # JSON endpoint the page shell polls so a mid-session analyzer/live
     # toggle re-themes the whole UI without a hard reload.
     @app.server.route("/pov/mode")
     def _pov_mode():
-        from blue_engine.dashboard.pages.theme import theme
-
         m = read_mode(getattr(_STATE["engine"], "client", None))
         pal = theme(m)
-        return {"mode": pal["key"], "label": pal["label"]}
+        return {"mode": pal["key"], "label": pal["label"],
+                "color_scheme": pal["color_scheme"]}
 
     return app
+
+
+def _register_mode_callbacks(app: dash.Dash) -> None:
+    """Re-theme the shell when OpenAlgo's analyzer/live mode flips.
+
+    The interval lives in the shell (``ui/provider.app_shell``) and fires every
+    2 s. We update two things together and they MUST stay together:
+
+      * ``forceColorScheme`` on MantineProvider -- recolours every DMC widget.
+      * the banner text and ``data-mode`` on <body> -- the human-facing signal.
+
+    Updating only one is the failure mode this callback exists to prevent: a
+    white UI with a black-theme banner, or a live-red banner over a dark shell,
+    is worse than either being stale, because it looks intentional.
+    """
+    # AUDIT FIX (2026-10-08): ``read_mode``/``theme`` are imported inside
+    # ``create_app`` (local scope), so referring to them here raised
+    # ``NameError: name 'read_mode' is not defined`` on EVERY mode poll -- a
+    # 500 on /_dash-update-component every 2 s (691 callbacks failed in one
+    # session). Import them into THIS function's scope so the callback resolves.
+    from blue_engine.core.mode import read_mode
+    from blue_engine.dashboard.ui.mode import theme
+
+    @app.callback(
+        dash.Output("mantine-provider", "forceColorScheme"),
+        dash.Output("mode-poll-target", "children"),
+        dash.Input("mode-poll", "n_intervals"),
+        prevent_initial_call=True,
+    )
+    def _sync_mode(_n):
+        m = read_mode(getattr(_STATE["engine"], "client", None))
+        pal = theme(m)
+        # A hidden node carries the data-mode flips to the client script; the
+        # banner's own span is rewritten there too so we do not fight Dash's
+        # renderer over the same DOM node every 2 seconds.
+        return pal["color_scheme"], html.Span(
+            pal["label"], id="mode-label-current",
+            **{"data-mode": pal["key"]},
+        )
+
 
 
 def _index_html(initial_mode: str = "analyzer") -> str:
     """Best-effort page shell. Dash uses ``index_string`` verbatim.
 
-    ``data-mode`` on <body> drives every CSS rule in the palette
-    (black theme for "analyzer", white theme for "live"). A tiny
-    inline script re-reads the current mode from the server on each
-    render so a mid-session toggle updates the whole shell.
+    Only STRUCTURAL css is injected here (``pages.theme._THEME_CSS``). Colours,
+    radii and typography belong to Dash Mantine Components and are set on the
+    ``MantineProvider`` from ``ui/provider.py`` -- injecting a second colour
+    system here is exactly the drift that makes a live/analyzer mix-up possible.
+
+    ``data-mode`` on <body> is retained purely as a hook for the tiny client
+    script below (and for anyone debugging in devtools); nothing styles off it.
     """
+    from blue_engine.dashboard.pages.theme import _THEME_CSS as _STRUCTURAL_CSS
+
     return f"""<!DOCTYPE html>
 <html>
   <head>
@@ -173,7 +184,7 @@ def _index_html(initial_mode: str = "analyzer") -> str:
     <title>{{%title%}}</title>
     {{%favicon%}}
     {{%css%}}
-    <style>{_PALETTE_CSS}</style>
+    <style>{_STRUCTURAL_CSS}</style>
   </head>
   <body data-mode="{initial_mode}">
     {{%app_entry%}}
@@ -181,43 +192,39 @@ def _index_html(initial_mode: str = "analyzer") -> str:
     <script>
       // Embedded mode: when loaded inside OpenAlgo's UI iframe
       // (?embed=1), hide Dash's own left sidebar so only the content
-      // area renders â€” OpenAlgo's navbar/sidebar provide the chrome.
-      if (new URLSearchParams(window.location.search).get('embed') === '1') {{
-        document.body.classList.add('embedded');
-      }}
+      // area renders -- OpenAlgo's navbar/sidebar provide the chrome.
+      (function embed() {{
+        if (new URLSearchParams(window.location.search).get('embed') === '1') {{
+          document.body.classList.add('embedded');
+          var shell = document.querySelector('.app-body');
+          if (shell) shell.classList.add('embedded');
+        }}
+      }})();
 
       // -----------------------------------------------------------------
-      // Mode sync: keep the analyzer/live banner INSTANT.
+      // Mode sync: the belt-and-braces layer.
       //
-      // The banner is the one signal that must never lag, because it is what
-      // tells the operator whether they are about to trade real money. A
-      // version of this that only ran on page load meant a mid-session flip
-      // in the OpenAlgo UI was invisible until a manual refresh -- measured
-      // 0 self-updates in 13s of idle observation.
+      // The DMC colour scheme is switched by the Dash callback in
+      // _register_mode_callbacks (that is what recolours every component).
+      // This script covers the two cases a Dash callback does NOT:
       //
-      // Three triggers, because each covers a case the others miss:
-      //   1. poll  every MODE_POLL_MS  - catches a flip while watching
-      //   2. focus                     - catches a flip made in OpenAlgo's
-      //                                  tab and then switched back to
-      //   3. visibilitychange          - same, for tab-hide (mobile/alt-tab),
-      //                                  and it avoids polling a hidden tab
+      //   1. a flip made in OpenAlgo's tab while this tab is hidden -- there
+      //      is no callback trigger for "user came back", so we refresh on
+      //      focus and on visibilitychange;
+      //   2. the banner text, which must never be blank or stale, so we keep
+      //      last-known-good on any fetch failure rather than clearing it.
       //
-      // Deliberately a plain fetch loop and not a WebSocket: this endpoint is
-      // one tiny JSON read, the Dash server owns no socket here, and a poll
-      // keeps working if the WS proxy on :8765 is down.
+      // It writes data-mode on <body> only (a debug hook); it deliberately
+      // does NOT touch the banner span, because Dash owns that node and two
+      // writers on one node is how it ends up out of sync.
       // -----------------------------------------------------------------
       (function modeSync() {{
-        var MODE_POLL_MS = 2000;
         var last = null;
 
         function apply(j) {{
-          // Skip no-op DOM writes; a needless setAttribute on every poll
-          // would retrigger style recalc (and any MutationObserver) 30x/min.
-          if (j.mode === last) return;
+          if (!j || j.mode === last) return;
           last = j.mode;
           document.body.setAttribute('data-mode', j.mode);
-          var b = document.querySelector('.mode-banner > span');
-          if (b) b.textContent = j.label;
         }}
 
         function refresh() {{
@@ -227,11 +234,10 @@ def _index_html(initial_mode: str = "analyzer") -> str:
             .catch(function () {{ /* keep last known mode; never blank it */ }});
         }}
 
-        refresh();                                  // 1. immediate, on load
-        setInterval(refresh, MODE_POLL_MS);         // 1. steady poll
-        window.addEventListener('focus', refresh);  // 2. tab/window focus
+        refresh();                                  // immediate, on load
+        window.addEventListener('focus', refresh);  // tab/window focus
         document.addEventListener('visibilitychange', function () {{
-          if (!document.hidden) refresh();          // 3. became visible
+          if (!document.hidden) refresh();          // became visible
         }});
       }})();
     </script>

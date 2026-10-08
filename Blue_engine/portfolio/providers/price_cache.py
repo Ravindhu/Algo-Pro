@@ -40,6 +40,7 @@ estimators and the backtest need is here, and nothing else.
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -95,14 +96,14 @@ def normalise_rows(rows: Sequence[Any]) -> List[Dict[str, Any]]:
                       or r.get("ts"))
                 close = r.get("close")
                 rec = {
-                    "ts": str(ts) if ts is not None else f"row-{i:06d}",
+                    "ts": _ts(ts) or f"row-{i:06d}",
                     "open": _f(r.get("open")), "high": _f(r.get("high")),
                     "low": _f(r.get("low")), "close": _f(close),
                     "volume": _f(r.get("volume")),
                 }
             elif isinstance(r, (list, tuple)) and len(r) >= 5:
                 ts = r[0]
-                rec = {"ts": str(ts) if ts is not None else f"row-{i:06d}",
+                rec = {"ts": _ts(ts) or f"row-{i:06d}",
                        "open": _f(r[1]), "high": _f(r[2]),
                        "low": _f(r[3]), "close": _f(r[4]),
                        "volume": _f(r[5]) if len(r) > 5 else None}
@@ -114,6 +115,100 @@ def normalise_rows(rows: Sequence[Any]) -> List[Dict[str, Any]]:
         except Exception:  # noqa: BLE001 - one bad row must not stop the batch
             continue
     return out
+
+
+def _ts(v: Any) -> Optional[str]:
+    """Coerce a bar timestamp to an ISO-8601 string, or ``None``.
+
+    Handles the shapes the SDK and brokers actually return:
+
+    * ``datetime`` / ``date`` / pandas ``Timestamp`` -> ISO string.
+    * **epoch seconds** as an int/float/str -> ISO string. This is the trap:
+      OpenAlgo's REST ``history`` returns ``"timestamp": 1759795``, i.e. the
+      bar's epoch in SECONDS (1759795200 = 2025-10-07 09:15 IST). Its own
+      python SDK multiplies that by 10**6 as though it were nanoseconds and
+      lands the frame index in 1970. We undo that: a value that looks like
+      seconds is read as seconds, and a value that looks like the SDK's
+      mangled nanoseconds is divided back down.
+    * plain strings -> passed through (already ``"2025-10-07 09:15:00"``).
+
+    Never raises; returns ``None`` when the value cannot be interpreted.
+    """
+    if v is None:
+        return None
+
+    # datetime-likes (covers datetime.datetime, datetime.date, pd.Timestamp)
+    if hasattr(v, "strftime") and not isinstance(v, str):
+        try:
+            return v.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:  # noqa: BLE001
+            try:
+                return v.isoformat(sep=" ")
+            except Exception:  # noqa: BLE001
+                return str(v)
+
+    s = str(v).strip()
+    if not s or s.lower() in ("none", "nat", "nan"):
+        return None
+
+    # Already a calendar string? Keep it (only its seconds are meaningful).
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:19] if len(s) >= 19 else s[:10]
+
+    # Numeric epoch. Three encodings reach here; disambiguate by magnitude.
+    try:
+        num = float(s)
+    except (TypeError, ValueError):
+        return s  # not numeric, not ISO - keep whatever we were handed
+
+    # (a) The OpenAlgo python SDK's history frame. Its index holds
+    #     ``epoch_seconds // 1000`` - the real epoch *truncated* by 1000
+    #     (verified live 2026-10-07: endpoint sent 1759795200 for
+    #     2025-10-07; the frame held 1759795). These land in 1.7e6..2.0e6
+    #     for 2025-2033 (1799999999//1000 == 1799999), so anything in that
+    #     band gets its factor restored. Without this every bar reads as a
+    #     1970 date.
+    #
+    #     TWO DEFECTS FIXED HERE (2026-10-08), both verified live:
+    #     (1) NON-EXACT RESTORE. ``//1000`` is a flooring divide: it drops the
+    #         remainder, so ``trunc * 1000`` always lands at or BEFORE the true
+    #         bar - by up to 999 s. For 2025-10-07 the endpoint sent
+    #         1759795200, the frame held 1759795, and ``1759795*1000 ==
+    #         1759795000`` - 200 s early (23:56:40), which crossed midnight and
+    #         dated the bar 2025-10-06. The dropped remainder is NOT
+    #         recoverable from the truncated value alone (200 s here, some
+    #         other value for another bar), so no scalar arithmetic can
+    #         reproduce the exact instant. What IS recoverable - and what every
+    #         consumer of this cache actually needs - is the DATE: 1759795000
+    #         and 1759795200 fall in the same 24h bucket. We therefore snap the
+    #         reconstructed value to the nearest DAY. That is lossless for
+    #         daily bars (the only interval this SDK truncation affects) and
+    #         keeps intraday bars within the same calendar day.
+    #     (2) BAND. The old band 1.5e6..2.5e6 also swallowed REAL epoch
+    #         seconds: a 2026 epoch such as 1783200000 has 1783200000//1000
+    #         == 1783200 inside it, so a genuine timestamp was multiplied by
+    #         1000 into an out-of-range year-57000 date (or dropped, since
+    #         ``fromtimestamp`` then raises). Narrowing the top to 2.0e6
+    #         keeps every truncated epoch until 2033 while retiring that
+    #         collision class.
+    if 1.5e6 <= abs(num) <= 2.0e6:
+        # Undo the x1000 truncation, then snap to the nearest whole day. The
+        # snap removes the <=999 s the flooring divide destroyed, so the
+        # resulting date is the bar's true date. 86400 is the day in seconds;
+        # rounding to its nearest multiple is exact for every daily bar.
+        num = round(num * 1000.0 / 86400.0) * 86400.0
+    # (b) The SDK's other mangling: epoch_seconds * 1_000_000.
+    elif abs(num) >= 1e14:
+        num = num / 1_000_000.0
+    # (c) Otherwise it is already plain epoch seconds - use as-is.
+
+    try:
+        import datetime as _dt
+        # NSE timestamps are IST; the store keeps naive local strings, which is
+        # what every other cache writer produces, so we stay consistent.
+        return _dt.datetime.utcfromtimestamp(num).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _f(v: Any) -> Optional[float]:
