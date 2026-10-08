@@ -95,17 +95,30 @@ def fetch_and_store(symbol):
     print(f"[{symbol}] Inserted {len(df)} records. Updated checkpoint: {last_dt}")
 
 
-# Main loop with throttling
-while True:
-    try:
-        symbols = get_symbols()
-        for i, symbol in enumerate(symbols):
-            fetch_and_store(symbol)
-            if (i + 1) % MAX_RPS == 0:
-                print("Rate limit reached. Sleeping 1s...")
-                time.sleep(1)
-        save_checkpoints()
-        time.sleep(POLL_INTERVAL)
-    except Exception as e:
-        print(f"Error: {e}")
-        time.sleep(POLL_INTERVAL)
+# ---------------------------------------------------------------------------
+# IMPORT SAFETY (audit fix 2026-10-07)
+# ---------------------------------------------------------------------------
+# This module lives under blue_engine/market/, which core/registry.discover_all()
+# walks at import time to auto-register engine classes. The polling loop below
+# is a standalone downloader, not library code; leaving it at module level made
+# `import blue_engine.core` (and therefore the Dash terminal) spin forever.
+# Guard it behind __main__ so discovery is side-effect free.
+def _poll_forever() -> None:
+    """Main download loop with throttling (never returns)."""
+    while True:
+        try:
+            symbols = get_symbols()
+            for i, symbol in enumerate(symbols):
+                fetch_and_store(symbol)
+                if (i + 1) % MAX_RPS == 0:
+                    print("Rate limit reached. Sleeping 1s...")
+                    time.sleep(1)
+            save_checkpoints()
+            time.sleep(POLL_INTERVAL)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(POLL_INTERVAL)
+
+
+if __name__ == "__main__":
+    _poll_forever()

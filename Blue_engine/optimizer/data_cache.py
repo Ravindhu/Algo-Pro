@@ -70,6 +70,146 @@ MAX_WINDOW_DAYS = 365
 # The contract-list cache lives next to the bars cache; refresh once a day.
 CONTRACT_LIST_TTL_S = 24 * 60 * 60
 
+# --------------------------------------------------------------------------- #
+# OpenAlgo interval spelling
+# --------------------------------------------------------------------------- #
+# The dashboard / optimizer speak in lowercase short forms ("1d", "1h", "1m"),
+# but OpenAlgo's ``/api/v1/history`` endpoint accepts only the exact set it
+# documents:
+#     1s 5s 10s 15s 30s 45s 1m 2m 3m 5m 10m 15m 20m 30m 1h 2h 3h 4h D W M Q Y
+# Feeding it "1d" returns HTTP 400 with a validation error and NO bars, which
+# silently degraded every daily study to the synthetic fixture. This map
+# translates our spelling to theirs at the SDK boundary; the cache and the
+# store keep OUR spelling so the dashboard's contract is unchanged.
+# Verified live 2026-10-07: without this map, download(interval="1d") ->
+# "HTTP 400: interval: Must be one of ... D, W, M, Q, Y."
+_INTERVAL_TO_OPENALGO: Dict[str, str] = {
+    "1d": "D",
+    "1day": "D",
+    "day": "D",
+    "daily": "D",
+    "1w": "W",
+    "1week": "W",
+    "week": "W",
+    "weekly": "W",
+    "1mo": "M",
+    "1month": "M",
+    "month": "M",
+    "monthly": "M",
+}
+
+
+def to_openalgo_interval(interval: str) -> str:
+    """Translate our interval spelling to OpenAlgo's history spelling.
+
+    Returns the mapped token when we know it, else the input unchanged (the
+    minute/hour tokens are identical on both sides, so an unknown value is
+    passed through rather than silently rewritten).
+    """
+    s = (interval or "1d").strip()
+    return _INTERVAL_TO_OPENALGO.get(s.lower(), s)
+
+
+def _extract_history_rows(resp: Any) -> Optional[List[Any]]:
+    """Normalise an OpenAlgo ``history`` response to a row list.
+
+    Three shapes reach this function in practice:
+
+    * **pandas DataFrame** - what the current OpenAlgo python SDK returns.
+      The SDK has already unwrapped the REST envelope, so the frame itself
+      *is* the data. The bar timestamp is the frame's INDEX (named
+      ``timestamp``), not a column, so we ``reset_index()`` first: a plain
+      ``to_dict('records')`` DROPS the timestamp and leaves the bars
+      unusable (verified live 2026-10-07 - every row fell back to a
+      positional key and the cache showed 1970 dates).
+    * **dict with ``status='success'``** - the raw REST envelope. The rows
+      live under ``data``.
+    * **dict with an error status** - returns ``None`` so the caller can
+      surface ``message`` in the failure reason.
+
+    Returns a list of row dicts on success, or ``None`` when the response is
+    an error envelope. Never raises.
+    """
+    # --- pandas DataFrame (the SDK path) ---------------------------------- #
+    # Duck-typed rather than isinstance(df, pd.DataFrame) so this module does
+    # not need pandas imported at import time.
+    if hasattr(resp, "to_dict") and hasattr(resp, "index"):
+        frame = resp
+        # Promote the timestamp index into a real column so it survives the
+        # record conversion. reset_index() is a no-op when the index is
+        # already a column of the same name.
+        idx_name = getattr(getattr(resp, "index", None), "name", None)
+        try:
+            frame = resp.reset_index()
+        except Exception:  # noqa: BLE001 - fall back to the raw frame
+            frame = resp
+        try:
+            records = frame.to_dict("records")
+        except Exception:  # noqa: BLE001
+            return None
+
+        out: List[Dict[str, Any]] = []
+        # Read the index ONCE as raw integer epoch seconds. The SDK builds its
+        # index as int(epoch_seconds) but labels it datetime64, so pandas then
+        # renders those small integers as 1970 dates. Reading the underlying
+        # ints and converting them ourselves recovers the real bar time.
+        raw_index = _raw_index_epochs(resp)
+        for i, rec in enumerate(records or []):
+            if not isinstance(rec, dict):
+                continue
+            rec = dict(rec)
+            # Guarantee a timestamp field even if the frame had no named index
+            # (some SDK versions return a positional index).
+            if not any(k in rec for k in ("timestamp", "date", "time", "ts")):
+                if idx_name and idx_name in rec:
+                    rec["timestamp"] = rec[idx_name]
+                elif i < len(raw_index):
+                    rec["timestamp"] = raw_index[i]
+                else:
+                    try:
+                        rec["timestamp"] = list(resp.index)[i]
+                    except Exception:  # noqa: BLE001
+                        pass
+            elif i < len(raw_index):
+                # The frame already exposed a timestamp column, but it carries
+                # the same 1970-mangled values - prefer the corrected epoch.
+                rec["timestamp"] = raw_index[i]
+            out.append(rec)
+        return out
+
+    # --- dict envelope ----------------------------------------------------- #
+    if isinstance(resp, dict):
+        if resp.get("status") != "success":
+            return None
+        data = resp.get("data")
+        return list(data) if isinstance(data, (list, tuple)) else []
+
+    return None
+
+
+def _raw_index_epochs(frame: Any) -> List[int]:
+    """The frame's index as raw integer epoch SECONDS, or ``[]``.
+
+    The OpenAlgo SDK sets its history index to the bar's epoch in seconds
+    (e.g. 1759795) while typing it as ``datetime64``. Pandas therefore renders
+    it as a 1970 date. The underlying integers are correct, so we pull them
+    straight out and let ``price_cache._ts`` turn them into real dates.
+    """
+    idx = getattr(frame, "index", None)
+    if idx is None:
+        return []
+    try:
+        # .view('int64') / .astype('int64') gives the stored values whatever
+        # the declared unit is, which is exactly the epoch we want.
+        if hasattr(idx, "view"):
+            return [int(v) for v in idx.view("int64")]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        return [int(v.timestamp()) for v in idx]
+    except Exception:  # noqa: BLE001
+        return []
+
 
 # --------------------------------------------------------------------------- #
 # Result types (the dashboard's contract; do not change field names)
@@ -285,10 +425,12 @@ class OptimizerDataCache:
                 f"recent {MAX_WINDOW_DAYS} days")
 
         # ---- Call OpenAlgo's history endpoint --------------------------- #
+        # Translate our interval spelling ("1d") to OpenAlgo's ("D"). The
+        # cache and the DB keep OUR spelling; only the wire call is mapped.
         try:
             resp = client.history(
                 symbol=symbol_u, exchange=exchange_u,
-                interval=interval_u,
+                interval=to_openalgo_interval(interval_u),
                 start_date=start_dt.strftime("%Y-%m-%d"),
                 end_date=end_dt.strftime("%Y-%m-%d"),
             )
@@ -298,7 +440,16 @@ class OptimizerDataCache:
                                    reason=f"history_call_failed: {exc!r}",
                                    warnings=warnings)
 
-        if not isinstance(resp, dict) or resp.get("status") != "success":
+        # ---- Interpret the SDK response -------------------------------- #
+        # The OpenAlgo python SDK returns a pandas DataFrame for history - it
+        # has ALREADY unwrapped the REST ``{"status", "data"}`` envelope. The
+        # raw REST form (a dict) is also accepted because other code paths and
+        # tests feed that shape. Handling only the dict form was a live bug:
+        # every SDK download failed with "history returned non-success" even
+        # though the endpoint returned 248 bars (verified 2026-10-07).
+        rows = _extract_history_rows(resp)
+        if rows is None:
+            # A dict that carries an error envelope: surface its message.
             msg = (resp.get("message") if isinstance(resp, dict) else None) \
                   or "history returned non-success"
             return DownloadResult(ok=False, symbol=symbol_u,
@@ -306,7 +457,6 @@ class OptimizerDataCache:
                                    reason=f"history_error: {msg}",
                                    warnings=warnings)
 
-        rows = resp.get("data") or []
         if not rows:
             return DownloadResult(ok=False, symbol=symbol_u,
                                    exchange=exchange_u, interval=interval_u,
