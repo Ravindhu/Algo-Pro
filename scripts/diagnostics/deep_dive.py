@@ -55,7 +55,7 @@ print(f"ltf close range: {min(r['close'] for r in ltf):.2f} .. "
       f"{max(r['close'] for r in ltf):.2f}")
 
 # What level does the signal derive?
-from blue_engine.alpha.signals.ocl_keylevel import OCLKeylevelSignal  # noqa
+from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal  # noqa
 from blue_engine.core.band import BuyerInitiatedDailyVWAP  # noqa
 
 client = e2e.RecordingClient(daily=daily, ltf=ltf)

@@ -83,8 +83,13 @@ from blue_engine.optimizer.search_space import (  # noqa: E402
     SearchSpace,
     make_space,
 )
+# ``SYNTHETIC_DEMO`` was removed here on 2026-10-08: it is the private
+# ``_SYNTHETIC_DEMO`` param list in ``optimizer/spaces.py``, not a public
+# constant, so importing it raised ImportError during collection and blocked
+# the ENTIRE suite. The test never used the symbol -- it resolves the space by
+# name via ``load_space("synthetic_demo")`` below. The two remaining names are
+# genuinely public and used.
 from blue_engine.optimizer.spaces import (  # noqa: E402
-    SYNTHETIC_DEMO,
     SYNTHETIC_OPTIMUM,
     SYNTHETIC_OPTIMUM_SCORE,
     load_space,
@@ -181,14 +186,41 @@ def test_search_space_log_scale_produces_log_uniform_samples():
     )
 
     class _T:
-        def suggest_float(self, name, lo, hi, log=False):
-            # A genuine log-uniform sampler for the test, not the production one.
-            u = 0.5  # the worst case
-            return math.exp((1 - u) * math.log(lo) + u * math.log(hi))
+        """A genuine log-uniform sampler, so the assertion tests the SPACE.
 
-    drawn = [sp.sample(_T())["lr"] for _ in range(200)]
-    # Of 200 log-uniform draws over 3 decades, at least a few should sit in the
-    # bottom decade. A linear sampler would put ~0 there.
+        FIXED 2026-10-08: this stub used to return a CONSTANT (``u = 0.5``),
+        so all 200 draws were the same value and the bottom decade was never
+        reached for any implementation. That asserted nothing about the
+        space and failed permanently. The stub now draws its own uniform
+        ``u`` and maps it geometrically, which is what a log-uniform sampler
+        does; the space's contract is that it forwards ``log=True`` and the
+        sampler honours it.
+        """
+
+        def __init__(self):
+            import random as _rnd
+            self._rnd = _rnd.Random(7)      # seeded: reproducible, not flaky
+
+        def suggest_float(self, name, lo, hi, log=False):
+            u = self._rnd.random()
+            if log:
+                return math.exp((1 - u) * math.log(lo) + u * math.log(hi))
+            return lo + u * (hi - lo)
+
+    # ONE sampler for all 200 draws. Building a fresh ``_T()`` inside the
+    # comprehension would re-seed it every iteration and collapse every draw
+    # onto the same value, which is exactly the defect this test was rewritten
+    # to catch (it previously hard-coded a constant).
+    trial = _T()
+    drawn = [sp.sample(trial)["lr"] for _ in range(200)]
+    _check(all(1e-4 <= x <= 1e-1 for x in drawn),
+           "log-scale draws escaped the [1e-4, 1e-1] bounds")
+    _check(len(set(drawn)) > 100,
+           f"log-scale sampler returned only {len(set(drawn))} distinct "
+           f"values over 200 draws - it is not sampling a distribution")
+    # The bottom decade must actually be reached. A linear sampler over
+    # [1e-4, 1e-1] puts ~1% there; a log sampler puts ~33%. Assert a floor
+    # well below log-uniform's expectation but far above linear's noise.
     n_in_bottom_decade = sum(1 for x in drawn if x <= 1e-3)
     _check(n_in_bottom_decade > 5,
            f"log-scale sampler failed to reach the small end "
@@ -1000,8 +1032,22 @@ def test_visual_workflow_provisional_independent_of_ok():
            f"8 trials must give ok=True; got {wf['ok']!r}")
     _check(wf["provisional"] is True,
            f"8 trials must give provisional=True; got {wf['provisional']!r}")
-    _check(wf["ok"] != wf["provisional"],
-           f"ok and provisional must be independent; got ok={wf['ok']!r} "
-           f"provisional={wf['provisional']!r}")
+    # CORRECTED 2026-10-08. The previous assertion was ``ok != provisional``,
+    # which CONTRADICTS the two asserts above: a thin-but-computable study is
+    # exactly the case where BOTH are True (the docstring says so), so the
+    # final check could never pass and failed permanently once the module was
+    # collectable again. "Independent" does not mean "always unequal" - it
+    # means the two flags are driven by DIFFERENT thresholds, so all four
+    # combinations must be reachable. This study is the (ok=True,
+    # provisional=True) corner; the companion test above is
+    # (ok=True, provisional=False). Assert the flag that actually carries the
+    # contract: ``provisional`` mirrors ``under_budget`` and is NOT a copy of
+    # ``ok``, i.e. the two are separate fields with separate values here.
+    _check(wf["under_budget"] == wf["provisional"],
+           f"provisional must mirror under_budget; got "
+           f"provisional={wf['provisional']!r} under_budget={wf['under_budget']!r}")
+    _check(isinstance(wf["provisional"], bool),
+           f"provisional must be a bool verdict; got "
+           f"{type(wf['provisional']).__name__}")
 
 

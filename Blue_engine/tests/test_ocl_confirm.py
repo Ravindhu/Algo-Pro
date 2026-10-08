@@ -289,7 +289,7 @@ class _StubClient:
 def _make_signal(monkeypatch, tmp_path, **over):
     """Build an OCLKeylevelSignal whose data access is fully stubbed."""
     import pandas as pd
-    from blue_engine.alpha.signals.ocl_keylevel import OCLKeylevelSignal
+    from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
 
     # A frame long enough for roc_period + z_window z-score warmup.
     n = 160
@@ -324,7 +324,7 @@ class TestSignalGatingReal:
 
     def _sig(self, tmp_path, **over):
         import pandas as pd
-        from blue_engine.alpha.signals.ocl_keylevel import OCLKeylevelSignal
+        from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
 
         n = 160
         closes = [100.0 + i * 0.05 for i in range(n)]

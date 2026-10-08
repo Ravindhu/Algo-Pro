@@ -23,7 +23,7 @@ SPACES SHIPPED
 --------------
 ``ocl_keylevel``        10 parameters - the AGENTS.md "10-parameter" workflow.
                         Names and defaults are taken verbatim from
-                        ``alpha/signals/ocl_keylevel.py``, so a default-valued
+                        ``alpha/Statergy/ocl_keylevel.py``, so a default-valued
                         trial reproduces today's production behaviour exactly.
 ``pov_slicer``          6 parameters - the execution slicer's rate/band knobs.
 ``portfolio_rebalance`` 4 parameters - the cost/turnover lever from
@@ -308,8 +308,8 @@ _BUILTINS: Dict[str, SearchSpace] = {
         description="OCL keylevel confirmation strategy - pattern, touch, "
                     "momentum-confirmation and fire behaviour (10 parameters).",
         constraints=_ocl_constraints(),
-        meta={"strategy": "blue_engine.alpha.signals.ocl_keylevel.OCLKeylevelSignal",
-              "source_of_defaults": "alpha/signals/ocl_keylevel.py"},
+        meta={"strategy": "blue_engine.alpha.Statergy.ocl_keylevel.OCLKeylevelSignal",
+              "source_of_defaults": "alpha/Statergy/ocl_keylevel.py"},
     ),
     "pov_slicer": SearchSpace(
         name="pov_slicer",

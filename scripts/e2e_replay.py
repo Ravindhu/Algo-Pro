@@ -17,7 +17,7 @@ no live market, so the whole chain can be observed before it touches money:
 Unlike backtest_ocl_confirm.py (which re-implements the rules as an A/B
 comparison), this script imports and runs the ACTUAL classes:
 
-    blue_engine.alpha.signals.ocl_keylevel.OCLKeylevelSignal
+    blue_engine.alpha.Statergy.ocl_keylevel.OCLKeylevelSignal
     blue_engine.pov.slicers.pov.POVSlicer
 
 so what it validates is the shipped code, not a model of it.
@@ -490,7 +490,7 @@ def run_e2e(daily: List[Dict[str, Any]], ltf: List[Dict[str, Any]],
             roc_period: int = 5, z_window: int = 20,
             entry_z: float = 0.8, ltf_interval: str = "15minute") -> Dict[str, Any]:
     """Drive the real signal + slicer through a replayed session."""
-    from blue_engine.alpha.signals.ocl_keylevel import OCLKeylevelSignal
+    from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
     from blue_engine.pov.slicers.pov import POVSlicer
 
     client = RecordingClient(daily=daily, ltf=ltf)

@@ -87,11 +87,21 @@ and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
 
 ## 7. Data-flow facts (verified live 2026-10-08)
 
-- **Strategy now lives at `blue_engine.alpha.Statergy.ocl_keylevel`**, NOT
-  `blue_engine.alpha.signals.ocl_keylevel`. The old path is gone; tests still
-  importing it (`test_ocl_confirm.py`, 11 tests) fail at collection with
-  `ModuleNotFoundError`. Fix the import path in those tests, do not re-add the
-  old module.
+- **Suite is green as of 2026-10-08: `613 passed`.** Run it with
+  `python -m pytest Blue_engine/tests -q -p no:cacheprovider`.
+  Two blockers were removed the same day: `test_optimizer_engine.py` imported a
+  non-existent public `SYNTHETIC_DEMO` (the real symbol is the private
+  `_SYNTHETIC_DEMO`), which aborted the WHOLE run at collection; and the stale
+  strategy import path above. Two assertions inside `test_optimizer_engine.py`
+  were also self-contradictory once the module could run (`ok != provisional`
+  directly contradicts `ok is True` AND `provisional is True`) and are now
+  expressed against the real contract.
+
+- **Strategy lives at `blue_engine.alpha.Statergy.ocl_keylevel`**, NOT
+  `blue_engine.alpha.signals.ocl_keylevel`. The old path is gone.
+  Fixed 2026-10-08: the stale path was updated in `test_ocl_confirm.py`,
+  `scripts/e2e_replay.py`, `scripts/diagnostics/deep_dive.py`, and the docstring
+  / `meta` pointer in `optimizer/spaces.py`. Do NOT re-add the old module.
 - **Broker session expiry.** `_restored\.env` holds `BROKER_API_KEY='MA3581625'`
   but the daily mStock session is NOT auto-restored. Symptoms: quotes return
   `HTTP 500 ... 401 Unauthorized for url 'https://api.mstock.trade/...'` and
