@@ -36,6 +36,12 @@ Start-Process -FilePath "C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\
 - Verify: `http://127.0.0.1:8050/` and `/pov/mode` both return 200. `/pov/mode`
   returns `{"mode": "analyzer"|"live", ...}`; `"unknown"` means the read
   failed (OpenAlgo down or key unusable), never "not configured".
+- **Both directions verified live 2026-10-08.** Analyzer: `/pov/mode` ->
+  `{"mode":"analyzer","label":"ANALYZER (SIMULATED)","color_scheme":"dark"}`.
+  Live: toggled in the OpenAlgo UI, `/pov/mode` ->
+  `{"mode":"live","label":"LIVE - REAL MONEY","color_scheme":"light"}`.
+  No dashboard restart is needed: the 2 s poll re-reads `/api/v1/analyzer` and
+  re-themes the shell, so a mid-session toggle is picked up within one tick.
 
 ## 4. Dashboard (DMC migration, 2026-10-07)
 
