@@ -217,3 +217,129 @@ def test_first_contributions_returns_opening_capital(tmp_path):
     assert dp._first_contributions(str(tmp_path), 9_999_999.0) == 1_000_000.0
     # No history -> falls back to the current capital (net_deposits would be 0).
     assert dp._first_contributions(str(tmp_path / "nope"), 500.0) == 500.0
+
+
+# --------------------------------------------------------------------------- #
+# Broker-ledger flow capture (account provider)
+# --------------------------------------------------------------------------- #
+
+def test_net_contributed_reads_known_broker_field():
+    from blue_engine.portfolio.providers.account_provider import (
+        net_contributed_from_funds)
+
+    assert net_contributed_from_funds({"netdeposits": 1_250_000.0}) == 1_250_000.0
+    assert net_contributed_from_funds({"net_deposits": 900_000.0}) == 900_000.0
+    assert net_contributed_from_funds({"payin": 500_000.0}) == 500_000.0
+    # Case-insensitive (brokers are inconsistent about casing).
+    assert net_contributed_from_funds({"NetDeposits": 42.0}) == 42.0
+
+
+def test_net_contributed_none_when_broker_has_no_such_field():
+    from blue_engine.portfolio.providers.account_provider import (
+        net_contributed_from_funds)
+
+    assert net_contributed_from_funds({"availablecash": 500_000.0}) is None
+    assert net_contributed_from_funds({}) is None
+    assert net_contributed_from_funds(None) is None
+
+
+def test_account_provider_exposes_net_contributed():
+    from blue_engine.portfolio.providers.account_provider import AccountProvider
+
+    class _C:
+        def positionbook(self):
+            return {"status": "success", "data": []}
+
+        def holdings(self):
+            return {"status": "success", "data": []}
+
+        def funds(self):
+            return {"status": "success",
+                    "data": {"availablecash": 500_000.0,
+                             "netdeposits": 1_000_000.0}}
+
+    out = AccountProvider(_C()).fetch()
+    assert out["net_contributed"] == 1_000_000.0
+    assert out["capital"] == 500_000.0
+
+
+def test_account_provider_omits_net_contributed_when_absent():
+    from blue_engine.portfolio.providers.account_provider import AccountProvider
+
+    class _C:
+        def positionbook(self):
+            return {"status": "success", "data": []}
+
+        def holdings(self):
+            return {"status": "success", "data": []}
+
+        def funds(self):
+            return {"status": "success", "data": {"availablecash": 500_000.0}}
+
+    out = AccountProvider(_C()).fetch()
+    assert out["net_contributed"] is None
+
+
+def test_broker_ledger_flow_takes_priority_over_capital_delta(tmp_path):
+    """The broker's own paid-in figure must win over the capital delta.
+
+    Scenario: yesterday paid-in 1,000,000; today the broker reports 1,200,000
+    paid-in. The flow is the 200,000 delta, regardless of what the book did.
+    """
+    from blue_engine.jobs import daily_portfolio as dp
+    from blue_engine.portfolio import tracker as tr
+
+    tr.store_nav({"date": "2025-01-01", "nav": 1_000_000.0,
+                  "contributions": 1_000_000.0}, directory=tmp_path)
+    prev = dp._previous_contributions(str(tmp_path))
+    # Broker ledger delta.
+    assert 1_200_000.0 - prev == 200_000.0
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard cash-flow panel
+# --------------------------------------------------------------------------- #
+
+def _load_page(monkeypatch):
+    """Import analytics_portfolio with register_page neutered.
+
+    The page calls ``dash.register_page`` at import time, which raises unless a
+    Dash app already exists. Neutering it (same approach as
+    test_ai_insight_all_pages.py) lets the module import for unit tests.
+    """
+    import sys
+    import dash as _dash
+    monkeypatch.setattr(_dash, "register_page", lambda *a, **k: None,
+                        raising=True)
+    for name in list(sys.modules):
+        if name.endswith("analytics_portfolio"):
+            del sys.modules[name]
+    from blue_engine.dashboard.pages import analytics_portfolio as ap
+    return ap
+
+
+def test_cash_flow_panel_renders_empty_state(monkeypatch):
+    ap = _load_page(monkeypatch)
+    curve = {"rows": [{"date": "2025-01-01", "nav": 100.0, "flow": 0.0}]}
+    rep = {"performance": {"summary": {}}}
+    node = ap._cash_flow_panel(curve, rep)
+    assert node is not None
+
+
+def test_cash_flow_panel_renders_a_flow_row(monkeypatch):
+    ap = _load_page(monkeypatch)
+    curve = {"rows": [
+        {"date": "2025-01-01", "nav": 1_000_000.0, "flow": 0.0,
+         "contributions": 1_000_000.0},
+        {"date": "2025-06-01", "nav": 1_100_000.0, "flow": 100_000.0,
+         "contributions": 1_100_000.0, "flow_source": "broker_ledger"},
+    ]}
+    rep = {"performance": {"summary": {"twrr": 0.09, "xirr": 0.12}}}
+    node = ap._cash_flow_panel(curve, rep)
+    assert node is not None
+    assert "broker_ledger" in str(node)      # the flow row is rendered
+
+
+def test_cash_flow_panel_survives_missing_fields(monkeypatch):
+    ap = _load_page(monkeypatch)
+    assert ap._cash_flow_panel({}, {}) is not None

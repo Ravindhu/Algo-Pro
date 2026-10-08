@@ -47,6 +47,7 @@ from dash import dcc, html
 from blue_engine.dashboard.pages import _data
 from blue_engine.dashboard.pages._ai_insight import ai_insight_card
 from blue_engine.dashboard.ui.kpi import KpiCard
+from blue_engine.core.results import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -435,7 +436,69 @@ def _views_table(views: Dict[str, Any]) -> html.Table:
 
 
 # --------------------------------------------------------------------------- #
-# Page body
+# 6b. Cash flows (deposits / withdrawals) and the return basis
+# --------------------------------------------------------------------------- #
+
+def _cash_flow_panel(curve: Dict[str, Any], rep: Dict[str, Any]) -> html.Div:
+    """Deposits/withdrawals ledger plus the two return definitions.
+
+    This panel exists to make XIRR and TWRR *self-explaining*: a reader who sees
+    'XIRR 12% / TWRR 9%' next to a flow list can tell which number answers which
+    question. It is also the audit trail for the return: without the flows, a
+    NAV jump is ambiguous between a deposit and a gain.
+    """
+    rows = curve.get("rows") or []
+    summary = (rep.get("performance") or {}).get("summary") or {}
+
+    # Flow rows only - a normal session has flow == 0 and is not worth a line.
+    flow_rows = [r for r in rows if (safe_float(r.get("flow")) or 0.0) != 0.0]
+
+    header = html.Tr([html.Th("Date"), html.Th("Flow"), html.Th("NAV"),
+                      html.Th("Contributions"), html.Th("Source")])
+    if flow_rows:
+        body = []
+        for r in flow_rows[-60:]:          # cap the table; newest 60 flows
+            f = safe_float(r.get("flow")) or 0.0
+            body.append(html.Tr([
+                html.Td(str(r.get("date") or "-")),
+                html.Td(_num(f, 0), style={"color": _pnl_color(f),
+                                          "fontWeight": 600}),
+                html.Td(_num(r.get("nav"), 0)),
+                html.Td(_num(r.get("contributions"), 0)),
+                html.Td(str(r.get("flow_source") or "-")),
+            ]))
+        table: Any = html.Table([html.Thead(header), html.Tbody(body)],
+                                className="data-table")
+    else:
+        table = html.Div(
+            "No external deposits or withdrawals recorded. Every rupee of change "
+            "in NAV is trading P&L, so XIRR and the simple return agree.",
+            className="empty")
+
+    twrr = summary.get("twrr")
+    xirr = summary.get("xirr")
+    net_dep = sum((safe_float(r.get("flow")) or 0.0) for r in rows)
+
+    return html.Div([
+        html.H3("Cash flows (deposits / withdrawals)"),
+        html.Div("XIRR answers 'what did MY money earn?' (it weights the timing of "
+                 "every deposit); TWRR answers 'how good was the manager?' (it "
+                 "neutralises them). Compare TWRR to the benchmark; read XIRR as "
+                 "the realised experience.",
+                 style={"color": _SLATE, "fontSize": "12px"}),
+        html.Div([
+            _kpi("Net contributed", _num(net_dep, 0),
+                 color=_GREEN if net_dep > 0 else (_RED if net_dep < 0 else None),
+                 note="deposits minus withdrawals over the whole window"),
+            _kpi("TWRR (manager)", _pct(twrr),
+                 note="time-weighted - the fair benchmark-relative number"),
+            _kpi("XIRR (your money)", _pct(xirr),
+                 note="money-weighted - what the capital actually earned"),
+        ], className="kpi-row"),
+        table,
+    ])
+
+
 # --------------------------------------------------------------------------- #
 
 def body() -> List[Any]:
@@ -480,6 +543,10 @@ def body() -> List[Any]:
         _stress_table(rep),
         _warnings_block(rep.get("warnings")),
     ], className="panel"))
+
+    # -- Cash flows: deposits/withdrawals + the return basis -------------- #
+    panels.append(html.Div(
+        _cash_flow_panel(curve, rep), className="panel"))
 
     # -- Phase 3: exposure ---------------------------------------------- #
     try:

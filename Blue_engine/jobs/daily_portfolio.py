@@ -266,18 +266,30 @@ def _snapshot_equity(inputs: Dict[str, Any], data: Dict[str, Any],
         # ---- external cash flow detection ------------------------------- #
         # The tracker is rebuilt every run with starting_cash = the broker's
         # capital, so it cannot see yesterday. A deposit/withdrawal therefore
-        # shows up as a CHANGE in the broker's contributed capital between the
-        # previous stored row and today. Detecting it here is what makes XIRR
-        # meaningful: without it, a top-up is indistinguishable from a gain.
+        # must be inferred. Two sources, in order of reliability:
+        #
+        #   1. `net_contributed` from the broker's funds payload - the broker's
+        #      OWN record of capital paid in. Independent of trading P&L, so a
+        #      top-up is cleanly separable from a gain. Preferred when present.
+        #   2. Capital-delta fallback - the change in (holdings + cash) between
+        #      the last stored row and today. Correct when the book is flat or
+        #      marked the same way, but it cannot fully separate a deposit from
+        #      a same-day P&L move; used only when (1) is unavailable.
         #
         # `flow` is written in the tracker's contribution convention AND as a
         # row-level `flow` field that read_nav/risk_report/daily_returns consume.
         prev_contrib = _previous_contributions(inputs.get("nav_dir"))
+        net_contributed = safe_float(inputs.get("net_contributed"))
         flow_today = 0.0
-        if prev_contrib is not None:
-            # Only the DELTA is external money. The row's baseline capital is the
-            # broker's current capital, so the ledger contribution is today's
-            # capital and the flow is the difference from the last recorded one.
+        contributions = float(capital)
+        flow_source = "capital_delta"
+        if net_contributed is not None:
+            # Broker ledger: the delta in paid-in capital IS the flow.
+            contributions = float(net_contributed)
+            if prev_contrib is not None:
+                flow_today = contributions - prev_contrib
+            flow_source = "broker_ledger"
+        elif prev_contrib is not None:
             flow_today = float(capital) - prev_contrib
 
         # Book the sleeve book as if entered at the provider's marks: we are
@@ -307,15 +319,16 @@ def _snapshot_equity(inputs: Dict[str, Any], data: Dict[str, Any],
                 "portfolio_vol": (data.get("risk") or {}).get("portfolio_vol"),
             })
         # Overwrite the tracker's own (always-zero) day-flow with the detected
-        # DELTA, and record the cumulative contributions so the next run can
+        # value, and record the cumulative contributions so the next run can
         # diff against it. Writing the row AFTER the snapshot is deliberate: the
         # snapshot reflects the book, the flow describes how it was funded.
-        # Always written - a first run records flow=0 and contributions=capital
+        # Always written - a first run records flow=0 and contributions=<capital>
         # so the NEXT run has a baseline to diff against.
         snap["flow"] = round(flow_today, 4)
-        snap["contributions"] = round(float(capital), 4)
-        snap["net_deposits"] = round(float(capital) - _first_contributions(
-            inputs.get("nav_dir"), float(capital)), 4)
+        snap["contributions"] = round(contributions, 4)
+        snap["flow_source"] = flow_source
+        snap["net_deposits"] = round(contributions - _first_contributions(
+            inputs.get("nav_dir"), contributions), 4)
         stored_to = tracker_mod.store_nav(
             snap, directory=inputs.get("nav_dir"))
         log(f"equity: nav={snap['nav']:,.0f} gross={snap['gross_exposure']:,.0f} "
