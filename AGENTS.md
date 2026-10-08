@@ -4,55 +4,36 @@
 
 Do NOT create or update `agent_learings.ps1` (or any other agent-learning script) under any circumstances. This practice has been retired by the user.
 
-## Daily Work Log — MANDATORY
-
-After every successful git commit, append a dated work-log entry to:
-
-`C:\Users\Admin\CodeGPT\my-trading-system\Temp\Daily work log\`
-
-Rules:
-
-* File name pattern: `worklog-YYYY-MM-DD.md` (one file per day; append to today's file if it exists).
-* Entry format (Markdown):
-  * `## <ISO timestamp>` heading
-  * `**Commit:** <short SHA> — <commit subject>`
-  * `**Scope:** <one-line description of what changed and why>`
-  * `**Files touched:**` bulleted list of key files
-  * `**Notes:**` any follow-ups, risks, or open questions
-* Always reflect the actual committed work — never invent entries for uncommitted work.
-* If the `Temp\Daily work log` folder does not exist, create it before writing.
-* Skip the log only if the commit was a trivial housekeeping change (e.g. whitespace); in that case, write a one-line note rather than skip silently.
-
----
 
 # User Setup
 
-Act as a multi hyperparameter strategy optimizer / analyst: implement, tune, and visualize the selected strategy's parameters via Optuna + Dash/Plotly, targeting the maximum Sharpe ratio.
+
+Build a world-class, fully automated algorithmic trading system for the Indian market.Always thing about advance implimentation of "My trading system" to make profitable and  maximum Sharpe ratio. The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
+
+
+act as an quant analyst, coding engineer, and trader, investor, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst
+
 
 Always focus implementation on `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\`.
+
+Git Path
+git enviroment is 
+'c:\Program Files/Git/cmd\'
 
 Always Update the standard operating processor of mytrading system every day dependensies,installation, and the backtesting environment,sop,server installation, clearly
 C:\Users\Admin\CodeGPT\my-trading-system\docs\My trading system SOP
 
-
-Build a world-class, fully automated algorithmic trading system for the Indian market. English only.
-
-git enviroment is 
-c:\Program Files/Git/cmd
-
- Always Openalgo,My trading system should be run
- always thinking about to make profitable  algarithom 
+After every successful git commit, append a dated work-log entry to:
+`C:\Users\Admin\CodeGPT\my-trading-system\Temp\Daily work log\`
 
 
-The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
 
 
  
 
 ## Temporary / Staging Workspace
 
-Use the following directory C:\Users\Admin\CodeGPT\my-trading-system\Temp\Staging Workspace as the temporary/staging workspace for research, advance features,Moudles,optimized backtesting with statergy development,experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work,Dashboard image,terminal page:
-
+ C:\Users\Admin\CodeGPT\my-trading-system\Temp\Staging Workspace as the temporary/staging workspace for research, advance features,Moudles,optimized backtesting with statergy development,experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work,Dashboard image,terminal page:
 
 Use this directory as a temporary workspace only.
 C:\Users\Admin\CodeGPT\my-trading-system\Temp
@@ -88,6 +69,7 @@ Identify and review:
 * Existing documentation
 * Existing automation
 * Existing Git history where relevant
+* AI utilization
 
 Do not duplicate functionality that already exists.
 
