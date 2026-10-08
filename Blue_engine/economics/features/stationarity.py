@@ -19,12 +19,52 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from ...core.results import safe_float
 
-try:  # optional dependency
-    from statsmodels.tsa.stattools import adfuller, grangercausalitytests, kpss
-    _HAS_STATSMODELS = True
-except Exception:  # noqa: BLE001
-    adfuller = kpss = grangercausalitytests = None  # type: ignore
-    _HAS_STATSMODELS = False
+# ---------------------------------------------------------------------------
+# LAZY OPTIONAL DEPENDENCY (perf fix 2026-10-07)
+# ---------------------------------------------------------------------------
+# ``statsmodels`` pulls in ``scipy.stats``, which costs ~100 s to import on a
+# cold Windows interpreter. Importing it eagerly here meant that
+# ``core/registry.discover_all()`` -- which walks every module under
+# ``blue_engine.economics`` to auto-register engine classes -- paid that cost
+# on EVERY dashboard/terminal start, even though none of these ADF/KPSS/Granger
+# gates are used during boot.
+#
+# The dependency is now resolved on first *call* instead of on import. Public
+# behaviour is unchanged: ``available()`` still reports whether statsmodels can
+# be imported, and each test function still degrades to
+# ``method='unavailable'`` when it cannot.
+_STATSMODELS_CACHE: Dict[str, Any] = {}
+
+
+def _load_statsmodels() -> bool:
+    """Import statsmodels on demand; cache the result.
+
+    Returns True when the optional dependency is importable. Never raises --
+    the degrade-never-halt contract of this module is preserved.
+    """
+    if "ok" in _STATSMODELS_CACHE:
+        return bool(_STATSMODELS_CACHE["ok"])
+    try:  # optional dependency
+        from statsmodels.tsa.stattools import (
+            adfuller as _adfuller,
+            grangercausalitytests as _grangercausalitytests,
+            kpss as _kpss,
+        )
+
+        _STATSMODELS_CACHE.update(
+            ok=True,
+            adfuller=_adfuller,
+            kpss=_kpss,
+            grangercausalitytests=_grangercausalitytests,
+        )
+    except Exception:  # noqa: BLE001
+        _STATSMODELS_CACHE.update(ok=False)
+    return bool(_STATSMODELS_CACHE["ok"])
+
+
+def _has_statsmodels() -> bool:
+    """Backwards-compatible probe for the private flag callers used to read."""
+    return _load_statsmodels()
 
 
 def _clean(series: Sequence[float]) -> List[float]:
@@ -33,15 +73,15 @@ def _clean(series: Sequence[float]) -> List[float]:
 
 def adf(series: Sequence[float]) -> Dict[str, Any]:
     """Augmented Dickey-Fuller test. Returns p-value + stationarity verdict."""
-    if not _HAS_STATSMODELS:
+    if not _load_statsmodels():
         return {"method": "unavailable", "stationary": None, "p_value": None}
     data = _clean(series)
     if len(data) < 8:
         return {"method": "insufficient_data", "stationary": None,
                 "p_value": None, "n": len(data)}
     try:
-        stat, pval, _lags, _nobs, _crit, _icbest = adfuller(data,
-                                                            autolag="AIC")
+        stat, pval, _lags, _nobs, _crit, _icbest = _STATSMODELS_CACHE["adfuller"](
+            data, autolag="AIC")
     except Exception as exc:  # noqa: BLE001
         return {"method": "error", "error": repr(exc),
                 "stationary": None, "p_value": None}
@@ -52,14 +92,15 @@ def adf(series: Sequence[float]) -> Dict[str, Any]:
 
 def kpss_test(series: Sequence[float]) -> Dict[str, Any]:
     """KPSS test (H0 = stationary). Complements ADF when they disagree."""
-    if not _HAS_STATSMODELS:
+    if not _load_statsmodels():
         return {"method": "unavailable", "stationary": None, "p_value": None}
     data = _clean(series)
     if len(data) < 8:
         return {"method": "insufficient_data", "stationary": None,
                 "p_value": None, "n": len(data)}
     try:
-        stat, pval, _lags, _crit = kpss(data, regression="c", nlags="auto")
+        stat, pval, _lags, _crit = _STATSMODELS_CACHE["kpss"](
+            data, regression="c", nlags="auto")
     except Exception as exc:  # noqa: BLE001
         return {"method": "error", "error": repr(exc),
                 "stationary": None, "p_value": None}
@@ -93,7 +134,7 @@ def granger(cause: Sequence[float], effect: Sequence[float],
     Both series must be equal length and stationary (run :func:`is_stationary`
     first). Returns the smallest p-value across lags and the chosen lag.
     """
-    if not _HAS_STATSMODELS:
+    if not _load_statsmodels():
         return {"method": "unavailable", "p_value": None, "leads": None}
     c = _clean(cause)
     e = _clean(effect)
@@ -102,7 +143,8 @@ def granger(cause: Sequence[float], effect: Sequence[float],
         return {"method": "insufficient_data", "p_value": None, "leads": None}
     data = [[e[i], c[i]] for i in range(n)]
     try:
-        res = grangercausalitytests(data, maxlag=max_lag, verbose=False)
+        res = _STATSMODELS_CACHE["grangercausalitytests"](
+            data, maxlag=max_lag, verbose=False)
     except Exception as exc:  # noqa: BLE001
         return {"method": "error", "error": repr(exc), "p_value": None,
                 "leads": None}
@@ -119,8 +161,12 @@ def granger(cause: Sequence[float], effect: Sequence[float],
 
 
 def available() -> bool:
-    """True when statsmodels is importable (so tests can skip cleanly)."""
-    return _HAS_STATSMODELS
+    """True when statsmodels is importable (so tests can skip cleanly).
+
+    NOTE: this triggers the (slow) statsmodels import on first call. Callers
+    that only want the import-time cost avoided should not call it during boot.
+    """
+    return _load_statsmodels()
 
 
 __all__ = ["adf", "kpss_test", "is_stationary", "granger", "available"]
