@@ -59,10 +59,17 @@ logger = logging.getLogger(__name__)
 # Pages live next to this module in ./pages.
 _PAGES_DIR = Path(__file__).resolve().parent / "pages"
 
-# In-process engine handle. Set by :func:`create_app` and read by the
-# page callbacks below. Kept as a module global because Dash's Pages
-# callbacks are registered at import time, before app.run() is called.
-_STATE: dict = {"engine": None}
+# Process-wide handle the callbacks read. Kept as a module global because
+# Dash's Pages callbacks are registered at import time, before app.run().
+#
+# ``engine``      - the in-process LiveDashboard, or None for config-only.
+# ``data_source`` - the dashboard's OWN market-data wiring ("paper" | "live"),
+#                   kept SEPARATE from OpenAlgo's order-routing mode so the
+#                   banner can report both without conflating them. Default
+#                   "paper": the terminal is config-only and its reads are
+#                   stubbed. See ``ui/mode.py`` for why the two axes are
+#                   distinct.
+_STATE: dict = {"engine": None, "data_source": "paper"}
 
 
 # ---------------------------------------------------------------------------
@@ -101,25 +108,40 @@ def create_app(*, engine: Optional[Any] = None, config_path: Optional[str] = Non
     # `forceColorScheme` pins dark/light to the OpenAlgo mode so a user with a
     # dark OS theme cannot be shown a light UI while trading live.
     from blue_engine.core.mode import read_mode
-    from blue_engine.dashboard.ui.mode import theme
+    from blue_engine.dashboard.ui.mode import banner_text, theme
     from blue_engine.dashboard.ui.provider import app_shell
 
     _mode = read_mode(getattr(engine, "client", None))
     _initial_mode = theme(_mode)
+    # The panel data wiring is fixed for the process lifetime (you cannot
+    # re-wire the readers without a restart), so it is read once here and both
+    # the banner and /pov/mode report the SAME value. ``_STATE`` carries it to
+    # the callbacks below.
+    # NOTE: _STATE is a dict, so read it with .get(), not getattr().
+    _data_source = _STATE.get("data_source") or "paper"
     app.index_string = _index_html(_initial_mode["key"])
-    app.layout = app_shell(dash.page_container, mode=_mode)
+    app.layout = app_shell(dash.page_container, mode=_mode,
+                           data_source=_data_source)
 
     _register_refresh_callbacks(app)
     _register_mode_callbacks(app)
 
     # JSON endpoint the page shell polls so a mid-session analyzer/live
     # toggle re-themes the whole UI without a hard reload.
+    #
+    # It reports BOTH axes: ``mode`` is OpenAlgo's order routing (this can flip
+    # mid-session), ``data_source`` is the dashboard's panel wiring (fixed for
+    # the process). Shipping only the mode is what let a red "LIVE - REAL
+    # MONEY" banner sit over simulated panels.
     @app.server.route("/pov/mode")
     def _pov_mode():
         m = read_mode(getattr(_STATE["engine"], "client", None))
         pal = theme(m)
+        ds = _STATE.get("data_source") or "paper"
         return {"mode": pal["key"], "label": pal["label"],
-                "color_scheme": pal["color_scheme"]}
+                "color_scheme": pal["color_scheme"],
+                "data_source": ds,
+                "banner": banner_text(pal, data_source=ds)}
 
     return app
 
@@ -143,7 +165,7 @@ def _register_mode_callbacks(app: dash.Dash) -> None:
     # 500 on /_dash-update-component every 2 s (691 callbacks failed in one
     # session). Import them into THIS function's scope so the callback resolves.
     from blue_engine.core.mode import read_mode
-    from blue_engine.dashboard.ui.mode import theme
+    from blue_engine.dashboard.ui.mode import banner_text, theme
 
     @app.callback(
         dash.Output("mantine-provider", "forceColorScheme"),
@@ -154,12 +176,18 @@ def _register_mode_callbacks(app: dash.Dash) -> None:
     def _sync_mode(_n):
         m = read_mode(getattr(_STATE["engine"], "client", None))
         pal = theme(m)
+        # Report BOTH axes, exactly as the server-rendered banner did. The
+        # data_source is fixed for the process (set in ``main``); re-reading it
+        # here keeps this callback from silently DROPPING the panel clause on
+        # the first poll -- which would re-introduce a bare "LIVE - REAL MONEY"
+        # over paper panels ~2 s after a correct first paint.
+        ds = _STATE.get("data_source") or "paper"
         # A hidden node carries the data-mode flips to the client script; the
         # banner's own span is rewritten there too so we do not fight Dash's
         # renderer over the same DOM node every 2 seconds.
         return pal["color_scheme"], html.Span(
-            pal["label"], id="mode-label-current",
-            **{"data-mode": pal["key"]},
+            banner_text(pal, data_source=ds), id="mode-label-current",
+            **{"data-mode": pal["key"], "data-source": ds},
         )
 
 
@@ -386,16 +414,33 @@ def main(argv: Optional[list] = None) -> int:
 
         # Paper mode by default: no broker calls, but lets the terminal
         # show the state machines for the default watchlist.
+        #
+        # TWO AXES, and this line is where they are decided (see ui/mode.py):
+        #   * OpenAlgo mode  = where ORDERS go (read-only, from the platform).
+        #   * DATA_SOURCE    = where the PANELS' prices come from (this flag).
+        #
+        # DATA_SOURCE is derived, not guessed: the dashboard is config-only
+        # (SOP 4) so it has NO order path at all, and its reads are stubbed
+        # unless POV_DASH_LIVE=1 asks for real candles/quotes. Deriving it from
+        # the same flag that builds the functions means the banner can never
+        # claim a wiring the engine did not actually get.
+        _live_reads = os.getenv("POV_DASH_LIVE", "") in {"1", "true", "yes"}
+        _data_source = "live" if _live_reads else "paper"
         engine = LiveDashboard(
             DashboardConfig(),
-            history_fn=_resolve_history_fn(False),
-            quotes_fn=_resolve_quotes_fn(False),
+            history_fn=_resolve_history_fn(_live_reads),
+            quotes_fn=_resolve_quotes_fn(_live_reads),
             client=client,
         )
+        # Publish the wiring so the banner and /pov/mode agree with what the
+        # engine was ACTUALLY built with. Set only after the engine exists, so
+        # a failure here leaves the safe "paper" default in place.
+        _STATE["data_source"] = _data_source
         from blue_engine.core.mode import read_mode
 
-        logger.info("attached in-process engine (paper): %d symbols, mode=%s",
-                    len(engine._machines),  # noqa: SLF001
+        logger.info("attached in-process engine (panels=%s): %d symbols, "
+                    "openalgo_mode=%s",
+                    _data_source, len(engine._machines),  # noqa: SLF001
                     read_mode(client))
     except Exception as exc:  # pragma: no cover - optional
         logger.info("running without a live engine (config+ledger only): %s", exc)

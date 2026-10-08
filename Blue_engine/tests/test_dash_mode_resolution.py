@@ -209,3 +209,101 @@ def test_unknown_falls_back_to_dark_not_light():
     """Fail safe: an unreadable mode must not look like the light LIVE theme."""
     _check(scheme_for_mode("unknown") == "dark",
            "an unreadable mode must fail to the DARK scheme, never the live one")
+
+
+# --------------------------------------------------------------------------- #
+# 4. the two-axis banner: OpenAlgo mode (orders) vs panel data source (prices)
+# --------------------------------------------------------------------------- #
+#
+# WHY THIS SECTION EXISTS
+# -----------------------
+# The dashboard has TWO independent states and conflating them is a safety bug:
+#
+#   OpenAlgo mode  -> where ORDERS go      ("live" spends real money)
+#   data_source    -> where PANELS' prices come from ("paper" = stubbed reads)
+#
+# The terminal is config-only (SOP 4) so it never places an order, and its
+# reads are stubbed by default. That means the NORMAL live configuration is
+# (OpenAlgo live, panels paper). Rendering only the mode would put a red
+# "LIVE - REAL MONEY" banner over simulated charts -- which is precisely the
+# two-surfaces-disagree failure this module exists to prevent.
+#
+# The rule these tests pin: a banner may ONLY omit the panel clause when the
+# two axes AGREE. Every ambiguous combination must state the panel side.
+
+from blue_engine.dashboard.ui.mode import banner_text  # noqa: E402
+
+
+def test_live_orders_with_paper_panels_states_both():
+    """The safety-critical case: live orders + simulated panels must say so."""
+    txt = banner_text(theme("live"), data_source="paper")
+    _check("LIVE" in txt.upper(), f"the order side must be visible; got {txt!r}")
+    _check("PAPER" in txt.upper(),
+           f"the panel side must be visible when it is paper; got {txt!r}")
+    _check("DISABLED" in txt.upper(),
+           f"a live banner over paper panels must state order-placing is off; "
+           f"got {txt!r}")
+
+
+def test_live_orders_with_live_panels_omits_the_redundant_clause():
+    """When both axes are live the qualifier adds nothing, so it is dropped."""
+    txt = banner_text(theme("live"), data_source="live")
+    _check(txt == theme("live")["label"],
+           f"agreed live state must not carry a redundant clause; got {txt!r}")
+
+
+def test_analyzer_orders_with_paper_panels_omits_the_redundant_clause():
+    """Both simulated -> nothing to disambiguate."""
+    txt = banner_text(theme("analyze"), data_source="paper")
+    _check(txt == theme("analyze")["label"],
+           f"agreed simulated state must not carry a clause; got {txt!r}")
+
+
+def test_analyzer_orders_with_live_panels_states_both():
+    """The inverse mismatch: real prices under simulated orders."""
+    txt = banner_text(theme("analyze"), data_source="live")
+    _check("SIMULATED" in txt.upper(), f"order side missing; got {txt!r}")
+    _check("LIVE" in txt.upper(), f"panel side missing; got {txt!r}")
+
+
+def test_unknown_panel_source_is_always_stated():
+    """An unknown wiring must never be silently presented as known.
+
+    Note the analyzer/unknown pair is NOT treated as agreed: 'unknown' is not
+    the same claim as 'paper', so the clause is kept.
+    """
+    for mode in ("live", "analyze", "analyzer", "unknown"):
+        txt = banner_text(theme(mode), data_source="unknown")
+        _check("UNKNOWN" in txt.upper(),
+               f"an unknown panel source must be stated for mode={mode!r}; "
+               f"got {txt!r}")
+
+
+def test_banner_never_claims_live_panels_under_a_paper_data_source():
+    """A blanket property, across every mode, to catch a future refactor."""
+    for mode in ("live", "analyze", "analyzer", "unknown", "", None):
+        txt = banner_text(theme(mode), data_source="paper").upper()
+        _check("LIVE SDK DATA" not in txt,
+               f"paper wiring must never be labelled live SDK data; "
+               f"mode={mode!r} gave {txt!r}")
+
+
+def test_banner_text_tolerates_junk_data_source():
+    """A malformed flag degrades to 'unknown', never to a false 'paper'."""
+    for junk in ("", None, "PAPERISH", 123, "LIVE!"):
+        txt = banner_text(theme("live"), data_source=junk)
+        _check("PANELS:" in txt.upper(),
+               f"junk data_source must still state the panel side; "
+               f"got {txt!r} for {junk!r}")
+        _check(txt.upper().count("LIVE SDK") == 0,
+               f"junk must not be upgraded to a live panel claim; got {txt!r}")
+
+
+def test_every_palette_declares_a_data_source():
+    """The palettes must carry the field, so no consumer has to invent it."""
+    for mode in ("live", "analyze", "analyzer", "unknown"):
+        pal = theme(mode)
+        _check("data_source" in pal,
+               f"palette for {mode!r} is missing data_source")
+        _check("data_source_label" in pal,
+               f"palette for {mode!r} is missing data_source_label")

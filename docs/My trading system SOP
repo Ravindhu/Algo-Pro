@@ -46,6 +46,30 @@ Start-Process -FilePath "C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\
 ## 4. Dashboard (DMC migration, 2026-10-07)
 
 - Option A implemented: **config-only inputs.** Terminal controls write `blue_engine/input/master.json` (atomic temp+replace); the engine re-reads on its next cycle. Nothing in the dashboard places/modifies/cancels orders.
+
+### 4a. Two independent axes — do not conflate them
+
+The terminal has **two separate states**, and the banner reports both:
+
+| Axis | Question | Source | Can flip mid-session? |
+|---|---|---|---|
+| **OpenAlgo mode** | Where do ORDERS go? | `/api/v1/analyzer` | Yes — 2 s poll |
+| **data_source** | Where do the PANELS' prices come from? | `POV_DASH_LIVE` env, read once at startup | No — fixed per process |
+
+The dashboard is config-only, so its reads are **stubbed by default**. The normal live configuration is therefore **(OpenAlgo live, panels paper)** — and that is what it currently runs.
+
+The banner in `ui/mode.py::banner_text` omits the panel clause **only when the two axes agree**. Every ambiguous combination states both:
+
+```
+openalgo=live     panels=paper  -> LIVE - REAL MONEY  |  PANELS: PAPER DATA (ORDER-PLACING DISABLED)
+openalgo=live     panels=live   -> LIVE - REAL MONEY
+openalgo=analyze  panels=paper  -> ANALYZER (SIMULATED)
+openalgo=analyze  panels=live   -> ANALYZER (SIMULATED)  |  PANELS: LIVE SDK DATA
+```
+
+Showing only the mode would put a red "LIVE - REAL MONEY" banner over simulated charts — the two-surfaces-disagree failure this design prevents. `/pov/mode` returns `mode`, `data_source` and the composed `banner`, so a client can never reconstruct the wrong string.
+
+- Set `POV_DASH_LIVE=1` to wire real candles/quotes into the panels (changes `data_source` to `live`). Without it, panels stay paper. This does NOT enable order placing — the terminal has no order path at all.
 - Writes target the nested `pov` block when one exists (the block the reader prefers) — otherwise the value is a silent no-op.
 - Shared kit: `Blue_engine/dashboard/ui/` (kpi, panel, table, log_view, inputs, mode, provider). Old hand-written theme CSS removed from `pages/theme.py` (now a shim).
 - Regression test: `Temp\Staging Workspace\test_dmc_migration.py` (25 checks — clamping, atomic write, page contract).
