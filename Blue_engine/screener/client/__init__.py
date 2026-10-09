@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .base import ApiResponse, Meta, Throttle, TtlCache
 from .screener_client import COMPANY_TABS, ScreenerClient
+from . import extractors
 
 __all__ = [
     "ScreenerClient",
@@ -16,4 +17,5 @@ __all__ = [
     "Meta",
     "Throttle",
     "TtlCache",
+    "extractors",
 ]

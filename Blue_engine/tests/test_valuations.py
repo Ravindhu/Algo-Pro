@@ -410,11 +410,14 @@ class TestEpv:
 
     def test_sub_one_percent_epv_is_rejected_by_the_final_gate(self):
         """Exercise the dedicated <1%-of-price guard with a POSITIVE but tiny
-        EPV: small margin, no debt, so sustainable earnings stay positive.
+        EPV: small margin, no debt, nothing to drag earnings negative.
 
-        Arithmetic: EBIT 1,000 -> NOPAT 750 -> sustainable 750; bear EV =
-        750/0.12 = 6,250 Cr; 100 Cr shares -> 62.50/share against a price of
-        50,000, i.e. 0.125% of price. That is the modelling-failure zone.
+        Arithmetic (bear: 12% return, 1.30x capex):
+          EBIT 3,000 -> NOPAT 2,250 -> sustainable ~2,250 (dep 0, capex 0,
+          WC 0); bear EV = 2,250/0.12 = 18,750 Cr; 100 Cr shares ->
+          187.50/share against a price of 50,000, i.e. 0.4% of price.
+        That is the modelling-failure zone, reached with POSITIVE earnings, so
+        the final gate - not the earnings gate - is what must fire.
         """
         company = _company()
         company["top_ratios"] = [
@@ -423,21 +426,25 @@ class TestEpv:
         ]
         company["profit_loss"] = _table({
             "Sales": ["1,00,000"] * 5,
-            "Operating Profit": ["1,000"] * 5,
-            "OPM %": ["1"] * 5,
+            "Operating Profit": ["3,000"] * 5,
+            "OPM %": ["3"] * 5,
             "Depreciation": ["0"] * 5,
             "Tax %": ["25"] * 5,
-            "Net Profit": ["750"] * 5,
-            "EPS in Rs": ["7.5"] * 5,
+            "Net Profit": ["2,250"] * 5,
+            "EPS in Rs": ["22.5"] * 5,
         })
         company["balance_sheet"] = _table({
             "Equity Capital": ["100"] * 6,
             "Reserves": ["9,900"] * 6,
         })
+        # Zero working-capital days: nothing to add or subtract.
         company["ratios"] = _table({"Working Capital Days": ["0"]})
+        # No cash-flow rows, so no measured capex and no negative-WC surprise.
+        company["cash_flow"] = _table({})
+
         inp = V.build_inputs(company)
         assert inp.diluted_shares == pytest.approx(100.0)
-        r = V.compute_epv(inp, "bear")   # bear: 12% return, 1.30x capex
+        r = V.compute_epv(inp, "bear")
         assert r.sustainable_earnings > 0, "gate must fire on a POSITIVE EPV"
         assert r.status == "insufficient_data"
         assert r.per_share is None
@@ -645,7 +652,16 @@ class TestValueCompany:
         val = V.value_company(_company(), symbol="TESTCO")
         codes = [a["code"] for a in val.assumptions]
         assert len(codes) == len(set(codes)), f"duplicate codes: {codes}"
-        assert codes == sorted(codes, key=lambda c: (c[0], int(c[1:])))
+
+        # Ordering must match the module's own collation, which tolerates a
+        # suffixed code like "A1b". A naive int(code[1:]) crashes on that.
+        import re as _re
+
+        def key(c):
+            m = _re.match(r"([A-Za-z]+)(\d+)", str(c))
+            return (m.group(1), int(m.group(2))) if m else (str(c), 0)
+
+        assert codes == sorted(codes, key=key), codes
 
     def test_every_valuation_reports_its_assumptions(self):
         """A valuation with no assumptions declared is a red flag, not a win."""

@@ -439,11 +439,17 @@ def build_inputs(company: Dict[str, Any],
 
     # Maintenance-capex proxy: the cash-flow statement's investing activity is
     # NET (sale proceeds netted against purchases) and includes acquisitions, so
-    # it is NOT a capex figure on its own. We keep it only as a cross-check and
-    # rely on depreciation x multiple for the model. Recorded as ASSUMPTION A1.
+    # it is NOT a capex figure on its own. It is recovered properly by
+    # ``extractors.capex_from_cashflow`` (which prefers CFO - FCF); here we keep
+    # the raw net line only as a cross-check.
+    #
+    # LABEL FIX: the page prints "Cash from Investing Activity +", not
+    # "Investing Activity". The old short label matched NOTHING on a real page -
+    # it only appeared to work because the unit-test fixture used the short form.
     inp.capex_series = _normalisation_window(
-        _row_series(cf, "investing activity"), normalisation_years,
-        skip_trailing=ttm_cols)
+        _row_series(cf, "cash from investing activity", exact=False)
+        or _row_series(cf, "investing activity", exact=False),
+        normalisation_years, skip_trailing=ttm_cols)
 
     inp.working_capital_days_series = _normalisation_window(
         _row_series(ratios, "working capital days"), normalisation_years,
@@ -496,10 +502,27 @@ def build_inputs(company: Dict[str, Any],
         if inp.debtor_days is not None and 0 < inp.debtor_days < 3650:
             inp.receivables = inp.debtor_days * daily_sales
 
+    # ---- REAL capex, recovered from the cash-flow statement --------------- #
+    # Preferred source for the EPV maintenance-capex step. Recovered as
+    # ``CFO - Free Cash Flow`` (exact, since screener.in defines FCF that way),
+    # falling back to a NEGATIVE net investing figure. See
+    # ``extractors.capex_from_cashflow`` for why a positive investing figure is
+    # rejected outright.
+    #
+    # NOTE: this is NOT recorded in ``filled_by``. That map means "a FALLBACK
+    # provider supplied this because screener.in could not" - and screener.in is
+    # exactly where this came from. Writing it there would misreport the primary
+    # source as a fallback and would also stop a real fallback from overwriting
+    # a genuinely absent value.
+    try:
+        from .client.extractors import capex_from_cashflow
+        inp.capex_actual = capex_from_cashflow({"cash_flow": cf})
+    except Exception as exc:  # noqa: BLE001 - an extractor must never break a build
+        inp.notes.append(f"capex extraction failed: {type(exc).__name__}: {exc}")
+
     # ---- market ---------------------------------------------------------- #
     inp.market_price = to_number(_first_value(top, "current_price"))
     inp.market_cap = to_number(_first_value(top, "market_cap"))
-
     # Shares: derived from Net Profit / EPS. screener.in does not publish a
     # share count, and EPS is the only bridge between absolute profit and
     # per-share profit. This gives BASIC shares (EPS is normally reported on a
@@ -785,7 +808,21 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
     dep_proxy = dep * capex_mult
 
     if inp.capex_actual is not None and inp.capex_actual > 0:
-        if inp.capex_actual <= dep_proxy:
+        if dep_proxy <= 0:
+            # Depreciation is zero (or absent), so there is no anchor to compare
+            # against. A capex figure with no depreciation base is measurement
+            # caveated enough that we take the measured capex directly: there is
+            # nothing for it to be "above" or "below".
+            res.maintenance_capex = inp.capex_actual
+            res.assumptions.append(Assumption(
+                "A1b",
+                f"maintenance capex taken from a MEASURED total capex figure "
+                f"({inp.capex_actual:,.0f} Cr, source: "
+                f"{inp.source_of('capex_actual')}); reported Depreciation is "
+                f"zero or absent, so there is no depreciation anchor to judge "
+                f"it against.",
+                "high - no anchor available"))
+        elif inp.capex_actual <= dep_proxy:
             # A genuine maintenance-level capex: use the measured figure. This
             # is the case where the fallback strictly improves the estimate.
             res.maintenance_capex = inp.capex_actual
@@ -804,6 +841,10 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
             # headroom so a reader can see the judgement. (config can opt into
             # the full amount, but it is OFF by default because it silently
             # converts EPV into a growth-penalising model.)
+            #
+            # dep_proxy > 0 is guaranteed by the branch above, so the ratio
+            # below cannot divide by zero.
+            ratio = inp.capex_actual / dep_proxy
             use_full = bool(cfg.get("trust_total_capex_as_maintenance", False))
             if use_full:
                 res.maintenance_capex = inp.capex_actual
@@ -823,10 +864,10 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
                     f"({dep_proxy:,.0f} Cr). A measured total capex of "
                     f"{inp.capex_actual:,.0f} Cr is available from "
                     f"{inp.source_of('capex_actual')} but is "
-                    f"{inp.capex_actual / dep_proxy:.2f}x depreciation, so it "
+                    f"{ratio:.2f}x depreciation, so it "
                     f"contains growth capex that cannot be separated. Using it "
                     f"as maintenance capex would cut EPV by roughly "
-                    f"{1 - 1 / (inp.capex_actual / dep_proxy):.0%} and turn this "
+                    f"{1 - 1 / ratio:.0%} and turn this "
                     f"into a growth-penalising model. Set "
                     f"trust_total_capex_as_maintenance=true to override.",
                     "high - the largest single judgement in EPV"))

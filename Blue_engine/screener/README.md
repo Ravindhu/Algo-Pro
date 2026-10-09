@@ -50,7 +50,10 @@ screener/
   client/parser.py                 HTML -> Python (port of src/utils/parser.ts)
   client/numbers.py                display strings -> comparable floats
   client/screener_client.py        ScreenerClient (port of src/client/*.ts)
+  client/extractors.py             label-aware helpers for valuation inputs
   filters.py                       Rule / Screener / the two requested rules
+  valuations.py                    EPV + Conservative Adjusted NAV
+  yf_fallback.py                   optional yfinance gap-fill
   screener_engine.py               ScreenerEngine(BaseEngine) + CLI
 ```
 
@@ -532,14 +535,108 @@ CANAV per share:
 CLASSIFICATION: RICH / PREMIUM TO BOTH
 ```
 
+## Extractors: `client/extractors.py`
+
+Label-aware helpers that read the screener.in page for valuation inputs. Pure
+functions over an already-parsed page - no network, no I/O.
+
+```python
+from blue_engine.screener.client import extractors as EX
+
+bundle = EX.extraction_bundle(company)   # everything, plus what is unavailable
+EX.capex_from_cashflow(company)          # real capex, not the net investing line
+EX.balance_sheet_balances(company)       # does the parsed page balance?
+EX.market_snapshot(company)              # price, cap, implied share counts
+EX.net_working_assets(company)           # inventory/receivables from the ratios
+EX.statement_years(company)              # how many annual columns exist
+```
+
+### What the real page actually gives you
+
+The tables span **12 annual columns** (Mar 2015 to Mar 2026), not 5. The exact
+printed labels are:
+
+```
+cash-flow      Cash from Operating Activity +, Cash from Investing Activity +,
+               Cash from Financing Activity +, Net Cash Flow, Free Cash Flow
+balance-sheet  Equity Capital, Reserves, Borrowings +, Other Liabilities +,
+               Total Liabilities, Fixed Assets +, CWIP, Investments,
+               Other Assets +, Total Assets
+```
+
+The trailing `+` marks an expandable row. It is punctuation, not part of the
+name, and it is stripped before matching.
+
+### Two label bugs this module exists to prevent
+
+**1. `Cash from Investing Activity +`, not `Investing Activity`.** The old short
+label matched **nothing** on a real page - it only appeared to work because the
+unit fixture used the short form. `capex_series` was silently empty, so the EPV
+maintenance-capex step never saw a measured figure.
+
+**2. `Borrowing` vs `Borrowings +`.** HDFCBANK writes the singular, ITC writes
+the plural. A stem of `borrowing` must catch both - plain equality caught
+neither, because `borrowing != borrowings`. Matching is now equality **or
+equality modulo a trailing `s`**, and never a bare substring.
+
+Why never a substring: `"tax"` is a substring of `"Profit before tax"`, which
+holds **crores**, while `Tax %` holds a **percentage**. A substring lookup puts a
+crore figure into a tax rate. Exact matching is the default everywhere; a
+substring requires an explicit `exact=False`.
+
+### Capex is recovered, not guessed
+
+`Cash from Investing Activity +` is **net** - it nets asset purchases against
+disposals and includes acquisitions, so it is not capex. The helper prefers:
+
+1. `CFO - Free Cash Flow` - exact, since screener.in defines FCF that way
+2. `-(Cash from Investing Activity +)` - only when that figure is **negative**
+
+A **positive** investing figure is rejected outright: it is proof the line is
+contaminated by disposals, and using it would return a negative capex and
+inflate EPV. Verified live: Reliance recovers **1,22,090 Cr** where the net
+investing line reads -1,01,089 Cr.
+
+### The integrity gate
+
+`balance_sheet_balances()` checks two identities:
+
+```
+Total Assets == Total Liabilities
+Total Assets == Fixed Assets + CWIP + Investments + Other Assets
+```
+
+On the live RELIANCE page both hold exactly (21,77,546 Cr, and the components sum
+to the same). If either fails, a label was mis-read and every number derived from
+that page is suspect. This is the cheapest possible correctness check on a page
+we do not own.
+
+### What is genuinely NOT on the page
+
+`extraction_bundle()` returns an `unavailable` list so a consumer sees the
+boundary instead of assuming a missing key is a bug:
+
+| field | why |
+|---|---|
+| cash & equivalents | folded into `Other Assets +`, no separate line |
+| minority interest | no line |
+| intangibles / goodwill | no line |
+| contingent liabilities | annual-report PDF only |
+
+Guessing a split of `Other Assets +` would put a fabricated number into a
+valuation, which is the one thing this subsystem refuses to do.
+
+## Tests
+
 ```powershell
+python -m pytest Blue_engine\tests\test_extractors.py -q
 python -m pytest Blue_engine\tests\test_valuations.py -q
 ```
 
 
-**139 tests, all passing** (54 valuation + 85 screener). They are fully offline:
-pure-function tests plus a `ScreenerClient` driven against saved HTML via a
-monkeypatched session.
+**189 tests, all passing** (47 extractor + 57 valuation + 85 screener). They are
+fully offline: pure-function tests plus a `ScreenerClient` driven against saved
+HTML via a monkeypatched session.
 
 The screener tests that matter most are in `TestThreeValuedRules` — a missing
 metric must FAIL, not pass. The valuation tests that matter most are in
