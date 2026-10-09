@@ -31,6 +31,7 @@ LAYOUT
     client/numbers.py      screener.in display strings -> comparable floats
     client/screener_client.py   the ScreenerClient (port of src/client/*.ts)
     filters.py             Rule / Screener / the two requested rules
+    valuations.py          EPV + Conservative Adjusted NAV (per-share, 3 scenarios each)
     screener_engine.py     ScreenerEngine(BaseEngine) - the engine entry point
 
 THE REQUESTED SCREEN
@@ -65,6 +66,18 @@ from .filters import (
 )
 from .screener_engine import ScreenerEngine
 from .client.screener_client import ScreenerClient
+from . import valuations
+from .valuations import (
+    CLASS_ASSET_RICH,
+    CLASS_FRANCHISE,
+    CLASS_INSUFFICIENT,
+    CLASS_RICH,
+    CLASS_STRONG,
+    Valuation,
+    classify,
+    value_company,
+    value_symbol,
+)
 
 __all__ = [
     "ScreenerEngine",
@@ -77,4 +90,15 @@ __all__ = [
     "PASS",
     "FAIL",
     "UNKNOWN",
+    # valuation layer (EPV + CANAV)
+    "valuations",
+    "Valuation",
+    "classify",
+    "value_company",
+    "value_symbol",
+    "CLASS_STRONG",
+    "CLASS_ASSET_RICH",
+    "CLASS_FRANCHISE",
+    "CLASS_RICH",
+    "CLASS_INSUFFICIENT",
 ]

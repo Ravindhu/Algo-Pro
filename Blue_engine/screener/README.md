@@ -299,17 +299,170 @@ alpha_inputs = {"symbols": res.data["symbols"],
 
 ---
 
-## Tests
+## Valuations: EPV and CANAV (`valuations.py`)
 
-```powershell
-python -m pytest Blue_engine\tests\test_screener_engine.py -q
+Two independent, deliberately conservative per-share value estimates, for the
+names the screen selects.
+
+```python
+from blue_engine.screener import value_symbol, valuations as V
+
+val = value_symbol("RELIANCE")
+print(val.as_text())
+print(val.classification)          # e.g. "EARNINGS FRANCHISE"
+for a in val.assumptions:          # every assumption, with a stable code
+    print(a["code"], a["text"])
 ```
 
-**76 tests, all passing.** They are fully offline: pure-function tests plus a
-`ScreenerClient` driven against saved HTML via a monkeypatched session.
+### EPV (bear / base / bull)
 
-The ones that matter most are in `TestThreeValuedRules` — a missing metric must
-FAIL, not pass.
+```
+Normalized EBIT      = Normalized Revenue x Normalized EBIT Margin
+NOPAT                = Normalized EBIT x (1 - Normalized Tax Rate)
+Sustainable Earnings = NOPAT + Depreciation - Maintenance Capex
+                       - Maintenance Working Capital
+EPV Enterprise Value = Sustainable Earnings / Required Return
+EPV Equity Value     = EV + Excess Cash + Non-operating Investments
+                       - Debt - Debt-like Liabilities - Minority Interest
+EPV Per Share        = Equity Value / Diluted Shares
+EPV Margin of Safety = 1 - (Market Price / EPV Per Share)
+```
+
+**Normalisation uses the MEDIAN of the trailing 3-5 annual years**, and TTM is
+excluded (it is not an audited annual period). Median, not mean, because "do not
+use one unusually profitable year" is the requirement — a mean absorbs a spike,
+a median ignores it.
+
+EBIT is normalised as `median(margin) x median(revenue)`, **not** `median(EBIT)`.
+That forces the margin to be sustainable instead of letting one high-margin,
+low-revenue year dominate the product. Both series are reported separately.
+
+The three scenarios vary **only** the required return and the maintenance-capex
+multiple. They never touch revenue or margin: EPV's entire premise is that those
+are normalised, and flexing them would turn it into a DCF with growth.
+
+### CANAV (stress / base / moderate)
+
+```
+CANAV = Adjusted Shareholders' Equity / Diluted Shares Outstanding
+CANAV Margin of Safety = 1 - (Market Price / CANAV)
+
+Adjusted Equity = Shareholders' Equity
+                + Quoted Investment Revaluation
+                + Unquoted Investment Revaluation
+                - Inventory Haircut
+                - Receivable Haircut
+                - Intangible / Goodwill Haircut
+                + Asset Revaluation
+                - Contingent Liabilities
+                - Other hidden / debt-like liabilities
+```
+
+**Haircuts are per-company, not one constant set.** The requested conservative
+defaults are the BASE level (33.33% inventory, 50% receivables), but they are
+scaled by the company's **own** reported activity ratios:
+
+| Inventory / Debtor Days | Tilt on the base haircut |
+|---|---|
+| fast (<=60 / <=30 days) | 0.6x — the asset turns over |
+| between | linear |
+| slow (>=180 / >=120 days) | 1.6x — the asset is stale |
+
+A fast-moving retailer and a company with 400-day inventory do not deserve the
+same write-down, and the balance sheet already contains the evidence.
+
+Intangibles and goodwill are written off **100% in every scenario** — there is no
+conservative case for counting goodwill as recoverable asset backing.
+
+### Classification
+
+| condition | class |
+|---|---|
+| Price < NAV **and** Price < EPV | `STRONG VALUATION ALIGNMENT` |
+| Price < NAV **but** Price > EPV | `ASSET RICH / EARNINGS WEAK` |
+| Price > NAV **but** Price < EPV | `EARNINGS FRANCHISE` |
+| Price > NAV **and** Price > EPV | `RICH / PREMIUM TO BOTH` |
+| either base estimate unavailable | `INSUFFICIENT DATA` |
+
+Classification always uses the **base** scenario for both. If a base estimate is
+missing it returns `INSUFFICIENT DATA` rather than falling back to bear or bull,
+because a classification produced by a different scenario than the one the
+reader is looking at is unreproducible.
+
+### Never invent missing data
+
+This is the governing rule, and it is what most of the tests check.
+
+* Every input is either measured from a reported figure or `None`.
+* A valuation that cannot be computed returns `status="insufficient_data"`,
+  `per_share=None`, and a `reason` naming the exact missing input.
+* **INVARIANT (test-enforced):** a non-`ok` scenario never exposes `per_share`
+  or `margin_of_safety`. A caller that forgets to check `status` cannot act on
+  a number the function itself declared unusable.
+
+Gates that refuse rather than publish:
+
+| condition | why it is refused |
+|---|---|
+| normalised EBIT margin <= 0 | a negative EV / discount rate is negative, and every price would "pass" it |
+| sustainable earnings <= 0 | EPV undefined without positive earnings power |
+| no reported Depreciation | the largest non-cash add-back; assuming it would understate EPV |
+| EPV/share < 1% of price | a modelling failure, not a -10000% margin of safety |
+| adjusted equity <= 0 | CANAV is not small, it is absent |
+
+### What screener.in does NOT provide
+
+Every gap below is an explicit **ASSUMPTION** (with a stable code) or a recorded
+gap — never a silent zero. The full list is in `Valuation.assumptions`.
+
+| missing | handling | code |
+|---|---|---|
+| maintenance vs growth capex | proxied as Depreciation x 1.00 (0.80 bull / 1.30 bear) | A1 |
+| cash reported separately | excess cash taken as **0** — makes EPV conservative | A2 |
+| **diluted** share count | derived from Net Profit / EPS (basic); labelled `shares_are_diluted=False` | A3 |
+| minority interest | taken as 0 | A10 |
+| contingent liabilities | taken as 0 — EPV ignores off-balance-sheet claims | A11 |
+| intangibles / goodwill | no standard line; no haircut applied — CANAV **overstated** if present | B4 |
+| quoted vs unquoted investments | one blended write-down, weighted 65% toward unquoted | B1 |
+| inventory / receivables | recovered by inverting Inventory Days / Debtor Days | B2, B3 |
+| "Other Liabilities" | **not** deducted again — already inside equity via the accounting identity | B7 |
+| borrowings | **not** deducted again — screener.in equity is already net of debt | B8 |
+
+### Disagreeing with a vendor is expected
+
+These are the standard total-debt-over-shareholders'-equity and EV-minus-debt
+definitions. Vendors differ on lease liabilities, on consolidated vs standalone,
+and on surplus-cash treatment. If a number must reconcile to a specific vendor,
+add that vendor's rule — do not loosen this one.
+
+Real output, RELIANCE consolidated (saved live page):
+
+```
+price=1,463.50   shares=1,352.97 (basic)
+EPV per share:
+  bear    620.34   MoS  -135.9%
+  base    872.42   MoS   -67.8%
+  bull  1,183.75   MoS   -23.6%
+CANAV per share:
+  stress      n/a   (haircuts consume equity - no asset backing)
+  base     422.97   MoS  -246.0%
+  moderate 625.39   MoS  -134.0%
+CLASSIFICATION: RICH / PREMIUM TO BOTH
+```
+
+```powershell
+python -m pytest Blue_engine\tests\test_valuations.py -q
+```
+
+
+**139 tests, all passing** (54 valuation + 85 screener). They are fully offline:
+pure-function tests plus a `ScreenerClient` driven against saved HTML via a
+monkeypatched session.
+
+The screener tests that matter most are in `TestThreeValuedRules` — a missing
+metric must FAIL, not pass. The valuation tests that matter most are in
+`TestEpv`, `TestCanav` and the `INVARIANT` check in `TestValueCompany` — a
+rejected scenario must never expose a `per_share` figure.
 
 ### Running the suite on this machine
 

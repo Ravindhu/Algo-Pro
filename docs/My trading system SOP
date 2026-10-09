@@ -109,6 +109,40 @@ python -m blue_engine.screener.screener_engine --source sector --sectors IN02 --
 - Verified live 2026-10-09 over RELIANCE/TCS/INFY/ITC/HDFCBANK: 4 selected,
   1 rejected (HDFCBANK at D/E 1.004), 0 missing-data.
 
+### 4b-2. Valuations - EPV + CANAV (`screener/valuations.py`) - added 2026-10-09
+Two conservative per-share value estimates for the names the screen selects.
+```python
+from blue_engine.screener import value_symbol
+val = value_symbol("RELIANCE")
+print(val.as_text()); print(val.classification); print(val.assumptions)
+```
+- **EPV** (bear/base/bull): normalized EBIT -> NOPAT -> sustainable earnings ->
+  EV / required return -> equity bridge -> per share -> margin of safety.
+- **CANAV** (stress/base/moderate): shareholders' equity adjusted for investment
+  revaluation, inventory/receivable/intangibles haircuts, asset revaluation and
+  contingent liabilities.
+- **Normalisation = MEDIAN of the trailing 3-5 annual years, TTM excluded.**
+  Median, not mean: a mean absorbs one exceptional year, a median ignores it.
+  EBIT is `median(margin) x median(revenue)`, NOT `median(EBIT)`.
+- **Scenarios vary ONLY the required return and the capex multiple** - never
+  revenue or margin, because EPV's premise is that those are normalised.
+- **Haircuts are per-company**: the requested defaults (33.33% inventory, 50%
+  receivables) are the BASE level, scaled 0.6x-1.6x by the company's OWN
+  Inventory/Debtor Days. Intangibles are written off 100% in every scenario.
+- **Never invent missing data.** A valuation that cannot be computed returns
+  `status="insufficient_data"`, `per_share=None`, and a `reason` naming the
+  missing input. **INVARIANT (test-enforced):** a non-ok scenario never exposes
+  `per_share` or `margin_of_safety`.
+- **Diluted shares are NOT available.** screener.in publishes no diluted count,
+  so shares derive from Net Profit / EPS (basic) and the output carries
+  `shares_are_diluted=False`. A bonus/split mismatch between the EPS period and
+  today is detected and the market-cap-implied count is preferred, with a note.
+- Every assumption carries a stable code (A1-A11, B1-B8) and is listed in
+  `Valuation.assumptions`. Current gaps: cash reported separately, minority
+  interest, contingent liabilities, intangibles, maintenance-vs-growth capex.
+- Tests: `python -m pytest Blue_engine\tests\test_valuations.py -q` (**139 total
+  across both screener suites**). Verified live on the RELIANCE page.
+
 ## 5. Known Windows pitfalls
 
 | Symptom | Cause | Fix |
