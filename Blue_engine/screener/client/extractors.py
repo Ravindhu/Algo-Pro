@@ -44,6 +44,7 @@ is the one thing this whole subsystem refuses to do.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Sequence
 
 from .numbers import to_number
@@ -89,6 +90,33 @@ RATIO_INVENTORY_DAYS = ("inventory days",)
 RATIO_PAYABLE_DAYS = ("days payable",)
 RATIO_WC_DAYS = ("working capital days",)
 RATIO_ROCE = ("roce %",)
+
+# --------------------------------------------------------------------------- #
+# Contingent liabilities - LOGGED-IN ONLY
+# --------------------------------------------------------------------------- #
+#: Seen only in a LOGGED-IN screener.in session (the row is not served to an
+#: anonymous request - verified: four separate greps of the anonymous page for
+#: "contingent", "Cont. Liab", "cont" and 10 other spellings all returned ZERO
+#: hits across RELIANCE, ITC and KPITTECH).
+#:
+#: The EXACT printed label is unknown to us because it cannot be observed
+#: anonymously, so this is a deliberately TOLERANT match rather than an exact
+#: string. That is a departure from every other label in this module, and it is
+#: justified: the abbreviation space is large ("Cont. Liab", "Contingent
+#: Liabilities", "Contingent Liab.", "Cont Liabilities") while the collision
+#: risk is low - only a handful of page rows contain "cont" at all, and the
+#: value check below rejects anything that is not a plausible amount.
+#:
+#: Once the real label is known, replace this with the exact string. See
+#: ``docs`` in the README and ``contingent_liabilities_label_probe`` below.
+CONTINGENT_LIAB_PATTERNS = (
+    r"contingent\s*liab",          # Contingent Liabilities / Contingent Liab.
+    r"cont\.?\s*liab",             # Cont. Liab / Cont Liab / Cont.Liab
+    r"contingent",                 # bare "Contingent ..."
+)
+
+_CONTINGENT_RE = re.compile(
+    r"(?i)(?:" + "|".join(CONTINGENT_LIAB_PATTERNS) + r")")
 
 
 # --------------------------------------------------------------------------- #
@@ -508,6 +536,7 @@ BUNDLE_FIELDS = (
     "market",
     "statement_years",
     "balance_check",
+    "contingent_liabilities",
 )
 
 
@@ -517,7 +546,29 @@ def extraction_bundle(company: Dict[str, Any]) -> Dict[str, Any]:
     Also returns ``unavailable`` - the fields that are NOT on the page at all -
     so a consumer sees the boundary explicitly instead of assuming a missing key
     means a bug.
+
+    ``contingent_liabilities`` is special: it is present ONLY when the page was
+    fetched with a logged-in session cookie, so the bundle reports
+    ``contingent_source`` to distinguish the two cases.
     """
+    contingent = contingent_liabilities(company)
+    if contingent is not None:
+        contingent_source = "screener:logged-in-ratios"
+    else:
+        contingent_source = (
+            "not-visible (row is served only to a logged-in session; "
+            "fetch with cookies=... to populate)"
+        )
+
+    unavailable = [
+        "cash_and_equivalents  (folded into 'Other Assets +' - no line)",
+        "minority_interest     (no line on the page)",
+        "intangibles/goodwill  (no line on the page)",
+    ]
+    if contingent is None:
+        unavailable.append(
+            "contingent_liabilities (LOGGED-IN session only - use cookies=...)")
+
     return {
         "equity_from_balance_sheet": equity_from_balance_sheet(company),
         "capex": capex_from_cashflow(company),
@@ -530,12 +581,9 @@ def extraction_bundle(company: Dict[str, Any]) -> Dict[str, Any]:
         "market": market_snapshot(company),
         "statement_years": statement_years(company),
         "balance_check": balance_sheet_balances(company),
-        "unavailable": [
-            "cash_and_equivalents  (folded into 'Other Assets +' - no line)",
-            "minority_interest     (no line on the page)",
-            "intangibles/goodwill  (no line on the page)",
-            "contingent_liabilities (annual-report PDF only)",
-        ],
+        "contingent_liabilities": contingent,
+        "contingent_source": contingent_source,
+        "unavailable": unavailable,
     }
 
 
@@ -554,6 +602,146 @@ __all__ = [
     "net_working_assets",
     "market_snapshot",
     "statement_years",
+    "contingent_liabilities",
+    "contingent_liabilities_label_probe",
     "extraction_bundle",
     "BUNDLE_FIELDS",
+    "CONTINGENT_LIAB_PATTERNS",
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Contingent liabilities (LOGGED-IN ONLY)
+# --------------------------------------------------------------------------- #
+def contingent_liabilities(company: Dict[str, Any]) -> Optional[float]:
+    """Contingent liabilities, when the page was fetched with a session cookie.
+
+    Returns the latest period's value in CRORES, or ``None``.
+
+    WHY THIS IS DIFFERENT FROM EVERY OTHER HELPER HERE
+    -------------------------------------------------
+    The row is served **only to a logged-in screener.in session**. Verified by
+    four independent greps of the anonymous page across RELIANCE, ITC and
+    KPITTECH: zero hits for ``contingent``, ``Cont. Liab``, ``Cont Liab``,
+    ``cont`` and ten other spellings - "cont" does not appear as a substring
+    anywhere on the page.
+
+    So this helper returns ``None`` on an anonymous fetch, which is the correct
+    and expected outcome. Callers must not read that ``None`` as "the company
+    has no contingencies"; it means "we could not see the row". The
+    ``extraction_bundle`` surfaces which case applies via ``contingent_source``.
+
+    Args:
+        company: a parsed company snapshot.
+
+    MATCHING IS TOLERANT, DELIBERATELY. Every other label in this module is
+    matched exactly, because guessing cost us two figures (``Cash from Investing
+    Activity +`` and ``Borrowing`` vs ``Borrowings +``). Here the exact label
+    CANNOT be observed anonymously, so an exact match would be a guess too - just
+    a different one. A regex over the known abbreviation space is used instead,
+    and two guards replace the certainty that exact matching normally provides:
+
+      1. the match must be a *row label* (first cell of a table row) or appear in
+         page text, not just any occurrence; and
+      2. the value must parse as a plausible non-negative amount. A row whose
+         value will not parse is rejected rather than returned as 0.
+    """
+    targets: List[Dict[str, Any]] = []
+    for key in ("ratios", "balance_sheet", "profit_loss", "cash_flow",
+                "quarters", "shareholding"):
+        table = company.get(key)
+        if table:
+            targets.append(table)
+
+    # 1. Table rows, by label. Highest confidence.
+    for table in targets:
+        headers = table.get("headers") or []
+        if not headers:
+            continue
+        label_col = headers[0]
+        for row in (table.get("rows") or []):
+            label = str(row.get(label_col, "") or "")
+            if not _CONTINGENT_RE.search(label):
+                continue
+            value = _latest_from_row(row, headers)
+            if value is not None and value >= 0:
+                logger.debug("contingent liabilities matched row %r -> %s",
+                             label, value)
+                return value
+
+    # 2. A header cell (some tab layouts put it in <th>).
+    for table in targets:
+        for header in (table.get("headers") or []):
+            if _CONTINGENT_RE.search(str(header)):
+                # The header names the ROW; find it and read its latest value.
+                row = find_row(table, (str(header),), exact=True)
+                if row is None:
+                    row = find_row(table, (str(header),), exact=False)
+                if row is not None:
+                    value = _latest_from_row(row, table.get("headers") or [])
+                    if value is not None and value >= 0:
+                        return value
+
+    # 3. A raw key on the snapshot (a provider may have parsed it already).
+    for key in ("contingent_liabilities", "contingent_liab", "cont_liab"):
+        value = to_number(company.get(key))
+        if value is not None and value >= 0:
+            return value
+
+    return None
+
+
+def _latest_from_row(row: Dict[str, Any],
+                     headers: Sequence[str]) -> Optional[float]:
+    """Most recent numeric cell of a row, skipping the label column and TTM."""
+    keys = [h for h in headers[1:] if h in row]
+    for key in reversed(keys):
+        if "ttm" in str(key).lower():
+            continue
+        value = to_number(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def contingent_liabilities_label_probe(html: str) -> List[str]:
+    """Find candidate contingent-liability labels in a LOGGED-IN page.
+
+    Run this once with your session cookie to learn the exact printed label,
+    then either keep the tolerant regex or hard-code the exact string:
+
+        from blue_engine.screener.client.screener_client import ScreenerClient
+        from blue_engine.screener.client import extractors as EX
+
+        c = ScreenerClient(cookies="sessionid=...")
+        html, err = c.fetch_html(
+            "https://www.screener.in/company/RELIANCE/consolidated/", "company")
+        print(EX.contingent_liabilities_label_probe(html))
+
+    Returns every distinct label whose text matches the tolerant pattern, so the
+    real one is visible rather than guessed. Empty list on an anonymous page -
+    which is itself the proof that the row is gated.
+    """
+    from .parser import parse_html
+
+    root = parse_html(html)
+    found: List[str] = []
+
+    def _note(text: str) -> None:
+        clean = " ".join(str(text or "").split())
+        if clean and _CONTINGENT_RE.search(clean) and clean not in found:
+            found.append(clean)
+
+    for table in root.select("table"):
+        sec = table.find_parent("section")
+        sec_id = (sec.get("id") if sec else "") or "?"
+        for tr in table.select("tr"):
+            first = tr.select_one("td, th")
+            if first is not None:
+                label = " ".join(first.get_text().split())
+                if _CONTINGENT_RE.search(label):
+                    _note(f"[section#{sec_id}] {label}")
+        for th in table.select("th"):
+            _note(f"[section#{sec_id}] {th.get_text()}")
+
+    return found

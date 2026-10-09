@@ -367,6 +367,24 @@ class TestBundle:
         assert "intangibles" in blob
         assert "cash" in blob
 
+    def test_bundle_marks_contingent_as_gated_when_absent(self):
+        """On an anonymous fetch the row is GATED, not absent.
+
+        Reporting a bare None would let a caller read "we could not see it" as
+        "the company has none" - the one misreading that costs money.
+        """
+        bundle = EX.extraction_bundle(_company())
+        assert bundle["contingent_liabilities"] is None
+        assert "not-visible" in bundle["contingent_source"]
+        assert "LOGGED-IN" in " ".join(bundle["unavailable"])
+
+    def test_bundle_reports_source_when_present(self):
+        company = _company()
+        company["contingent_liabilities"] = "1,234"
+        bundle = EX.extraction_bundle(company)
+        assert bundle["contingent_liabilities"] == pytest.approx(1234.0)
+        assert bundle["contingent_source"] == "screener:logged-in-ratios"
+
     def test_bundle_never_raises_on_an_empty_company(self):
         bundle = EX.extraction_bundle({})
         assert isinstance(bundle, dict)
@@ -420,3 +438,156 @@ class TestAgainstRealPage:
         # And the '+'-suffixed signed rows resolve too.
         assert snap["fixed_assets"] is not None
         assert snap["other_assets"] is not None
+
+
+# --------------------------------------------------------------------------- #
+# Contingent liabilities (logged-in only)
+# --------------------------------------------------------------------------- #
+class TestContingentLiabilities:
+    """The row is served only to a logged-in screener.in session.
+
+    Verified: four greps of the anonymous page across RELIANCE, ITC and
+    KPITTECH found zero hits for 'contingent', 'Cont. Liab' and ten other
+    spellings - the substring 'cont' does not appear anywhere on the page. So
+    matching here is deliberately tolerant, unlike every other label in the
+    module, because the exact label cannot be observed anonymously.
+    """
+
+    def test_returns_none_on_an_anonymous_page(self):
+        """Expected outcome - and NOT to be read as 'the company has none'."""
+        assert EX.contingent_liabilities(_company()) is None
+
+    @pytest.mark.parametrize("label", [
+        "Contingent Liabilities",
+        "Contingent Liab.",
+        "Cont. Liab",
+        "Cont Liab",
+        "Cont.Liab",
+        "contingent liabilities",
+    ])
+    def test_matches_every_plausible_abbreviation(self, label):
+        company = _company()
+        company["ratios"] = _table({label: ["1,00,000", "1,20,000", "1,34,567"]})
+        assert EX.contingent_liabilities(company) == pytest.approx(134567.0)
+
+    def test_reads_the_latest_period(self):
+        company = _company()
+        company["balance_sheet"] = _table({
+            "Cont. Liab": ["10,000", "20,000", "34,567"],
+        })
+        assert EX.contingent_liabilities(company) == pytest.approx(34567.0)
+
+    def test_accepts_a_preparsed_key(self):
+        company = _company()
+        company["contingent_liabilities"] = "5,000 Cr."
+        assert EX.contingent_liabilities(company) == pytest.approx(5000.0)
+
+    def test_unparseable_value_is_rejected_not_zeroed(self):
+        """A label whose value will not parse must not become 0.
+
+        Returning 0 would tell EPV 'there is no contingent liability' when the
+        truth is 'the figure could not be read'.
+        """
+        company = _company()
+        company["ratios"] = _table({"Cont. Liab": ["-", "N/A", "n/a"]})
+        assert EX.contingent_liabilities(company) is None
+
+    def test_negative_value_is_rejected(self):
+        company = _company()
+        company["ratios"] = _table({"Cont. Liab": ["-5,000"]})
+        assert EX.contingent_liabilities(company) is None
+
+    def test_does_not_false_positive_on_unrelated_cont_rows(self):
+        """Tolerance must not become a catch-all.
+
+        Real page rows that contain 'cont' but are NOT contingent liabilities.
+        """
+        company = _company()
+        company["ratios"] = _table({
+            "Contribution Margin": ["40"],
+            "Contract Assets": ["100"],
+            "Control Premium": ["5"],
+        })
+        assert EX.contingent_liabilities(company) is None
+
+    def test_probe_returns_empty_on_an_anonymous_page(self):
+        """The probe finding nothing IS the proof the row is gated."""
+        path = (Path(__file__).resolve().parent / "fixtures" / "screener"
+                / "company_reliance.html")
+        if not path.is_file():
+            pytest.skip("fixture missing")
+        html = path.read_text(encoding="utf-8")
+        assert EX.contingent_liabilities_label_probe(html) == []
+
+    def test_probe_finds_the_label_when_present(self):
+        html = """
+        <section id="ratios"><table>
+          <tr><td>Debtor Days</td><td>40</td></tr>
+          <tr><td>Cont. Liab</td><td>1,34,567</td></tr>
+        </table></section>
+        """
+        found = EX.contingent_liabilities_label_probe(html)
+        assert found, "probe must surface the real label"
+        assert any("Cont" in f for f in found)
+
+
+class TestContingentInValuation:
+    """How the valuation treats a gated vs a measured contingent liability."""
+
+    def test_absent_row_is_zero_with_an_honest_assumption(self):
+        from blue_engine.screener import valuations as V
+        inp = V.build_inputs(_company_for_valuation())
+        r = V.compute_epv(inp, "base")
+        assert r.debt_like == 0.0
+        a11 = [a for a in r.assumptions if a.code == "A11"]
+        assert a11, "the 0 default must be declared"
+        assert "not visible" in a11[0].text.lower() or \
+               "NOT 'the company has none'" in a11[0].text
+
+    def test_measured_row_is_deducted(self):
+        from blue_engine.screener import valuations as V
+        company = _company_for_valuation()
+        company["contingent_liabilities"] = "50,000"
+        inp = V.build_inputs(company)
+        r = V.compute_epv(inp, "base")
+        assert r.debt_like == pytest.approx(50000.0)
+        assert any(a.code == "A11b" for a in r.assumptions)
+
+
+def _company_for_valuation():
+    """A minimal complete company for the valuation-level tests above.
+
+    Uses the 6-column header so six values per row are in range - the shared
+    ``_table`` default only has three period columns.
+    """
+    headers = ["", "Mar 2021", "Mar 2022", "Mar 2023", "Mar 2024",
+               "Mar 2025", "TTM"]
+
+    def t(rows):
+        return _table(rows, headers=headers)
+
+    return {
+        "top_ratios": [
+            {"id": "current-price", "name": "Current Price", "value": "500"},
+            {"id": "market-cap", "name": "Market Cap", "value": "50,000 Cr."},
+        ],
+        "profit_loss": t({
+            "Sales": ["1,00,000"] * 6,
+            "Operating Profit": ["15,000"] * 6,
+            "OPM %": ["15"] * 6,
+            "Depreciation": ["5,000"] * 6,
+            "Tax %": ["25"] * 6,
+            "Net Profit": ["7,500"] * 6,
+            "EPS in Rs": ["15"] * 6,
+        }),
+        "balance_sheet": t({
+            "Equity Capital": ["100"] * 6,
+            "Reserves": ["9,900"] * 6,
+            "Borrowings +": ["2,000"] * 6,
+        }),
+        "cash_flow": t({
+            "Cash from Operating Activity +": ["10,000"] * 6,
+            "Free Cash Flow": ["6,000"] * 6,
+        }),
+        "ratios": t({"Working Capital Days": ["30"] * 6}),
+    }

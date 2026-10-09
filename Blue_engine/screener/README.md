@@ -549,6 +549,7 @@ EX.balance_sheet_balances(company)       # does the parsed page balance?
 EX.market_snapshot(company)              # price, cap, implied share counts
 EX.net_working_assets(company)           # inventory/receivables from the ratios
 EX.statement_years(company)              # how many annual columns exist
+EX.contingent_liabilities(company)       # LOGGED-IN session only, else None
 ```
 
 ### What the real page actually gives you
@@ -621,10 +622,74 @@ boundary instead of assuming a missing key is a bug:
 | cash & equivalents | folded into `Other Assets +`, no separate line |
 | minority interest | no line |
 | intangibles / goodwill | no line |
-| contingent liabilities | annual-report PDF only |
+| contingent liabilities | **served only to a logged-in session** |
 
 Guessing a split of `Other Assets +` would put a fabricated number into a
 valuation, which is the one thing this subsystem refuses to do.
+
+### Contingent liabilities: logged-in only
+
+The row is **not served to an anonymous request**. Verified by grepping the
+anonymous page for `contingent`, `Cont. Liab`, `Cont Liab`, `Cont.Liab`,
+`Contingent Liab`, `commitments` and ten other spellings across RELIANCE, ITC and
+KPITTECH: **zero hits for every one of them**, and the substring `cont` does not
+appear anywhere on the page. The `section#insights` tab exists but its values are
+masked (`x,xxx`, *"Log in to view insights"*).
+
+Because the exact label **cannot be observed anonymously**, matching here is
+deliberately **tolerant** (a regex over the abbreviation space) rather than
+exact — unlike every other label in the module. An exact match would be a guess
+too, just a different one. Two guards replace the certainty exact matching gives:
+
+1. the match must be a **row label** or a header, not any stray occurrence; and
+2. the value must parse as a plausible **non-negative** amount — an unparseable
+   cell is rejected rather than returned as 0.
+
+#### To enable it
+
+`ScreenerClient` already supports session cookies (built for private screens):
+
+```python
+c = ScreenerClient(cookies="sessionid=YOUR_SESSION_ID")
+resp = c.get_company("RELIANCE")        # now includes the logged-in rows
+```
+
+Or in `input/screener_engine.json`:
+
+```json
+{ "cookies": "sessionid=..." }
+```
+
+#### To learn the exact label (one-time)
+
+Run the probe once with your session and it prints the real printed label, so you
+can replace the tolerant regex with an exact string:
+
+```python
+from blue_engine.screener.client.screener_client import ScreenerClient
+from blue_engine.screener.client import extractors as EX
+
+c = ScreenerClient(cookies="sessionid=...")
+html, err = c.fetch_html(
+    "https://www.screener.in/company/RELIANCE/consolidated/", "company")
+print(EX.contingent_liabilities_label_probe(html))
+```
+
+On an anonymous page the probe returns `[]` — which is itself the proof the row
+is gated.
+
+#### **`None` does NOT mean "the company has none"**
+
+This is the one misreading that costs money. `extraction_bundle()` therefore
+returns `contingent_source`, which distinguishes the two cases:
+
+| value | meaning |
+|---|---|
+| `"screener:logged-in-ratios"` | measured from a logged-in page |
+| `"not-visible (...)"` | the row is gated — fetch with cookies, or verify by hand |
+
+When present, EPV deducts it as a debt-like liability (ASSUMPTION `A11b`). When
+absent, `A11` records that the row was **not visible**, not that it was zero.
 
 ## Tests
 
@@ -634,7 +699,7 @@ python -m pytest Blue_engine\tests\test_valuations.py -q
 ```
 
 
-**189 tests, all passing** (47 extractor + 57 valuation + 85 screener). They are
+**207 tests, all passing** (65 extractor + 57 valuation + 85 screener). They are
 fully offline: pure-function tests plus a `ScreenerClient` driven against saved
 HTML via a monkeypatched session.
 

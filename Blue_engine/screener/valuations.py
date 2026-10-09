@@ -520,6 +520,18 @@ def build_inputs(company: Dict[str, Any],
     except Exception as exc:  # noqa: BLE001 - an extractor must never break a build
         inp.notes.append(f"capex extraction failed: {type(exc).__name__}: {exc}")
 
+    # ---- contingent liabilities (LOGGED-IN session only) ------------------ #
+    # Populated only when the page was fetched with a session cookie. On an
+    # anonymous fetch this stays None, which is the expected outcome and is
+    # reported as such - ASSUMPTION A11 covers the "we could not see it" case.
+    try:
+        from .client.extractors import contingent_liabilities
+        inp.contingent_liabilities = contingent_liabilities(company)
+    except Exception as exc:  # noqa: BLE001
+        inp.notes.append(
+            f"contingent liabilities extraction failed: "
+            f"{type(exc).__name__}: {exc}")
+
     # ---- market ---------------------------------------------------------- #
     inp.market_price = to_number(_first_value(top, "current_price"))
     inp.market_cap = to_number(_first_value(top, "market_cap"))
@@ -994,12 +1006,23 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
     # Debt-like liabilities: prefer disclosed contingent liabilities.
     if inp.contingent_liabilities is not None:
         res.debt_like = inp.contingent_liabilities
+        res.assumptions.append(Assumption(
+            "A11b",
+            f"contingent liabilities {inp.contingent_liabilities:,.0f} Cr "
+            f"deducted as debt-like. Source: "
+            f"{inp.source_of('contingent_liabilities')} (a logged-in "
+            f"screener.in session or a provider that supplied the row).",
+            "medium - a real off-balance-sheet claim, now measured"))
     else:
         res.debt_like = 0.0
         res.assumptions.append(Assumption(
-            "A11", "contingent liabilities not disclosed in the summary tables; "
-                   "taken as 0. EPV therefore ignores off-balance-sheet claims.",
-            "medium"))
+            "A11",
+            "contingent liabilities taken as 0. On an ANONYMOUS fetch this row "
+            "is not served at all - it is gated behind a screener.in login, so "
+            "its absence means 'not visible', NOT 'the company has none'. "
+            "EPV therefore ignores off-balance-sheet claims unless the page is "
+            "fetched with cookies=. Verify by hand for any name you act on.",
+            "high"))
 
     res.equity_value = (res.enterprise_value
                         + res.excess_cash
