@@ -14,6 +14,7 @@ Pages
     economic       Page 5: Macro regime engine (gauges, signals, history)
     infrastructure Page 6: System health and raw logs
     ml_models      Page 7: Offline ML scoreboard (fold metrics, deflated Sharpe)
+    screener       Page 8: Fundamental screener (market cap, debt/equity, universe)
 
 Design notes
 ------------
@@ -39,4 +40,5 @@ __all__ = [
     "economic",
     "infrastructure",
     "ml_models",
+    "screener",
 ]

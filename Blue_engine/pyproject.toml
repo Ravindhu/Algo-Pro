@@ -31,6 +31,13 @@ quant = [
     "statsmodels>=0.14",
     "requests>=2.31",
 ]
+# Screener engine: HTML parsing for the screener-india port. `requests` already
+# comes with the quant extra; beautifulsoup4 + lxml are the parser stack.
+screener = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+]
 # Opt-in LLM text scoring (M7). Not required - the lexical fallback always runs.
 llm = [
     "requests>=2.31",
@@ -58,6 +65,8 @@ packages = [
     "blue_engine.economics.models",
     "blue_engine.economics.nlp",
     "blue_engine.market",
+    "blue_engine.screener",
+    "blue_engine.screener.client",
     "blue_engine.portfolio",
     "blue_engine.portfolio.providers",
     "blue_engine.portfolio.risk",
@@ -80,6 +89,8 @@ blue_engine = "."
 "blue_engine.economics.models" = "economics/models"
 "blue_engine.economics.nlp" = "economics/nlp"
 "blue_engine.market" = "market"
+"blue_engine.screener" = "screener"
+"blue_engine.screener.client" = "screener/client"
 "blue_engine.portfolio" = "portfolio"
 "blue_engine.portfolio.providers" = "portfolio/providers"
 "blue_engine.portfolio.risk" = "portfolio/risk"

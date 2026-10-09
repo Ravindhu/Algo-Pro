@@ -1,5 +1,5 @@
 # My Trading System — SOP
-_Updated: 2026-10-08_
+_Updated: 2026-10-09_
 
 ## 1. Environment
 
@@ -73,6 +73,41 @@ Showing only the mode would put a red "LIVE - REAL MONEY" banner over simulated 
 - Writes target the nested `pov` block when one exists (the block the reader prefers) — otherwise the value is a silent no-op.
 - Shared kit: `Blue_engine/dashboard/ui/` (kpi, panel, table, log_view, inputs, mode, provider). Old hand-written theme CSS removed from `pages/theme.py` (now a shim).
 - Regression test: `Temp\Staging Workspace\test_dmc_migration.py` (25 checks — clamping, atomic write, page contract).
+
+## 4b. Screener engine (fundamental universe) - added 2026-10-09
+Location: `Blue_engine/screener/`. Read-only against screener.in. **No order path.**
+Screens the Indian universe on fundamentals before Alpha scores it:
+```
+1. market cap  >  200 Cr
+2. debt/equity <  1     (banks/NBFCs/insurers excluded - D/E is not solvency for a lender)
+```
+```powershell
+# screen an explicit list (the only source that can derive debt/equity)
+python -m blue_engine.screener.screener_engine --symbols RELIANCE,TCS,INFY
+# sweep a sector and save for the Dashboard Screener page (/screener)
+python -m blue_engine.screener.screener_engine --source sector --sectors IN02 --save
+```
+- Vendored like OpenAlgo: `screener/vendor/screener-india/` is a **pristine upstream clone**
+  (gitignored, never hand-edited). The Python port in `screener/client/` is what runs;
+  Node.js is NOT installed and NOT needed. Check drift with
+  `python Blue_engine\screener\_vendor_pin.py --check`.
+- Extra deps (already installed): `beautifulsoup4`, `lxml`. Declared in the
+  `screener` extra of `Blue_engine/pyproject.toml`.
+- **`debt_equity` is DERIVED, not scraped.** screener.in publishes no debt/equity cell on
+  the public company page; it is computed as `Borrowings / (Equity Capital + Reserves)`
+  from the balance sheet's latest period. Returns `None` (never 0) on a missing input or
+  equity <= 0.
+- **A missing metric FAILS its rule, it never passes.** `-` and blank cells mean `None`,
+  not `0.0`. A company that has not reported borrowings would otherwise show D/E 0.0 and
+  sail through `< 1`.
+- Row labels differ per company: ITC uses `Borrowings +`, HDFCBANK uses `Borrowing`
+  (singular). Match the STEM `borrowing`. This was a real bug found on the first live run.
+- Tests: `python -m pytest Blue_engine\tests\test_screener_engine.py -q` (**85 passed**).
+  Fully offline (saved HTML fixtures + monkeypatched session). Because `blue_engine`
+  imports the heavy kernel, an isolated runner is provided:
+  `python Temp\run_screener_tests.py tests\test_screener_engine.py -q` (~7 s).
+- Verified live 2026-10-09 over RELIANCE/TCS/INFY/ITC/HDFCBANK: 4 selected,
+  1 rejected (HDFCBANK at D/E 1.004), 0 missing-data.
 
 ## 5. Known Windows pitfalls
 

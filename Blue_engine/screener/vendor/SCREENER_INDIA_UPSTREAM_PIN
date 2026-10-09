@@ -1,0 +1,24 @@
+# screener-india upstream fingerprint pin
+#
+# Upstream : https://github.com/sahiljani/screener-india
+# Vendored : Blue_engine/screener/vendor/screener-india  (PRISTINE clone)
+# Pinned by: Blue_engine/screener/_vendor_pin.py
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# Mirrors my-trading-system/openalgo.UPSTREAM_PIN. The vendored clone must
+# stay PRISTINE (never hand-edited) so `git pull` / re-clone never conflicts.
+# Our Python port (Blue_engine/screener/client/*.py) is the only code we own
+# and the only code we ever change. The vendor tree is reference + provenance.
+#
+# To upgrade:
+#   python Blue_engine/screener/_vendor_pin.py --update-pin
+# which pulls the upstream default branch and rewrites the commit below.
+#
+# Commit   : eb4df7f0772cfd372b13d0c670adeb7fcb4940eb
+# Tag      : v1.0.0
+# Cloned   : 2026-10-09
+# License  : MIT (upstream) - see vendor/screener-india/LICENSE
+# Deps     : NONE of this tree runs at runtime. It is TypeScript/Node and is
+#            kept for provenance only. The production path is the Python port.
+eb4df7f0772cfd372b13d0c670adeb7fcb4940eb

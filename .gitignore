@@ -55,6 +55,16 @@ openalgo_new/
 openalgo_fresh/
 openalgo_OLD_*/
 openalgo_retired_*/
+# Same rule for the vendored screener-india clone: tracking it would duplicate
+# the upstream TypeScript and fight `git pull`. It is NOT a runtime dependency
+# either - Blue_engine/screener/client/ is the Python port that actually runs.
+# Only the clone plus its pin file are kept in-tree; _vendor_pin.py
+# --update-pin refreshes it. See Blue_engine/screener/README.md.
+Blue_engine/screener/vendor/screener-india/
+# Screener RUNTIME artifacts: the page cache is a local scraper cache, and
+# last_screen.json is a per-run snapshot. Neither belongs in history.
+Blue_engine/screener/cache/
+Blue_engine/screener/last_screen.json
 
 # -----------------------------------------------------------------------------
 # RETIRED CODE AND BACKUPS — reference only, large, not needed on the VPS

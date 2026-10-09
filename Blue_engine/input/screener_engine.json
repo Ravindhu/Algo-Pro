@@ -1,0 +1,118 @@
+{
+  "_comment": "Screener engine config. Read-only fundamental screening of Indian stocks via the vendored screener-india port. THIS ENGINE NEVER PLACES AN ORDER.",
+  "_doc": "See Blue_engine/screener/README.md. Every key below is optional; the code defaults match these values.",
+
+  "screener": {
+    "enabled": true,
+
+    "_source_help": [
+      "source='sector'  -> sweep sector tables (fast, ~1 request per 50 names)",
+      "source='symbols' -> fetch one company page per symbol (slow, most accurate)",
+      "source='screen'  -> read a saved public screen on screener.in"
+    ],
+    "source": "symbols",
+
+    "_symbols_help": "Used when source='symbols'. These two are the acceptance smoke test.",
+    "symbols": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ITC"],
+
+    "_sectors_help": "Used when source='sector'. Slugs come from client.list_sectors(). NIFTY-500-ish root is IN02.",
+    "sectors": ["IN02"],
+
+    "_screen_help": "Used when source='screen'. Find ids with list_screens() in the dashboard or the CLI.",
+    "screen_id": null,
+    "screen_slug": null,
+
+    "_caps_help": "Polite limits. The scraper is bounded on purpose - see polite_limits() in the engine output.",
+    "max_symbols": 250,
+    "max_pages": 40,
+    "include_all_pages": true,
+
+    "_enrich_help": "Per-symbol company-page fetch to fill metrics missing from the sector table. Off by default (it multiplies request count by N).",
+    "enrich": false,
+    "enrich_limit": 250,
+
+    "_transport_help": "min_interval_ms is twice the upstream npm default (200ms). Raise it if you ever see HTTP 429.",
+    "min_interval_ms": 400,
+    "cache_ttl_ms": 21600000,
+    "fetch_timeout_ms": 20000,
+    "max_retries": 2,
+    "cache_dir": null,
+    "base_url": "https://www.screener.in",
+
+    "_auth_help": "Only needed for PRIVATE saved screens, and only a limited capability. 'sessionid=<value>' copied from a logged-in browser session.",
+    "cookies": "",
+
+    "_proxy_help": "Optional 'http://user:pass@host:port' or socks5:// URL.",
+    "proxy_url": "",
+
+    "verify_tls": true,
+
+    "screen": {
+      "name": "mktcap200_de_lt1",
+      "require_all": true,
+      "min_rules_passed": null,
+
+      "_rules_help": "TWO requested rules. Strict inequalities: exactly 200 Cr or exactly D/E 1.0 is EXCLUDED.",
+      "rules": [
+        {
+          "metric": "market_cap",
+          "op": ">",
+          "threshold": 200,
+          "unit": "cr",
+          "label": "Market cap > 200 Cr",
+          "on_missing": "fail"
+        },
+        {
+          "metric": "debt_equity",
+          "op": "<",
+          "threshold": 1,
+          "unit": "ratio",
+          "label": "Debt/Equity < 1",
+          "on_missing": "fail"
+        }
+      ],
+
+      "_on_missing_help": [
+        "fail    -> metric missing means the name is EXCLUDED (default, safest)",
+        "unknown -> excluded, but tagged as a data problem rather than a violation",
+        "pass    -> the rule is ignored for this name (use with care)"
+      ],
+
+      "_exclude_sectors_help": "Banks/NBFCs/insurers report debt/equity that is not a solvency measure (borrowings ARE their inventory). Excluded from the debt rule by default.",
+      "exclude_sectors": ["bank", "finance", "insurance", "nbfc"],
+
+      "_exclude_symbols_help": "Hard block list, applied before any rule.",
+      "exclude_symbols": []
+    }
+  },
+
+  "_example_provider_use": {
+    "_comment": "The pure pipeline path: hand Alpha a pre-built universe instead of scraping. The screener engine accepts the same shape via context['screener_inputs'] or a provider_ref.",
+    "screener_inputs": {
+      "candidates": [
+        {
+          "symbol": "INFY",
+          "name": "Infosys",
+          "sector": "IT Software",
+          "metrics": {
+            "market_cap": "6,20,000 Cr.",
+            "debt_equity": "0.09",
+            "pe": "24.8",
+            "roe": "32.6%",
+            "dividend_yield": "2.1%"
+          }
+        },
+        {
+          "symbol": "BANKX",
+          "name": "Some Bank",
+          "sector": "Banks",
+          "metrics": {
+            "market_cap": "5,00,000 Cr.",
+            "debt_equity": "8.4",
+            "pe": "18.0"
+          }
+        }
+      ]
+    }
+  }
+}
