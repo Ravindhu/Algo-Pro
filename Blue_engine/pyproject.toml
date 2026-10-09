@@ -38,6 +38,13 @@ screener = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
 ]
+# OPTIONAL yfinance fallback for the screener's valuation layer. Used only to
+# fill inputs screener.in does not publish (cash, DILUTED shares, minority
+# interest, inventory/receivables, intangibles, capex). The engine degrades to
+# screener.in-only values when this is absent - see screener/yf_fallback.py.
+screener-fallback = [
+    "yfinance>=0.2.40",
+]
 # Opt-in LLM text scoring (M7). Not required - the lexical fallback always runs.
 llm = [
     "requests>=2.31",

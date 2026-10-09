@@ -85,7 +85,6 @@ import logging
 import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
 from .client.numbers import to_number
 
 logger = logging.getLogger(__name__)
@@ -352,6 +351,10 @@ class FinancialInputs:
     inventory_days: Optional[float] = None
     debtor_days: Optional[float] = None
     days_payable: Optional[float] = None
+    #: REAL total capex, when a fallback provider could supply it. Preferred
+    #: over the Depreciation x multiple proxy (ASSUMPTION A1) when present -
+    #: it is a measured figure rather than a judgement.
+    capex_actual: Optional[float] = None
 
     # --- market --------------------------------------------------------- #
     market_price: Optional[float] = None
@@ -362,6 +365,15 @@ class FinancialInputs:
     # --- provenance ----------------------------------------------------- #
     missing: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    #: ``field name -> "screener" | "yfinance"`` for every input that a fallback
+    #: provider actually filled. Empty for a pure screener.in run. This is what
+    #: lets the output say WHICH SOURCE each number came from - mixing two
+    #: vendors silently is how a valuation becomes unreproducible.
+    filled_by: Dict[str, str] = field(default_factory=dict)
+
+    def source_of(self, field_name: str) -> str:
+        """Which provider supplied this input (default: the primary)."""
+        return self.filled_by.get(field_name, "screener")
 
     def require(self, **fields: Any) -> List[str]:
         """Record which of the named fields are None. Returns the missing names."""
@@ -751,13 +763,81 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
     res.depreciation = dep
 
     # ---- 7. maintenance capex ------------------------------------------ #
+    #
+    # THE HARDEST CALL IN THIS MODULE (measured on live RELIANCE data).
+    #
+    # A fallback provider can supply TOTAL capex (for Reliance: 1,22,916 Cr).
+    # But EPV is a NO-GROWTH model, and total capex includes growth capex - 5G
+    # rollout, new energy, retail expansion. Charging all of it against
+    # normalised earnings penalises a company for investing, which is the
+    # opposite of what EPV is meant to measure.
+    #
+    # Measured effect of using total capex as maintenance capex on Reliance:
+    #     maintenance capex  50,832 -> 1,22,916
+    #     EPV per share        872.42 -> 293.13   (-66%)
+    # That is not extra precision; it is a different (and wrong) model.
+    #
+    # So the measured figure is used ONLY as an UPPER BOUND on the
+    # depreciation-anchored proxy. A mature company whose capex does not exceed
+    # depreciation gets its real number; a company investing hard keeps the
+    # (lower) depreciation proxy and the size of the gap is reported instead.
     capex_mult = float(scen["maintenance_capex_multiple"])
-    res.maintenance_capex = dep * capex_mult
-    res.assumptions.append(Assumption(
-        "A1",
-        f"maintenance capex proxied as Depreciation x {capex_mult:.2f}. "
-        f"screener.in does not split maintenance from growth capex.",
-        "high - this is the largest single judgement in EPV"))
+    dep_proxy = dep * capex_mult
+
+    if inp.capex_actual is not None and inp.capex_actual > 0:
+        if inp.capex_actual <= dep_proxy:
+            # A genuine maintenance-level capex: use the measured figure. This
+            # is the case where the fallback strictly improves the estimate.
+            res.maintenance_capex = inp.capex_actual
+            res.assumptions.append(Assumption(
+                "A1b",
+                f"maintenance capex taken from a MEASURED total capex figure "
+                f"({inp.capex_actual:,.0f} Cr, source: "
+                f"{inp.source_of('capex_actual')}), which is at or below the "
+                f"depreciation-anchored estimate ({dep_proxy:,.0f} Cr) - so the "
+                f"company is not investing above its asset base and the "
+                f"measured figure is the better one.",
+                "low - measured, and within the maintenance band"))
+        else:
+            # Capex far exceeds depreciation: there is growth capex in there and
+            # we cannot separate it. Keep the depreciation proxy and report the
+            # headroom so a reader can see the judgement. (config can opt into
+            # the full amount, but it is OFF by default because it silently
+            # converts EPV into a growth-penalising model.)
+            use_full = bool(cfg.get("trust_total_capex_as_maintenance", False))
+            if use_full:
+                res.maintenance_capex = inp.capex_actual
+                res.assumptions.append(Assumption(
+                    "A1c",
+                    f"maintenance capex taken as FULL total capex "
+                    f"({inp.capex_actual:,.0f} Cr) by explicit config. This "
+                    f"includes growth capex and makes EPV strictly more "
+                    f"conservative than the depreciation proxy "
+                    f"({dep_proxy:,.0f} Cr).",
+                    "high - deliberate, but penalises growth investment"))
+            else:
+                res.maintenance_capex = dep_proxy
+                res.assumptions.append(Assumption(
+                    "A1",
+                    f"maintenance capex kept as Depreciation x {capex_mult:.2f} "
+                    f"({dep_proxy:,.0f} Cr). A measured total capex of "
+                    f"{inp.capex_actual:,.0f} Cr is available from "
+                    f"{inp.source_of('capex_actual')} but is "
+                    f"{inp.capex_actual / dep_proxy:.2f}x depreciation, so it "
+                    f"contains growth capex that cannot be separated. Using it "
+                    f"as maintenance capex would cut EPV by roughly "
+                    f"{1 - 1 / (inp.capex_actual / dep_proxy):.0%} and turn this "
+                    f"into a growth-penalising model. Set "
+                    f"trust_total_capex_as_maintenance=true to override.",
+                    "high - the largest single judgement in EPV"))
+    else:
+        res.maintenance_capex = dep_proxy
+        res.assumptions.append(Assumption(
+            "A1",
+            f"maintenance capex proxied as Depreciation x {capex_mult:.2f}. "
+            f"screener.in does not split maintenance from growth capex, and no "
+            f"fallback provider supplied a measured capex figure.",
+            "high - this is the largest single judgement in EPV"))
 
     # ---- 8. maintenance working capital --------------------------------- #
     wc_days = _safe_median([w for w in inp.working_capital_days_series
@@ -820,9 +900,9 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
     non_op = inp.non_operating_investments or 0.0
     if cash is None:
         # screener.in does not report cash separately (it sits inside
-        # "Other Assets +"). We do NOT guess it. We record the gap and, when the
-        # caller allows it, treat un-invested "Other Assets" as the pool from
-        # which cash would be drawn - only if explicitly enabled.
+        # "Other Assets +"). A fallback provider may have supplied it; if not,
+        # we do NOT guess. Recorded as a named gap, and the caller can opt into
+        # treating un-invested "Other Assets" as the pool - only explicitly.
         if cfg.get("treat_other_assets_as_cash", False) and inp.other_assets:
             floor = res.normalized_revenue * float(cfg.get(
                 "operating_cash_floor_pct", 0.02))
@@ -845,14 +925,30 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
         floor = res.normalized_revenue * float(cfg.get(
             "operating_cash_floor_pct", 0.02))
         res.excess_cash = max(0.0, cash - floor)
+        if inp.source_of("cash_and_equivalents") == "yfinance":
+            res.assumptions.append(Assumption(
+                "A2b",
+                f"cash {cash:,.0f} Cr supplied by a FALLBACK provider "
+                f"(yfinance), not by screener.in; less a "
+                f"{float(cfg.get('operating_cash_floor_pct', 0.02)):.0%} "
+                f"operating minimum on revenue.",
+                "medium - real cash, different vendor basis"))
 
     res.non_operating_investments = non_op
     res.minority_interest = inp.minority_interest or 0.0
     if inp.minority_interest is None:
         res.assumptions.append(Assumption(
-            "A10", "minority interest not reported by screener.in; taken as 0 "
+            "A10", "minority interest not reported by screener.in and not "
+                   "supplied by any fallback provider; taken as 0 "
                    "(understates the deduction, so EPV is slightly optimistic "
                    "for consolidating groups)", "medium"))
+    elif inp.source_of("minority_interest") == "yfinance":
+        res.assumptions.append(Assumption(
+            "A10b",
+            f"minority interest {inp.minority_interest:,.0f} Cr supplied by a "
+            f"FALLBACK provider (yfinance); screener.in does not publish it. "
+            f"Previously this deduction was 0.",
+            "medium - material improvement over the 0 default"))
 
     # Debt-like liabilities: prefer disclosed contingent liabilities.
     if inp.contingent_liabilities is not None:
@@ -1097,21 +1193,24 @@ def compute_canav(inp: FinancialInputs, scenario: str = "base",
     if inv is None or inv <= 0:
         res.inventory_haircut = 0.0
         res.assumptions.append(Assumption(
-            "B2", "inventory not separately reported (it sits inside 'Other "
-                  "Assets +') and could not be recovered from Inventory Days; "
-                  "no inventory haircut applied", "medium"))
+            "B2", "inventory not separately reported by screener.in and not "
+                  "recovered from Inventory Days; no inventory haircut applied",
+            "medium"))
     else:
         # Company-specific tilt: scale the scenario rate by how long the
         # inventory sits. <=60 days -> 0.6x, >=180 days -> 1.6x, linear between.
+        # When the balance is a MEASURED figure from a fallback provider the
+        # days value may be absent; the tilt then defaults to 1.0 (base rate).
         tilt = _days_tilt(inp.inventory_days, fast=60.0, slow=180.0,
                           low=0.6, high=1.6)
         effective = inv_rate * tilt
         res.inventory_haircut = -inv * effective
         adjusted += res.inventory_haircut
+        src = inp.source_of("inventory")
         res.assumptions.append(Assumption(
             "B2",
-            f"inventory {inv:,.0f} Cr (recovered from Inventory Days "
-            f"{_fmt_days(inp.inventory_days)}) written down "
+            f"inventory {inv:,.0f} Cr (source: {src}; "
+            f"days {_fmt_days(inp.inventory_days)}) written down "
             f"{effective:.1%} = {inv_rate:.1%} base x {tilt:.2f} tilt",
             "medium"))
 
@@ -1121,7 +1220,7 @@ def compute_canav(inp: FinancialInputs, scenario: str = "base",
     if recv is None or recv <= 0:
         res.receivable_haircut = 0.0
         res.assumptions.append(Assumption(
-            "B3", "receivables not separately reported and could not be "
+            "B3", "receivables not separately reported by screener.in and not "
                   "recovered from Debtor Days; no receivable haircut applied",
             "medium"))
     else:
@@ -1130,10 +1229,11 @@ def compute_canav(inp: FinancialInputs, scenario: str = "base",
         effective = recv_rate * tilt
         res.receivable_haircut = -recv * effective
         adjusted += res.receivable_haircut
+        src = inp.source_of("receivables")
         res.assumptions.append(Assumption(
             "B3",
-            f"receivables {recv:,.0f} Cr (recovered from Debtor Days "
-            f"{_fmt_days(inp.debtor_days)}) written down "
+            f"receivables {recv:,.0f} Cr (source: {src}; "
+            f"days {_fmt_days(inp.debtor_days)}) written down "
             f"{effective:.1%} = {recv_rate:.1%} base x {tilt:.2f} tilt",
             "medium"))
 
@@ -1142,18 +1242,52 @@ def compute_canav(inp: FinancialInputs, scenario: str = "base",
     if intang is None or intang <= 0:
         res.intangible_haircut = 0.0
         res.assumptions.append(Assumption(
-            "B4", "intangibles/goodwill not reported as a separate balance-sheet "
-                  "line by screener.in; no intangible haircut applied. If the "
-                  "company has material goodwill, CANAV is OVERSTATED.",
+            "B4", "intangibles/goodwill not reported as a separate line by "
+                  "screener.in and not supplied by any fallback provider; no "
+                  "intangible haircut applied. If the company has material "
+                  "goodwill, CANAV is OVERSTATED.",
             "high"))
     else:
-        res.intangible_haircut = -intang * float(scen["intangibles"])
-        adjusted += res.intangible_haircut
-        res.assumptions.append(Assumption(
-            "B4", f"intangibles/goodwill {intang:,.0f} Cr written down "
-                  f"{float(scen['intangibles']):.0%} - there is no conservative "
-                  f"case for counting goodwill as recoverable asset backing",
-            "high"))
+        # SANITY CAP (measured on live RELIANCE data). A fallback provider's
+        # "Goodwill And Other Intangible Assets" can include spectrum licences,
+        # brand and other long-lived rights that are NOT goodwill and are not
+        # worthless. Reliance came back at 4,19,107 Cr - 46% of shareholders'
+        # equity - and writing all of it off cut CANAV from 423 to 113, which is
+        # a haircut on the wrong thing.
+        #
+        # So the write-off is CAPPED at a share of shareholders' equity. Beyond
+        # that the figure is more likely to be a classification difference than
+        # recoverable-asset risk, and the excess is reported rather than silently
+        # destroying the valuation.
+        cap_pct = float(cfg.get("intangible_haircut_cap_pct", 0.25))
+        equity = inp.shareholders_equity or 0.0
+        cap = equity * cap_pct if equity > 0 else None
+
+        if cap is not None and intang > cap:
+            res.intangible_haircut = -cap
+            adjusted += res.intangible_haircut
+            res.assumptions.append(Assumption(
+                "B4c",
+                f"intangibles booked at {intang:,.0f} Cr "
+                f"({intang / equity:.0%} of shareholders' equity, source: "
+                f"{inp.source_of('intangibles')}) - too large to be goodwill "
+                f"alone and likely includes licences/brands that are not "
+                f"worthless. Write-off CAPPED at {cap_pct:.0%} of equity "
+                f"({cap:,.0f} Cr); the remaining {intang - cap:,.0f} Cr is "
+                f"carried. Set intangible_haircut_cap_pct=1.0 to write it all "
+                f"off.",
+                "medium - protects CANAV from a vendor classification difference"))
+        else:
+            res.intangible_haircut = -intang * float(scen["intangibles"])
+            adjusted += res.intangible_haircut
+            src = inp.source_of("intangibles")
+            res.assumptions.append(Assumption(
+                "B4" if src != "yfinance" else "B4b",
+                f"intangibles/goodwill {intang:,.0f} Cr (source: {src}) written "
+                f"down {float(scen['intangibles']):.0%} - there is no "
+                f"conservative case for counting goodwill as recoverable asset "
+                f"backing",
+                "high"))
 
     # ---- E. fixed-asset revaluation -------------------------------------- #
     fa = inp.fixed_assets
@@ -1287,6 +1421,10 @@ class Valuation:
     assumptions: List[Dict[str, str]] = field(default_factory=list)
     missing: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    #: ``field name -> "screener" | "yfinance"`` for every input a fallback
+    #: provider filled. Empty for a pure screener.in run. Mixing two vendors
+    #: silently is how a valuation becomes unreproducible, so it is surfaced.
+    filled_by: Dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -1305,6 +1443,7 @@ class Valuation:
             "assumptions": self.assumptions,
             "missing": self.missing,
             "notes": self.notes,
+            "filled_by": self.filled_by,
         }
 
     # -- convenience accessors ------------------------------------------- #
@@ -1345,6 +1484,11 @@ class Valuation:
         lines.append(f"  CLASSIFICATION: {self.classification}")
         if self.classification_reason:
             lines.append(f"    {self.classification_reason}")
+        if self.filled_by:
+            yf_fields = sorted(k for k, v in self.filled_by.items()
+                               if v == "yfinance")
+            lines.append(f"  fallback filled {len(yf_fields)} input(s) from "
+                         f"yfinance: {', '.join(yf_fields)}")
         if self.missing:
             lines.append(f"  missing inputs: {', '.join(self.missing)}")
         if self.notes:
@@ -1362,15 +1506,40 @@ def value_company(company: Dict[str, Any], *,
 
     ``company`` is the ``data`` dict from ``ScreenerClient.get_company``, so the
     caller keeps control of the fetch (and of caching). This function does no
-    I/O.
+    I/O unless a fallback provider is enabled in ``config``.
 
     The returned :class:`Valuation` always contains all six scenario keys; a
     scenario that could not be computed carries
     ``status="insufficient_data"`` and a ``reason``, never a fabricated number.
+
+    Fallback config keys:
+        use_yfinance_fallback            bool   - enable the yfinance gap-fill
+        fallback_provider                callable - your own filler
+        trust_total_capex_as_maintenance bool   - see ASSUMPTION A1c
+        intangible_haircut_cap_pct       float  - see ASSUMPTION B4c (default 0.25)
     """
     cfg = dict(config or {})
     inp = build_inputs(company, symbol=symbol, basis=basis, source_url=source_url,
                        normalisation_years=int(cfg.get("normalisation_years", 5)))
+
+    # ---- optional fallback: fill ONLY the gaps screener.in left ------------ #
+    # screener.in stays the PRIMARY source. A fallback provider may write into a
+    # field that is still None and nothing else - see yf_fallback.fill_missing_inputs
+    # for why overriding a reported figure would corrupt the screen's basis.
+    fallback = cfg.get("fallback_provider")          # callable or the string "yfinance"
+    use_yf = bool(cfg.get("use_yfinance_fallback", False))
+    if callable(fallback):
+        try:
+            fallback(inp)
+        except Exception as exc:  # noqa: BLE001 - a fallback must never break a valuation
+            inp.notes.append(f"fallback provider raised {type(exc).__name__}: {exc}")
+    elif use_yf or fallback == "yfinance":
+        try:
+            from . import yf_fallback
+            yf_fallback.fill_missing_inputs(inp)
+        except Exception as exc:  # noqa: BLE001
+            inp.notes.append(f"yfinance fallback unavailable: "
+                             f"{type(exc).__name__}: {exc}")
 
     val = Valuation(symbol=symbol or company.get("symbol", ""),
                     basis=basis, source_url=source_url,
@@ -1378,6 +1547,8 @@ def value_company(company: Dict[str, Any], *,
                     diluted_shares=inp.diluted_shares,
                     shares_are_diluted=inp.shares_are_diluted,
                     missing=list(inp.missing), notes=list(inp.notes))
+    #: field -> "screener" | "yfinance" for everything a fallback provider filled.
+    val.filled_by = dict(inp.filled_by)
 
     epv_results: Dict[str, EpvResult] = {}
     canav_results: Dict[str, CanavResult] = {}
@@ -1456,8 +1627,14 @@ def value_company(company: Dict[str, Any], *,
 # --------------------------------------------------------------------------- #
 def value_symbol(symbol: str, *, client: Any = None,
                  basis: str = "consolidated",
-                 config: Optional[Dict[str, Any]] = None) -> Valuation:
+                 config: Optional[Dict[str, Any]] = None,
+                 use_yfinance_fallback: bool = False) -> Valuation:
     """Fetch one company and value it. Convenience wrapper for the CLI.
+
+    Args:
+        use_yfinance_fallback: when True, gaps screener.in leaves are filled
+            from yfinance. screener.in stays primary - the fallback writes only
+            into fields the screener path left ``None``.
 
     Deliberately thin: fetching stays in :class:`ScreenerClient` so caching,
     throttling and retry are not duplicated here.
@@ -1472,9 +1649,13 @@ def value_symbol(symbol: str, *, client: Any = None,
                          basis=basis,
                          reason=f"fetch failed: {resp.error}")
 
+    cfg = dict(config or {})
+    if use_yfinance_fallback:
+        cfg["use_yfinance_fallback"] = True
+
     return value_company(resp.data, symbol=symbol.upper(), basis=basis,
                          source_url=(resp.meta.source_url if resp.meta else ""),
-                         config=config)
+                         config=cfg)
 
 
 __all__ = [

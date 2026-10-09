@@ -428,6 +428,88 @@ gap — never a silent zero. The full list is in `Valuation.assumptions`.
 | "Other Liabilities" | **not** deducted again — already inside equity via the accounting identity | B7 |
 | borrowings | **not** deducted again — screener.in equity is already net of debt | B8 |
 
+### yfinance fallback (opt-in)
+
+**screener.in is the primary source. yfinance fills ONLY the gaps it leaves.**
+
+```python
+from blue_engine.screener import value_symbol
+val = value_symbol("RELIANCE", use_yfinance_fallback=True)
+print(val.filled_by)     # {'diluted_shares': 'yfinance', 'minority_interest': 'yfinance', ...}
+```
+
+The fallback can write into a field **only if it is still `None`** — it never
+overrides a figure screener.in reported. Swapping a reported number for another
+vendor's version, even a "better" one, would silently change the screen's
+decisions, because the rules were calibrated on that basis.
+
+| gap core screener leaves | yfinance row | closes assumption |
+|---|---|---|
+| cash & equivalents | `Cash And Cash Equivalents` | A2 |
+| **diluted** share count | `Diluted Average Shares` | A3 |
+| minority interest | `Minority Interest` | A10 |
+| inventory / receivables | `Inventory`, `Accounts Receivable` | B2, B3 |
+| goodwill / intangibles | `Goodwill`, `Other Intangible Assets` | B4 |
+| capex | `Capital Expenditure` | A1 (see guard) |
+
+Still **not** available from either source: **contingent liabilities**.
+
+#### The unit trap (this is the dangerous one)
+
+screener.in reports in **crores**; yfinance reports in **absolute rupees and
+shares**. Verified against RELIANCE.NS:
+
+```
+yfinance Total Assets     21,781,400,000,000  = 2,178,140 Cr
+yfinance Diluted Shares   13,532,736,424       = 1,353.27 crore-shares
+screener.in implied shares                  1,352.97 crore-shares
+```
+
+Copying a yfinance amount in without dividing by `1e7` multiplies it by ten
+million — for the share count that silently divides every per-share figure by
+10 million. The first live run hit exactly this. Everything goes through
+`_to_crore()`, and a regression test pins it.
+
+#### Two guards the live run forced
+
+**`A1`/`A1b`/`A1c` — total capex is NOT maintenance capex.** yfinance gives total
+capex (Reliance: 1,22,916 Cr) which includes growth capex (5G, new energy,
+retail). Charging all of it against normalised earnings cut EPV from 872 to 293
+(−66%) — that is a different, growth-penalising model, not a better estimate. So
+the measured figure is used **only when it is at or below the
+depreciation-anchored proxy**; otherwise the proxy is kept and the headroom is
+reported. `trust_total_capex_as_maintenance=true` overrides deliberately.
+
+**`B4c` — a vendor's intangibles figure can be a classification difference.**
+Yahoo reported Reliance at 4,19,107 Cr of goodwill+intangibles = **46% of
+shareholders' equity**, which cannot be goodwill alone (it will include spectrum
+and other long-lived rights that are not worthless). Writing 100% of it off cut
+CANAV from 423 to 113 — a haircut on the wrong thing. The write-off is now
+**capped at 25% of equity** (`intangible_haircut_cap_pct`), and the excess is
+carried and reported.
+
+#### Measured effect on RELIANCE
+
+| | screener only | + yfinance | driver |
+|---|---|---|---|
+| EPV base | 872.42 | **826.04** (−5.3%) | real excess cash **+119,346** Cr, real minority interest **−181,836** Cr (both were 0) |
+| CANAV base | 422.97 | **255.55** | intangible cap (226,008 Cr) still dominates |
+| shares | 1,352.97 (basic) | 1,353.27 (**diluted**) | true diluted count |
+
+The EPV change is a **genuine improvement** — two real quantities that were
+previously zero. The CANAV change is **dominated by one unverifiable input**
+(Yahoo's intangible classification), which is why it is capped and flagged rather
+than trusted.
+
+> **yfinance is an unofficial Yahoo scraper** — the same reliability class as the
+> screener scraper, with no SLA. It is a fallback, never a dependency: if the
+> import fails, the network fails, or the fields are absent, the valuation
+> proceeds exactly as before and records why.
+
+> Its `Tax Rate For Calcs` field returned **0** for RELIANCE.NS (actual 22.4%),
+> so that field is never read; the rate is derived from `Tax Provision` /
+> `Pretax Income` instead.
+
 ### Disagreeing with a vendor is expected
 
 These are the standard total-debt-over-shareholders'-equity and EV-minus-debt

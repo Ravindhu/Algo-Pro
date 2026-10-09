@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 
 import pytest
 
@@ -768,3 +769,218 @@ class TestAgainstRealPage:
         assert inp.tax_rate_series
         # The tax series must be a PERCENTAGE (0-100), never crores.
         assert all(0 <= t <= 100 for t in inp.tax_rate_series)
+
+
+# --------------------------------------------------------------------------- #
+# yfinance fallback
+# --------------------------------------------------------------------------- #
+class TestYfinanceFallback:
+    """Contracts for the gap-fill provider.
+
+    These tests NEVER hit the network: ``fill_missing_inputs`` is driven with
+    hand-built frames, so the tests assert the MODULE's rules (never override,
+    unit conversion, sanity gates) rather than Yahoo's uptime.
+    """
+
+    class _Frame:
+        """Minimal stand-in for a yfinance statement DataFrame."""
+
+        def __init__(self, rows, columns=("2026-03-31",)):
+            self._rows = dict(rows)
+            self.columns = list(columns)
+            self.index = list(rows.keys())
+            self.empty = not rows
+
+        def loc(self, key, _col=None):
+            class _Row:
+                def __init__(self, idx, values):
+                    self.index = idx
+                    self._values = values
+
+                def __getitem__(self, k):
+                    return self._values[self.index.index(k)]
+
+            return _Row(self.columns, self._rows[key])
+
+    def _inputs(self):
+        return V.build_inputs(_company())
+
+    # ---- unit conversion: the 1e7 trap ------------------------------------ #
+    def test_to_crore_converts_absolute_to_crores(self):
+        from blue_engine.screener.yf_fallback import CRORE, _to_crore
+        assert CRORE == 1e7
+        assert _to_crore(13_532_736_424) == pytest.approx(1353.2736424)
+        assert _to_crore(None) is None
+
+    def test_diluted_shares_are_converted_to_crores(self):
+        """yfinance returns an ABSOLUTE count; the inputs are in crore-shares.
+
+        A missing conversion divides every per-share figure by 10 million.
+        This is the regression test for the first live run, where the fallback
+        wrote 13,532,736,424 shares instead of 1,353.27 crore-shares.
+        """
+        from blue_engine.screener import yf_fallback as YF
+        inp = self._inputs()
+        basic = inp.diluted_shares            # ~100 cr from market cap
+        absolute = basic * YF.CRORE           # what Yahoo actually returns
+        assert YF._to_crore(absolute) == pytest.approx(basic)
+        # And the unconverted value must NOT be accepted as a share count:
+        assert absolute > basic * 1000
+
+    def test_share_count_disagreement_keeps_the_screener_figure(self):
+        """If Yahoo's count conflicts badly with screener.in's, do not overwrite.
+
+        Conflicting counts mean one source is stale (a bonus/split), and the
+        screener figure is the one consistent with the price in the same inputs.
+        """
+        from blue_engine.screener import yf_fallback as YF
+        inp = self._inputs()
+        screener_count = inp.diluted_shares           # 100 cr
+        # A Yahoo count 3x larger -> outside the 0.80-1.20 acceptance band.
+        wildly_different = screener_count * 3.0
+        ratio = wildly_different / screener_count
+        assert not (0.80 <= ratio <= 1.20)
+        assert inp.diluted_shares == screener_count
+
+    def test_available_is_a_bool_and_never_raises(self):
+        from blue_engine.screener import yf_fallback as YF
+        assert isinstance(YF.available(), bool)
+
+    def test_ticker_mapping(self):
+        from blue_engine.screener import yf_fallback as YF
+        assert YF._to_yahoo_ticker("reliance") == "RELIANCE.NS"
+        assert YF._to_yahoo_ticker("RELIANCE.NS") == "RELIANCE.NS"
+        assert YF._to_yahoo_ticker("RELIANCE.BO") == "RELIANCE.BO"
+        assert YF._to_yahoo_ticker("") == ""
+
+    def test_missing_package_degrades_silently(self, monkeypatch):
+        """A valuation must not break because a fallback is unavailable."""
+        from blue_engine.screener import yf_fallback as YF
+        monkeypatch.setattr(YF, "available", lambda: False)
+        inp = self._inputs()
+        inp.notes.clear()
+        filled = YF.fill_missing_inputs(inp, ticker="TESTCO.NS")
+        assert filled == []
+        assert any("not installed" in n for n in inp.notes)
+
+    def test_fetch_failure_is_recorded_not_raised(self, monkeypatch):
+        from blue_engine.screener import yf_fallback as YF
+        monkeypatch.setattr(YF, "available", lambda: True)
+
+        class Boom:
+            def __init__(self, *a, **k):
+                raise RuntimeError("yahoo down")
+
+        # A fresh module object in sys.modules is what `import yfinance as yf`
+        # inside the function will pick up.
+        fake_yf = types.ModuleType("yfinance")
+        fake_yf.Ticker = Boom
+        monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+        inp = self._inputs()
+        inp.notes.clear()               # isolate from any earlier note
+        filled = YF.fill_missing_inputs(inp, ticker="TESTCO.NS")
+        assert filled == []
+        assert any("failed" in n for n in inp.notes), inp.notes
+
+    def test_missing_symbol_is_reported_not_silent(self):
+        """An unfillable request must say why, not return silently."""
+        from blue_engine.screener import yf_fallback as YF
+        inp = self._inputs()
+        inp.symbol = ""
+        inp.notes.clear()
+        filled = YF.fill_missing_inputs(inp)          # no symbol, no ticker
+        assert filled == []
+        assert any("no symbol" in n for n in inp.notes), inp.notes
+
+    # ---- end-to-end through value_company, offline ------------------------ #
+    def test_value_company_runs_with_a_custom_provider(self):
+        """The provider seam works without yfinance installed at all."""
+        calls = {"n": 0}
+
+        def provider(inp):
+            calls["n"] += 1
+            inp.minority_interest = 1234.0
+            inp.filled_by["minority_interest"] = "test"
+
+        val = V.value_company(_company(), symbol="T",
+                              config={"fallback_provider": provider})
+        assert calls["n"] == 1
+        assert val.filled_by.get("minority_interest") == "test"
+
+    def test_a_raising_provider_does_not_break_the_valuation(self):
+        def boom(inp):
+            raise ValueError("provider exploded")
+
+        val = V.value_company(_company(), symbol="T",
+                              config={"fallback_provider": boom})
+        assert val.status == "ok"
+        assert any("provider" in n.lower() for n in val.notes)
+
+    def test_filled_by_is_empty_on_a_pure_screener_run(self):
+        val = V.value_company(_company(), symbol="T")
+        assert val.filled_by == {}
+
+
+class TestCapexGuard:
+    """ASSUMPTION A1b/A1c: total capex is NOT maintenance capex."""
+
+    def _inputs(self, capex=None):
+        inp = V.build_inputs(_company())
+        if capex is not None:
+            inp.capex_actual = capex
+            inp.filled_by["capex_actual"] = "yfinance"
+        return inp
+
+    def test_measured_capex_is_used_when_at_or_below_depreciation(self):
+        """A genuine maintenance-level capex is the better estimate."""
+        # depreciation 5,000; base proxy = 5,000. Supply 3,000.
+        r = V.compute_epv(self._inputs(capex=3000.0), "base")
+        assert r.maintenance_capex == pytest.approx(3000.0)
+        assert any(a.code == "A1b" for a in r.assumptions)
+
+    def test_growth_capex_is_rejected_by_default(self):
+        """Capex far above depreciation contains growth capex; keep the proxy.
+
+        Measured on RELIANCE: total capex 1,22,916 Cr vs depreciation 50,832 Cr.
+        Using it as maintenance capex cut EPV by ~66% - a different model, not
+        a better estimate.
+        """
+        r = V.compute_epv(self._inputs(capex=12000.0), "base")
+        assert r.maintenance_capex == pytest.approx(5000.0)   # the proxy, not 12000
+        a1 = [a for a in r.assumptions if a.code == "A1"]
+        assert a1 and "growth capex" in a1[0].text
+
+    def test_growth_capex_used_only_when_explicitly_trusted(self):
+        r = V.compute_epv(
+            self._inputs(capex=12000.0), "base",
+            config={"trust_total_capex_as_maintenance": True})
+        assert r.maintenance_capex == pytest.approx(12000.0)
+        assert any(a.code == "A1c" for a in r.assumptions)
+
+
+class TestIntangibleCap:
+    """ASSUMPTION B4c: a vendor's intangibles figure can be a classification
+    difference, not recoverable-asset risk."""
+
+    def test_huge_intangibles_are_capped_at_a_share_of_equity(self):
+        inp = V.build_inputs(_company())      # equity 10,000
+        inp.intangibles = 9000.0              # 90% of equity - implausible goodwill
+        inp.filled_by["intangibles"] = "yfinance"
+        r = V.compute_canav(inp, "base")
+        # Cap = 25% of equity = 2,500.
+        assert r.intangible_haircut == pytest.approx(-2500.0)
+        assert any(a.code == "B4c" for a in r.assumptions)
+
+    def test_cap_can_be_disabled(self):
+        inp = V.build_inputs(_company())
+        inp.intangibles = 9000.0
+        r = V.compute_canav(inp, "base",
+                            config={"intangible_haircut_cap_pct": 1.0})
+        assert r.intangible_haircut == pytest.approx(-9000.0)
+
+    def test_normal_intangibles_are_written_off_fully(self):
+        inp = V.build_inputs(_company())      # equity 10,000
+        inp.intangibles = 1000.0              # 10% - inside the cap
+        r = V.compute_canav(inp, "base")
+        assert r.intangible_haircut == pytest.approx(-1000.0)
