@@ -144,7 +144,7 @@ def test_start_refuses_to_launch_when_openalgo_is_already_up(monkeypatch):
            "the launch path was reached despite the service being up")
 
 
-def test_force_bypasses_the_guard_but_is_not_used_by_the_ui(monkeypatch):
+def test_force_bypasses_the_guard_but_is_not_used_by_the_ui(monkeypatch, tmp_path):
     """``force=True`` exists for the CLI; the UI must never pass it."""
     import inspect
     cb = inspect.getsource(sc.register_callbacks)
@@ -153,8 +153,10 @@ def test_force_bypasses_the_guard_but_is_not_used_by_the_ui(monkeypatch):
 
     # And force must actually skip the guard.
     monkeypatch.setattr(sc, "probe_http", lambda *a, **k: True)
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text("pass\n", encoding="utf-8")
     monkeypatch.setattr(sc, "start_command_preview",
-                        lambda: [sys.executable, "-c", "pass"])
+                        lambda: [sys.executable, str(launcher)])
     monkeypatch.setattr(sc, "_launch_detached", lambda *a, **k: 424242)
     res = sc.start_openalgo(force=True)
     _check(res["launched"] is True,
@@ -174,11 +176,13 @@ def test_start_reports_clearly_when_the_launcher_is_missing(monkeypatch):
            f"the reason must say what is missing; got {res['reason']!r}")
 
 
-def test_start_never_raises_even_if_popen_explodes(monkeypatch):
+def test_start_never_raises_even_if_popen_explodes(monkeypatch, tmp_path):
     """A callback must never 500 the operator."""
     monkeypatch.setattr(sc, "probe_http", lambda *a, **k: False)
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text("pass\n", encoding="utf-8")
     monkeypatch.setattr(sc, "start_command_preview",
-                        lambda: [sys.executable, "-c", "pass"])
+                        lambda: [sys.executable, str(launcher)])
 
     def _boom(*a, **k):
         raise OSError("simulated spawn failure")
@@ -191,12 +195,14 @@ def test_start_never_raises_even_if_popen_explodes(monkeypatch):
            f"the reason must explain the failure; got {res['reason']!r}")
 
 
-def test_start_sets_app_mode_standalone(monkeypatch):
+def test_start_sets_app_mode_standalone(monkeypatch, tmp_path):
     """SOP section 2: APP_MODE=standalone stops app.py double-starting the WS
     proxy -- the exact cause of the orphan 8765 holders we cleaned up."""
     monkeypatch.setattr(sc, "probe_http", lambda *a, **k: False)
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text("pass\n", encoding="utf-8")
     monkeypatch.setattr(sc, "start_command_preview",
-                        lambda: [sys.executable, "-c", "pass"])
+                        lambda: [sys.executable, str(launcher)])
     seen = {}
 
     def _capture(argv, env=None, cwd=None):

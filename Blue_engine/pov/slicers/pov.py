@@ -522,7 +522,8 @@ class POVSlicer(BaseSlicer):
                     try:
                         authorized_qty = pre_order_check(
                             phase=phase, quantity=slice_qty,
-                            action=self.order_action)
+                            action=self.order_action, price=(
+                                place_price if place_price is not None else ltp))
                     except Exception as exc:
                         self.log(f"pre-order safety check failed: {exc!r}; "
                                  "aborting execution")

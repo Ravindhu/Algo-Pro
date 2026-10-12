@@ -18,10 +18,9 @@ The runner:
        folded into the durable ledger while the loop is active.
     5. Builds the slicer (POV) and any enabled signals
     6. Polls signals in round-robin until one fires its intent
-    7. Runs the pre-trade RISK GATE (blue_engine.core.risk_gate). A breach of any
-       configured limit (max_order_quantity / max_order_notional / max_daily_loss
-       / max_open_exposure / blocked) aborts the run with exit code 4 before any
-       order is sliced. With no "risk" block configured, the gate approves.
+    7. Runs the pre-trade RISK GATE (blue_engine.core.risk_gate), then rechecks
+       every child order with a fresh quote and broker risk context before
+       submission.
     8. Hands the approved intent to the slicer.execute(intent)
 
 If no signal is enabled, the slicer runs immediately using the action and
@@ -35,6 +34,7 @@ prints it for operator awareness. It never calls analyzertoggle().
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -274,7 +274,6 @@ def run_with_config(
             print(f"[runner] ERROR: invalid live monitor configuration: {exc}")
             return 4
         slicer.monitor_observer = monitor_guard.observe
-        slicer.pre_order_check = monitor_guard.authorize_order
         slicer.on_data_failure = monitor_guard.on_data_failure
         print("[runner] live performance monitor: active; observing valid "
               "quotes and checking each child order")
@@ -315,7 +314,7 @@ def run_with_config(
         print(f"[runner] no signals -> running slicer immediately with "
               f"intent {intent}")
 
-    # ---- Pre-trade risk gate (runs on the hot path, once, before the slicer).
+    # ---- Pre-trade gate: intent check now, then a fresh check per child.
     # The gate is fail-closed on a *breach* and fail-open when a limit is not
     # configured, so an operator who sets no limits keeps the old behaviour.
     # NOTE: read limits from the RAW config -- parse_master_config() normalises
@@ -343,10 +342,85 @@ def run_with_config(
           f"day_pnl={rc['day_pnl']} open_exposure={rc['open_exposure']}")
 
     gate = RiskGate(raw, log=print)
+    requires_order_price = (
+        gate.max_order_notional is not None
+        or gate.max_open_exposure is not None)
+
+    def _valid_price(value: Any) -> Optional[float]:
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+    def _authorize_child(*, phase: str, quantity: int, action: str,
+                         price: Optional[float] = None) -> Optional[int]:
+        if monitor_guard is not None:
+            monitored_qty = monitor_guard.authorize_order(
+                phase=phase, quantity=quantity, action=action, price=price)
+            if monitored_qty is None or monitored_qty == 0:
+                return monitored_qty
+            quantity = min(quantity, monitored_qty)
+
+        if requires_order_price and _valid_price(price) is None:
+            print("[runner] RISK GATE rejected child: no fresh finite, "
+                  "positive quote/limit price")
+            return None
+        child_intent = {
+            "action": action,
+            "quantity": quantity,
+            "price": _valid_price(price),
+        }
+        child_context = fetch_risk_context(client, rc_cfg)
+        for warning in child_context.get("warnings") or []:
+            print(f"[runner] RISK CONTEXT warning: {warning}")
+        child_decision = gate.check(
+            child_intent,
+            day_pnl=child_context.get("day_pnl"),
+            open_exposure=child_context.get("open_exposure"),
+            require_intent_price=requires_order_price,
+            reduces_exposure=phase == "exiting",
+        )
+        if not child_decision.approved:
+            print(f"[runner] RISK GATE rejected child: {child_decision.reason}")
+            return None
+        return quantity
+
+    slicer.pre_order_check = _authorize_child
+
+    # Monetary limits require a live reference price even before the first
+    # POV poll; the per-child check below refreshes it before every submission.
+    if requires_order_price:
+        try:
+            quote = client.quotes(symbol=slicer.symbol, exchange=slicer.exchange)
+        except Exception as exc:
+            print(f"[runner] ERROR: unable to fetch pre-trade quote: {exc!r}")
+            return 4
+        quote_data = quote.get("data") if isinstance(quote, dict) else None
+        if not isinstance(quote_data, dict):
+            print("[runner] ERROR: pre-trade quote response is invalid")
+            return 4
+        quote_price = None
+        for key in ("ltp", "last_price", "lastPrice", "lp", "close"):
+            quote_price = _valid_price(quote_data.get(key))
+            if quote_price is not None:
+                break
+        if (quote.get("status") != "success" or quote_price is None):
+            print("[runner] ERROR: pre-trade quote is not successful with a "
+                  "finite positive LTP")
+            return 4
+        intent["price"] = quote_price
+
+    # Position-dependent checks are repeated at child submission when the
+    # slicer's phase tells us whether this is an entry or an exit.
     decision = gate.check(
         intent,
         day_pnl=rc.get("day_pnl"),
         open_exposure=rc.get("open_exposure"),
+        require_intent_price=requires_order_price,
+        reduces_exposure=True,
     )
     if not decision.approved:
         print(f"[runner] RISK GATE REJECTED intent: {decision.reason}")

@@ -7,7 +7,7 @@ The RiskGate (core/risk_gate.py) evaluates ``max_daily_loss`` and
 ``max_open_exposure`` from the ``day_pnl`` and ``open_exposure`` values its
 caller passes in. Until now the runner only took those from the JSON config —
 hand-typed, quickly stale, and often absent, in which case those two checks
-silently skipped (the gate is fail-open on unconfigured limits by design).
+could silently skip.
 That is a capital-protection gap: the daily-loss circuit breaker only worked
 if the operator typed the number that morning.
 
@@ -26,7 +26,8 @@ never silently skip again.
 Design rules
 ------------
 * FAIL-SOFT, never raises: any SDK/parse error degrades to ``{"ok": False}``
-  and the caller falls back to config-only behaviour with a loud warning.
+  and preserves configured overrides. The RiskGate rejects any configured
+  limit whose required value remains unavailable.
 * SDK-only: public ``client.positionbook()`` — no OpenAlgo internals, no
   direct REST, no DB.
 * Field-tolerant parsing: brokers name the same field differently
@@ -58,6 +59,8 @@ _PRICE_KEYS = ("avgprc", "avg_price", "average_price", "buyavgprice",
 def _num(value: Any) -> Optional[float]:
     """Parse a finite float, else None (mirrors risk_gate._safe_float)."""
     if value is None or value == "":
+        return None
+    if isinstance(value, bool):
         return None
     try:
         f = float(value)
@@ -156,8 +159,8 @@ def fetch_risk_context(client: Any, config: Optional[Dict[str, Any]] = None,
         1. ``config["day_pnl"]`` / ``config["open_exposure"]`` — explicit
            operator override in the master JSON;
         2. the broker's positionbook via the OpenAlgo SDK;
-        3. ``None`` — the corresponding RiskGate check skips, with a warning
-           recorded so the skip is visible, never silent.
+        3. ``None`` — the value remains unverified, and the RiskGate rejects
+           any configured limit that requires it.
 
     Args:
         client: an OpenAlgo SDK client (or None / stub with no
@@ -166,47 +169,61 @@ def fetch_risk_context(client: Any, config: Optional[Dict[str, Any]] = None,
 
     Returns:
         ``{"day_pnl", "open_exposure", "source", "ok", "warnings"}``
-        where ``source`` is "config", "broker", or "none".
+        where ``source`` is "config", "broker", "mixed", or "none".
     """
     cfg = config if isinstance(config, dict) else {}
     risk_block = cfg.get("risk") if isinstance(cfg.get("risk"), dict) else {}
     warnings: List[str] = []
 
-    day_pnl = _num(risk_block.get("day_pnl"))
-    open_exposure = _num(risk_block.get("open_exposure"))
-    if day_pnl is not None or open_exposure is not None:
+    configured_day_pnl = _num(risk_block.get("day_pnl"))
+    configured_exposure = _num(risk_block.get("open_exposure"))
+    day_pnl = configured_day_pnl
+    open_exposure = configured_exposure
+    needs_broker_pnl = day_pnl is None
+    needs_broker_exposure = open_exposure is None
+    if not needs_broker_pnl and not needs_broker_exposure:
         return {"day_pnl": day_pnl, "open_exposure": open_exposure,
                 "source": "config", "ok": True, "warnings": warnings}
 
     if client is None or not callable(getattr(client, "positionbook", None)):
         warnings.append(
-            "no broker positionbook available; day_pnl / open_exposure "
-            "checks will be SKIPPED (fail-open) — set them in the risk "
-            "config or fix the OpenAlgo connection")
+            "no broker positionbook available; missing day_pnl / "
+            "open_exposure values cannot be verified")
         logger.warning("risk_context: %s", warnings[-1])
-        return {"day_pnl": None, "open_exposure": None,
-                "source": "none", "ok": False, "warnings": warnings}
+        source = ("mixed" if day_pnl is not None or open_exposure is not None
+                  else "none")
+        return {"day_pnl": day_pnl, "open_exposure": open_exposure,
+                "source": source, "ok": False, "warnings": warnings}
 
     try:
         resp = client.positionbook()
     except Exception as exc:  # noqa: BLE001 - degrade, never abort the run
         warnings.append(f"positionbook call failed: {exc!r}")
         logger.warning("risk_context: %s", warnings[-1])
-        return {"day_pnl": None, "open_exposure": None,
-                "source": "none", "ok": False, "warnings": warnings}
+        source = ("mixed" if day_pnl is not None or open_exposure is not None
+                  else "none")
+        return {"day_pnl": day_pnl, "open_exposure": open_exposure,
+                "source": source, "ok": False, "warnings": warnings}
 
     parsed = parse_positionbook(resp)
     if not parsed["ok"]:
         warnings.extend(
             f"positionbook unusable: {e}" for e in parsed["errors"])
         logger.warning("risk_context: %s", warnings[-1])
-        return {"day_pnl": None, "open_exposure": None,
-                "source": "none", "ok": False, "warnings": warnings}
+        source = ("mixed" if day_pnl is not None or open_exposure is not None
+                  else "none")
+        return {"day_pnl": day_pnl, "open_exposure": open_exposure,
+                "source": source, "ok": False, "warnings": warnings}
 
-    if day_pnl is None and parsed["day_pnl"] is None:
-        warnings.append(
-            "broker reported positions but no P&L field; max_daily_loss "
-            "check will skip")
-    return {"day_pnl": parsed["day_pnl"],
-            "open_exposure": parsed["open_exposure"],
-            "source": "broker", "ok": True, "warnings": warnings}
+    if needs_broker_pnl:
+        day_pnl = parsed["day_pnl"]
+    if needs_broker_exposure:
+        open_exposure = parsed["open_exposure"]
+    if day_pnl is None:
+        warnings.append("broker reported positions but no P&L field")
+    source = ("mixed" if configured_day_pnl is not None
+              or configured_exposure is not None else "broker")
+    return {"day_pnl": day_pnl, "open_exposure": open_exposure,
+            "source": source,
+            "ok": day_pnl is not None and open_exposure is not None,
+            "warnings": warnings}

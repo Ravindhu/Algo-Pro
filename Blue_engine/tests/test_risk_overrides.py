@@ -78,6 +78,30 @@ def test_max_order_notional_overrides_valid_signal():
     _assert_rejected(decision, "max_order_notional")
 
 
+def test_monetary_limit_rejects_missing_or_invalid_price():
+    gate = _gate(max_order_notional=5_000)
+    for price in (None, 0, -1, True, float("nan"), float("inf"), "invalid"):
+        decision = gate.check(_signal(price=price), require_intent_price=True)
+        _assert_rejected(decision, f"invalid price {price!r}")
+
+
+def test_intent_price_does_not_fall_back_to_configured_reference():
+    gate = _gate(max_order_notional=5_000, price=100)
+    decision = gate.check(
+        {"action": "BUY", "quantity": 100}, require_intent_price=True)
+    _assert_rejected(decision, "missing live intent price")
+
+
+def test_configured_daily_loss_limit_rejects_missing_pnl():
+    decision = _gate(max_daily_loss=25_000).check(_signal())
+    _assert_rejected(decision, "missing daily P&L")
+
+
+def test_configured_exposure_limit_rejects_missing_exposure():
+    decision = _gate(max_open_exposure=5_000_000).check(_signal())
+    _assert_rejected(decision, "missing current exposure")
+
+
 # --------------------------------------------------------------------------- #
 # 3. Daily-loss cap overrides the signal
 # --------------------------------------------------------------------------- #

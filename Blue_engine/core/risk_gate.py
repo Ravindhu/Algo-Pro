@@ -18,9 +18,9 @@ Design rules (mirroring ``blue_engine.core.base``)
 --------------------------------------------------
 * PURE: no network, no SDK, no DB. It only reads the intent + config + the
   optional daily-PnL figure the caller passes in.
-* FAIL-CLOSED on a breach, FAIL-OPEN on ambiguity: a *breach* rejects the
-  intent; a *missing* limit means "not configured" and never rejects. We do
-  not invent limits the operator did not set.
+* FAIL-CLOSED when a configured limit cannot be evaluated: a *breach* rejects
+  the intent, and required price/P&L/exposure inputs must be verified. A
+  missing limit means "not configured" and never rejects.
 * The gate never raises. A malformed config is reported as a rejection reason
   with ``ok_but_unconfigured`` semantics rather than an exception, so it can
   sit on the hot path of a live loop.
@@ -118,10 +118,14 @@ class RiskGate:
 
     # ---- helpers ------------------------------------------------------- #
     def _reference_price(self, intent: Dict[str, Any]) -> Optional[float]:
-        """Price used for notional maths: intent price > config price."""
-        return (_safe_float(intent.get("price"))
-                or _safe_float(intent.get("limit_price"))
-                or _safe_float(self.config.get("price")))
+        """Return a finite positive execution reference price, if available."""
+        for value in (intent.get("price"), intent.get("limit_price")):
+            if isinstance(value, bool):
+                continue
+            price = _safe_float(value)
+            if price is not None and price > 0:
+                return price
+        return _safe_float(self.config.get("price"))
 
     def _notional(self, intent: Dict[str, Any], qty: int) -> Optional[float]:
         price = self._reference_price(intent)
@@ -132,17 +136,20 @@ class RiskGate:
     # ---- main ---------------------------------------------------------- #
     def check(self, intent: Dict[str, Any],
               *, day_pnl: Optional[float] = None,
-              open_exposure: Optional[float] = None) -> RiskDecision:
+              open_exposure: Optional[float] = None,
+              require_intent_price: bool = False,
+              reduces_exposure: bool = False) -> RiskDecision:
         """Evaluate ``intent`` and return a :class:`RiskDecision`.
 
         Args:
             intent: the trade intent from a signal, with ``action`` and
                 ``quantity`` (and optionally ``price``).
             day_pnl: today's realised PnL (negative = loss). Used by the
-                ``max_daily_loss`` check. ``None`` skips that check.
+                ``max_daily_loss`` check. ``None`` rejects when that limit is
+                configured.
             open_exposure: absolute current open notional. Used by the
                 ``max_open_exposure`` check. Falls back to the config value.
-                ``None`` (and no config value) skips that check.
+                ``None`` rejects when that limit is configured.
 
         Returns:
             RiskDecision. Never raises.
@@ -153,6 +160,17 @@ class RiskGate:
             action = str(intent.get("action", "")).upper()
             quantity = _safe_int(intent.get("quantity")) or 0
             notional = self._notional(intent, quantity)
+            if require_intent_price:
+                reference_price = None
+                for value in (intent.get("price"), intent.get("limit_price")):
+                    if isinstance(value, bool):
+                        continue
+                    reference_price = _safe_float(value)
+                    if reference_price is not None and reference_price > 0:
+                        break
+                    reference_price = None
+                if reference_price is None or reference_price <= 0:
+                    notional = None
             limits = {
                 "max_order_quantity": self.max_order_quantity,
                 "max_order_notional": self.max_order_notional,
@@ -173,6 +191,9 @@ class RiskGate:
             if action not in self.allowed_actions:
                 breaches.append(
                     f"action {action!r} not in allowed_actions {self.allowed_actions}")
+            if quantity <= 0:
+                breaches.append(
+                    f"quantity {quantity} must be a positive integer")
 
             # 3. Size cap.
             if (self.max_order_quantity is not None
@@ -180,31 +201,54 @@ class RiskGate:
                 breaches.append(
                     f"quantity {quantity} > max_order_quantity {self.max_order_quantity}")
 
-            # 4. Notional cap (only when a price is known).
-            if (self.max_order_notional is not None and notional is not None
-                    and notional > self.max_order_notional):
-                breaches.append(
-                    f"notional {notional:.2f} > max_order_notional "
-                    f"{self.max_order_notional:.2f}")
+            # 4. Configured monetary limits cannot be evaluated without price.
+            if self.max_order_notional is not None:
+                if notional is None:
+                    breaches.append(
+                        "cannot evaluate max_order_notional without a "
+                        "finite positive order price")
+                elif notional > self.max_order_notional:
+                    breaches.append(
+                        f"notional {notional:.2f} > max_order_notional "
+                        f"{self.max_order_notional:.2f}")
 
             # 5. Daily-loss cap. day_pnl is signed; a loss is negative.
-            if day_pnl is not None and self.max_daily_loss is not None:
-                if float(day_pnl) <= -abs(self.max_daily_loss):
+            if self.max_daily_loss is not None:
+                pnl = _safe_float(day_pnl)
+                if pnl is None:
                     breaches.append(
-                        f"day_pnl {float(day_pnl):.2f} <= -max_daily_loss "
+                        "cannot evaluate max_daily_loss without a verified "
+                        "daily P&L value")
+                elif pnl <= -abs(self.max_daily_loss) and not reduces_exposure:
+                    breaches.append(
+                        f"day_pnl {pnl:.2f} <= -max_daily_loss "
                         f"{abs(self.max_daily_loss):.2f}")
 
             # 6. Open-exposure cap: current + this order must fit.
             exposure = _safe_float(open_exposure)
             if exposure is None:
                 exposure = _safe_float(self.config.get("open_exposure"))
-            if (self.max_open_exposure is not None and exposure is not None
-                    and notional is not None):
-                projected = abs(exposure) + abs(notional)
-                if projected > self.max_open_exposure:
+            if self.max_open_exposure is not None:
+                if exposure is None:
                     breaches.append(
-                        f"projected exposure {projected:.2f} > "
-                        f"max_open_exposure {self.max_open_exposure:.2f}")
+                        "cannot evaluate max_open_exposure without verified "
+                        "current exposure")
+                elif notional is None:
+                    breaches.append(
+                        "cannot evaluate max_open_exposure without a finite "
+                        "positive order price")
+                else:
+                    current_exposure = abs(exposure)
+                    projected = (max(0.0, current_exposure - abs(notional))
+                                 if reduces_exposure
+                                 else current_exposure + abs(notional))
+                    if (projected > self.max_open_exposure
+                            and (not reduces_exposure
+                                 or projected > current_exposure)):
+                        breaches.append(
+                            f"projected exposure {projected:.2f} > "
+                            f"max_open_exposure "
+                            f"{self.max_open_exposure:.2f}")
 
         except Exception as exc:  # noqa: BLE001 - the gate must never raise
             logger.warning("risk_gate: evaluation error: %r", exc)

@@ -215,7 +215,8 @@ class LiveMonitorGuard:
         return self._sample()
 
     def authorize_order(self, *, phase: str, quantity: int,
-                        action: str) -> Optional[int]:
+                        action: str, price: Optional[float] = None
+                        ) -> Optional[int]:
         """Return the child quantity, zero to pause entry, None to abort.
 
         ``None`` denotes an unverifiable safety state and aborts this POV run.
