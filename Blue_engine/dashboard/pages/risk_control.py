@@ -147,7 +147,7 @@ def body():
         KpiRow([
             KpiCard("Guards active", f"{active_count}/{len(rows)}",
                     icon="mdi:shield-check-outline",
-                    colour="#22c55e" if active_count == len(rows) else WARNING),
+                    colour=_AI_GREEN if active_count == len(rows) else WARNING),
             KpiCard("Executions", len(snap.executions),
                     icon="mdi:playlist-play"),
             KpiCard("Max slippage",

@@ -9,13 +9,12 @@ the two can act on a simulated fill believing it was real.
 
 So the mapping lives here, alone, with no dependencies on DMC or Dash:
 
-    analyzer  ->  DARK   + purple accent  + "ANALYZER (SIMULATED)"  banner
-    live      ->  LIGHT  + red accent     + "LIVE - REAL MONEY"     banner
+    analyzer  ->  DARK   + violet accent + "ANALYZER (SIMULATED)"  banner
+    live      ->  DARK   + red accent     + "LIVE - REAL MONEY"     banner
     unknown   ->  DARK   + red accent     + "MODE UNKNOWN ..."      banner
 
-The DARK/LIGHT value feeds DMC's ``forceColorScheme``; the banner colours feed
-``provider.mode_banner``. Both are derived from one dict so they can never
-disagree -- which is exactly the bug class this module exists to prevent.
+The workspace remains dark in both modes; contrasting banners and accents
+make real-money routing unmistakable.
 
 TWO INDEPENDENT AXES (read this before changing the banner)
 -----------------------------------------------------------
@@ -57,42 +56,43 @@ _ANALYZER: Dict[str, Any] = {
     # DMC accent (drives buttons, sliders, focus rings)
     "accent": "violet",
     # surfaces
-    "body_bg": "#0b1220",
-    "body_fg": "#e2e8f0",
-    "panel_bg": "#0f172a",
-    "panel_border": "#1e293b",
-    "muted_fg": "#94a3b8",
-    "table_hover": "#131f36",
-    "row_border": "#16233b",
+    "body_bg": "#141517",
+    "body_fg": "#C1C2C5",
+    "panel_bg": "#1A1B1E",
+    "panel_border": "#2C2E33",
+    "muted_fg": "#909296",
+    "table_hover": "#25262B",
+    "row_border": "#2C2E33",
     # plotly
-    "grid": "rgba(180,160,255,0.12)",
+    "grid": "#2C2E33",
     "paper": "rgba(0,0,0,0)",
 }
 
 _LIVE: Dict[str, Any] = {
     "key": "live",
     "label": "LIVE - REAL MONEY",
-    "color_scheme": "light",
+    "color_scheme": "dark",
     # Orders ROUTE TO THE BROKER here (OpenAlgo is live). Whether the panels
     # are fed real candles is a separate flag the app sets at startup; the
     # default reflects the config-only terminal, whose reads are stubbed.
     "data_source": "paper",
     "data_source_label": "PANELS: PAPER DATA (ORDER-PLACING DISABLED)",
-    # banner: red on white, unmistakably "this is real"
+    # banner: high-contrast red, unmistakably "this is real"
     "banner_bg": "#fef2f2",
     "banner_fg": "#b91c1c",
     "banner_border": "#dc2626",
     "accent": "red",
-    # surfaces: white/light
-    "body_bg": "#ffffff",
-    "body_fg": "#0f172a",
-    "panel_bg": "#f8fafc",
-    "panel_border": "#e2e8f0",
-    "muted_fg": "#64748b",
-    "table_hover": "#eef2f7",
-    "row_border": "#e2e8f0",
+    # Keep a consistent dark workspace; the red live banner/accent preserves
+    # the safety-critical distinction from simulated/analyzer mode.
+    "body_bg": "#141517",
+    "body_fg": "#C1C2C5",
+    "panel_bg": "#1A1B1E",
+    "panel_border": "#2C2E33",
+    "muted_fg": "#909296",
+    "table_hover": "#25262B",
+    "row_border": "#2C2E33",
     # plotly
-    "grid": "rgba(15,23,42,0.08)",
+    "grid": "#2C2E33",
     "paper": "rgba(0,0,0,0)",
 }
 

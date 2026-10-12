@@ -29,18 +29,17 @@ __all__ = ["plot_param_importances", "plot_slice",
            "plot_parallel_coordinate", "THEME"]
 
 
-#: Palette mirrors the terminal's analyzer (dark) theme in pages/theme.py so
-#: figures dropped into the dashboard look native rather than pasted-in.
+#: Palette mirrors the shared dark dashboard surfaces and financial colors.
 THEME = {
     "paper": "rgba(0,0,0,0)",
-    "panel": "#0f172a",
-    "grid": "rgba(180,160,255,0.12)",
-    "fg": "#e2e8f0",
-    "muted": "#94a3b8",
-    "accent": "#8b5cf6",
-    "good": "#22c55e",
-    "bad": "#ef4444",
-    "amber": "#f59e0b",
+    "panel": "rgba(0,0,0,0)",
+    "grid": "#2C2E33",
+    "fg": "#C1C2C5",
+    "muted": "#909296",
+    "accent": "#845EF7",
+    "good": "#40C057",
+    "bad": "#FA5252",
+    "amber": "#FCC419",
 }
 
 
@@ -255,7 +254,8 @@ def plot_parallel_coordinate(parallel_data: Dict[str, Any]) -> Dict[str, Any]:
     fig.update_layout(
         title=(f"Parallel coordinates - top {len(lines)} trials "
                f"(score {sr.get('cutoff', 0):.3f} to {sr.get('best', 0):.3f})"),
-        paper_bgcolor=THEME["paper"], font={"color": THEME["fg"], "size": 12},
+        paper_bgcolor=THEME["paper"], plot_bgcolor=THEME["panel"],
+        font={"color": THEME["fg"], "size": 12},
         margin={"l": 80, "r": 80, "t": 60, "b": 40})
     return {"ok": True, "figure": fig, "title": "Parallel coordinates"}
 

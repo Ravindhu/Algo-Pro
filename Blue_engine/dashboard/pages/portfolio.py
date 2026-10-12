@@ -86,7 +86,7 @@ def _fill_rows(trades):
             "when": time.strftime("%H:%M:%S", time.localtime(ts)) if ts else "-",
             "symbol": t.get("symbol", "-"),
             "side": side,
-            "_side_colour": "#22c55e" if side == "BUY" else "#ef4444",
+            "_side_colour": _AI_GREEN if side == "BUY" else _AI_RED,
             "qty": t.get("qty"),
             "price": t.get("price"),
             "state": t.get("state", "-"),

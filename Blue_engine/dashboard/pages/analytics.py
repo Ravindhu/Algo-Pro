@@ -25,6 +25,7 @@ from blue_engine.dashboard.pages._ai_insight import (
 from blue_engine.dashboard.pages.theme import theme
 from blue_engine.dashboard.ui.kpi import NEGATIVE, POSITIVE, WARNING, KpiCard, KpiRow
 from blue_engine.dashboard.ui.panel import Panel
+from blue_engine.dashboard.ui.plotly_theme import dashboard_dark_template
 from blue_engine.dashboard.ui.table import DataTable
 
 dash.register_page(__name__, path="/analytics", name="Analytics", order=3)
@@ -69,8 +70,6 @@ def _slippage_figure(executions, pal=None):
 
     if pal is None:
         pal = theme("analyzer")
-    is_light = pal.get("color_scheme") == "light"
-
     ids = [str(e.get("execution_id", ""))[:10] for e in executions]
     slip = [float(e.get("slippage_bps") or 0.0) for e in executions]
     fig = go.Figure()
@@ -79,7 +78,7 @@ def _slippage_figure(executions, pal=None):
             go.Bar(
                 x=ids,
                 y=slip,
-                marker_color=["#ef4444" if s > 0 else "#22c55e" for s in slip],
+                marker_color=["#FA5252" if s > 0 else "#40C057" for s in slip],
                 name="Slippage (bps)",
             )
         )
@@ -89,9 +88,8 @@ def _slippage_figure(executions, pal=None):
             font=dict(color=pal["muted_fg"]),
         )
     fig.update_layout(
-        # Follow the mode theme so the chart never clashes with the shell
-        # (a dark chart on the white LIVE shell is a readability defect).
-        template="plotly_white" if is_light else "plotly_dark",
+        # Keep charts transparent and legible against the shared dark shell.
+        template=dashboard_dark_template(),
         paper_bgcolor=pal["paper"],
         plot_bgcolor=pal["paper"],
         font=dict(color=pal["body_fg"]),

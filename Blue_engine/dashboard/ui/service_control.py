@@ -441,7 +441,7 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
     """Build the Service Control card: status table + START button + stop hint.
 
     Pure function of ``snapshot`` so tests can render any state without a
-    server. Returns a ``dmc.Paper``.
+    server. Returns a ``dmc.Card``.
     """
     import dash_mantine_components as dmc
     from dash import dcc, html
@@ -452,7 +452,7 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
     def _badge(up: bool) -> Any:
         return dmc.Badge("UP" if up else "DOWN",
                          color="green" if up else "red",
-                         variant="filled", size="sm")
+                         variant="dot", size="sm")
 
     table_rows = [
         html.Tr([
@@ -508,7 +508,7 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
             size="xs"),
     )
 
-    return dmc.Paper(
+    return dmc.Card(
         [
             dmc.Group([
                 dmc.Title("Service Control", order=4),
@@ -532,7 +532,7 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
                      style={"marginTop": "16px",
                             "display": "grid", "gap": "10px"}),
         ],
-        p="lg", radius="md", withBorder=True,
+        padding="lg", radius="md", shadow="sm", withBorder=True,
     )
 
 

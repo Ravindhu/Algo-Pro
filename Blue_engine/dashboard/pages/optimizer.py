@@ -49,10 +49,10 @@ from blue_engine.dashboard.ui.kpi import KpiCard
 dash.register_page(__name__, path="/optimizer", name="Optimizer", order=9)
 
 # --- palette (mirrors the rest of the terminal) ---------------------------- #
-_GREEN = "#22c55e"
-_AMBER = "#f59e0b"
-_RED = "#ef4444"
-_GREY = "#94a3b8"
+_GREEN = "#40C057"
+_AMBER = "#FCC419"
+_RED = "#FA5252"
+_GREY = "#909296"
 
 #: Verdict -> colour. The same rule the report uses, so the page and the
 #: Markdown can never disagree about what a study concluded.
@@ -78,14 +78,14 @@ def _pill(text: str, colour: str) -> Any:
     so the badges keep their meaning instead of all turning grey.
     """
     named = {
-        "#22c55e": "green",
-        "#ef4444": "red",
-        "#f59e0b": "yellow",
-        "#38bdf8": "blue",
-        "#94a3b8": "gray",
+        "#40c057": "green",
+        "#fa5252": "red",
+        "#fcc419": "yellow",
+        "#4dabf7": "blue",
+        "#909296": "gray",
         "#a855f7": "violet",
     }.get((colour or "").lower(), "gray")
-    return Badge(str(text), color=named, variant="filled", size="sm",
+    return Badge(str(text), color=named, variant="dot", size="sm",
                  radius="xl", className="pill")
 
 

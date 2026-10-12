@@ -37,6 +37,7 @@ from dash import dcc, html
 from blue_engine.dashboard.pages import _data
 from blue_engine.dashboard.pages._ai_insight import ai_insight_card
 from blue_engine.dashboard.ui.kpi import KpiCard, KpiRow
+from blue_engine.dashboard.ui.plotly_theme import dashboard_dark_template
 
 dash.register_page(__name__, path="/economic", name="Economic", order=5)
 
@@ -44,11 +45,11 @@ dash.register_page(__name__, path="/economic", name="Economic", order=5)
 # --------------------------------------------------------------------------- #
 # Palette / helpers
 # --------------------------------------------------------------------------- #
-_GREEN = "#22c55e"
-_RED = "#ef4444"
-_AMBER = "#f59e0b"
-_SLATE = "#94a3b8"
-_ACCENT = "#38bdf8"
+_GREEN = "#40C057"
+_RED = "#FA5252"
+_AMBER = "#FCC419"
+_SLATE = "#909296"
+_ACCENT = "#4DABF7"
 
 # Band cut-points mirror blue_engine.economics.regime.REGIME_BANDS.
 _REGIME_COLORS = {
@@ -82,7 +83,7 @@ def _empty_fig(message: str, height: int = 300):
     fig = go.Figure()
     fig.add_annotation(text=wrapped, showarrow=False, align="center",
                        font=dict(color=_SLATE, size=13))
-    fig.update_layout(template="plotly_dark", height=height,
+    fig.update_layout(template=dashboard_dark_template(), height=height,
                       margin=dict(l=40, r=40, t=30, b=40),
                       xaxis=dict(visible=False), yaxis=dict(visible=False))
     return fig
@@ -164,7 +165,7 @@ def _regime_gauge(score: float, regime: str):
                           "value": score},
         },
     ))
-    fig.update_layout(template="plotly_dark", height=280,
+    fig.update_layout(template=dashboard_dark_template(), height=280,
                       margin=dict(l=30, r=30, t=50, b=20))
     return fig
 
@@ -197,7 +198,7 @@ def _multiplier_gauge(mult: float, path: str):
                           "value": 1.0},
         },
     ))
-    fig.update_layout(template="plotly_dark", height=280,
+    fig.update_layout(template=dashboard_dark_template(), height=280,
                       margin=dict(l=30, r=30, t=50, b=20))
     return fig
 
@@ -223,7 +224,7 @@ def _signal_bar(signals: dict):
                       "<br>views=%{customdata[1]}<extra></extra>",
     ))
     fig.add_vline(x=0, line_color=_SLATE, line_width=1)
-    fig.update_layout(template="plotly_dark", height=max(260, 34 * len(names)),
+    fig.update_layout(template=dashboard_dark_template(), height=max(260, 34 * len(names)),
                       margin=dict(l=10, r=40, t=30, b=30),
                       xaxis=dict(range=[-1.05, 1.05], title="signed contribution"))
     return fig
@@ -246,7 +247,7 @@ def _signal_radar(signals: dict):
     fig = go.Figure(go.Scatterpolar(r=r, theta=theta, fill="toself",
                                     line_color=_ACCENT,
                                     name="signed score"))
-    fig.update_layout(template="plotly_dark", height=360,
+    fig.update_layout(template=dashboard_dark_template(), height=360,
                       polar=dict(radialaxis=dict(visible=True,
                                                  range=[-1, 1])),
                       margin=dict(l=40, r=40, t=40, b=30),
@@ -310,7 +311,7 @@ def _history_line(history: list):
     for level, color in ((0.35, "#14532d"), (0.10, "#1f3b2a"),
                          (-0.10, "#3b2a1a"), (-0.35, "#3f1d1d")):
         fig.add_hline(y=level, line_color=color, line_dash="dot")
-    fig.update_layout(template="plotly_dark", height=300,
+    fig.update_layout(template=dashboard_dark_template(), height=300,
                       margin=dict(l=50, r=20, t=30, b=50),
                       yaxis=dict(range=[-1, 1], title="risk-on score"),
                       xaxis=_x_axis(history))
@@ -330,7 +331,7 @@ def _regime_timeline(history: list):
         customdata=[[r] for r in regimes],
         hovertemplate="%{x|%d-%b %H:%M}<br>%{customdata[0]}<extra></extra>",
     ))
-    fig.update_layout(template="plotly_dark", height=160, barmode="overlay",
+    fig.update_layout(template=dashboard_dark_template(), height=160, barmode="overlay",
                       margin=dict(l=50, r=20, t=20, b=50),
                       yaxis=dict(visible=False, range=[0, 1]),
                       xaxis=_x_axis(history))
@@ -352,7 +353,7 @@ def _multiplier_history(history: list):
     ))
     fig.add_hline(y=1.0, line_color=_SLATE, line_dash="dash",
                   annotation_text="neutral 1.0x")
-    fig.update_layout(template="plotly_dark", height=280,
+    fig.update_layout(template=dashboard_dark_template(), height=280,
                       margin=dict(l=50, r=20, t=30, b=50),
                       yaxis=dict(range=[0, 1.6], title="gross x"),
                       xaxis=_x_axis(history))
@@ -376,7 +377,7 @@ def _posterior_bar(model: dict):
         marker_color=[_REGIME_COLORS.get(k, _SLATE) for k in labels],
         text=[f"{v:.0%}" for v in vals], textposition="outside",
     ))
-    fig.update_layout(template="plotly_dark", height=280,
+    fig.update_layout(template=dashboard_dark_template(), height=280,
                       margin=dict(l=40, r=20, t=30, b=40),
                       yaxis=dict(range=[0, 1.15], title="probability"),
                       xaxis_title="regime state")

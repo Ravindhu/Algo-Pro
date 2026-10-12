@@ -21,7 +21,7 @@ rendering functions directly. The mock surface is small and stable.
 
 What this file covers (one test per audit-actionable invariant):
 -----------------------------------------------------------------
-1.  _ai_insight_header returns a Dash html.Div with the AI INSIGHT
+1.  _ai_insight_header returns a DMC Card with the AI INSIGHT
     badge and the four top rows (Mode, Symbol, Strategy, Time period).
 2.  _ai_insight_header shows "(strategy not registered)" honestly
     when the strategy lookup returns None.
@@ -196,12 +196,12 @@ def _header():
 # --------------------------------------------------------------------------- #
 
 
-def test_ai_insight_header_returns_a_dash_div(data_layer):
+def test_ai_insight_header_returns_a_dmc_card(data_layer):
     h = _header()
     snap = {"ok": True}
     result = h._ai_insight_header(snap)
-    assert isinstance(result, type(h.html.Div())), \
-        f"expected Dash Div; got {type(result)}"
+    assert isinstance(result, h.dmc.Card), \
+        f"expected DMC Card; got {type(result)}"
 
 
 def test_ai_insight_header_carries_ai_insight_badge(data_layer):

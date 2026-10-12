@@ -40,6 +40,7 @@ from __future__ import annotations
 import time
 
 import dash
+import dash_mantine_components as dmc
 from dash import dcc, html
 
 from blue_engine.dashboard.pages import _data
@@ -49,10 +50,10 @@ from blue_engine.dashboard.ui.kpi import KpiCard
 dash.register_page(__name__, path="/ml", name="ML Models", order=7)
 
 # --- palette (mirrors the rest of the terminal) ---------------------------- #
-_GREEN = "#22c55e"
-_AMBER = "#f59e0b"
-_RED = "#ef4444"
-_GREY = "#94a3b8"
+_GREEN = "#40C057"
+_AMBER = "#FCC419"
+_RED = "#FA5252"
+_GREY = "#909296"
 
 #: The deflated-Sharpe probability bar. Below this the result is not
 #: established: it could be the best of a lucky search. Kept as a named
@@ -65,17 +66,18 @@ _PROB_REAL_BAR = 0.95
 _MIN_TRAIN = 20
 
 
-def _pill(text: str, ok: bool | None, *, warn: bool = False) -> html.Span:
+def _pill(text: str, ok: bool | None, *, warn: bool = False) -> dmc.Badge:
     """A status pill. ``ok=None`` renders grey = not computable (not 'OK')."""
     if ok is None:
-        bg, fg = "#334155", _GREY
+        colour = "gray"
     elif ok:
-        bg, fg = "#14532d", "#dcfce7"
+        colour = "green"
     elif warn:
-        bg, fg = "#78350f", "#fef3c7"
+        colour = "yellow"
     else:
-        bg, fg = "#7f1d1d", "#fee2e2"
-    return html.Span(text, className="pill", style={"background": bg, "color": fg})
+        colour = "red"
+    return dmc.Badge(text, color=colour, variant="dot", size="sm",
+                     radius="xl", className="pill")
 
 
 def _num(value, digits: int = 4, *, pct: bool = False, default: str = "-") -> str:
@@ -125,7 +127,7 @@ def _cost_colour(survives) -> str:
     return _GREEN if survives else _RED
 
 
-def _kpi(label: str, value: str, colour: str = "#e2e8f0") -> html.Div:
+def _kpi(label: str, value: str, colour: str = "#C1C2C5") -> html.Div:
     """Thin shim over ``ui.kpi.KpiCard`` (keeps this page's call sites)."""
     return KpiCard(label, value, colour=colour)
 

@@ -47,6 +47,7 @@ from dash import dcc, html
 from blue_engine.dashboard.pages import _data
 from blue_engine.dashboard.pages._ai_insight import ai_insight_card
 from blue_engine.dashboard.ui.kpi import KpiCard
+from blue_engine.dashboard.ui.plotly_theme import dashboard_dark_template
 from blue_engine.core.results import safe_float
 
 logger = logging.getLogger(__name__)
@@ -55,11 +56,11 @@ dash.register_page(__name__, path="/analytics-portfolio",
                    name="Portfolio Analytics", order=7)
 
 # Shared palette (kept consistent with pages/economic.py).
-_GREEN = "#22c55e"
-_RED = "#ef4444"
-_AMBER = "#f59e0b"
-_SLATE = "#94a3b8"
-_ACCENT = "#38bdf8"
+_GREEN = "#40C057"
+_RED = "#FA5252"
+_AMBER = "#FCC419"
+_SLATE = "#909296"
+_ACCENT = "#4DABF7"
 
 
 # --------------------------------------------------------------------------- #
@@ -99,7 +100,7 @@ def _empty_fig(message: str, height: int = 300):
     fig = go.Figure()
     fig.add_annotation(text=_wrap(message), showarrow=False, align="center",
                        font=dict(color=_SLATE, size=13))
-    fig.update_layout(template="plotly_dark", height=height,
+    fig.update_layout(template=dashboard_dark_template(), height=height,
                       margin=dict(l=30, r=30, t=30, b=30),
                       xaxis=dict(visible=False), yaxis=dict(visible=False))
     return fig
@@ -162,7 +163,7 @@ def _equity_figure(curve: Dict[str, Any]):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dates, y=navs, mode="lines", name="NAV",
                              line=dict(color=_ACCENT, width=2)))
-    fig.update_layout(template="plotly_dark", height=300,
+    fig.update_layout(template=dashboard_dark_template(), height=300,
                       margin=dict(l=50, r=20, t=30, b=40),
                       yaxis_title="NAV", showlegend=False)
     return fig
@@ -182,7 +183,7 @@ def _underwater_figure(curve: Dict[str, Any], perf: Dict[str, Any]):
     fig.add_trace(go.Scatter(
         x=dates, y=[v * 100.0 for v in dd], mode="lines", name="Drawdown",
         fill="tozeroy", line=dict(color=_RED, width=1)))
-    fig.update_layout(template="plotly_dark", height=260,
+    fig.update_layout(template=dashboard_dark_template(), height=260,
                       margin=dict(l=50, r=20, t=30, b=40),
                       yaxis_title="drawdown %", showlegend=False)
     return fig
@@ -268,8 +269,8 @@ def _sector_figure(exp: Dict[str, Any]):
                for n in names]
     fig = go.Figure(go.Pie(labels=names, values=weights, hole=0.55,
                            textinfo="label+percent",
-                           marker=dict(line=dict(color="#0f172a", width=1))))
-    fig.update_layout(template="plotly_dark", height=340,
+                           marker=dict(line=dict(color="#1A1B1E", width=1))))
+    fig.update_layout(template=dashboard_dark_template(), height=340,
                       margin=dict(l=20, r=20, t=30, b=20),
                       showlegend=False)
     return fig
@@ -343,7 +344,7 @@ def _bucket_figure(attr: Dict[str, Any]):
                            text=[_num(v, 0) for v in vals],
                            textposition="outside"))
     fig.add_hline(y=0, line_color=_SLATE, line_width=1)
-    fig.update_layout(template="plotly_dark", height=300,
+    fig.update_layout(template=dashboard_dark_template(), height=300,
                       margin=dict(l=50, r=20, t=30, b=40),
                       yaxis_title="net P&L", showlegend=False)
     return fig

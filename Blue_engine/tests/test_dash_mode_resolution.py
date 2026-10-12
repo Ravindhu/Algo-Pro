@@ -198,15 +198,19 @@ def test_unknown_is_reserved_for_an_unreadable_mode():
            f"the banner must say UNKNOWN; got {pal['label']!r}")
 
 
-def test_analyzer_and_live_use_different_color_schemes():
-    """A live terminal that renders like the analyzer one is the exact
-    confusion this mapping exists to prevent."""
-    _check(scheme_for_mode("analyze") != scheme_for_mode("live"),
-           "analyzer and live must not share a color scheme")
+def test_analyzer_and_live_share_dark_workspace_but_keep_distinct_safety_signal():
+    """Keep the requested dark UI while making real-money mode unmistakable."""
+    analyzer = theme("analyze")
+    live = theme("live")
+    _check(scheme_for_mode("analyze") == scheme_for_mode("live") == "dark",
+           "all operational modes must use the dark workspace")
+    _check(analyzer["accent"] != live["accent"]
+           and analyzer["banner_bg"] != live["banner_bg"],
+           "analyzer and live must retain distinct accent and banner colors")
 
 
-def test_unknown_falls_back_to_dark_not_light():
-    """Fail safe: an unreadable mode must not look like the light LIVE theme."""
+def test_unknown_falls_back_to_dark():
+    """Fail safe: an unreadable mode stays in the established dark workspace."""
     _check(scheme_for_mode("unknown") == "dark",
            "an unreadable mode must fail to the DARK scheme, never the live one")
 

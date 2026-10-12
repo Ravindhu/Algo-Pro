@@ -104,9 +104,8 @@ def create_app(*, engine: Optional[Any] = None, config_path: Optional[str] = Non
         suppress_callback_exceptions=True,
     )
 
-    # Mode-aware theming is now a MantineProvider prop, not a stylesheet.
-    # `forceColorScheme` pins dark/light to the OpenAlgo mode so a user with a
-    # dark OS theme cannot be shown a light UI while trading live.
+    # The workspace is fixed dark; mode-specific accents and status badges
+    # continue to follow OpenAlgo through MantineProvider.
     from blue_engine.core.mode import read_mode
     from blue_engine.dashboard.ui.mode import banner_text, theme
     from blue_engine.dashboard.ui.provider import app_shell
@@ -159,14 +158,16 @@ def _register_mode_callbacks(app: dash.Dash) -> None:
     """Re-theme the shell when OpenAlgo's analyzer/live mode flips.
 
     The interval lives in the shell (``ui/provider.app_shell``) and fires every
-    2 s. We update two things together and they MUST stay together:
+    2 s. It keeps theme accents, mode/data badges, and the prominent banner
+    synchronized when the broker mode changes.
 
-      * ``forceColorScheme`` on MantineProvider -- recolours every DMC widget.
+      * ``theme`` on MantineProvider -- updates the mode-specific accent while
+        retaining the dark workspace.
+      * header badges and the banner's hidden synchronization node.
       * the banner text and ``data-mode`` on <body> -- the human-facing signal.
 
     Updating only one is the failure mode this callback exists to prevent: a
-    white UI with a black-theme banner, or a live-red banner over a dark shell,
-    is worse than either being stale, because it looks intentional.
+    a stale LIVE badge over analyzer mode is worse than an outdated accent.
     """
     # AUDIT FIX (2026-10-08): ``read_mode``/``theme`` are imported inside
     # ``create_app`` (local scope), so referring to them here raised
@@ -175,9 +176,15 @@ def _register_mode_callbacks(app: dash.Dash) -> None:
     # session). Import them into THIS function's scope so the callback resolves.
     from blue_engine.core.mode import read_mode
     from blue_engine.dashboard.ui.mode import banner_text, theme
+    from blue_engine.dashboard.ui.provider import (
+        _mantine_theme, _mode_banner_style, _workspace_badges)
 
     @app.callback(
-        dash.Output("mantine-provider", "forceColorScheme"),
+        dash.Output("mantine-provider", "theme"),
+        dash.Output("workspace-header-status", "children"),
+        dash.Output("sidebar-brand-icon", "color"),
+        dash.Output("mode-banner", "style"),
+        dash.Output("mode-banner-text", "children"),
         dash.Output("mode-poll-target", "children"),
         dash.Input("mode-poll", "n_intervals"),
         prevent_initial_call=True,
@@ -191,12 +198,18 @@ def _register_mode_callbacks(app: dash.Dash) -> None:
         # the first poll -- which would re-introduce a bare "LIVE - REAL MONEY"
         # over paper panels ~2 s after a correct first paint.
         ds = _STATE.get("data_source") or "paper"
-        # A hidden node carries the data-mode flips to the client script; the
-        # banner's own span is rewritten there too so we do not fight Dash's
-        # renderer over the same DOM node every 2 seconds.
-        return pal["color_scheme"], html.Span(
-            banner_text(pal, data_source=ds), id="mode-label-current",
-            **{"data-mode": pal["key"], "data-source": ds},
+        # Update the visible banner through Dash; the hidden node retains mode
+        # metadata for the existing client-side diagnostics hook.
+        return (
+            _mantine_theme(pal),
+            _workspace_badges(pal, ds),
+            pal["accent"],
+            _mode_banner_style(pal),
+            banner_text(pal, data_source=ds),
+            html.Span(
+                banner_text(pal, data_source=ds), id="mode-label-current",
+                **{"data-mode": pal["key"], "data-source": ds},
+            ),
         )
 
 
@@ -241,19 +254,16 @@ def _index_html(initial_mode: str = "analyzer") -> str:
       // -----------------------------------------------------------------
       // Mode sync: the belt-and-braces layer.
       //
-      // The DMC colour scheme is switched by the Dash callback in
-      // _register_mode_callbacks (that is what recolours every component).
-      // This script covers the two cases a Dash callback does NOT:
+      // The DMC theme, visible banner and status badges are synchronized by
+      // the Dash callback. This script covers the two cases it does NOT:
       //
       //   1. a flip made in OpenAlgo's tab while this tab is hidden -- there
       //      is no callback trigger for "user came back", so we refresh on
       //      focus and on visibilitychange;
-      //   2. the banner text, which must never be blank or stale, so we keep
-      //      last-known-good on any fetch failure rather than clearing it.
+      //   2. a small body data-mode hook for diagnostics.
       //
-      // It writes data-mode on <body> only (a debug hook); it deliberately
-      // does NOT touch the banner span, because Dash owns that node and two
-      // writers on one node is how it ends up out of sync.
+      // It writes data-mode on <body> only; Dash owns the visible banner to
+      // avoid competing DOM writers.
       // -----------------------------------------------------------------
       (function modeSync() {{
         var last = null;

@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
+import dash_mantine_components as dmc
 from dash import html
 
 from blue_engine.dashboard.pages._ai_insight import (
@@ -25,9 +26,9 @@ from blue_engine.dashboard.pages._ai_insight import (
 # 1. The shared card itself
 # --------------------------------------------------------------------------- #
 
-def test_card_returns_a_div():
+def test_card_returns_a_dmc_card():
     card = ai_insight_card("Test Setting", [("A", "1", _GREY)])
-    assert isinstance(card, html.Div)
+    assert isinstance(card, dmc.Card)
 
 
 def test_card_carries_ai_insight_badge():

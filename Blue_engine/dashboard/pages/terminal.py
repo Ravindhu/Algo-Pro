@@ -47,6 +47,7 @@ from blue_engine.dashboard.ui.kpi import (
     KpiRow,
 )
 from blue_engine.dashboard.ui.panel import Panel
+from blue_engine.dashboard.ui.plotly_theme import dashboard_dark_template
 
 dash.register_page(__name__, path="/", name="Terminal", order=0)
 
@@ -88,10 +89,10 @@ def body():
     # --- AI Insight header (read-only summary card) ------------------------ #
     ai_rows = [
         ("Mode", snap.mode, _AI_GREEN if snap.mode == "live" else _AI_GREY),
-        ("Buyer VWAP", _data.fmt(vwap or None), "#e2e8f0"),
+        ("Buyer VWAP", _data.fmt(vwap or None), "#C1C2C5"),
         ("POV ceiling / floor",
          f"{_data.fmt(band.get('ceiling') or None)} / {band.get('floor') or '-'}",
-         "#e2e8f0"),
+         "#C1C2C5"),
         ("POV rate band", rate_txt, _AI_GREY),
         ("Watching", watch_txt, _AI_GREY),
         ("Ledger", "available" if snap.ledger_ok else "offline",
@@ -212,8 +213,6 @@ def _band_figure(vwap: float, band: dict, pov: dict, pal: dict | None = None):
 
     if pal is None:
         pal = theme("analyzer")
-    is_light = pal.get("color_scheme") == "light"
-
     floor = band.get("floor", 0.0)
     ceiling = band.get("ceiling", 0.0)
     min_pov = float(pov.get("min_pov_pct", 5.0))
@@ -222,20 +221,20 @@ def _band_figure(vwap: float, band: dict, pov: dict, pal: dict | None = None):
     fig = go.Figure()
     if vwap > 0 and ceiling > floor:
         fig.add_shape(type="rect", x0=0, x1=1, y0=floor, y1=ceiling,
-                      fillcolor="#e2e8f0" if is_light else "#1e293b",
-                      line=dict(color="#94a3b8" if is_light else "#334155"),
+                      fillcolor="#25262B",
+                      line=dict(color="#2C2E33"),
                       layer="below")
-        fig.add_hline(y=vwap, line=dict(color="#3b82f6", width=2),
+        fig.add_hline(y=vwap, line=dict(color="#4DABF7", width=2),
                       annotation_text="buyer VWAP")
-        fig.add_hline(y=ceiling, line=dict(color="#ef4444", dash="dash"),
+        fig.add_hline(y=ceiling, line=dict(color="#FA5252", dash="dash"),
                       annotation_text=f"ceiling +{band.get('ceiling_pct', 0)}%")
-        fig.add_hline(y=floor, line=dict(color="#22c55e", dash="dash"),
+        fig.add_hline(y=floor, line=dict(color="#40C057", dash="dash"),
                       annotation_text=f"floor -{band.get('floor_pct', 0)}%")
     else:
         fig.add_annotation(text="No buyer-initiated VWAP yet (waiting for first poll)",
                            showarrow=False, font=dict(color=pal["muted_fg"]))
     fig.update_layout(
-        template="plotly_white" if is_light else "plotly_dark",
+        template=dashboard_dark_template(),
         paper_bgcolor=pal["paper"],
         plot_bgcolor=pal["paper"],
         font=dict(color=pal["body_fg"]),

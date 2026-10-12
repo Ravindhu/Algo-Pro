@@ -1,11 +1,13 @@
 # My Trading System — SOP
-_Updated: 2026-10-09_
+_Updated: 2026-10-12_
 
 ## 1. Environment
 
 - Python venv: `C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe`
 - OpenAlgo platform clone: `openalgo\` (pristine upstream; local state lives in `_restored\`)
-- Dashboard stack: Dash 4.4.1 + Dash Mantine Components 2.8.0 + dash-iconify (installed 2026-10-07)
+- Dashboard dependencies are declared in the `dashboard` extra in
+  `Blue_engine\pyproject.toml`. Install/update them from the repository root
+  with `.\.venv\Scripts\python.exe -m pip install -e "Blue_engine[dashboard]"`.
 
 ## 2. Starting OpenAlgo (broker bridge, ports 5000 + 8765)
 
@@ -28,6 +30,9 @@ Start-Process -FilePath "C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\
 ```
 
 - ALWAYS launch via `Blue_engine\dashboard\run_server.py`, never `dash_app.py` directly. The launcher pre-seeds `platform.machine()` — on this host a detached process otherwise blocks forever inside `pandas → platform.win32_ver() → subprocess("cmd /c ver")` with no error.
+- The workspace is dark in both analyzer and live modes. Live mode retains a
+  distinct red safety banner/accent; the dashboard polls the order-routing
+  mode independently from its panel data source.
 - The banner resolves `OPENALGO_API_KEY` through
   `blue_engine.economics.providers.secrets.get_secret` (env -> `_restored/.env`
   -> repo `.env`). You do NOT need to export it; the key in `_restored/.env`
@@ -36,12 +41,12 @@ Start-Process -FilePath "C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\
 - Verify: `http://127.0.0.1:8050/` and `/pov/mode` both return 200. `/pov/mode`
   returns `{"mode": "analyzer"|"live", ...}`; `"unknown"` means the read
   failed (OpenAlgo down or key unusable), never "not configured".
-- **Both directions verified live 2026-10-08.** Analyzer: `/pov/mode` ->
-  `{"mode":"analyzer","label":"ANALYZER (SIMULATED)","color_scheme":"dark"}`.
-  Live: toggled in the OpenAlgo UI, `/pov/mode` ->
-  `{"mode":"live","label":"LIVE - REAL MONEY","color_scheme":"light"}`.
-  No dashboard restart is needed: the 2 s poll re-reads `/api/v1/analyzer` and
-  re-themes the shell, so a mid-session toggle is picked up within one tick.
+- **Both order-routing modes verified live 2026-10-08.** Analyzer: `/pov/mode`
+  reports `ANALYZER (SIMULATED)`; live: toggled in the OpenAlgo UI, it reports
+  `LIVE - REAL MONEY`. The workspace remains dark in both modes, with the live
+  state clearly distinguished by its safety banner/accent. No dashboard
+  restart is needed: the 2 s poll re-reads `/api/v1/analyzer` and updates the
+  shell, so a mid-session toggle is picked up within one tick.
 
 ## 4. Dashboard (DMC migration, 2026-10-07)
 

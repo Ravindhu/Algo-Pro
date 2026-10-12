@@ -18,11 +18,11 @@ from dash_iconify import DashIconify
 
 #: Semantic colours. Kept as plain hex (not DMC theme tokens) because the
 #: pages pass P&L sign colours that must not shift with the active accent.
-POSITIVE = "#22c55e"
-NEGATIVE = "#ef4444"
-NEUTRAL = "#94a3b8"
-WARNING = "#f59e0b"
-INFO = "#3b82f6"
+POSITIVE = "#40C057"
+NEGATIVE = "#FA5252"
+NEUTRAL = "#909296"
+WARNING = "#FCC419"
+INFO = "#4DABF7"
 ACCENT = "#a855f7"
 
 
@@ -77,6 +77,7 @@ def KpiCard(label: str, value: Any, *, colour: Optional[str] = None,
         [heading, *body],
         withBorder=True,
         radius="md",
+        shadow="sm",
         padding="sm",
         className="kpi-card",
         style={"minWidth": 150},
@@ -112,7 +113,7 @@ def pill(text: str, *, ok: Optional[bool] = None,
             colour = "red"
         else:
             colour = "gray"
-    return dmc.Badge(str(text), color=colour, variant="filled", size="sm",
+    return dmc.Badge(str(text), color=colour, variant="dot", size="sm",
                      radius="xl", className="pill")
 
 

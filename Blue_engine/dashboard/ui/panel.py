@@ -16,7 +16,7 @@ import dash_mantine_components as dmc
 def Panel(title: Optional[str] = None, children: Any = None, *,
           right: Any = None, icon: Optional[str] = None,
           description: Optional[str] = None,
-          className: str = "panel") -> dmc.Paper:
+          className: str = "panel") -> dmc.Card:
     """A bordered surface with an optional title row.
 
     Args:
@@ -57,8 +57,8 @@ def Panel(title: Optional[str] = None, children: Any = None, *,
     else:
         body.append(children)
 
-    return dmc.Paper(body, withBorder=True, radius="md", p="md",
-                     className=className, mb="md")
+    return dmc.Card(body, withBorder=True, radius="md", shadow="sm",
+                    padding="md", className=className, mb="md")
 
 
 __all__ = ["Panel"]

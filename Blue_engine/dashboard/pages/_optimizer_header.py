@@ -88,6 +88,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import dash_mantine_components as dmc
 from dash import dcc, html
 
 # Expose the html module so tests can do isinstance(result, html.Div)
@@ -155,12 +156,12 @@ def _ensure_registry_imports() -> None:
 
 
 # --- palette (mirrors optimizer.py) ----------------------------------------- #
-_GREEN = "#22c55e"
-_AMBER = "#f59e0b"
-_RED = "#ef4444"
-_GREY = "#94a3b8"
-_BG_DARK = "#0f172a"
-_BG_PANEL = "#1e293b"
+_GREEN = "#40C057"
+_AMBER = "#FCC419"
+_RED = "#FA5252"
+_GREY = "#909296"
+_BG_DARK = "#141517"
+_BG_PANEL = "#25262B"
 
 # Default controls. The operator can override per-run; these are the
 # "first-load" values the AI Insight header shows until the operator
@@ -404,7 +405,7 @@ def _ai_insight_header(snap: Dict[str, Any],
         style={"color": _GREY, "fontSize": "11px", "marginTop": "12px"},
     )
 
-    return html.Div([
+    return dmc.Card([
         html.Div([
             html.Span("AI INSIGHT", style={
                 "background": _BG_PANEL, "color": _GREEN,
@@ -426,7 +427,9 @@ def _ai_insight_header(snap: Dict[str, Any],
                          "marginTop": "6px", "marginBottom": "6px"}),
         params_table,
         footer,
-    ], className="panel", style={"borderLeft": f"3px solid {_GREEN}"})
+    ], withBorder=True, radius="md", shadow="sm", padding="md",
+       className="panel ai-insight-card",
+       style={"borderLeft": f"3px solid {_GREEN}"})
 
 
 def _params_table(entry: Optional[Dict[str, Any]]) -> html.Table:
@@ -692,7 +695,7 @@ def _label_style() -> Dict[str, str]:
 
 
 def _value_style() -> Dict[str, str]:
-    return {"color": "#e2e8f0", "fontSize": "12px",
+    return {"color": "#C1C2C5", "fontSize": "12px",
             "paddingLeft": "10px", "paddingBottom": "4px"}
 
 
@@ -702,7 +705,7 @@ def _th_style() -> Dict[str, str]:
             "fontWeight": "600"}
 
 
-def _td_style(color: str = "#e2e8f0") -> Dict[str, str]:
+def _td_style(color: str = "#C1C2C5") -> Dict[str, str]:
     return {"color": color, "fontSize": "12px",
             "padding": "4px 8px",
             "borderBottom": f"1px solid {_BG_DARK}"}

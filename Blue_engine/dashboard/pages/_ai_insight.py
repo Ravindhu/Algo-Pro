@@ -43,17 +43,18 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any, Dict, List, Optional, Tuple
 
+import dash_mantine_components as dmc
 from dash import html
 
 __all__ = ["ai_insight_card", "html"]
 
 # --- palette (mirrors _optimizer_header.py / theme.py) ---------------------- #
-_GREEN = "#22c55e"
-_AMBER = "#f59e0b"
-_RED = "#ef4444"
-_GREY = "#94a3b8"
-_BG_DARK = "#0f172a"
-_BG_PANEL = "#1e293b"
+_GREEN = "#40C057"
+_AMBER = "#FCC419"
+_RED = "#FA5252"
+_GREY = "#909296"
+_BG_DARK = "#141517"
+_BG_PANEL = "#25262B"
 
 # --- row-style helpers ------------------------------------------------------ #
 
@@ -63,7 +64,7 @@ def _label_style() -> Dict[str, Any]:
             "whiteSpace": "nowrap", "verticalAlign": "top"}
 
 
-def _value_style(color: str = "#e2e8f0") -> Dict[str, Any]:
+def _value_style(color: str = "#C1C2C5") -> Dict[str, Any]:
     return {"color": color, "fontSize": "12px", "padding": "2px 0",
             "verticalAlign": "top"}
 
@@ -74,7 +75,7 @@ def _th_style() -> Dict[str, Any]:
             "borderBottom": "1px solid " + _BG_PANEL}
 
 
-def _td_style(color: str = "#e2e8f0") -> Dict[str, Any]:
+def _td_style(color: str = "#C1C2C5") -> Dict[str, Any]:
     return {"color": color, "fontSize": "12px", "padding": "2px 10px 2px 0",
             "verticalAlign": "top"}
 
@@ -160,8 +161,11 @@ def ai_insight_card(page_title: str,
 
     children.append(footer)
 
-    return html.Div(children, className="panel",
-                    style={"borderLeft": f"3px solid {_GREEN}"})
+    return dmc.Card(
+        children, withBorder=True, radius="md", shadow="sm", padding="md",
+        className="panel ai-insight-card",
+        style={"borderLeft": f"3px solid {_GREEN}"},
+    )
 
 
 def rows_from_dict(data: Dict[str, Any],

@@ -7,9 +7,9 @@ build. Two jobs:
 1. Wrap every page in ``dmc.MantineProvider`` so DMC components get a real
    theme (colours, radius, fonts) instead of falling back to defaults.
 
-2. Drive that theme from the OpenAlgo mode, because the mode is a SAFETY
-   SIGNAL, not a preference: dark == analyzer/simulated, light == live/real
-   money. The mode is read from the same ``/pov/mode`` endpoint the old JS
+2. Keep the workspace dark in all modes and drive the accent + status badges
+   from OpenAlgo mode, which is a SAFETY SIGNAL, not a preference. The mode is
+   read from the same ``/pov/mode`` endpoint the old JS
    poll used, so a mid-session flip in OpenAlgo still re-themes the UI
    without a page reload.
 
@@ -43,6 +43,20 @@ _NAV: list[tuple[str, str, str]] = [
     ("mdi:tune-variant", "Optimizer", "/optimizer"),
 ]
 
+_DARK_COLORS = [
+    "#C1C2C5", "#A6A7AB", "#909296", "#5C5F66", "#3F4146",
+    "#2C2E33", "#25262B", "#1A1B1E", "#141517", "#101113",
+]
+
+
+def _mantine_theme(pal: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "primaryColor": pal["accent"],
+        "fontFamily": "'Segoe UI', system-ui, sans-serif",
+        "defaultRadius": "md",
+        "colors": {"dark": _DARK_COLORS},
+    }
+
 
 def mode_banner(pal: Dict[str, Any], *, data_source: str = "paper") -> html.Div:
     """The always-visible banner: order-routing mode AND panel data source.
@@ -63,14 +77,18 @@ def mode_banner(pal: Dict[str, Any], *, data_source: str = "paper") -> html.Div:
         # source (static for this process). Splitting them is what lets the
         # client script update one without touching the other.
         html.Span(banner_text(pal, data_source=data_source),
-                  className="mode-banner-text"),
-        className="mode-banner",
-        style={
-            "background": pal["banner_bg"],
-            "color": pal["banner_fg"],
-            "border": f"1px solid {pal['banner_border']}",
-        },
+                  id="mode-banner-text", className="mode-banner-text"),
+        id="mode-banner", className="mode-banner",
+        style=_mode_banner_style(pal),
     )
+
+
+def _mode_banner_style(pal: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "background": pal["banner_bg"],
+        "color": pal["banner_fg"],
+        "border": f"1px solid {pal['banner_border']}",
+    }
 
 
 def _sidebar(pal: Dict[str, Any]) -> dmc.Stack:
@@ -91,21 +109,85 @@ def _sidebar(pal: Dict[str, Any]) -> dmc.Stack:
     ]
     return dmc.Stack(
         [
-            dmc.Group(
-                [
-                    DashIconify(icon="mdi:robot-industrial", width=22,
-                                color=pal["muted_fg"]),
-                    dmc.Text("POV Terminal", size="sm", fw=700,
-                             style={"letterSpacing": ".08em",
-                                    "textTransform": "uppercase"}),
-                ],
-                gap="xs",
+            dmc.Card(
+                dmc.Group(
+                    [
+                        dmc.ThemeIcon(
+                            DashIconify(icon="mdi:chart-box-outline", width=20),
+                            color=pal["accent"], variant="light", radius="md",
+                            size="lg", id="sidebar-brand-icon",
+                        ),
+                        dmc.Stack(
+                            [
+                                dmc.Text("BLUE ENGINE", size="sm", fw=800,
+                                         style={"letterSpacing": ".08em"}),
+                                dmc.Text("TRADING SYSTEM", size="xs",
+                                         c="dimmed"),
+                            ],
+                            gap=0,
+                        ),
+                    ],
+                    gap="sm",
+                ),
+                withBorder=True, radius="md", shadow="sm", padding="sm",
             ),
             dmc.Divider(),
-            dmc.Stack(links, gap=2),
+            dmc.Text("WORKSPACE", size="xs", c="dimmed", fw=700,
+                     style={"letterSpacing": ".1em"}, px="sm"),
+            dmc.Stack(links, gap=2, className="sidebar-nav"),
+            dmc.Space(h="md"),
+            dmc.Divider(),
+            dmc.Text("INDIA MARKETS", size="xs", c="dimmed", px="sm"),
         ],
         gap="sm",
         className="sidebar",
+    )
+
+
+def _workspace_header(pal: Dict[str, Any], data_source: str) -> dmc.Group:
+    """Compact workspace header; both badges report configured system state."""
+    return dmc.Group(
+        [
+            dmc.Stack(
+                [
+                    dmc.Text("Market operations", fw=700, fz="lg"),
+                    dmc.Text("Strategy, portfolio and execution workspace",
+                             size="xs", c="dimmed"),
+                ],
+                gap=2,
+            ),
+            html.Div(
+                _workspace_badges(pal, data_source),
+                id="workspace-header-status",
+            ),
+        ],
+        justify="space-between",
+        align="center",
+        mb="lg",
+        className="workspace-header",
+    )
+
+
+def _workspace_badges(pal: Dict[str, Any], data_source: str) -> dmc.Group:
+    """Return status badges for the independently reported mode/data axes."""
+    mode_color = "red" if pal["key"] == "live" else (
+        "orange" if pal["key"] == "unknown" else "violet")
+    source_known = data_source in ("live", "paper")
+    source_label = ("LIVE SDK DATA" if data_source == "live" else
+                    "PAPER DATA" if data_source == "paper" else
+                    "DATA SOURCE UNKNOWN")
+    return dmc.Group(
+        [
+            dmc.Badge(
+                pal["label"], color=mode_color, variant="dot",
+                size="sm", radius="sm",
+            ),
+            dmc.Badge(
+                source_label, color="teal" if source_known else "gray",
+                variant="dot", size="sm", radius="sm",
+            ),
+        ],
+        gap="xs",
     )
 
 
@@ -132,22 +214,23 @@ def app_shell(page_container: Any, *, mode: str = "unknown",
         id="mantine-provider",
         # Broadcast the palette to every DMC component AND to plain CSS
         # (the .mode-banner) without a hard-coded stylesheet.
-        theme={
-            "primaryColor": pal["accent"],
-            "fontFamily": "'Segoe UI', system-ui, sans-serif",
-            "defaultRadius": "md",
-        },
-        # forceColorScheme pins dark/light to the mode. Without it DMC would
-        # follow the OS preference and a user in a dark-themed OS would get a
-        # dark UI while trading live -- the exact confusion we must prevent.
-        forceColorScheme=pal["color_scheme"],
+        theme=_mantine_theme(pal),
+        # Explicitly pin the workspace dark regardless of OS preference. Mode
+        # remains independently visible in the banner and live-updating badges.
+        forceColorScheme="dark",
         children=html.Div(
             [
                 mode_banner(pal, data_source=data_source),
                 html.Div(
                     [
                         _sidebar(pal),
-                        html.Div(page_container, className="content"),
+                        html.Div(
+                            [
+                                _workspace_header(pal, data_source),
+                                page_container,
+                            ],
+                            className="content",
+                        ),
                     ],
                     className="app-body embedded" if embedded else "app-body",
                 ),
@@ -160,4 +243,5 @@ def app_shell(page_container: Any, *, mode: str = "unknown",
     )
 
 
-__all__ = ["app_shell", "mode_banner"]
+__all__ = ["app_shell", "mode_banner", "_mantine_theme",
+           "_mode_banner_style", "_workspace_badges"]
