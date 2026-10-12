@@ -60,6 +60,126 @@ These come from the official OpenAlgo example `strategies/Custom Statergy/simple
    python -m blue_engine.core.runner blue_engine/input/my_run.json
    ```
 
+## Historical backtesting and per-symbol optimization
+
+`blue_engine.backtest` is the deterministic validation engine. It consumes
+historical OHLCV only, evaluates a strategy on the visible bar prefix, and
+executes each resulting target exposure at the **next bar's open**. The default
+cost model includes the existing Indian statutory charge model, slippage,
+latency, and volume-sensitive impact. The default position limit is long-only
+and at most 100% of equity; short exposure must be explicitly enabled.
+
+The reusable symbol-batch flow is:
+
+1. Pass the screened ticker list, timeframe, and date window.
+2. Check local SQLite cache coverage and download missing outer date windows
+   in bounded chunks before any optimization begins. Downloads for different
+   symbols run in a bounded thread pool; bars are not fetched inside a trial.
+3. Load each symbol's cached bars in an isolated optimization worker. TPE
+   searches the In-Sample (IS) partition using the configured walk-forward
+   folds.
+4. Re-run the recommendation on the untouched Out-of-Sample (OOS) partition.
+   A symbol is included in `configurations` only when OOS Sharpe is at least
+   70% of IS Sharpe and OOS maximum drawdown is no more than 130% of IS
+   drawdown. Failed or insufficient runs remain visible in `results`.
+5. Atomically write the approved-only lookup and per-symbol validation report
+   to `data/optimizer/symbol_parameters.json` (override with `output_path`).
+
+The signal contract is `signal(params, context, bars) -> target_position`, where
+`target_position` is a finite exposure fraction in `[-1, 1]` and `bars` is a
+read-only prefix. A signal may instead return
+`{"target_position": fraction}`. Historical results are not live performance,
+and this workflow **does not** alter live configuration, promote parameters,
+or place orders. Review and explicitly promote approved configurations through
+the existing risk-controlled live operating path.
+`BatchConfig.risk_free_per_period` is applied consistently to optimizer Sharpe,
+the cost-adjusted objective gate, and IS/OOS reporting; its default of zero is
+an explicit assumption, not an India risk-free-rate estimate.
+
+For multiple CPU workers, provide a module-level callable or import path such
+as `"my_strategy:signal"` and invoke the batch from a Windows
+`if __name__ == "__main__":` guard. The default annualization convention is
+252 daily periods, 52 weekly periods, 12 monthly periods, and 375 trading
+minutes per intraday session; set `periods_per_year` explicitly when that
+assumption does not match the data.
+
+```python
+from blue_engine.backtest.batch import BatchConfig, run_symbol_batch
+from blue_engine.optimizer.spaces import load_space
+
+if __name__ == "__main__":
+    screened_symbols = ["RELIANCE", "INFY", "TCS"]
+    result = run_symbol_batch(
+        screened_symbols,
+        strategy="my_strategy:signal",
+        search_space=load_space("ocl_keylevel"),
+        config=BatchConfig(
+            start="2023-01-01", end="2025-12-31", interval="1d",
+            trials=100, folds=4, oos_fraction=0.2),
+    )
+    print(result.output_path)
+```
+
+### Persistence, messaging, and concurrency
+
+The implemented research path uses the existing SQLite OHLCV cache, an
+atomically replaced JSON recommendation/report, `ThreadPoolExecutor` for
+bounded downloads, and Windows-safe `ProcessPoolExecutor` workers for
+symbol-isolated parameter searches. It adds no service or package dependency.
+The live monitor is wired into the POV child-order boundary when explicitly
+enabled in the raw runner config. It requires a trusted live telemetry provider
+and historical envelope; each attempted child order verifies the broker
+positionbook and fresh telemetry. Monitor threshold breaches pause new entries,
+allow verified exit-phase orders, and latch the durable kill switch. Missing or
+invalid broker positions or telemetry also latch the switch and abort execution.
+A quote-feed outage reaching the POV pause threshold also latches the switch.
+A latched switch blocks subsequent runs until an operator explicitly resets it.
+A latched switch blocks subsequent runs until an operator explicitly resets it.
+The runner does not automatically cancel already-working broker orders or
+promote parameters.
+
+Example opt-in runner configuration:
+
+```json
+{
+  "live_monitor": {
+    "enabled": true,
+    "provider_ref": "my_trading.telemetry:read_monitor_inputs",
+    "historical_envelope": {
+      "max_dd": 8.0,
+      "max_losing_streak": 6
+    },
+    "check_interval_seconds": 30,
+    "regime_window": 10
+  }
+}
+```
+
+The provider is called before each child order as
+`provider(client=..., positionbook=..., monitor_config=...)`. It must return
+finite, current `live_equity`, `live_trade_pnls`, `live_daily_returns`, and
+`historical_daily_returns` sequences; the historical returns need at least
+`regime_window + 1` observations. `max_dd` is in percentage points, matching
+the monitor's live drawdown calculation. The provider must source these values
+from verified account/trade/market data, not static config or backtest output.
+On valid quote polls, telemetry is refreshed no more often than
+`check_interval_seconds` (default 30); every child order forces a fresh
+broker-position and telemetry verification regardless of this interval.
+Durable kill-switch storage must be available. The monitor defaults to
+disabled; enabling it without a valid provider blocks the run rather than
+silently skipping checks.
+
+For a later multi-process production deployment, keep PostgreSQL as the
+authoritative store for state transitions, run manifests, approved parameter
+versions, fills and audit history. Use a durable RabbitMQ queue for
+re-optimization/reconciliation commands and a dead-letter queue for failed
+work; workers should be idempotent and only report completion after durable
+state is committed. The current local process pool is appropriate for research
+on one Windows host; introduce a distributed worker framework such as Ray only
+when profiling demonstrates a need to scale beyond that host. SQLite, JSON,
+and local process workers are not a substitute for these shared production
+services.
+
 ## Adding a new signal strategy (e.g., engulfing candle)
 
 1. Copy `blue_engine/alpha/signals/_template.py` to `blue_engine/alpha/signals/engulfing.py`.

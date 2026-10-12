@@ -97,17 +97,28 @@ def parse_positionbook(resp: Any) -> Dict[str, Any]:
                     resp, dict) else f"positionbook not a dict: {type(resp)!r}")
             return out
         data = resp.get("data")
-        rows: List[Dict[str, Any]] = []
+        rows: Optional[List[Dict[str, Any]]] = None
         if isinstance(data, list):
-            rows = [r for r in data if isinstance(r, dict)]
+            if any(not isinstance(row, dict) for row in data):
+                out["errors"].append("positionbook contains malformed rows")
+                return out
+            rows = data
         elif isinstance(data, dict):
             # Some brokers wrap the list one level down (e.g. "positions").
             for key in ("positions", "book", "rows"):
                 if isinstance(data.get(key), list):
-                    rows = [r for r in data[key] if isinstance(r, dict)]
+                    if any(not isinstance(row, dict) for row in data[key]):
+                        out["errors"].append(
+                            "positionbook contains malformed rows")
+                        return out
+                    rows = data[key]
                     break
-        if not rows:
+        if rows is None:
             out["errors"].append("positionbook returned no position rows")
+            return out
+        if not rows:
+            out.update(ok=True, day_pnl=None, open_exposure=0.0,
+                       n_positions=0)
             return out
 
         day_pnl = 0.0
@@ -120,8 +131,13 @@ def parse_positionbook(resp: Any) -> Dict[str, Any]:
                 day_pnl += pnl
                 any_pnl = True
             qty = _first_num(row, _QTY_KEYS)
+            if qty is None:
+                raise ValueError("positionbook row has no valid net quantity")
             price = _first_num(row, _PRICE_KEYS)
-            if qty is not None and abs(qty) > 0 and price is not None:
+            if abs(qty) > 0:
+                if price is None or price <= 0:
+                    raise ValueError(
+                        "open position has no valid positive reference price")
                 exposure += abs(qty * price)
                 open_positions += 1
         out.update(ok=True, day_pnl=day_pnl if any_pnl else None,

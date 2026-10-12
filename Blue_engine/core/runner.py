@@ -37,7 +37,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from blue_engine.alpha import signals
 from blue_engine.pov import slicers
@@ -144,20 +144,31 @@ def _poll_signals_until_fire(
         time.sleep(poll_seconds)
 
 
-def run_with_config(raw: Dict[str, Any]) -> int:
+def run_with_config(
+    raw: Dict[str, Any], *,
+    monitor_inputs_provider: Optional[Callable[..., Dict[str, Any]]] = None,
+) -> int:
     """Run the POV engine from an already-loaded raw config dict.
 
     This is the shared entry point used by both the JSON-file CLI
     (``main``) and external launchers such as ``run_pov.py`` that embed
     the user config directly in Python (no separate ``master.json`` needed).
 
-    Returns 0 on success, non-zero on error.
+    ``monitor_inputs_provider`` may inject a trusted live telemetry provider
+    for ``live_monitor``. Returns 0 on success, non-zero on error.
     """
     try:
         cfg = parse_master_config(raw)
     except (ValueError, ConfigError) as exc:
         print(f"[runner] ERROR: {exc}")
         return 2
+
+    from blue_engine.portfolio.optim_policy import kill_switch_state
+    kill_state = kill_switch_state()
+    if kill_state["tripped"]:
+        print("[runner] ERROR: durable kill switch is tripped; "
+              "operator reset is required before starting")
+        return 4
 
     active_signals = cfg["active_signals"]
     active_slicer = cfg["active_slicer"]
@@ -216,6 +227,59 @@ def run_with_config(raw: Dict[str, Any]) -> int:
         print(f"[runner] ERROR: could not build slicer '{slicer_name}': {exc}")
         return 3
     print(f"[runner] slicer: {slicer_name}  ({slicer.__class__.__name__})")
+
+    # Optional live feedback-loop guard. It is deliberately opt-in because a
+    # valid monitor requires real, strategy-specific historical and live
+    # telemetry; it must never invent data or present backtests as live.
+    from blue_engine.backtest.loops import LiveMonitor
+    from blue_engine.core.live_monitor import (
+        LiveMonitorGuard, resolve_monitor_provider)
+    monitor_guard = None
+    monitor_cfg = raw.get("live_monitor")
+    if monitor_cfg is not None and not isinstance(monitor_cfg, dict):
+        print("[runner] ERROR: live_monitor must be an object")
+        return 4
+    if (isinstance(monitor_cfg, dict)
+            and not isinstance(monitor_cfg.get("enabled", False), bool)):
+        print("[runner] ERROR: live_monitor.enabled must be a boolean")
+        return 4
+    if isinstance(monitor_cfg, dict) and monitor_cfg.get("enabled", False):
+        envelope = monitor_cfg.get("historical_envelope")
+        if not isinstance(envelope, dict):
+            print("[runner] ERROR: live_monitor requires historical_envelope")
+            return 4
+        provider = monitor_inputs_provider
+        if provider is None:
+            provider_ref = monitor_cfg.get("provider_ref")
+            try:
+                provider = resolve_monitor_provider(provider_ref)
+            except (TypeError, ValueError) as exc:
+                print(f"[runner] ERROR: live monitor provider: {exc}")
+                return 4
+        try:
+            monitor = LiveMonitor(
+                envelope,
+                drawdown_multiple=float(
+                    monitor_cfg.get("drawdown_multiple", 1.5)),
+                loss_streak_multiple=float(
+                    monitor_cfg.get("loss_streak_multiple", 1.4)),
+                regime_std_multiple=float(
+                    monitor_cfg.get("regime_std_multiple", 2.0)),
+                regime_window=int(monitor_cfg.get("regime_window", 10)),
+            )
+            monitor_guard = LiveMonitorGuard(
+                client=client, monitor=monitor, provider=provider,
+                monitor_config=monitor_cfg)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            print(f"[runner] ERROR: invalid live monitor configuration: {exc}")
+            return 4
+        slicer.monitor_observer = monitor_guard.observe
+        slicer.pre_order_check = monitor_guard.authorize_order
+        slicer.on_data_failure = monitor_guard.on_data_failure
+        print("[runner] live performance monitor: active; observing valid "
+              "quotes and checking each child order")
+    else:
+        print("[runner] live performance monitor: disabled")
 
     # Build the signals
     signal_instances: List[Tuple[str, Any]] = []
@@ -291,6 +355,10 @@ def run_with_config(raw: Dict[str, Any]) -> int:
 
     summary = slicer.execute(intent)
     print(f"[runner] summary: {summary}")
+    if monitor_guard is not None and monitor_guard.halted:
+        print(f"[runner] live monitor halted new execution: "
+              f"{monitor_guard.halt_reason}")
+        return 4
     return 0
 
 
@@ -313,4 +381,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -234,6 +234,11 @@ class POVSlicer(BaseSlicer):
             if quote_health.should_pause():
                 snap = quote_health.snapshot()
                 self.log(f"PAUSED after {snap['failures']} failures; terminated")
+                data_failure_handler = getattr(self, "on_data_failure", None)
+                if callable(data_failure_handler):
+                    data_failure_handler(
+                        f"quote feed paused after {snap['failures']} failures: "
+                        f"{snap['last_reason']}")
                 break
             # Feature X: WS-backed volume cache (live vol; REST fallback if empty).
             quote = _get_quote_from_ws(
@@ -244,6 +249,13 @@ class POVSlicer(BaseSlicer):
                           if isinstance(quote, dict) else "non-dict")
                 if quote_health.record_failure(str(reason)):
                     self.log(f"quote health -> PAUSED")
+                    data_failure_handler = getattr(
+                        self, "on_data_failure", None)
+                    if callable(data_failure_handler):
+                        data_failure_handler(
+                            f"quote feed paused after "
+                            f"{quote_health.snapshot()['failures']} failures: "
+                            f"{reason}")
                     break
                 self.log(f"quote invalid ({reason}); sleep {poll_sec}s")
                 time.sleep(poll_sec)
@@ -254,6 +266,18 @@ class POVSlicer(BaseSlicer):
             ltp = _safe_float(qd.get("ltp"))
             volume = _safe_int(qd.get("volume"))
             ask = _safe_float(qd.get("ask"))
+            monitor_observer = getattr(self, "monitor_observer", None)
+            if callable(monitor_observer):
+                try:
+                    safe_to_continue = monitor_observer()
+                except Exception as exc:
+                    self.log(f"live monitor failed: {exc!r}; "
+                             "aborting execution")
+                    break
+                if not safe_to_continue:
+                    self.log("live monitor could not verify safety; "
+                             "aborting execution")
+                    break
             # Time-of-day phase transitions.
             now_ist = ist_now()
             now_ts = now_ist.timestamp()
@@ -493,6 +517,32 @@ class POVSlicer(BaseSlicer):
                         guard_price if guard_price is not None
                         else (float(self.config["limit_price"])
                               if self.config.get("limit_price") is not None else None))
+                pre_order_check = getattr(self, "pre_order_check", None)
+                if callable(pre_order_check):
+                    try:
+                        authorized_qty = pre_order_check(
+                            phase=phase, quantity=slice_qty,
+                            action=self.order_action)
+                    except Exception as exc:
+                        self.log(f"pre-order safety check failed: {exc!r}; "
+                                 "aborting execution")
+                        break
+                    if authorized_qty is None:
+                        self.log("pre-order safety check blocked execution")
+                        break
+                    if (not isinstance(authorized_qty, int)
+                            or isinstance(authorized_qty, bool)
+                            or authorized_qty < 0
+                            or authorized_qty > slice_qty):
+                        self.log("pre-order safety check returned invalid "
+                                 "quantity; aborting execution")
+                        break
+                    if authorized_qty == 0:
+                        self.log("pre-order safety check paused this entry")
+                        time.sleep(poll_sec)
+                        now_ts = datetime.now().timestamp()
+                        continue
+                    slice_qty = authorized_qty
                 self.log(f"[poll {child_count+1}] {self.order_action} {slice_qty} "
                           f"{self.symbol}/{self.exchange} {self.order_mode} "
                           f"@ {place_price or 'MARKET'}")

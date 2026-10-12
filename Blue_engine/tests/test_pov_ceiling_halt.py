@@ -187,6 +187,73 @@ class TestCeilingHaltStopsSlicing:
             f"slicer shipped {len(client.orders)} child order(s) while price "
             f"was above the ceiling; it must ship none")
 
+    def test_pre_order_monitor_hook_pauses_child_placement(self, monkeypatch):
+        from blue_engine.pov.slicers import pov as pov_module
+
+        client = GrowingTapeClient(ltp=100.0)
+        slicer = _slicer(client, duration=3, interval=1)
+        volume = 0
+
+        def advancing_quote(**kwargs):
+            nonlocal volume
+            volume += 25_000
+            return {"status": "success", "data": {
+                "ltp": 100.0, "bid": 99.95, "ask": 100.05,
+                "volume": volume, "upper_circuit_limit": 150.0,
+                "lower_circuit_limit": 50.0, "tick_size": 0.05,
+            }}
+
+        monkeypatch.setattr(
+            pov_module, "_get_quote_from_ws", advancing_quote)
+        checks = []
+        observations = []
+        slicer.monitor_observer = lambda: (
+            observations.append(True) or True)
+        slicer.pre_order_check = lambda **kwargs: (
+            checks.append(kwargs) or 0)
+
+        slicer.execute(_intent_without_band())
+
+        assert observations
+        assert checks
+        assert len(client.orders) == 0
+
+    def test_quote_failure_latches_live_monitor_and_blocks_runner_resume(
+        self, monkeypatch
+    ):
+        from blue_engine.backtest.loops import LiveMonitor
+        from blue_engine.core import kill_switch_store
+        from blue_engine.core.live_monitor import LiveMonitorGuard
+        from blue_engine.portfolio import optim_policy
+        from blue_engine.pov.slicers import pov as pov_module
+
+        client = GrowingTapeClient(ltp=100.0)
+        monkeypatch.setattr(
+            pov_module, "_get_quote_from_ws",
+            lambda **kwargs: {"status": "error", "message": "feed lost"})
+        guard = LiveMonitorGuard(
+            client=client,
+            monitor=LiveMonitor({"max_dd": 5.0,
+                                 "max_losing_streak": 3}),
+            provider=lambda **kwargs: {
+                "live_equity": [100.0],
+                "live_trade_pnls": [],
+                "live_daily_returns": [0.0] * 10,
+                "historical_daily_returns": [0.0] * 11,
+            },
+            monitor_config={},
+        )
+        slicer = _slicer(
+            client, duration=1, interval=1, quote_failure_threshold=1)
+        slicer.on_data_failure = guard.on_data_failure
+
+        result = slicer.execute(_intent_without_band())
+
+        assert result["child_orders"] == 0
+        assert not client.orders
+        assert optim_policy.kill_switch_state()["tripped"]
+        assert kill_switch_store.load_state()["tripped"]
+
     def test_halt_is_reported_in_the_summary(self):
         """The halt must be observable after the run, not silent.
 

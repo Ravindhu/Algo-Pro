@@ -161,6 +161,8 @@ class Objective:
                  n_folds: int = 4,
                  seed: int = 7,
                  cost_bps: float = config.COST_BPS_ROUND_TRIP,
+                 risk_free_per_period: float = 0.0,
+                 periods_per_year: Optional[float] = None,
                  min_fold_sharpe: Optional[float] = None,
                  cache_size: int = 4096) -> None:
         self.strategy = strategy
@@ -169,6 +171,15 @@ class Objective:
         self.n_folds = max(2, int(n_folds))
         self.seed = int(seed)
         self.cost_bps = float(cost_bps)
+        self.risk_free_per_period = float(risk_free_per_period)
+        if not math.isfinite(self.risk_free_per_period):
+            raise ValueError("risk_free_per_period must be finite")
+        self.periods_per_year = (None if periods_per_year is None
+                                 else float(periods_per_year))
+        if self.periods_per_year is not None and (
+                not math.isfinite(self.periods_per_year)
+                or self.periods_per_year <= 0):
+            raise ValueError("periods_per_year must be finite and positive")
         #: Optional hard floor: any fold below this makes the trial fail rather
         #: than merely score badly. Off by default (None) because a legitimate
         #: strategy can have one bad fold; turning it on is a policy choice.
@@ -285,6 +296,7 @@ class Objective:
                 "seed": self.seed + 1000 * k,
                 "periods": per_fold,
                 "cost_bps": self.cost_bps,
+                "risk_free_per_period": self.risk_free_per_period,
                 "fold": k,
                 "n_folds": self.n_folds,
             }
@@ -330,8 +342,12 @@ class Objective:
         all_rets: List[float] = []
         inactive_folds: List[int] = []
         for k, rets in enumerate(fold_returns):
-            periods_per_year = float(len(rets))  # one "period" per fold bar
-            sh = sharpe(rets, periods_per_year=max(2.0, periods_per_year))
+            annualization = (self.periods_per_year
+                             if self.periods_per_year is not None
+                             else float(len(rets)))
+            sh = sharpe(
+                rets, periods_per_year=max(2.0, annualization),
+                risk_free=self.risk_free_per_period)
             fold_sharpes.append(sh)
             all_rets.extend(rets)
             # Equity path for the fold, for drawdown and the drill-down chart.
@@ -407,9 +423,10 @@ class Objective:
         # but reporting the conservative case stops the gate flattering it.
         from ..ml.evaluation.metrics import cost_adjusted_edge
         mean_ret = (sum(all_rets) / len(all_rets)) if all_rets else 0.0
-        gate = cost_adjusted_edge(mean_ret * 10000.0,
-                                  turnover_per_period=1.0,
-                                  cost_bps_per_turnover=self.cost_bps)
+        gate = cost_adjusted_edge(
+            (mean_ret - self.risk_free_per_period) * 10000.0,
+            turnover_per_period=1.0,
+            cost_bps_per_turnover=self.cost_bps)
 
         # --- 6. optional hard floor -------------------------------------- #
         # NOTE: ``min_sh`` is now taken over the ACTIVITY-PADDED fold list, so an

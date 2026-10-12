@@ -44,6 +44,7 @@ the *quality* of the search, not the interface, the reports or the dashboard.
 """
 from __future__ import annotations
 
+import math
 import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -100,6 +101,8 @@ class EngineConfig:
                  periods: int = 600,
                  n_folds: int = 4,
                  cost_bps: float = config.COST_BPS_ROUND_TRIP,
+                 risk_free_per_period: float = 0.0,
+                 periods_per_year: Optional[float] = None,
                  min_fold_sharpe: Optional[float] = None,
                  n_startup: int = 12,
                  n_ei_candidates: int = 32,
@@ -115,6 +118,15 @@ class EngineConfig:
         self.periods = int(periods)
         self.n_folds = int(n_folds)
         self.cost_bps = float(cost_bps)
+        self.risk_free_per_period = float(risk_free_per_period)
+        if not math.isfinite(self.risk_free_per_period):
+            raise ValueError("risk_free_per_period must be finite")
+        self.periods_per_year = (None if periods_per_year is None
+                                 else float(periods_per_year))
+        if self.periods_per_year is not None and (
+                not math.isfinite(self.periods_per_year)
+                or self.periods_per_year <= 0):
+            raise ValueError("periods_per_year must be finite and positive")
         self.min_fold_sharpe = min_fold_sharpe
         self.n_startup = int(n_startup)
         self.n_ei_candidates = int(n_ei_candidates)
@@ -249,6 +261,8 @@ class OptimizerEngine:
             fn, space,
             periods=self.cfg.periods, n_folds=self.cfg.n_folds,
             seed=self.cfg.seed, cost_bps=self.cfg.cost_bps,
+            risk_free_per_period=self.cfg.risk_free_per_period,
+            periods_per_year=self.cfg.periods_per_year,
             min_fold_sharpe=self.cfg.min_fold_sharpe)
         self._optuna = self._detect_optuna()
 

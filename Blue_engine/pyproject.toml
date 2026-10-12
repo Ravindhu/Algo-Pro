@@ -62,6 +62,8 @@ deep = [
 packages = [
     "blue_engine",
     "blue_engine.core",
+    "blue_engine.backtest",
+    "blue_engine.optimizer",
     "blue_engine.alpha",
     "blue_engine.alpha.signals",
     "blue_engine.pov",
@@ -89,6 +91,8 @@ packages = [
 
 [tool.setuptools.package-dir]
 blue_engine = "."
+"blue_engine.backtest" = "backtest"
+"blue_engine.optimizer" = "optimizer"
 "blue_engine.alpha" = "alpha"
 "blue_engine.economics" = "economics"
 "blue_engine.economics.providers" = "economics/providers"

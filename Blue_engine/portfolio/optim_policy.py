@@ -119,27 +119,37 @@ class KillSwitch:
         ``drawdown`` is a positive fraction off the high-water mark (0.15 = 15%
         down); ``daily_loss`` is a positive fraction lost in the session.
         """
+        was_tripped = self.tripped
         dd = safe_float(drawdown)
         dl = safe_float(daily_loss)
         if not self.tripped:
             if dd is not None and dd >= self.max_drawdown:
-                self.tripped = True
-                self.reason = (f"drawdown {dd:.2%} >= limit "
-                               f"{self.max_drawdown:.2%}")
-                self.trigger_value = dd
+                self.trip(
+                    f"drawdown {dd:.2%} >= limit {self.max_drawdown:.2%}",
+                    trigger_value=dd)
             elif dl is not None and dl >= self.max_daily_loss:
-                self.tripped = True
-                self.reason = (f"daily loss {dl:.2%} >= limit "
-                               f"{self.max_daily_loss:.2%}")
-                self.trigger_value = dl
-            if self.tripped:
-                # Persist the trip so a process crash cannot silently re-arm
-                # trading (recovery policy: no auto-resume after a critical
-                # failure). Best-effort; failure only logs.
-                try:
-                    _ks_store.save_state(self.reason, self.trigger_value)
-                except Exception as exc:  # noqa: BLE001 - defensive
-                    logger.warning("kill-switch persist failed: %s", exc)
+                self.trip(
+                    f"daily loss {dl:.2%} >= limit {self.max_daily_loss:.2%}",
+                    trigger_value=dl)
+        if was_tripped and self.tripped:
+            self._logmsg(f"TRIPPED: {self.reason} — no new risk")
+        return {"tripped": self.tripped, "reason": self.reason,
+                "trigger_value": self.trigger_value,
+                "limits": {"max_drawdown": self.max_drawdown,
+                           "max_daily_loss": self.max_daily_loss}}
+
+    def trip(self, reason: str, *,
+             trigger_value: Optional[float] = None) -> Dict[str, Any]:
+        """Latch and durably record a halt requested by another safety control."""
+        if not self.tripped:
+            self.tripped = True
+            self.reason = str(reason).strip() or "unspecified safety halt"
+            self.trigger_value = safe_float(trigger_value)
+            try:
+                if not _ks_store.save_state(self.reason, self.trigger_value):
+                    logger.error("kill-switch trip could not be durably persisted")
+            except Exception as exc:  # noqa: BLE001 - defensive
+                logger.error("kill-switch persist failed: %s", exc)
         if self.tripped:
             self._logmsg(f"TRIPPED: {self.reason} — no new risk")
         return {"tripped": self.tripped, "reason": self.reason,
@@ -283,13 +293,18 @@ def reset_kill_switch(confirm: str = "") -> Dict[str, Any]:
     return _PROCESS_KILL_SWITCH.reset(confirm=confirm)
 
 
+def trip_kill_switch(reason: str, *,
+                     trigger_value: Optional[float] = None) -> Dict[str, Any]:
+    """Latch the shared durable kill-switch for an external safety failure."""
+    return _process_kill_switch().trip(reason, trigger_value=trigger_value)
+
+
 def kill_switch_state() -> Dict[str, Any]:
     """Snapshot of the latching switch for dashboards / recovery checks."""
-    if _PROCESS_KILL_SWITCH is None:
-        return {"tripped": False, "reason": None}
-    return {"tripped": _PROCESS_KILL_SWITCH.tripped,
-            "reason": _PROCESS_KILL_SWITCH.reason,
-            "trigger_value": _PROCESS_KILL_SWITCH.trigger_value}
+    switch = _process_kill_switch()
+    return {"tripped": switch.tripped,
+            "reason": switch.reason,
+            "trigger_value": switch.trigger_value}
 
 
 def resolve_constraints(limits: Optional[Dict[str, Any]] = None, *,

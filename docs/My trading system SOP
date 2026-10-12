@@ -236,3 +236,78 @@ and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
 - **Stale rows.** Bars downloaded before 2026-10-08 keep their old shifted
   timestamps in `data/optimizer/ohlcv.sqlite`. They are not re-derived. To
   refresh, delete the instrument's rows and re-download.
+
+## 8. Backtest and symbol-batch research (2026-10-12)
+
+- Engine code: `Blue_engine\backtest\`. It reuses the optimizer's local
+  `data\optimizer\ohlcv.sqlite` cache and the existing `optimizer` search-space
+  and TPE implementation. No new Python dependency was added; threading,
+  multiprocessing, SQLite, and atomic JSON output use the standard library.
+- Single backtest contract: a strategy receives `(params, context, bars)` and
+  returns a target exposure fraction (or `{"target_position": fraction}`).
+  `bars` is a prefix-only view. Decisions execute at the next bar's open;
+  equity is marked at each close. Long-only, <=100% exposure is the default.
+- Symbol workflow: `run_symbol_batch()` takes the screener's ticker list,
+  checks cache window coverage, downloads missing windows in <=365-day chunks
+  with bounded threads, then runs per-symbol IS searches in separate processes.
+  Workers consume local cached bars only. On Windows, invoke multiprocess use
+  from an `if __name__ == "__main__":` guard and provide an importable strategy
+  path such as `"my_strategy:signal"` (or another picklable module-level
+  callable).
+- IS/OOS: the final `oos_fraction` of ordered bars is held out before search.
+  A configuration is written under `configurations` only when an IS
+  recommendation exists and OOS Sharpe >= 0.7 * IS Sharpe and OOS max
+  drawdown <= 1.3 * IS max drawdown. Rejections and failures are retained under
+  `results`; no synthetic fallback is used.
+- Output defaults to `data\optimizer\symbol_parameters.json` and is atomically
+  replaced. This is a research artifact, **not** the live strategy config.
+  Review the report, verify data quality and risk limits, and promote through a
+  separately controlled paper/live path; the batch never places orders.
+- `LiveMonitor` emits a reason-bearing pause-entry/re-optimization signal for
+  drawdown, losing-streak, and rolling-volatility conditions. It is connected
+  to the POV runner's child-order boundary only when `live_monitor.enabled`
+  is explicitly true. Configure a trusted `provider_ref` (`module:function`)
+  and a historical envelope (`max_dd` in percentage points and
+  `max_losing_streak`). Before every child order, the guard verifies a
+  successful broker positionbook and requires the provider to return finite
+  live equity, trade P&L, live daily returns, and at least
+  `regime_window + 1` historical daily returns. Missing/unverifiable inputs
+  latch the durable kill switch and abort the run. A monitor threshold breach
+  pauses new entries while verified exit-phase orders may continue; the trip
+  blocks future runs until explicit operator reset. Already-working broker
+  orders are not automatically cancelled. Telemetry is sampled on valid quote
+  polls at `check_interval_seconds` (default 30) and refreshed again at each
+  child-order boundary. A quote-feed outage reaching the configured POV
+  `quote_failure_threshold` also latches the kill switch. Durable kill-switch
+  storage must be available. Keep
+  this feature disabled until the telemetry provider has been validated
+  against the broker and the chosen strategy's trade/equity records.
+- Provider signature: `provider(client=..., positionbook=...,
+  monitor_config=...)`, returning `live_equity`, `live_trade_pnls`,
+  `live_daily_returns`, and `historical_daily_returns` sequences. Do not pass
+  backtest results as live telemetry. `SlippageReconciler` requires unique,
+  explicitly matched long-entry fill IDs, adjusts a copied cost model, and can
+  force the same strategy/data to be re-backtested. Persist and review the
+  calibrated model before using it in another run.
+- Annualization defaults: daily 252, weekly 52, monthly 12; intraday uses a
+  375-minute session assumption. Override `periods_per_year` if the bar
+  calendar differs. `risk_free_per_period` is passed into optimization and
+  validation; its default zero is only an explicit assumption, not a current
+  RBI rate.
+- Current stack: SQLite OHLCV cache + atomic JSON research output; Python
+  bounded thread pool for downloads and Windows-safe process pool for symbol
+  searches. No broker, message broker, new dependency, or live-config write is
+  added by this workflow.
+- Production scaling recommendation (not implemented): PostgreSQL as the
+  authoritative state/audit/parameter-version store; RabbitMQ durable command
+  queues with dead-letter handling for re-optimization and reconciliation;
+  idempotent workers that commit state before acknowledging a message. Keep
+  local process pools for one-host research; add a distributed worker framework
+  only after measured capacity needs justify the operational complexity.
+- Targeted offline validation:
+  ```powershell
+  .\.venv\Scripts\python.exe -m pytest `
+    Blue_engine\tests\test_backtest_engine.py `
+    Blue_engine\tests\test_backtest_batch.py `
+    Blue_engine\tests\test_backtest_loops.py -q
+  ```
