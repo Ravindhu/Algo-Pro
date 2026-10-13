@@ -200,7 +200,25 @@ def _download_symbol_window(cache: OptimizerDataCache, symbol: str,
 
 
 def _oos_gate(is_metrics: Dict[str, Any],
-              oos_metrics: Dict[str, Any]) -> Dict[str, Any]:
+              oos_metrics: Dict[str, Any], *,
+              n_trials: int = 1,
+              absolute_sharpe_floor: float = 1.0,
+              family_confidence: float = 0.95) -> Dict[str, Any]:
+    ""Conservative IS/OOS gate with absolute and multiple-testing controls.
+
+    The OOS Sharpe must clear both the retained-IS floor and an absolute floor.
+    A Bonferroni family-wise adjustment increases the absolute floor with the
+    number of search trials: ``z(1 - (1-confidence)/N)`` standard errors. This
+    is intentionally a conservative screen, not a claim that Sharpe is normally
+    distributed in all market regimes. All assumptions are returned in report.
+    """
+    if isinstance(n_trials, bool) or not isinstance(n_trials, int) or n_trials < 1:
+        raise ValueError("n_trials must be an integer >= 1")
+    if not math.isfinite(absolute_sharpe_floor) or absolute_sharpe_floor < 0:
+        raise ValueError("absolute_sharpe_floor must be finite and non-negative")
+    if not math.isfinite(family_confidence) or not 0.5 < family_confidence < 1:
+        raise ValueError("family_confidence must be between 0.5 and 1")
+
     is_sharpe = is_metrics.get("sharpe")
     oos_sharpe = oos_metrics.get("sharpe")
     is_drawdown = is_metrics.get("max_drawdown_pct")
@@ -212,7 +230,20 @@ def _oos_gate(is_metrics: Dict[str, Any],
         return {"approved": False, "reason": "IS Sharpe must be positive"}
     if float(is_drawdown) < 0 or float(oos_drawdown) < 0:
         return {"approved": False, "reason": "drawdown metrics must be non-negative"}
-    sharpe_floor = 0.7 * float(is_sharpe)
+
+    # The relative floor prevents unacceptable IS-to-OOS degradation. The
+    # absolute floor prevents a large, overfit IS winner from setting its own
+    # trivially-cleared validation hurdle. Bonferroni adjusts for selecting the
+    # best of n_trials; NormalDist gives a transparent conservative z-score.
+    from statistics import NormalDist
+    adjusted_alpha = (1.0 - family_confidence) / n_trials
+    critical_z = NormalDist().inv_cdf(1.0 - adjusted_alpha)
+    n_oos = int(oos_metrics.get("n_bars") or 0)
+    if n_oos < 2:
+        return {"approved": False, "reason": "OOS sample too small for trial adjustment"}
+    trial_adjusted_floor = absolute_sharpe_floor + critical_z / math.sqrt(n_oos)
+    relative_floor = 0.7 * float(is_sharpe)
+    sharpe_floor = max(relative_floor, trial_adjusted_floor)
     drawdown_ceiling = 1.3 * float(is_drawdown)
     sharpe_pass = float(oos_sharpe) >= sharpe_floor
     drawdown_pass = float(oos_drawdown) <= drawdown_ceiling
@@ -221,6 +252,13 @@ def _oos_gate(is_metrics: Dict[str, Any],
         "reason": None if sharpe_pass and drawdown_pass
                   else "OOS Sharpe or drawdown failed the configured gate",
         "sharpe_floor": sharpe_floor,
+        "relative_sharpe_floor": relative_floor,
+        "absolute_sharpe_floor": absolute_sharpe_floor,
+        "trial_adjusted_sharpe_floor": trial_adjusted_floor,
+        "trial_adjustment_z": critical_z,
+        "family_confidence": family_confidence,
+        "n_trials": n_trials,
+        "n_oos_bars": n_oos,
         "drawdown_ceiling_pct": drawdown_ceiling,
         "sharpe_pass": sharpe_pass,
         "drawdown_pass": drawdown_pass,
@@ -302,7 +340,9 @@ def _run_symbol(request: _SymbolRequest) -> Dict[str, Any]:
             oos_bars, signal, params, config=validation_config,
             symbol=symbol, exchange=request.config.exchange,
             interval=request.config.interval)
-        gate = _oos_gate(is_result.metrics, oos_result.metrics)
+        gate = _oos_gate(
+            is_result.metrics, oos_result.metrics, n_trials=n_trials,
+            absolute_sharpe_floor=1.0, family_confidence=0.95)
         state = "APPROVED" if gate["approved"] else "DEGRADED"
         state_history.append(state)
         return {

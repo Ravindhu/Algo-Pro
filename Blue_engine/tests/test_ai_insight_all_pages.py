@@ -85,6 +85,7 @@ PAGES = [
     "blue_engine.dashboard.pages.infrastructure",
     "blue_engine.dashboard.pages.ml_models",
     "blue_engine.dashboard.pages.economic",
+    "blue_engine.dashboard.pages.sectors",
     "blue_engine.dashboard.pages.analytics_portfolio",
 ]
 

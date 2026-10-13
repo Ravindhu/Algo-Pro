@@ -86,6 +86,12 @@ class RiskEngine(BaseEngine):
         if bool(inputs.get("risk_veto_active")):
             breaches.append(str(inputs.get("veto_reason") or "risk veto explicitly requested"))
 
+        agent_advice = context.get("agent_advice")
+        agent_risk = agent_advice.get("risk") if isinstance(agent_advice, dict) else None
+        if isinstance(agent_risk, dict) and agent_risk.get("risk_veto_active") is True:
+            breaches.append(
+                str(agent_risk.get("veto_reason") or "frontline agent recommended defensive veto"))
+
         flags = (
             ("latency_anomaly", "network latency anomaly"),
             ("corrupted_data", "market data integrity failure"),

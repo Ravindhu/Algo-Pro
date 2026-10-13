@@ -180,6 +180,20 @@
       "max_allowed_slippage_pct": 0.005,
       "force_trailing_stop_pct": 2.5
     },
+    "sector": {
+      "_comment": "Optional Mansfield relative-strength stage. Supply aligned benchmark and sector close series in sector_market_data. Agent is opt-in; any invalid or unavailable advice applies zero-allocation WAIT_AND_SEE limits.",
+      "pipeline_enabled": false,
+      "agent_enabled": false,
+      "lookback_window": 14,
+      "openrouter_model": "qwen/qwen-2.5-7b-instruct:free",
+      "ollama_model": "qwen2.5-coder:7b"
+    },
+    "agent": {
+      "_comment": "Optional OpenRouter advisory. Set enabled=true and provide a newly rotated OPENROUTER_API_KEY in the repository-root .env file or process environment. Only explicit public text from context.agent_inputs is sent. Suggestions never write configuration or place orders.",
+      "enabled": false,
+      "model": "openai/gpt-4o-mini",
+      "timeout_seconds": 20
+    },
     "screener": {
       "_comment": "Optional pipeline stage. Enable only with an intentionally configured provider or input snapshot; network scraping is never enabled by the default pipeline.",
       "pipeline_enabled": false,

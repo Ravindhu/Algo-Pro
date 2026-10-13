@@ -33,6 +33,7 @@ from .registry import (
 from .orchestrator import EngineOrchestrator, OrchestrationError, run_pipeline  # noqa: F401
 from .risk_gate import RiskDecision, RiskGate, check_intent
 from .risk_engine import RiskEngine
+from .frontline_agent import FrontlineAgent
 
 
 def __getattr__(name: str):
@@ -82,4 +83,5 @@ __all__ = [
     "RiskGate",
     "check_intent",
     "RiskEngine",
+    "FrontlineAgent",
 ]

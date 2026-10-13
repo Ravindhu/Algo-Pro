@@ -12,9 +12,10 @@ Pages
     risk_control   Page 3: Risk-engine matrix and guard limits
     analytics      Page 4: Alpha analytics + backtest/statistics
     economic       Page 5: Macro regime engine (gauges, signals, history)
-    infrastructure Page 6: System health and raw logs
-    ml_models      Page 7: Offline ML scoreboard (fold metrics, deflated Sharpe)
-    screener       Page 8: Fundamental screener (market cap, debt/equity, universe)
+    sectors        Page 6: Sector Mansfield relative strength and safe limits
+    infrastructure Page 7: System health and raw logs
+    ml_models      Page 8: Offline ML scoreboard (fold metrics, deflated Sharpe)
+    screener       Page 9: Fundamental screener (market cap, debt/equity, universe)
 
 Design notes
 ------------
@@ -38,6 +39,7 @@ __all__ = [
     "risk_control",
     "analytics",
     "economic",
+    "sectors",
     "infrastructure",
     "ml_models",
     "screener",

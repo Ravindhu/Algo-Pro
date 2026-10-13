@@ -39,6 +39,8 @@ from ..market import MarketEngine
 from ..portfolio import PortfolioEngine
 from ..pov import PovEngine
 from ..screener import ScreenerEngine, ValuationEngine
+from ..sectors import SectorEngine
+from .frontline_agent import FrontlineAgent
 from .risk_engine import RiskEngine
 
 logger = logging.getLogger(__name__)
@@ -60,12 +62,17 @@ class MacroPipeline:
             self.config.get("gate_on_infrastructure", True))
 
         engines_cfg = self.config.get("engines") or {}
+        self.frontline_agent = FrontlineAgent(engines_cfg.get("agent", {}))
         self.engines = [
             EconomicEngine(engines_cfg.get("economic", {}),
                            provider=self._provider("economic"), log=log),
             MarketEngine(engines_cfg.get("market", {}),
                          provider=self._provider("market"), log=log),
         ]
+        sector_cfg = engines_cfg.get("sector") or {}
+        if bool(sector_cfg.get("pipeline_enabled", False)):
+            self.engines.append(SectorEngine(
+                sector_cfg, provider=self._provider("sector"), log=log))
         screener_cfg = engines_cfg.get("screener") or {}
         if bool(screener_cfg.get("pipeline_enabled", False)):
             self.engines.append(ScreenerEngine(
@@ -139,8 +146,28 @@ class MacroPipeline:
             "stages": {},
             "order": [e.name for e in self.engines],
             "warnings": [],
+            "agent_advice": {},
             "ready_to_trade": None,
         }
+
+        agent_inputs = ctx.get("agent_inputs")
+        if self.frontline_agent.enabled and isinstance(agent_inputs, dict):
+            for name in (
+                    "economic", "market", "screener", "valuation",
+                    "backtest", "optimization", "portfolio", "risk"):
+                raw_input = agent_inputs.get(name)
+                text = raw_input.get("text") if isinstance(raw_input, dict) else raw_input
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                advice = self.frontline_agent.advise(name, text)
+                report["agent_advice"][name] = advice
+                if advice.get("ok"):
+                    if not isinstance(ctx.get("agent_advice"), dict):
+                        ctx["agent_advice"] = {}
+                    ctx["agent_advice"][name] = advice["advice"]
+                else:
+                    report["warnings"].append(
+                        f"frontline agent {name}: {advice.get('warning', advice.get('method'))}")
 
         # Preflight: Infrastructure is the *last* analytic stage but its health
         # verdict gates the POV *execution*. We therefore evaluate it first for
@@ -183,7 +210,12 @@ class MacroPipeline:
 
             result = engine.run(ctx)
             ctx[engine.name] = _as_ctx(result)
-            report["stages"][engine.name] = result.__dict__
+            stage_result = dict(result.__dict__)
+            if engine.name in report["agent_advice"]:
+                stage_result["data"] = dict(result.data)
+                stage_result["data"]["agent_advice"] = \
+                    report["agent_advice"][engine.name]
+            report["stages"][engine.name] = stage_result
             report["warnings"].extend(result.warnings)
             if engine.name == "risk":
                 risk_veto_active = (

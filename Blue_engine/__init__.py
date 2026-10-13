@@ -11,6 +11,7 @@ Every sub-folder under Blue_engine/ is an ENGINE (plus core/, the shared kernel)
 - pov/          POV engine: execution. Also hosts slicers/ (HOW to slice orders)
 - economics/    Economic engine
 - market/       Market engine
+- sectors/      Mansfield sector relative-strength engine
 - portfolio/    Portfolio engine
 - infrastructure/  Infrastructure engine
 - core/         Shared kernel (SDK client, config, pipeline, runner, utils)

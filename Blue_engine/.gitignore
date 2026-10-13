@@ -19,6 +19,8 @@ venv/
 
 # --- engine runtime state (never commit ledgers / logs) ---
 data/
+configs/sector_allocation_limits.json
+input/sector_engine_snapshot.json
 *.db
 *.db-journal
 *.log

@@ -76,6 +76,7 @@ packages = [
     "blue_engine.economics.models",
     "blue_engine.economics.nlp",
     "blue_engine.market",
+    "blue_engine.sectors",
     "blue_engine.screener",
     "blue_engine.screener.client",
     "blue_engine.portfolio",
@@ -102,6 +103,7 @@ blue_engine = "."
 "blue_engine.economics.models" = "economics/models"
 "blue_engine.economics.nlp" = "economics/nlp"
 "blue_engine.market" = "market"
+"blue_engine.sectors" = "sectors"
 "blue_engine.screener" = "screener"
 "blue_engine.screener.client" = "screener/client"
 "blue_engine.portfolio" = "portfolio"

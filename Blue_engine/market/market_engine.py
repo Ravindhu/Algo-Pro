@@ -247,6 +247,22 @@ class MarketEngine(BaseEngine):
         volatility_state, lookback, volatility, rationale = \
             self._volatility_state(data, warnings)
         bias = self._short_term_bias(indices)
+        agent_advice = context.get("agent_advice")
+        market_advice = (
+            agent_advice.get("market") if isinstance(agent_advice, dict) else None)
+        if isinstance(market_advice, dict):
+            severity = {"Low": 0, "Elevated": 1, "High_Panic": 2}
+            suggested_state = market_advice.get("market_volatility_state")
+            if severity.get(suggested_state, 0) > severity[volatility_state]:
+                volatility_state = suggested_state
+                rationale = "Agent flagged higher volatility risk; deterministic risk stage can veto."
+            suggested_lookback = market_advice.get("technical_lookback_days")
+            if (suggested_lookback in (10, 14, 20, 50)
+                    and suggested_lookback <= lookback):
+                lookback = suggested_lookback
+            suggested_bias = market_advice.get("short_term_bias")
+            if suggested_bias in ("Bullish", "Bearish", "Sideways"):
+                bias = suggested_bias
 
         self.log(f"breadth={breadth_score:+.2f} fii={fii_score} "
                  f"risk_appetite={risk_appetite:+.2f} "

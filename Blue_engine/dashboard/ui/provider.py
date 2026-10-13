@@ -38,6 +38,7 @@ _NAV: list[tuple[str, str, str]] = [
     ("mdi:sigma", "Analytics", "/analytics"),
     ("mdi:filter-variant", "Screener", "/screener"),
     ("mdi:earth", "Economic", "/economic"),
+    ("mdi:chart-box-multiple-outline", "Sectors", "/sectors"),
     ("mdi:server-network", "Infrastructure", "/infra"),
     ("mdi:brain", "ML Models", "/ml"),
     ("mdi:tune-variant", "Optimizer", "/optimizer"),

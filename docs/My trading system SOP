@@ -1,5 +1,5 @@
 # My Trading System — SOP
-_Updated: 2026-10-12_
+_Updated: 2026-10-13_
 
 ## 1. Environment
 
@@ -147,6 +147,57 @@ print(val.as_text()); print(val.classification); print(val.assumptions)
   interest, contingent liabilities, intangibles, maintenance-vs-growth capex.
 - Tests: `python -m pytest Blue_engine\tests\test_valuations.py -q` (**139 total
   across both screener suites**). Verified live on the RELIANCE page.
+
+## 4c. Sector relative-strength engine (added 2026-10-13)
+
+- Implementation: `Blue_engine\sectors\sector_engine.py`; optional pipeline
+  stage and dashboard at `/sectors`. The dashboard is read-only and displays
+  the five sector indices with the strongest current Mansfield RS scores.
+- No package or feed is installed by this engine. The caller must supply
+  positive, finite, aligned sector-index and benchmark close lists in
+  `sector_market_data`. Set `data_classification` truthfully to `live`,
+  `delayed`, `historical`, `simulated`, `derived`, `estimated`, or
+  `backtested`; otherwise the dashboard reports `unknown`. Never label a
+  cached or test series as live.
+- Formula: `((sector_close / benchmark_close) / rolling_mean(ratio) - 1) * 10`.
+  Default rolling window is 14 sessions. Example settings:
+  `Blue_engine\input\sector_engine.example.json`.
+- The sector pipeline stage and LLM advisor both default off. To include the
+  deterministic stage, enable `engines.sector.pipeline_enabled` in
+  `Blue_engine\input\macro_master.json` and provide `sector_market_data` to
+  `MacroPipeline.run(context)`. The stage reports advisory limits but does
+  **not** apply them to portfolio weights or place orders.
+- To permit agent advice, also set `engines.sector.agent_enabled=true`. The
+  OpenRouter request sends the supplied numeric sector matrix and
+  `sector_news_context`; configure a rotated `OPENROUTER_API_KEY` in the
+  repository-root `.env`. Requests use
+  `qwen/qwen-2.5-7b-instruct:free`, with a strict 4 s cloud timeout followed
+  by a 4 s local Ollama timeout (`qwen2.5-coder:7b`,
+  `OLLAMA_HOST=http://127.0.0.1:11434`). Ollama must be installed and that
+  model pulled separately; this feature does not install or start services.
+- If explicit risk/data-integrity veto flags are set, data is invalid, or
+  both advisors fail/schema validation rejects their output, the output is
+  fail-closed: every known sector is `WAIT_AND_SEE`, multipliers are 0.0,
+  lookback is 14. `INVEST_MORE` advice is additionally rejected unless its
+  deterministic Mansfield score is positive. The outputs are atomically written to
+  `Blue_engine\configs\sector_allocation_limits.json` and
+  `Blue_engine\input\sector_engine_snapshot.json`; both generated files are
+  Git-ignored. The sector chart shows no invented/sample values if no snapshot
+  exists.
+- Relative-strength matrix calculation completes before advisor network I/O.
+  Cloud and local calls are sequential with a maximum 4 s timeout each. Concurrent
+  runs use atomic writes and run-sequence checks so a slower older result cannot
+  replace newer limits. The synchronous stage may therefore wait up to about 8 s;
+  keep it outside latency-sensitive order execution.
+- No dependency installation is required for the engine (stdlib HTTP client);
+  dashboard dependencies are already declared in the `dashboard` extra,
+  §1. Validate with
+  `.\.venv\Scripts\python.exe -m pytest Blue_engine\tests\test_sector_engine.py Blue_engine\tests\test_ai_insight_all_pages.py -q`.
+- Research limits: the sector score is a descriptive relative-strength
+  statistic, not a forecast or validated allocation edge. Validate with
+  point-in-time index constituents, corporate-action-adjusted closes,
+  transaction costs, walk-forward splits and out-of-sample results before
+  considering capital allocation.
 
 ## 5. Known Windows pitfalls
 

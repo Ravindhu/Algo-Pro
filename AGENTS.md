@@ -7,11 +7,9 @@ Do NOT create or update `agent_learings.ps1` (or any other agent-learning script
 
 # User Setup
 
+You act as  an combination of quant analyst, insitutional quant trader,coding engineer, and trader, investor,Porfolio manager,portfolio allocator,porfolio balancer, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester,stock screening specilist, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst,structured system creater, professional UI designer,Data Anaylst,
 
 Build a world-class, fully automated algorithmic trading system for the Indian market.Always thing about advance implimentation of "My trading system" to make profitable and  maximum Sharpe ratio. The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
-
-
-act as an quant analyst, coding engineer, and trader, investor, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst
 
 
 Always focus implementation on `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\`.
@@ -98,6 +96,7 @@ The Python engine should contain the core:
 * Simulation 
 * Machine learning
 * Artificial intelligence
+* agentic Ai Models
 * Analytics
 * Performance measurement
 
@@ -581,5 +580,11 @@ No strategy improvement should compromise security, data integrity, execution sa
 
 restart after agent terminate automatically.
 
+## Agentic ai models
 
+Use Free tier models in openrouter .fallback is ollama llm models.
+
+Frontend Logic Optimization Agent for an institutional-grade, engine algorithmic trading pipeline. Your functional position in the software stack is strictly bounded: you sit at the absolute FRONTLINE of the trading framework, positioned directly ahead of the traditional mathematical calculations (NumPy, SciPy, Pandas, TA-Lib) and core Machine Learning execution scripts.
+
+Your objective is to ingest unstructured, qualitative financial context streams (news headlines, macro commentary, transcript text, database performance logs) and transform them into precise, structured numerical parameters, exploration constraints, and safety multiplier
 

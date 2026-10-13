@@ -161,6 +161,82 @@ remains mandatory; neither risk output nor a text model can replace verified
 broker, position, or market-data checks. The engine does not write
 configuration files or place orders.
 
+`FrontlineAgent` is an optional OpenRouter structured-advice bridge, disabled
+by default. Enable it with `engines.agent.enabled` and set
+`OPENROUTER_API_KEY` in the repository-root `.env` file (or process environment)
+using a newly rotated key. Optionally set `OPENROUTER_MODEL` in the process
+environment. Provide only explicit qualitative text
+in `context["agent_inputs"]`, keyed by `economic`, `market`, `screener`,
+`valuation`, `backtest`, `optimization`, `portfolio`, or `risk`. The bridge
+sends only that bounded text, applies per-engine schema and range validation,
+and reports suggestions under `agent_advice`. It does not persist API keys,
+write configuration, or place orders. A risk-stage suggestion may add a veto,
+but can never clear deterministic veto conditions; market-state suggestions
+can only increase the deterministic volatility severity. Model-suggested legal
+blacklists are not authoritative and do not replace source-attributed,
+provider-verified warnings.
+
+### Sector relative-strength engine
+
+`blue_engine.sectors.SectorEngine` computes Mansfield relative strength for
+caller-supplied sector-index and benchmark closes. Its input context is:
+
+```python
+{
+    "sector_market_data": {
+        "benchmark_name": "NIFTY 500",
+        "benchmark_closes": [100.0, 101.0, 102.0],
+        "sector_closes": {
+            "NIFTY IT": [100.0, 102.0, 104.0],
+            "NIFTY BANK": [100.0, 100.5, 101.0]
+        },
+        "data_classification": "historical"
+    },
+    "sector_news_context": "Optional public qualitative context"
+}
+```
+
+The deterministic score is
+`((sector_close / benchmark_close) / rolling_mean(ratio) - 1) * 10`.
+Series must be positive, finite, and aligned. Data classification must be
+truthfully supplied as `live`, `delayed`, `historical`, `simulated`,
+`derived`, `estimated`, or `backtested`; missing or invalid labels display as
+`unknown`. The engine does not download prices or infer that data is live.
+
+The optional sector advisor is **disabled by default**. Enable it explicitly
+with `SectorEngine({"agent_enabled": True})` and provide the root `.env`
+`OPENROUTER_API_KEY` to try OpenRouter model
+`qwen/qwen-2.5-7b-instruct:free`; each cloud and local Ollama request is capped
+at four seconds. If the cloud call fails or returns invalid JSON, the engine
+tries the local `qwen2.5-coder:7b` model at `OLLAMA_HOST` (default
+`http://127.0.0.1:11434`). If both fail or the advice is invalid, all supplied
+sectors receive `WAIT_AND_SEE`, zero multipliers, and a 14-session lookback.
+Model output is restricted to the supplied sector names and validated before
+use. These are advisory limits only; the sector engine has no broker or order
+interface. To enforce a basic Mansfield trend constraint, an `INVEST_MORE`
+recommendation is rejected unless that sector's deterministic relative-strength
+score is positive; a rejected response uses the all-zero defensive fallback.
+Relative-strength calculations finish before advisor I/O begins. The cloud and
+local attempts are sequential (up to eight seconds total); atomic, sequence-
+guarded file writes prevent a slower older concurrent run from overwriting a
+newer result. The sector stage is not an order/execution dependency.
+
+For the existing macro chain, the sector stage is also opt-in through
+`engines.sector.pipeline_enabled: true`; its analysis is inserted before the
+portfolio stage. This exposes the sector report to the pipeline but does not
+automatically apply its suggested multipliers to portfolio weights or submit
+orders. Capital-allocation integration requires a separately validated,
+deterministic risk-control change.
+
+Each successful run atomically writes the exact limits object to
+`Blue_engine/configs/sector_allocation_limits.json` and dashboard diagnostics
+to `Blue_engine/input/sector_engine_snapshot.json`. Both generated files are
+Git-ignored. The read-only dashboard page at `/sectors` plots the five highest
+current Mansfield scores from that snapshot, labels its data classification,
+and refreshes every 15 seconds. With no engine-produced snapshot it explicitly
+shows an empty state instead of sample or fabricated market values. Example
+engine settings are in `Blue_engine/input/sector_engine.example.json`.
+
 The deterministic backtest and TPE optimizer remain offline research engines:
 they do not promote parameters or change live configuration. Their existing
 walk-forward, cost, and out-of-sample checks remain the validation path.
