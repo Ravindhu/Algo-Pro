@@ -103,6 +103,8 @@
       "indices": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
       "fii_weight": 0.5,
       "fii_scale": 1000.0,
+      "low_volatility_pct": 15.0,
+      "high_volatility_pct": 30.0,
       "market": {
         "indices": {
           "NIFTY":      {"close": 24500, "prev_close": 24380, "return_1m_pct": 3.2, "return_3m_pct": 6.1},
@@ -124,6 +126,8 @@
       "max_weight": 0.30,
       "min_weight": 0.0,
       "max_gross": 1.0,
+      "max_tech_sector_exposure": 0.20,
+      "min_cash_buffer_pct": 0.15,
       "max_turnover": 0.10,
       "beta_lower": 0.9,
       "beta_upper": 1.1,
@@ -153,6 +157,12 @@
       },
       "portfolio_inputs": {
         "universe": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
+        "sector_by_symbol": {
+          "NIFTY": "Broad Market",
+          "BANKNIFTY": "Banking",
+          "NIFTYIT": "Information Technology",
+          "NIFTYPHARMA": "Healthcare"
+        },
         "vols": {"NIFTY": 0.14, "BANKNIFTY": 0.19, "NIFTYIT": 0.17, "NIFTYPHARMA": 0.16},
         "betas": {"NIFTY": 1.0, "BANKNIFTY": 1.15, "NIFTYIT": 0.9, "NIFTYPHARMA": 0.7},
         "corr": {
@@ -164,6 +174,22 @@
         "current_weights": {"NIFTY": 0.30, "BANKNIFTY": 0.15},
         "capital": 1000000.0
       }
+    },
+    "risk": {
+      "max_network_latency_ms": 5000,
+      "max_allowed_slippage_pct": 0.005,
+      "force_trailing_stop_pct": 2.5
+    },
+    "screener": {
+      "_comment": "Optional pipeline stage. Enable only with an intentionally configured provider or input snapshot; network scraping is never enabled by the default pipeline.",
+      "pipeline_enabled": false,
+      "enabled": false
+    },
+    "valuation": {
+      "_comment": "Optional, offline pipeline stage. Requires caller-supplied company financial snapshots.",
+      "pipeline_enabled": false,
+      "growth_rate_ceiling": 0.05,
+      "margin_safety_adjustment": 0.85
     },
     "alpha": {
       "weight_fundamental": 1.0,

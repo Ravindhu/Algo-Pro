@@ -116,3 +116,28 @@ blue_engine = "."
 
 [tool.setuptools.package-data]
 "blue_engine.input" = ["*.json", "*.md"]
+
+# ---------------------------------------------------------------------------
+# pytest configuration
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS: the tests import the PACKAGED name (``blue_engine.backtest.*``)
+# while the source lives flat on disk (``Blue_engine/backtest/``). Without a
+# ``pythonpath`` entry, ``pytest`` from ``Blue_engine/`` resolves ``tests/`` but
+# NOT ``blue_engine``, and the whole suite aborts at collection with
+# ``ModuleNotFoundError: No module named 'blue_engine'``. That is a silent
+# coverage hole: a red suite is obvious, an uncollectable one looks like "no
+# failures". ``pythonpath = ["."]`` makes ``Blue_engine/`` the import root so
+# ``blue_engine.<name>`` resolves via ``package-dir`` without requiring an
+# editable install in every interpreter.
+#
+# CANONICAL INTERPRETER: ``openalgo\.venv\Scripts\python.exe`` (the same one the
+# scheduled ``BlueEngine_DailyPortfolio`` task uses). Running the suite under a
+# different interpreter is how a dependency drifts between the tested and the
+# production path - keep them identical.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "error::RuntimeWarning:blue_engine.*",
+]

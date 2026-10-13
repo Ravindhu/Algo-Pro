@@ -66,6 +66,7 @@ from .filters import (
     default_rules,
 )
 from .screener_engine import ScreenerEngine
+from .valuation_engine import ValuationEngine
 from .client.screener_client import ScreenerClient
 from . import valuations
 from . import yf_fallback
@@ -83,6 +84,7 @@ from .valuations import (
 
 __all__ = [
     "ScreenerEngine",
+    "ValuationEngine",
     "ScreenerClient",
     "Screener",
     "Rule",

@@ -37,8 +37,11 @@ class EngineStage(Enum):
 
     ECONOMIC = 10
     MARKET = 20
+    SCREENER = 25
+    VALUATION = 27
     PORTFOLIO = 30
     ALPHA = 40
+    RISK = 45
     POV = 50
     INFRASTRUCTURE = 60
 

@@ -24,9 +24,13 @@ blue_engine/
       guards.py         Depth / circuit / auction execution guards
   economics/        Economic engine (regime, GDP, bond, inflation ...)
   market/           Market engine (returns, FII flow, commodities)
+  screener/         Fundamental universe filter + EPV/CANAV valuation
+  backtest/         Deterministic historical simulation (research only)
+  optimizer/        Bounded walk-forward parameter search (research only)
   portfolio/        Portfolio engine (construction, risk-parity, hedge)
   infrastructure/   Infrastructure engine (OpenAlgo, brokers, servers)
   core/             Shared kernel (SDK client, config, pipeline, runner, utils)
+    risk_engine.py    Deterministic emergency-veto stage before POV
   dashboard/        Dash/Plotly operating console (pages/...)
   input/            User-editable JSON configs (no Python needed to edit)
 ```
@@ -119,6 +123,47 @@ if __name__ == "__main__":
     )
     print(result.output_path)
 ```
+
+## Front-line decision engines
+
+The economic and market engines retain their existing quantitative outputs and
+add bounded decision fields for downstream consumers. Economic regime labels
+use configured GDP/inflation cut-offs; the market engine estimates annualized
+realized volatility only when a volatility figure or daily percentage returns
+are supplied. Its 15%/30% volatility cut-offs are configurable working
+assumptions, not market forecasts. Missing volatility is reported as
+`Elevated`, never as verified low risk.
+
+`MacroPipeline` always runs the risk stage before POV. Screener and valuation
+stages are opt-in via `engines.screener.pipeline_enabled` and
+`engines.valuation.pipeline_enabled`; the screener's network access is
+therefore never enabled just by constructing the default pipeline.
+
+`PortfolioEngine` enforces the configured minimum cash reserve and caps
+technology-sector gross exposure when `sector_by_symbol` is supplied. Missing
+sector classifications are surfaced as a warning, not guessed. A risk veto or
+high-panic market state suppresses proposed rebalance trades.
+
+`ScreenerEngine` accepts `legal_warnings` alongside its candidate snapshot.
+Entries are applied as a blacklist only when each includes a ticker, reason,
+source, and the explicit boolean `verified: true`, which is an upstream
+attestation by the data provider (not an independent source verification by
+this engine); unverified text is reported but cannot silently exclude a
+security. `ValuationEngine` uses the existing
+EPV/CANAV implementation on caller-supplied company snapshots. Its default
+growth ceiling (5%) and margin-of-safety adjustment (0.85) are configurable
+policy bounds, not model-estimated growth or a promise of fair value.
+
+`RiskEngine` converts explicit latency, data-integrity, conflict, slippage, and
+panic inputs into a veto. A failed live risk assessment blocks the macro
+pipeline's POV stage. The live runner's independent pre-trade `RiskGate`
+remains mandatory; neither risk output nor a text model can replace verified
+broker, position, or market-data checks. The engine does not write
+configuration files or place orders.
+
+The deterministic backtest and TPE optimizer remain offline research engines:
+they do not promote parameters or change live configuration. Their existing
+walk-forward, cost, and out-of-sample checks remain the validation path.
 
 ### Persistence, messaging, and concurrency
 

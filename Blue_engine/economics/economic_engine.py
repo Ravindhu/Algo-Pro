@@ -45,6 +45,7 @@ callable or pass a ``macro`` block in the context / config.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Callable, Dict, List, Optional
 
 from ..core.base import BaseEngine, EngineResult, EngineStage
@@ -96,6 +97,54 @@ def _extract_previous(raw: Any) -> Optional[float]:
     return None
 
 
+def _decision_fields(macro: Dict[str, Any], regime: str,
+                     multiplier: float, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Expose bounded macro classifications alongside the established score."""
+    growth = _extract_value(macro.get("gdp_growth"))
+    inflation = _extract_value(macro.get("inflation"))
+    prior_inflation = _extract_previous(macro.get("inflation"))
+    inflation_limit = float(config.get("stagflation_inflation_pct", 6.0))
+    growth_floor = float(config.get("expansion_growth_pct", 5.0))
+
+    if growth is not None and growth < 0:
+        macro_regime = "Recessionary"
+        rationale = "Negative real GDP growth indicates recessionary macro conditions."
+    elif (growth is not None and inflation is not None
+          and growth < growth_floor and inflation >= inflation_limit):
+        macro_regime = "Stagflationary"
+        rationale = "Elevated inflation with sub-threshold GDP growth indicates stagflation risk."
+    elif (growth is not None and growth >= growth_floor
+          and (inflation is None or inflation < inflation_limit)):
+        macro_regime = "Expansionary"
+        rationale = "Real GDP growth is strong while inflation remains below the configured threshold."
+    elif growth is None and inflation is None:
+        macro_regime = "Normal"
+        rationale = "Insufficient growth and inflation data; neutral macro classification."
+    else:
+        macro_regime = "Normal"
+        rationale = "Available growth and inflation readings do not meet stress or expansion thresholds."
+
+    if inflation is not None and (
+            inflation >= inflation_limit
+            or (prior_inflation is not None and inflation > prior_inflation)):
+        rate_bias = "Hawkish"
+        rate_reason = "Inflation is elevated or rising."
+    elif (inflation is not None and prior_inflation is not None
+          and inflation < prior_inflation):
+        rate_bias = "Dovish"
+        rate_reason = "Inflation is easing versus its prior reading."
+    else:
+        rate_bias = "Neutral"
+        rate_reason = "No clear inflation-driven policy direction is available."
+
+    return {
+        "macro_regime": macro_regime,
+        "equity_regime_multiplier": round(multiplier, 4),
+        "interest_rate_bias": rate_bias,
+        "rationale": " ".join(f"{macro_regime}: {rationale} {rate_reason}".split()[:15]),
+    }
+
+
 class EconomicEngine(BaseEngine):
     """Aggregate macro signals into a single risk-on score + regime label."""
 
@@ -106,6 +155,17 @@ class EconomicEngine(BaseEngine):
                  provider: Optional[Callable[[], Dict[str, Any]]] = None,
                  **kwargs: Any):
         super().__init__(config, provider, kwargs.get("log"))
+        for key, default in (
+                ("stagflation_inflation_pct", 6.0),
+                ("expansion_growth_pct", 5.0)):
+            raw = self.config.get(key, default)
+            if isinstance(raw, bool):
+                raise ValueError(f"{key} must be numeric")
+            value = float(raw)
+            if not math.isfinite(value):
+                raise ValueError(f"{key} must be finite")
+            if key == "stagflation_inflation_pct" and value < 0:
+                raise ValueError(f"{key} must be non-negative")
 
         # Per-signal overrides (direction / weight) from config.
         self.signals: Dict[str, Dict[str, Any]] = {
@@ -312,10 +372,12 @@ class EconomicEngine(BaseEngine):
             macro.setdefault(k, v)
 
         if not macro:
+            decision = _decision_fields({}, "UNKNOWN", 1.0, self.config)
             return EngineResult(
                 engine=self.name, ok=True,
                 data={"regime": "UNKNOWN", "risk_on_score": 0.0,
-                      "signals": {}, "gross_exposure_multiplier": 1.0},
+                      "signals": {}, "gross_exposure_multiplier": 1.0,
+                      **decision},
                 warnings=["no macro data supplied; neutral by default"],
             )
 
@@ -349,6 +411,7 @@ class EconomicEngine(BaseEngine):
 
         # Provenance from the provider stack, when present.
         meta = macro.get("meta") or {}
+        decision = _decision_fields(macro, regime, multiplier, self.config)
 
         self.log(f"regime={regime} risk_on_score={composite:+.2f} "
                  f"gross_mult={multiplier:.2f} "
@@ -368,6 +431,7 @@ class EconomicEngine(BaseEngine):
                 "nlp": self._nlp_signals(context) or None,
                 "event": event_info,
                 "source_meta": meta or None,
+                **decision,
             },
             warnings=warnings + list(meta.get("warnings") or []),
         )

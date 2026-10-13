@@ -155,8 +155,25 @@ class config(metaclass=_ConfigMeta):  # noqa: N801 - reads as a namespace
 
     #: Loop A gate thresholds. Published as constants so a report can quote the
     #: bar it applied instead of an unexplained "pass"/"fail".
+    #:
+    #: WHY THERE ARE TWO SHARPE LEGS AND NOT ONE
+    #: -----------------------------------------
+    #: ``OOS_SHARPE_RATIO_MIN`` is a RELATIVE floor: the winner must retain a
+    #: stated fraction of its IS Sharpe. On its own it is a shrinkage test, not a
+    #: validity test - a search that curve-fits IS Sharpe 6.0 clears a 0.7 floor
+    #: with an OOS Sharpe of 4.2, and nothing about that number is defensible.
+    #: ``OOS_SHARPE_ABS_MIN`` is the ABSOLUTE leg: an economically meaningful net
+    #: minimum. Both legs must pass. The absolute figure is a working assumption
+    #: for Indian equity delivery AFTER costs, not a measured constant.
     OOS_SHARPE_RATIO_MIN = 0.7
+    OOS_SHARPE_ABS_MIN = 1.0
     OOS_DRAWDOWN_RATIO_MAX = 1.3
+
+    #: Family-wise confidence target for the trial-count penalty. A search of N
+    #: trials is charged as if we demanded this confidence across the whole
+    #: family of trials, so a larger search needs a larger OOS Sharpe to pass.
+    #: 0.95 means "at most a 5% chance the winner is the luckiest of N draws".
+    OOS_FAMILY_CONFIDENCE = 0.95
 
     #: Loop B trigger thresholds, expressed as multiples of the historical value.
     LIVE_DRAWDOWN_MULT = 1.5

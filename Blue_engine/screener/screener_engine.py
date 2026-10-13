@@ -97,7 +97,7 @@ class ScreenerEngine(BaseEngine):
 
     name = "screener"
     #: Runs before Alpha so the universe exists before scoring.
-    stage = EngineStage.PORTFOLIO
+    stage = EngineStage.SCREENER
 
     def __init__(self, config: Optional[Dict[str, Any]] = None,
                  provider: Optional[Callable[[], Dict[str, Any]]] = None,
@@ -477,6 +477,27 @@ class ScreenerEngine(BaseEngine):
 
         # 4. Apply the screen.
         results = self.screen.evaluate(candidates)
+        legal_warnings = supplied.get("legal_warnings") or []
+        verified_blacklist: Dict[str, Dict[str, str]] = {}
+        for item in legal_warnings:
+            if not isinstance(item, dict):
+                warnings.append("ignored malformed legal warning; expected an object")
+                continue
+            ticker = str(item.get("ticker") or "").strip().upper()
+            reason = " ".join(str(item.get("reason") or "").split()[:10])
+            source = str(item.get("source") or "").strip()
+            if not ticker or not reason or not source or item.get("verified") is not True:
+                warnings.append(
+                    "legal warning not applied: ticker, reason, source, and verified=true are required")
+                continue
+            verified_blacklist[ticker] = {"reason": reason, "source": source}
+
+        for result in results:
+            warning = verified_blacklist.get(result.symbol.upper())
+            if warning:
+                result.selected = False
+                result.excluded_by = (
+                    f"verified legal/governance warning: {warning['reason']}")
         selected = [r for r in results if r.selected]
         rejected = [r for r in results if not r.selected]
 
@@ -509,6 +530,12 @@ class ScreenerEngine(BaseEngine):
                 },
                 "selected": [r.symbol for r in selected],
                 "symbols": [r.symbol for r in selected],
+                "asset_blacklist": sorted(verified_blacklist),
+                "blacklist_reasons": [
+                    {"ticker": ticker, "reason": item["reason"],
+                     "source": item["source"]}
+                    for ticker, item in sorted(verified_blacklist.items())
+                ],
                 "fundamentals": fundamentals,
                 "results": [r.as_dict() for r in results],
                 "rejected": [

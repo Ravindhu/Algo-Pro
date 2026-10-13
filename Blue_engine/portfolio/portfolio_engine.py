@@ -40,6 +40,7 @@ engines and the dashboard keep working unchanged::
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable, Dict, List, Optional
 
 from ..core.base import BaseEngine, EngineResult, EngineStage
@@ -70,6 +71,10 @@ class PortfolioEngine(BaseEngine):
         self.max_weight: float = float(cfg.get("max_weight", 0.40))
         self.min_weight: float = float(cfg.get("min_weight", 0.0))
         self.max_gross: float = float(cfg.get("max_gross", 1.0))
+        self.max_tech_sector_exposure = self._limit_config(
+            "max_tech_sector_exposure", cfg.get("max_tech_sector_exposure", 0.20))
+        self.min_cash_buffer_pct = self._limit_config(
+            "min_cash_buffer_pct", cfg.get("min_cash_buffer_pct", 0.15))
         self.max_turnover: Optional[float] = (
             None if cfg.get("max_turnover") is None
             else float(cfg["max_turnover"]))
@@ -114,6 +119,15 @@ class PortfolioEngine(BaseEngine):
                                              log=self.log)
         self._drawdown = sizing_pkg.drawdown_governor.DrawdownGovernor(
             cfg.get("drawdown_config"), log=self.log)
+
+    @staticmethod
+    def _limit_config(key: str, raw: Any) -> float:
+        if isinstance(raw, bool):
+            raise ValueError(f"{key} must be numeric")
+        value = float(raw)
+        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError(f"{key} must be finite and between 0 and 1")
+        return value
 
     # ---- data ---------------------------------------------------------- #
     def _collect(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -454,6 +468,45 @@ class PortfolioEngine(BaseEngine):
             "reason": "residual beta outside tolerance",
         }
 
+    def _apply_exposure_limits(self, targets: Dict[str, float],
+                               data: Dict[str, Any],
+                               warnings: List[str]) -> Dict[str, float]:
+        """Enforce the configured cash reserve and known technology-sector cap."""
+        adjusted = dict(targets)
+        sector_by_symbol = data.get("sector_by_symbol") or {}
+        if not isinstance(sector_by_symbol, dict):
+            sector_by_symbol = {}
+
+        def _is_technology(symbol: str) -> bool:
+            sector = str(sector_by_symbol.get(symbol, "")).strip().lower()
+            words = set(sector.replace("/", " ").replace("-", " ").split())
+            return (
+                "technology" in words
+                or "software" in words
+                or "tech" in words
+                or {"it", "services"}.issubset(words)
+            )
+
+        tech_symbols = [symbol for symbol in adjusted if _is_technology(symbol)]
+        if tech_symbols:
+            tech_gross = sum(abs(adjusted[symbol]) for symbol in tech_symbols)
+            if tech_gross > self.max_tech_sector_exposure and tech_gross > 0:
+                scale = self.max_tech_sector_exposure / tech_gross
+                for symbol in tech_symbols:
+                    adjusted[symbol] *= scale
+        elif adjusted and any(symbol not in sector_by_symbol for symbol in adjusted):
+            warnings.append(
+                "technology-sector limit not verifiable: sector_by_symbol data missing")
+
+        gross = sum(abs(weight) for weight in adjusted.values())
+        gross_cap = min(self.max_gross, 1.0 - self.min_cash_buffer_pct)
+        if gross > gross_cap and gross > 0:
+            scale = gross_cap / gross
+            adjusted = {symbol: weight * scale
+                        for symbol, weight in adjusted.items()}
+        return {symbol: round(weight, 6)
+                for symbol, weight in adjusted.items()}
+
     # ---- main ---------------------------------------------------------- #
     def _run(self, context: Dict[str, Any]) -> EngineResult:
         warnings: List[str] = []
@@ -465,13 +518,18 @@ class PortfolioEngine(BaseEngine):
             return EngineResult(
                 engine=self.name, ok=True,
                 data={"target_weights": {}, "rebalance_trades": [],
-                      "risk": {}, "hedge": {"needed": False}},
+                      "risk": {}, "hedge": {"needed": False},
+                      "max_tech_sector_exposure": self.max_tech_sector_exposure,
+                      "min_cash_buffer_pct": self.min_cash_buffer_pct,
+                      "rebalance_allowed": False,
+                      "rationale": "Portfolio inputs unavailable; no rebalance proposed."},
                 warnings=["no portfolio inputs supplied; empty target book"],
             )
 
         built = self._construct(data, market, econ)
-        targets = built["weights"]
         warnings.extend(built.get("warnings", []))
+        targets = self._apply_exposure_limits(
+            built["weights"], data, warnings)
         current = {k: (safe_float(v) or 0.0)
                    for k, v in (data.get("current_weights") or {}).items()}
 
@@ -495,6 +553,17 @@ class PortfolioEngine(BaseEngine):
             costs_config=self.config.get("costs"))
         effective_targets = banded.get("effective_target", targets)
         trades = self._balance(effective_targets, current)
+        risk_data = context.get("risk")
+        if isinstance(risk_data, dict) and isinstance(risk_data.get("data"), dict):
+            risk_data = risk_data["data"]
+        risk_veto = bool(
+            isinstance(risk_data, dict)
+            and risk_data.get("risk_veto_active"))
+        risk_veto = risk_veto or market.get("market_volatility_state") == "High_Panic"
+        rebalance_allowed = not risk_veto
+        if not rebalance_allowed:
+            trades = []
+            warnings.append("rebalance suppressed by risk veto or high-panic market state")
         cost = banded.get("cost", {})
 
         hedge = self._hedge(risk)
@@ -520,6 +589,13 @@ class PortfolioEngine(BaseEngine):
             "views": built.get("views", []),
             "attribution": attribution,
             "regime": econ.get("regime"),
+            "max_tech_sector_exposure": self.max_tech_sector_exposure,
+            "min_cash_buffer_pct": self.min_cash_buffer_pct,
+            "rebalance_allowed": rebalance_allowed,
+            "rationale": (
+                "Risk veto or high-panic regime blocks rebalance."
+                if not rebalance_allowed else
+                "Technology exposure capped when sector data is available; minimum cash buffer enforced."),
         }
 
         self.log(f"optimiser={built.get('optimiser')} gross="

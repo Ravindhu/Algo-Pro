@@ -1,8 +1,8 @@
 ﻿"""
-pipeline.py - the master pipeline that chains the six macro engines.
+pipeline.py - the master pipeline that chains the analytic and safety engines.
 
-    Economic  ->  Market  ->  Portfolio  ->  Alpha  ->  POV  ->  Infrastructure
-    (macro)       (prices)    (allocate)     (select)  (execute) (run/infra)
+    Economic -> Market -> (Screener -> Valuation) -> Portfolio -> Alpha
+       -> Risk -> POV -> Infrastructure
 
 Each stage reads the outputs of the stages before it. The pipeline never
 raises: a stage failure is recorded in that stage's :class:`EngineResult` and
@@ -38,6 +38,8 @@ from ..infrastructure import InfrastructureEngine
 from ..market import MarketEngine
 from ..portfolio import PortfolioEngine
 from ..pov import PovEngine
+from ..screener import ScreenerEngine, ValuationEngine
+from .risk_engine import RiskEngine
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +49,7 @@ DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent
 
 
 class MacroPipeline:
-    """Ordered chain of the six macro engines."""
+    """Ordered analytic chain with optional fundamental stages and risk veto."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None,
                  log: Optional[Callable[[str], None]] = None):
@@ -63,16 +65,28 @@ class MacroPipeline:
                            provider=self._provider("economic"), log=log),
             MarketEngine(engines_cfg.get("market", {}),
                          provider=self._provider("market"), log=log),
+        ]
+        screener_cfg = engines_cfg.get("screener") or {}
+        if bool(screener_cfg.get("pipeline_enabled", False)):
+            self.engines.append(ScreenerEngine(
+                screener_cfg, provider=self._provider("screener"), log=log))
+        valuation_cfg = engines_cfg.get("valuation") or {}
+        if bool(valuation_cfg.get("pipeline_enabled", False)):
+            self.engines.append(ValuationEngine(
+                valuation_cfg, provider=self._provider("valuation"), log=log))
+        self.engines.extend([
             PortfolioEngine(engines_cfg.get("portfolio", {}),
                             provider=self._provider("portfolio"), log=log),
             AlphaEngine(engines_cfg.get("alpha", {}),
                         provider=self._provider("alpha"), log=log),
+            RiskEngine(engines_cfg.get("risk", {}),
+                       provider=self._provider("risk"), log=log),
             PovEngine(engines_cfg.get("pov", {}),
                       provider=self._provider("pov"), log=log),
             InfrastructureEngine(engines_cfg.get("infrastructure", {}),
                                  provider=self._provider("infrastructure"),
                                  log=log),
-        ]
+        ])
         # Deterministic order by stage.
         self.engines.sort(key=lambda e: e.stage.value)
 
@@ -134,10 +148,11 @@ class MacroPipeline:
         # ordering stays top-down and the report is complete.
         infra_engine = next(
             (e for e in self.engines if e.stage is EngineStage.INFRASTRUCTURE), None)
-        gate_ok = True
+        infrastructure_ok = True
+        risk_veto_active = False
         if self.gate_on_infrastructure and infra_engine is not None:
             pre = infra_engine.run(ctx)
-            gate_ok = bool(pre.get("ready_to_trade", False))
+            infrastructure_ok = bool(pre.get("ready_to_trade", False))
             ctx["infrastructure"] = _as_ctx(pre)
             report["ready_to_trade"] = pre.get("ready_to_trade")
             report["warnings"].extend(pre.warnings)
@@ -146,23 +161,37 @@ class MacroPipeline:
             # Skip the POV execution when infrastructure is not ready and the
             # gate is enabled. The analytic POV config is still built so the
             # operator can inspect it.
-            if (engine.stage is EngineStage.POV and not gate_ok
-                    and self.gate_on_infrastructure):
+            if (engine.stage is EngineStage.POV
+                    and (risk_veto_active or (
+                        self.gate_on_infrastructure and not infrastructure_ok))):
                 report["stages"][engine.name] = {
                     "engine": engine.name,
                     "ok": True,
                     "data": {"slice": {"status": "blocked",
-                                       "reason": "infrastructure not ready"}},
-                    "warnings": ["POV blocked: infrastructure gate failed"],
+                                       "reason": ("risk veto active"
+                                                  if risk_veto_active else
+                                                  "infrastructure not ready")}},
+                    "warnings": [
+                        ("POV blocked by risk gate" if risk_veto_active else
+                         "POV blocked: infrastructure gate failed")],
                     "error": None,
                 }
-                report["warnings"].append("POV blocked by infrastructure gate")
+                report["warnings"].append(
+                    "POV blocked by risk veto" if risk_veto_active else
+                    "POV blocked by infrastructure gate")
                 continue
 
             result = engine.run(ctx)
             ctx[engine.name] = _as_ctx(result)
             report["stages"][engine.name] = result.__dict__
             report["warnings"].extend(result.warnings)
+            if engine.name == "risk":
+                risk_veto_active = (
+                    not result.ok or bool(result.get("risk_veto_active", True)))
+                if risk_veto_active:
+                    report["ready_to_trade"] = False
+                    report["warnings"].append(
+                        "POV blocked by risk veto or failed risk assessment")
 
         report["alpha_selected"] = (
             report["stages"].get("alpha", {}).get("data", {}).get("selected"))

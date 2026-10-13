@@ -34,6 +34,7 @@ Pure: no network, no SDK, no DB.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Callable, Dict, List, Optional
 
 from ..core.base import BaseEngine, EngineResult, EngineStage
@@ -55,6 +56,16 @@ class MarketEngine(BaseEngine):
             self.config.get("indices") or [])
         #: Weight of FII flow vs index breadth in the risk-appetite composite.
         self.fii_weight: float = float(self.config.get("fii_weight", 0.5))
+        self.low_volatility_pct = float(
+            self.config.get("low_volatility_pct", 15.0))
+        self.high_volatility_pct = float(
+            self.config.get("high_volatility_pct", 30.0))
+        if (not math.isfinite(self.low_volatility_pct)
+                or not math.isfinite(self.high_volatility_pct)
+                or self.low_volatility_pct <= 0
+                or self.high_volatility_pct <= self.low_volatility_pct):
+            raise ValueError(
+                "volatility thresholds must be finite, positive, and increasing")
 
     # ---- data ---------------------------------------------------------- #
     def _collect(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -120,6 +131,61 @@ class MarketEngine(BaseEngine):
         # currency units of net flow = a strong signal).
         return clamp((sum(parts) / len(parts)) / scale, -1.0, 1.0)
 
+    def _volatility_state(self, data: Dict[str, Any],
+                          warnings: List[str]):
+        """Classify annualized realized volatility from explicit inputs only."""
+        raw_volatility = data.get(
+            "annualized_volatility_pct", data.get("realized_volatility_pct"))
+        volatility = safe_float(raw_volatility)
+        if raw_volatility is not None and (
+                volatility is None or volatility < 0):
+            warnings.append(
+                "invalid annualized volatility; using conservative elevated state")
+            volatility = None
+        returns = data.get("daily_returns_pct")
+        if volatility is None and isinstance(returns, list) and len(returns) >= 2:
+            values = [None if isinstance(value, bool) else safe_float(value)
+                      for value in returns]
+            if all(value is not None for value in values):
+                mean_return = sum(values) / len(values)
+                variance = sum((value - mean_return) ** 2
+                               for value in values) / (len(values) - 1)
+                volatility = math.sqrt(max(variance, 0.0) * 252.0)
+            else:
+                warnings.append(
+                    "invalid daily return series; realized volatility unavailable")
+
+        low_limit = self.low_volatility_pct
+        high_limit = self.high_volatility_pct
+        panic = any(bool(data.get(key)) for key in (
+            "extreme_market_panic", "latency_anomaly", "corrupted_data"))
+        if panic or (volatility is not None and volatility >= high_limit):
+            state, lookback = "High_Panic", 10
+        elif volatility is not None and volatility < low_limit:
+            state, lookback = "Low", 50
+        elif volatility is not None:
+            state, lookback = "Elevated", 20
+        else:
+            state, lookback = "Elevated", 14
+        rationale = (
+            "Explicit panic/data-integrity alert is active." if panic else
+            f"Annualized realized volatility is {volatility:.2f}%." if volatility is not None else
+            "Volatility data unavailable; using conservative elevated state.")
+        return state, lookback, volatility, rationale
+
+    @staticmethod
+    def _short_term_bias(indices: Dict[str, Dict[str, Any]]) -> str:
+        if not indices:
+            return "Sideways"
+        reference = indices.get("NIFTY") or next(iter(indices.values()))
+        values = [reference.get(key) for key in
+                  ("return_1d_pct", "return_1m_pct")]
+        values = [value for value in values if value is not None]
+        if not values:
+            return "Sideways"
+        direction = sum(values) / len(values)
+        return "Bullish" if direction > 0 else "Bearish" if direction < 0 else "Sideways"
+
     # ---- main ---------------------------------------------------------- #
     def _run(self, context: Dict[str, Any]) -> EngineResult:
         warnings: List[str] = []
@@ -128,7 +194,12 @@ class MarketEngine(BaseEngine):
             return EngineResult(
                 engine=self.name, ok=True,
                 data={"risk_appetite": 0.0, "breadth_score": 0.0,
-                      "leaders": [], "laggards": [], "tradable_universe": []},
+                      "leaders": [], "laggards": [], "tradable_universe": [],
+                      "market_volatility_state": "Elevated",
+                      "technical_lookback_days": 14,
+                      "short_term_bias": "Sideways",
+                      "realized_volatility_pct": None,
+                      "rationale": "No market data supplied; using conservative elevated state."},
                 warnings=["no market data supplied; neutral by default"],
             )
 
@@ -173,6 +244,9 @@ class MarketEngine(BaseEngine):
         # Commodity complex return (equal-weighted).
         commodity_avg = mean([v["return_1d_pct"] for v in commodities.values()
                               if v["return_1d_pct"] is not None])
+        volatility_state, lookback, volatility, rationale = \
+            self._volatility_state(data, warnings)
+        bias = self._short_term_bias(indices)
 
         self.log(f"breadth={breadth_score:+.2f} fii={fii_score} "
                  f"risk_appetite={risk_appetite:+.2f} "
@@ -191,6 +265,12 @@ class MarketEngine(BaseEngine):
                 "leaders": leaders,
                 "laggards": laggards,
                 "tradable_universe": tradable,
+                "market_volatility_state": volatility_state,
+                "technical_lookback_days": lookback,
+                "short_term_bias": bias,
+                "realized_volatility_pct": (
+                    None if volatility is None else round(volatility, 4)),
+                "rationale": " ".join(rationale.split()[:15]),
             },
             warnings=warnings,
         )
