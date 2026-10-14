@@ -68,6 +68,8 @@ Blue_engine/database/vendor/indian-market-historical-data/
 # last_screen.json is a per-run snapshot. Neither belongs in history.
 Blue_engine/screener/cache/
 Blue_engine/screener/last_screen.json
+# Downloaded historical research data; sourced under non-commercial-only terms.
+Blue_engine/database/sample_data/
 
 # -----------------------------------------------------------------------------
 # RETIRED CODE AND BACKUPS — reference only, large, not needed on the VPS
