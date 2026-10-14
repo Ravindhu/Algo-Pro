@@ -61,6 +61,9 @@ openalgo_retired_*/
 # Only the clone plus its pin file are kept in-tree; _vendor_pin.py
 # --update-pin refreshes it. See Blue_engine/screener/README.md.
 Blue_engine/screener/vendor/screener-india/
+# The database research upstream is kept pristine and sparse; only its pin and
+# our upgrade helper are tracked, never the upstream data/code checkout.
+Blue_engine/database/vendor/indian-market-historical-data/
 # Screener RUNTIME artifacts: the page cache is a local scraper cache, and
 # last_screen.json is a per-run snapshot. Neither belongs in history.
 Blue_engine/screener/cache/

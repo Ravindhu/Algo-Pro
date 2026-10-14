@@ -24,7 +24,7 @@ blue_engine/
       guards.py         Depth / circuit / auction execution guards
   economics/        Economic engine (regime, GDP, bond, inflation ...)
   market/           Market engine (returns, FII flow, commodities)
-  screener/         Fundamental universe filter + EPV/CANAV valuation
+  screener/         Saved-screen enrichment + annual reports + EPV/CANAV/DCF
   backtest/         Deterministic historical simulation (research only)
   optimizer/        Bounded walk-forward parameter search (research only)
   portfolio/        Portfolio engine (construction, risk-parity, hedge)
@@ -83,11 +83,24 @@ The reusable symbol-batch flow is:
    searches the In-Sample (IS) partition using the configured walk-forward
    folds.
 4. Re-run the recommendation on the untouched Out-of-Sample (OOS) partition.
-   A symbol is included in `configurations` only when OOS Sharpe is at least
-   70% of IS Sharpe and OOS maximum drawdown is no more than 130% of IS
-   drawdown. Failed or insufficient runs remain visible in `results`.
+   A symbol is included in `configurations` only when OOS Sharpe clears both
+   `max(0.7 * IS Sharpe, 1.0)`, OOS deflated-Sharpe probability is at least
+   0.95 using the actual search trial count, and OOS maximum drawdown is no more
+   than 130% of IS drawdown. These absolute/DSR thresholds are explicit policy
+   assumptions and statistical approximations, not guarantees. Missing DSR or a
+   trial-count mismatch fails closed. Failed or insufficient runs remain visible
+   in `results`.
 5. Atomically write the approved-only lookup and per-symbol validation report
    to `data/optimizer/symbol_parameters.json` (override with `output_path`).
+
+Optional `BacktestConfig.stop_loss_fraction` and
+`max_daily_loss_fraction` simulate hard risk limits. Stops use an adverse-first
+OHLC convention: gaps through a stop use the worse open, otherwise a crossing
+uses the stop price. The daily loss threshold uses the first equity mark for the
+calendar date; a breach queues flattening at the next bar and blocks new entries
+for the rest of that date. These are simulator assumptions, not broker-native
+guarantees. `intra_bar_path` is currently fixed to `"adverse_first"` and rejects
+other values.
 
 The signal contract is `signal(params, context, bars) -> target_position`, where
 `target_position` is a finite exposure fraction in `[-1, 1]` and `bars` is a
@@ -97,8 +110,16 @@ and this workflow **does not** alter live configuration, promote parameters,
 or place orders. Review and explicitly promote approved configurations through
 the existing risk-controlled live operating path.
 `BatchConfig.risk_free_per_period` is applied consistently to optimizer Sharpe,
-the cost-adjusted objective gate, and IS/OOS reporting; its default of zero is
-an explicit assumption, not an India risk-free-rate estimate.
+the cost gate and IS/OOS reporting; its default of zero is an explicit
+assumption, not an India risk-free-rate estimate. The optimizer's backtest
+adapter returns net-of-cost returns and marks that contract, so its returns are
+not charged a second time by the objective. Generic strategies without that
+marker retain the legacy cost-estimate path.
+
+Annualization is a convention: 252 daily, 52 weekly, 12 monthly, and a 375-minute
+intraday session. Holidays, shortened sessions and missing bars change realized
+period counts; set `periods_per_year` explicitly when the data calendar requires
+it.
 
 For multiple CPU workers, provide a module-level callable or import path such
 as `"my_strategy:signal"` and invoke the batch from a Windows

@@ -105,6 +105,9 @@ class BacktestConfig:
     periods_per_year: float = 252.0
     max_position_fraction: float = 1.0
     allow_short: bool = False
+    stop_loss_fraction: Optional[float] = None
+    max_daily_loss_fraction: Optional[float] = None
+    intra_bar_path: str = "adverse_first"
 
     def __post_init__(self) -> None:
         # Validate here so a misconfigured call fails BEFORE the run starts,
@@ -125,6 +128,13 @@ class BacktestConfig:
         if not math.isfinite(self.max_position_fraction) or \
                 not 0 < self.max_position_fraction <= 1:
             raise ValueError("max_position_fraction must be in (0, 1]")
+        for name, value in (("stop_loss_fraction", self.stop_loss_fraction),
+                            ("max_daily_loss_fraction", self.max_daily_loss_fraction)):
+            if value is not None and (
+                    not math.isfinite(value) or not 0 < value < 1):
+                raise ValueError(f"{name} must be in (0, 1) or None")
+        if self.intra_bar_path != "adverse_first":
+            raise ValueError("intra_bar_path must be 'adverse_first'")
 
 
 @dataclass(frozen=True)
@@ -395,8 +405,44 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
     bars_in_market = 0
     previous_equity = float(config.starting_equity)
     pending_target: Optional[float] = None
-
+    entry_price_for_stop: Optional[float] = None
+    current_day = None
+    day_start_equity = float(config.starting_equity)
+    daily_halt = False
+    stop_exit_pending = False
+    stop_exit_reference: Optional[float] = None
     for index, bar in enumerate(series.bars):
+        # Timestamps are sortable strings from the validated bar adapter. Daily
+        # loss is measured from the equity mark at each new calendar date.
+        bar_day = bar.ts[:10]
+        if bar_day != current_day:
+            current_day = bar_day
+            day_start_equity = previous_equity
+            # A daily risk halt is session-scoped; it resets on the next date.
+            daily_halt = False
+        # Check stop before strategy target execution. If both OHLC extremes
+        # could hit a stop/target inside a bar, adverse_first makes no favorable
+        # target assumption: a stop is considered hit whenever low/high crosses.
+        stop_triggered = False
+        if (quantity and entry_price_for_stop is not None
+                and config.stop_loss_fraction is not None):
+            if quantity > 0:
+                stop_price = entry_price_for_stop * (1.0 - config.stop_loss_fraction)
+                stop_triggered = bar.low <= stop_price
+                stop_fill_reference = min(bar.open, stop_price) if stop_triggered else bar.open
+            else:
+                stop_price = entry_price_for_stop * (1.0 + config.stop_loss_fraction)
+                stop_triggered = bar.high >= stop_price
+                stop_fill_reference = max(bar.open, stop_price) if stop_triggered else bar.open
+            if stop_triggered:
+                stop_exit_pending = True
+                stop_exit_reference = stop_fill_reference
+                pending_target = 0.0
+                warnings.append(f"stop loss triggered at {bar.ts}; adverse-first OHLC convention")
+        if daily_halt and pending_target is not None and pending_target != 0:
+            pending_target = 0.0
+        if stop_exit_pending:
+            pending_target = 0.0
         if pending_target is not None:
             target_quantity = (
                 int(math.floor(previous_equity * abs(pending_target) / bar.open))
@@ -426,24 +472,27 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
             if delta:
                 side = "BUY" if delta > 0 else "SELL"
                 order_quantity = abs(delta)
-                order_notional = order_quantity * bar.open
+                reference_price = (stop_exit_reference
+                                   if stop_exit_pending and delta * quantity < 0
+                                   else bar.open)
+                order_notional = order_quantity * reference_price
                 bar_notional = bar.volume * bar.close
                 impact_bps = config.cost_model.impact_bps(
                     order_notional=order_notional,
                     bar_notional=bar_notional)
                 fill = config.cost_model.fill_price(
-                    side=side, reference_price=bar.open,
+                    side=side, reference_price=reference_price,
                     order_notional=order_notional,
                     bar_notional=bar_notional)
                 fill_price = float(fill["price"])
                 charges_bps = float(fill["charges_bps"])
                 fee = order_quantity * fill_price * charges_bps / 10000.0
-                execution_cost = order_quantity * abs(fill_price - bar.open)
+                execution_cost = order_quantity * abs(fill_price - reference_price)
                 total_fill_cost = fee + execution_cost
                 costs_paid += total_fill_cost
                 cash -= delta * fill_price + fee
                 fills.append(FillRecord(
-                    ts=bar.ts, side=side, reference_price=bar.open,
+                    ts=bar.ts, side=side, reference_price=reference_price,
                     price=fill_price, notional=order_quantity * fill_price,
                     charges_bps=charges_bps,
                     slippage_bps=float(config.cost_model.slippage_bps),
@@ -455,9 +504,15 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                     new_abs = abs(delta)
                     if old_abs == 0:
                         average_entry_ts = bar.ts
-                    average_entry_reference = (
-                        (average_entry_reference * old_abs + bar.open * new_abs)
-                        / (old_abs + new_abs))
+                        entry_price_for_stop = fill_price
+                        average_entry_reference = reference_price
+                    else:
+                        average_entry_reference = (
+                            (average_entry_reference * old_abs + reference_price * new_abs)
+                            / (old_abs + new_abs))
+                        if config.stop_loss_fraction is not None:
+                            entry_price_for_stop = average_entry_reference
+
                     entry_cost_remaining += total_fill_cost
                 else:
                     closed_quantity = min(abs(quantity), abs(delta))
@@ -467,7 +522,7 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                         total_fill_cost * closed_quantity / abs(delta))
                     direction = 1 if quantity > 0 else -1
                     gross_pnl = (
-                        (bar.open - average_entry_reference)
+                        (reference_price - average_entry_reference)
                         * closed_quantity * direction)
                     trades.append({
                         "entry_ts": average_entry_ts,
@@ -475,7 +530,7 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                         "side": "LONG" if direction > 0 else "SHORT",
                         "quantity": closed_quantity,
                         "entry_price": average_entry_reference,
-                        "exit_price": bar.open,
+                        "exit_price": reference_price,
                         "gross_pnl": gross_pnl,
                         "costs": entry_cost_allocated + exit_cost_allocated,
                         "pnl": gross_pnl - entry_cost_allocated - exit_cost_allocated,
@@ -484,13 +539,18 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                     if target_quantity == 0 or target_quantity * quantity < 0:
                         entry_cost_remaining = 0.0
                         if target_quantity == 0:
+                            entry_price_for_stop = None
+                        if target_quantity == 0:
                             average_entry_ts = None
                     if target_quantity * quantity < 0:
-                        average_entry_reference = bar.open
+                        average_entry_reference = reference_price
+                        entry_price_for_stop = fill_price
                         average_entry_ts = bar.ts
                         entry_cost_remaining = total_fill_cost - exit_cost_allocated
                 quantity = target_quantity
-
+                if stop_exit_pending and quantity == 0:
+                    stop_exit_pending = False
+                    stop_exit_reference = None
         marked_equity = cash + quantity * bar.close
         if not math.isfinite(marked_equity):
             raise ArithmeticError(f"non-finite equity at {bar.ts}")
@@ -498,7 +558,17 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
         previous_equity = marked_equity
         if quantity:
             bars_in_market += 1
-
+        if (config.max_daily_loss_fraction is not None
+                and day_start_equity > 0
+                and marked_equity <= day_start_equity
+                    * (1.0 - config.max_daily_loss_fraction)):
+            if not daily_halt:
+                warnings.append(
+                    f"daily loss limit triggered at {bar.ts}; new entries blocked for {bar_day}")
+            daily_halt = True
+            pending_target = 0.0
+            if quantity:
+                pending_target = 0.0
         if index < len(series) - 1:
             context = {
                 "symbol": series.symbol or symbol,
@@ -508,14 +578,26 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                 "bar_index": index,
                 "equity": marked_equity,
                 "quantity": quantity,
+                "risk_free_per_period": config.risk_free_per_period,
+                "periods_per_year": config.periods_per_year,
+                "cost_bps": config.cost_model.round_trip_bps(),
             }
-            signal = _call_signal(strategy, dict(params), context,
-                                  series.view_upto(index))
-            pending_target = _target_fraction(
-                signal, max_fraction=config.max_position_fraction,
-                allow_short=config.allow_short)
+            if daily_halt:
+                pending_target = 0.0
+            elif stop_exit_pending:
+                pending_target = 0.0
+            else:
+                signal = _call_signal(strategy, dict(params), context,
+                                      series.view_upto(index))
+                pending_target = _target_fraction(
+                    signal, max_fraction=config.max_position_fraction,
+                    allow_short=config.allow_short)
 
     if quantity:
+        if stop_exit_pending or daily_halt:
+            warnings.append(
+                "risk exit could not execute: no later bar is available; "
+                "position remains marked open at end of data")
         direction = 1 if quantity > 0 else -1
         last_bar = series.bars[-1]
         gross_mark_pnl = (

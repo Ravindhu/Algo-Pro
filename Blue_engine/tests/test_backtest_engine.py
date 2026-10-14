@@ -7,6 +7,7 @@ import pytest
 from blue_engine.backtest.costs import CostModel
 from blue_engine.backtest.engine import BacktestConfig, run_backtest
 from blue_engine.backtest.metrics import _round, compute_metrics
+from blue_engine.ml.evaluation.metrics import deflated_sharpe
 
 
 def _bars():
@@ -57,6 +58,79 @@ def test_run_backtest_uses_prefix_signals_and_fills_at_next_bar_open():
     assert result.envelope["bar_count"] == len(_bars())
 
 
+def test_gap_down_is_reflected_at_next_open_not_previous_close():
+    rows = [
+        {"ts": "2025-01-01", "open": 100, "high": 101, "low": 99,
+         "close": 100, "volume": 10000},
+        {"ts": "2025-01-02", "open": 100, "high": 102, "low": 99,
+         "close": 100, "volume": 10000},
+        {"ts": "2025-01-03", "open": 100, "high": 101, "low": 98,
+         "close": 99, "volume": 10000},
+        {"ts": "2025-01-04", "open": 88, "high": 90, "low": 85,
+         "close": 89, "volume": 10000},
+    ]
+    result = run_backtest(
+        rows, lambda params, context, bars: 1.0 if context["bar_index"] < 2 else 0.0,
+        {}, config=_config(cost_model=CostModel(
+            slippage_bps=0, latency_bps=0, impact_coefficient=0)))
+
+    assert result.fills[0].ts == "2025-01-02"
+    assert result.fills[0].reference_price == 100
+    assert result.fills[1].ts == "2025-01-04"
+    assert result.fills[1].reference_price == 88
+    assert result.trades[0]["exit_price"] == 88
+    assert result.trades[0]["gross_pnl"] < 0
+    assert result.equity[3] < result.equity[2]
+
+
+def test_stop_loss_uses_adverse_first_bar_and_gap_fill():
+    rows = [
+        {"ts": "2025-01-01", "open": 100, "high": 101, "low": 99,
+         "close": 100, "volume": 10000},
+        {"ts": "2025-01-02", "open": 100, "high": 102, "low": 94,
+         "close": 98, "volume": 10000},
+        {"ts": "2025-01-03", "open": 95, "high": 97, "low": 94,
+         "close": 96, "volume": 10000},
+    ]
+    result = run_backtest(
+        rows, lambda p, c, b: 1.0, {},
+        config=_config(
+            cost_model=CostModel(slippage_bps=0, latency_bps=0,
+                                 impact_coefficient=0),
+            stop_loss_fraction=0.05))
+
+    assert result.fills[-1].side == "SELL"
+    assert result.fills[-1].reference_price == pytest.approx(95.0)
+    assert result.trades[0]["exit_price"] == pytest.approx(95.0)
+    assert any("stop loss triggered" in warning for warning in result.warnings)
+
+
+def test_daily_loss_limit_liquidates_and_blocks_same_day_reentry():
+    rows = [
+        {"ts": "2025-01-01 09:15", "open": 100, "high": 101, "low": 99,
+         "close": 100, "volume": 10000},
+        {"ts": "2025-01-01 10:15", "open": 100, "high": 101, "low": 80,
+         "close": 80, "volume": 10000},
+        {"ts": "2025-01-01 11:15", "open": 80, "high": 81, "low": 79,
+         "close": 80, "volume": 10000},
+        {"ts": "2025-01-02 09:15", "open": 80, "high": 82, "low": 79,
+         "close": 81, "volume": 10000},
+    ]
+    result = run_backtest(
+        rows, lambda p, c, b: 1.0, {},
+        config=_config(
+            cost_model=CostModel(slippage_bps=0, latency_bps=0,
+                                 impact_coefficient=0),
+            max_daily_loss_fraction=0.10))
+
+    assert result.fills[0].side == "BUY"
+    assert result.fills[1].side == "SELL"
+    assert result.fills[1].ts == "2025-01-01 11:15"
+    assert not any(fill.side == "BUY" and fill.ts.startswith("2025-01-01 11")
+                   for fill in result.fills)
+    assert any("daily loss limit triggered" in warning for warning in result.warnings)
+
+
 def test_run_backtest_marks_open_position_and_reports_costs():
     result = run_backtest(
         _bars(), lambda params, context, bars: 1.0, {},
@@ -96,6 +170,13 @@ def test_run_backtest_rejects_insufficient_or_invalid_bars():
              _bars()[1]],
             lambda p, c, b: 0, {}, config=_config())
 
+
+def test_deflated_sharpe_single_trial_has_finite_expected_maximum():
+    result = deflated_sharpe(0.01, n_trials=1, n_obs=100)
+
+    assert result["expected_max_sharpe"] == 0.0
+    assert result["prob_real"] is not None
+    assert 0.0 <= result["prob_real"] <= 1.0
 
 def test_metrics_keep_gross_profit_separate_from_costed_trade_pnl():
     metrics = compute_metrics(

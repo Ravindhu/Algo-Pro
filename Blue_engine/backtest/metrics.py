@@ -229,6 +229,7 @@ def compute_metrics(*, equity: Sequence[Optional[float]],
         n_trials=max(1, int(n_trials)), n_obs=max(2, n_per)) if n_per >= 2 else {}
 
     metrics: Dict[str, Any] = {
+        "risk_free_per_period": float(risk_free_per_period),
         "total_return_pct": round(total_return * 100.0, 4),
         "net_pnl": round(sum(pnls), 4),
         "costs_paid": round(float(costs_paid), 4),

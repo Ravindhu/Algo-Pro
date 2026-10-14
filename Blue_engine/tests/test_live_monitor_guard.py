@@ -34,7 +34,9 @@ def _telemetry(*, drawdown=False):
 def _guard(client=None, provider=None):
     return LiveMonitorGuard(
         client=client or PositionClient(),
-        monitor=LiveMonitor({"max_dd": 1.0, "max_losing_streak": 3}),
+        monitor=LiveMonitor(
+            {"max_dd": 1.0, "max_losing_streak": 3},
+            baseline_source="verified_live"),
         provider=provider or (lambda **kwargs: _telemetry()),
         monitor_config={},
     )
@@ -165,6 +167,7 @@ def test_runner_installs_guard_on_the_live_slicer(monkeypatch):
         "pov": {"action": "BUY", "quantity": 5},
         "live_monitor": {
             "enabled": True,
+            "baseline_source": "verified_live",
             "historical_envelope": {
                 "max_dd": 5.0, "max_losing_streak": 4},
         },
@@ -225,6 +228,7 @@ def test_runner_surfaces_monitor_trip_as_nonzero_status(monkeypatch):
         "pov": {"action": "BUY", "quantity": 5},
         "live_monitor": {
             "enabled": True,
+            "baseline_source": "verified_live",
             "historical_envelope": {
                 "max_dd": 5.0, "max_losing_streak": 4},
         },

@@ -1,9 +1,12 @@
 # My Trading System — SOP
-_Updated: 2026-10-13_
+_Updated: 2026-10-14_
 
 ## 1. Environment
 
-- Python venv: `C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe`
+- Canonical Python venv for engine, tests, dashboard and scheduled jobs:
+  `C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe`.
+  Do not use a second interpreter under `openalgo\.venv`; the scheduled-task
+  registration script uses this same repository venv.
 - OpenAlgo platform clone: `openalgo\` (pristine upstream; local state lives in `_restored\`)
 - Dashboard dependencies are declared in the `dashboard` extra in
   `Blue_engine\pyproject.toml`. Install/update them from the repository root
@@ -79,53 +82,88 @@ Showing only the mode would put a red "LIVE - REAL MONEY" banner over simulated 
 - Shared kit: `Blue_engine/dashboard/ui/` (kpi, panel, table, log_view, inputs, mode, provider). Old hand-written theme CSS removed from `pages/theme.py` (now a shim).
 - Regression test: `Temp\Staging Workspace\test_dmc_migration.py` (25 checks — clamping, atomic write, page contract).
 
-## 4b. Screener engine (fundamental universe) - added 2026-10-09
-Location: `Blue_engine/screener/`. Read-only against screener.in. **No order path.**
-Screens the Indian universe on fundamentals before Alpha scores it:
-```
-1. market cap  >  200 Cr
-2. debt/equity <  1     (banks/NBFCs/insurers excluded - D/E is not solvency for a lender)
-```
+## 4b. Screener.in data ingestion + valuation - updated 2026-10-14
+Location: `Blue_engine/screener/` and `Blue_engine/valuation_engine.py`.
+Read-only against screener.in. **No order path.** Screener.in owns stock
+selection (including market-cap and debt/equity filters); Blue_engine fetches
+the already-filtered saved screen and never re-applies those filters on that
+path.
 ```powershell
-# screen an explicit list (the only source that can derive debt/equity)
-python -m blue_engine.screener.screener_engine --symbols RELIANCE,TCS,INFY
-# sweep a sector and save for the Dashboard Screener page (/screener)
-python -m blue_engine.screener.screener_engine --source sector --sectors IN02 --save
+# Run the saved-screen exporter from Blue_engine/
+python -m blue_engine.screener.scrape_saved_screen --output-dir .\exports
 ```
+- The repository-root `.env` supplies `Screenerdotin_sessionid` and
+  `URL_SCREENER_DOT_IN`. If the session has expired, the engine can refresh it
+  using `SCREENER_USERNAME` / `username` and `SCREENER_PASSWORD` / `password`.
+  The cookie is held only in process memory.
+- Full company statements are fetched sequentially, with a 1.5-second gap,
+  and handed off as `company_snapshots` to `Blue_engine/valuation_engine.py`.
+  The pipeline orders ScreenerEngine before ValuationEngine; enable both
+  `pipeline_enabled` flags deliberately when a pipeline run should access the
+  network. They remain disabled by default to avoid unsolicited scraping.
+- Screener-published market cap and debt/equity values are scraped verbatim.
+  Blue_engine does not derive debt/equity from the balance sheet. Valuation
+  outputs remain estimates from reported statements, not live prices.
+- The exporter writes `filtered_summary.csv` and `enriched_details.json`.
+  It refuses to export after incomplete pagination or when its configured caps
+  are exceeded.
 - Vendored like OpenAlgo: `screener/vendor/screener-india/` is a **pristine upstream clone**
   (gitignored, never hand-edited). The Python port in `screener/client/` is what runs;
   Node.js is NOT installed and NOT needed. Check drift with
   `python Blue_engine\screener\_vendor_pin.py --check`.
-- Extra deps (already installed): `beautifulsoup4`, `lxml`. Declared in the
-  `screener` extra of `Blue_engine/pyproject.toml`.
-- **`debt_equity` is DERIVED, not scraped.** screener.in publishes no debt/equity cell on
-  the public company page; it is computed as `Borrowings / (Equity Capital + Reserves)`
-  from the balance sheet's latest period. Returns `None` (never 0) on a missing input or
-  equity <= 0.
-- **A missing metric FAILS its rule, it never passes.** `-` and blank cells mean `None`,
-  not `0.0`. A company that has not reported borrowings would otherwise show D/E 0.0 and
-  sail through `< 1`.
-- Row labels differ per company: ITC uses `Borrowings +`, HDFCBANK uses `Borrowing`
-  (singular). Match the STEM `borrowing`. This was a real bug found on the first live run.
-- Tests: `python -m pytest Blue_engine\tests\test_screener_engine.py -q` (**85 passed**).
-  Fully offline (saved HTML fixtures + monkeypatched session). Because `blue_engine`
-  imports the heavy kernel, an isolated runner is provided:
-  `python Temp\run_screener_tests.py tests\test_screener_engine.py -q` (~7 s).
-- Verified live 2026-10-09 over RELIANCE/TCS/INFY/ITC/HDFCBANK: 4 selected,
-  1 rejected (HDFCBANK at D/E 1.004), 0 missing-data.
+- Screener extras: `beautifulsoup4`, `lxml`, `python-dotenv`, `requests`, and
+  `pypdf` are declared in the `screener` extra. Install/update from the
+  repository root with
+  `.\.venv\Scripts\python.exe -m pip install -e "Blue_engine[screener]"`.
 
-### 4b-2. Valuations - EPV + CANAV (`screener/valuations.py`) - added 2026-10-09
-Two conservative per-share value estimates for the names the screen selects.
+## 4c. Database engine and optional historical-data reference
+
+`Blue_engine/database/` contains the data-management engine. OHLCV continues to
+use the existing shared `PriceCache`; the separately pinned upstream reference
+is not a runtime dependency and is not integrated into live or paper execution.
+Its sparse clone lives at
+`Blue_engine\database\vendor\indian-market-historical-data\`; the bulk `data\`
+tree is intentionally omitted until a specific need is approved.
+
+The upstream LICENSE permits personal, non-commercial, educational research
+only, and bars commercial use (including commercial automated trading) without
+prior written permission. Do not use its code or data for commercial trading
+or redistribution absent that permission. Verify the ignored clone against
+`Blue_engine\database\vendor\INDIAN_MARKET_DATA_UPSTREAM_PIN` with
+`python Blue_engine\database\vendor_pin.py --check`; upgrades are reviewed and
+fast-forward-only via `--update-pin`. See `Blue_engine\database\README.md`.
+
+### 4b-2. Annual-report enrichment and valuations - EPV + CANAV + DCF
+(`screener/annual_reports.py`, `screener/valuations.py`) - updated 2026-10-14
+The pipeline lists missing annual-report data, downloads the latest linked
+Screener annual report, extracts measured values, and passes the enriched
+snapshot to the valuation engine. PDF enrichment is sequential and read-only.
 ```python
 from blue_engine.screener import value_symbol
 val = value_symbol("RELIANCE")
-print(val.as_text()); print(val.classification); print(val.assumptions)
+print(val.as_text())
+print(val.as_dict()["missing_data"])
 ```
 - **EPV** (bear/base/bull): normalized EBIT -> NOPAT -> sustainable earnings ->
   EV / required return -> equity bridge -> per share -> margin of safety.
 - **CANAV** (stress/base/moderate): shareholders' equity adjusted for investment
   revaluation, inventory/receivable/intangibles haircuts, asset revaluation and
   contingent liabilities.
+- **DCF**: five-year projection from Screener's reported free cash flow,
+  discounted explicit cash flows plus terminal value, and a transparent cash /
+  investments / debt / minority-interest bridge. Defaults (growth 5%, discount
+  rate 12%, terminal growth 3%) are assumptions, not a company-specific WACC.
+- Before fetching a report, the engine lists missing `cash_and_equivalents`,
+  `minority_interest`, `intangible_assets`, and `contingent_liabilities`. It
+  chooses the latest titled annual report, parses up to 500 PDF pages, accepts
+  only explicit INR units, and writes only previously missing data into
+  `annual_report_data`. Each extracted value includes its report page, source
+  label, units, and period-selection note. Ambiguous or unitless values remain
+  missing; review extracted figures against the audited statement before use.
+  Set `screener.annual_report_enrichment=false` to disable PDF requests.
+- External report links use HTTPS and are downloaded without Screener cookies;
+  PDF size is capped at 25 MiB. The client does not send credentials to
+  off-origin report hosts.
 - **Normalisation = MEDIAN of the trailing 3-5 annual years, TTM excluded.**
   Median, not mean: a mean absorbs one exceptional year, a median ignores it.
   EBIT is `median(margin) x median(revenue)`, NOT `median(EBIT)`.
@@ -142,9 +180,9 @@ print(val.as_text()); print(val.classification); print(val.assumptions)
   so shares derive from Net Profit / EPS (basic) and the output carries
   `shares_are_diluted=False`. A bonus/split mismatch between the EPS period and
   today is detected and the market-cap-implied count is preferred, with a note.
-- Every assumption carries a stable code (A1-A11, B1-B8) and is listed in
-  `Valuation.assumptions`. Current gaps: cash reported separately, minority
-  interest, contingent liabilities, intangibles, maintenance-vs-growth capex.
+- Every EPV/CANAV assumption carries a stable code (A1-A11, B1-B8) and is
+  listed in `Valuation.assumptions`. DCF assumptions and model-specific missing
+  prerequisites are also included in `Valuation.as_dict()`.
 - Tests: `python -m pytest Blue_engine\tests\test_valuations.py -q` (**139 total
   across both screener suites**). Verified live on the RELIANCE page.
 
@@ -293,7 +331,7 @@ and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
   timestamps in `data/optimizer/ohlcv.sqlite`. They are not re-derived. To
   refresh, delete the instrument's rows and re-download.
 
-## 8. Backtest and symbol-batch research (2026-10-12)
+## 8. Backtest and symbol-batch research (updated 2026-10-13)
 
 - Engine code: `Blue_engine\backtest\`. It reuses the optimizer's local
   `data\optimizer\ohlcv.sqlite` cache and the existing `optimizer` search-space
@@ -311,16 +349,21 @@ and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
   path such as `"my_strategy:signal"` (or another picklable module-level
   callable).
 - IS/OOS: the final `oos_fraction` of ordered bars is held out before search.
-  A configuration is written under `configurations` only when an IS
-  recommendation exists and OOS Sharpe >= 0.7 * IS Sharpe and OOS max
-  drawdown <= 1.3 * IS max drawdown. Rejections and failures are retained under
-  `results`; no synthetic fallback is used.
+  A configuration is written under `configurations` only when OOS Sharpe clears
+  both `max(0.7 * IS Sharpe, 1.0)` and the OOS deflated-Sharpe probability is at
+  least 0.95 using the actual search trial count; OOS max drawdown must be no
+  more than 1.3 * IS max drawdown. The absolute Sharpe floor and DSR probability
+  are policy assumptions/approximate statistical gates, not guarantees. Missing
+  DSR or a trial-count mismatch fails closed. Failures remain under `results`;
+  no synthetic fallback is used.
 - Output defaults to `data\optimizer\symbol_parameters.json` and is atomically
   replaced. This is a research artifact, **not** the live strategy config.
   Review the report, verify data quality and risk limits, and promote through a
   separately controlled paper/live path; the batch never places orders.
 - `LiveMonitor` emits a reason-bearing pause-entry/re-optimization signal for
-  drawdown, losing-streak, and rolling-volatility conditions. It is connected
+  drawdown, losing-streak, and rolling-volatility conditions. Its historical
+  envelope must declare `baseline_source: "live"` or `"verified_live"`; the
+  runner rejects backtest-derived baselines. It is connected
   to the POV runner's child-order boundary only when `live_monitor.enabled`
   is explicitly true. Configure a trusted `provider_ref` (`module:function`)
   and a historical envelope (`max_dd` in percentage points and
@@ -346,10 +389,23 @@ and `python "Temp\Staging Workspace\ml_optimizer_live_test.py"` (7 stages).
   force the same strategy/data to be re-backtested. Persist and review the
   calibrated model before using it in another run.
 - Annualization defaults: daily 252, weekly 52, monthly 12; intraday uses a
-  375-minute session assumption. Override `periods_per_year` if the bar
-  calendar differs. `risk_free_per_period` is passed into optimization and
-  validation; its default zero is only an explicit assumption, not a current
+ 375-minute session assumption. These are calendar conventions, not observed
+  trading-session counts; holidays, shortened sessions and missing bars can
+  change realized periods. Override `periods_per_year` when appropriate and
+  inspect the data calendar. `risk_free_per_period` is passed into optimization
+  and validation; its default zero is only an explicit assumption, not a current
   RBI rate.
+- Optional backtest risk controls: `stop_loss_fraction` and
+  `max_daily_loss_fraction` accept fractions in `(0, 1)`. Stops use adverse-first
+  OHLC handling: a gap through the stop fills at the worse opening price; an
+  intrabar crossing fills at the stop price. Daily loss is measured against the
+  first equity mark of the calendar date; after a breach the engine queues a
+  flattening order for the next bar and blocks entries for the rest of that date.
+  Backtest risk controls are simulation rules, not broker-native guarantees.
+- Run tests from `Blue_engine\` with the canonical repo venv:
+  `..\.venv\Scripts\python.exe -m pytest tests\test_backtest_engine.py tests\test_backtest_batch.py tests\test_backtest_loops.py -q`.
+  The `[tool.pytest.ini_options]` block sets the source checkout's test paths
+  and import root; an editable install is not needed for this invocation.
 - Current stack: SQLite OHLCV cache + atomic JSON research output; Python
   bounded thread pool for downloads and Windows-safe process pool for symbol
   searches. No broker, message broker, new dependency, or live-config write is

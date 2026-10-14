@@ -234,7 +234,8 @@ class TestCeilingHaltStopsSlicing:
         guard = LiveMonitorGuard(
             client=client,
             monitor=LiveMonitor({"max_dd": 5.0,
-                                 "max_losing_streak": 3}),
+                                 "max_losing_streak": 3},
+                                baseline_source="verified_live"),
             provider=lambda **kwargs: {
                 "live_equity": [100.0],
                 "live_trade_pnls": [],

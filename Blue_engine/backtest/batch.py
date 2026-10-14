@@ -74,7 +74,8 @@ class BatchConfig:
     download_workers: int = 4
     max_position_fraction: float = 1.0
     allow_short: bool = False
-
+    stop_loss_fraction: Optional[float] = None
+    max_daily_loss_fraction: Optional[float] = None
     def __post_init__(self) -> None:
         try:
             start_dt = date.fromisoformat(self.start)
@@ -107,6 +108,11 @@ class BatchConfig:
                 or self.max_position_fraction <= 0
                 or self.max_position_fraction > 1):
             raise ValueError("max_position_fraction must be in (0, 1]")
+        for name, value in (("stop_loss_fraction", self.stop_loss_fraction),
+                            ("max_daily_loss_fraction", self.max_daily_loss_fraction)):
+            if value is not None and (
+                    not math.isfinite(value) or not 0 < value < 1):
+                raise ValueError(f"{name} must be in (0, 1) or None")
 
 
 @dataclass
@@ -203,21 +209,19 @@ def _oos_gate(is_metrics: Dict[str, Any],
               oos_metrics: Dict[str, Any], *,
               n_trials: int = 1,
               absolute_sharpe_floor: float = 1.0,
-              family_confidence: float = 0.95) -> Dict[str, Any]:
-    ""Conservative IS/OOS gate with absolute and multiple-testing controls.
+              minimum_deflated_probability: float = 0.95) -> Dict[str, Any]:
+    """OOS gate using absolute performance and the shared DSR calculation.
 
-    The OOS Sharpe must clear both the retained-IS floor and an absolute floor.
-    A Bonferroni family-wise adjustment increases the absolute floor with the
-    number of search trials: ``z(1 - (1-confidence)/N)`` standard errors. This
-    is intentionally a conservative screen, not a claim that Sharpe is normally
-    distributed in all market regimes. All assumptions are returned in report.
+    DSR is an approximation; its input assumptions stay visible in the report
+    and do not guarantee future performance.
     """
     if isinstance(n_trials, bool) or not isinstance(n_trials, int) or n_trials < 1:
         raise ValueError("n_trials must be an integer >= 1")
     if not math.isfinite(absolute_sharpe_floor) or absolute_sharpe_floor < 0:
         raise ValueError("absolute_sharpe_floor must be finite and non-negative")
-    if not math.isfinite(family_confidence) or not 0.5 < family_confidence < 1:
-        raise ValueError("family_confidence must be between 0.5 and 1")
+    if (not math.isfinite(minimum_deflated_probability)
+            or not 0.5 < minimum_deflated_probability < 1):
+        raise ValueError("minimum_deflated_probability must be between 0.5 and 1")
 
     is_sharpe = is_metrics.get("sharpe")
     oos_sharpe = oos_metrics.get("sharpe")
@@ -231,36 +235,37 @@ def _oos_gate(is_metrics: Dict[str, Any],
     if float(is_drawdown) < 0 or float(oos_drawdown) < 0:
         return {"approved": False, "reason": "drawdown metrics must be non-negative"}
 
-    # The relative floor prevents unacceptable IS-to-OOS degradation. The
-    # absolute floor prevents a large, overfit IS winner from setting its own
-    # trivially-cleared validation hurdle. Bonferroni adjusts for selecting the
-    # best of n_trials; NormalDist gives a transparent conservative z-score.
-    from statistics import NormalDist
-    adjusted_alpha = (1.0 - family_confidence) / n_trials
-    critical_z = NormalDist().inv_cdf(1.0 - adjusted_alpha)
-    n_oos = int(oos_metrics.get("n_bars") or 0)
-    if n_oos < 2:
-        return {"approved": False, "reason": "OOS sample too small for trial adjustment"}
-    trial_adjusted_floor = absolute_sharpe_floor + critical_z / math.sqrt(n_oos)
+    # Relative degradation floor plus an absolute net-Sharpe hurdle. The shared
+    # metrics layer computes DSR using the validation run's actual period returns
+    # and the optimizer's trial count; the report consumes that result.
     relative_floor = 0.7 * float(is_sharpe)
-    sharpe_floor = max(relative_floor, trial_adjusted_floor)
-    drawdown_ceiling = 1.3 * float(is_drawdown)
+    sharpe_floor = max(relative_floor, absolute_sharpe_floor)
+    dsr_probability = oos_metrics.get("deflated_prob_real")
+    if dsr_probability is None:
+        return {"approved": False, "reason": "OOS deflated-Sharpe probability missing"}
+    metric_trials = oos_metrics.get("n_trials")
+    if metric_trials is None or int(metric_trials) != n_trials:
+        raise ValueError("OOS deflated-Sharpe trial count mismatch")
+    if not math.isfinite(float(dsr_probability)):
+        return {"approved": False, "reason": "OOS deflated-Sharpe probability invalid"}
+    dsr_pass = float(dsr_probability) >= minimum_deflated_probability
     sharpe_pass = float(oos_sharpe) >= sharpe_floor
+    drawdown_ceiling = 1.3 * float(is_drawdown)
     drawdown_pass = float(oos_drawdown) <= drawdown_ceiling
+    approved = sharpe_pass and drawdown_pass and dsr_pass
     return {
-        "approved": sharpe_pass and drawdown_pass,
-        "reason": None if sharpe_pass and drawdown_pass
-                  else "OOS Sharpe or drawdown failed the configured gate",
+        "approved": approved,
+        "reason": None if approved else "OOS Sharpe, DSR probability, or drawdown failed the configured gate",
         "sharpe_floor": sharpe_floor,
         "relative_sharpe_floor": relative_floor,
         "absolute_sharpe_floor": absolute_sharpe_floor,
-        "trial_adjusted_sharpe_floor": trial_adjusted_floor,
-        "trial_adjustment_z": critical_z,
-        "family_confidence": family_confidence,
+        "minimum_deflated_probability": minimum_deflated_probability,
+        "deflated_probability": dsr_probability,
         "n_trials": n_trials,
-        "n_oos_bars": n_oos,
+        "n_oos_returns": int(oos_metrics.get("n_bars") or 0),
         "drawdown_ceiling_pct": drawdown_ceiling,
         "sharpe_pass": sharpe_pass,
+        "dsr_pass": dsr_pass,
         "drawdown_pass": drawdown_pass,
     }
 
@@ -303,7 +308,9 @@ def _run_symbol(request: _SymbolRequest) -> Dict[str, Any]:
             risk_free_per_period=request.config.risk_free_per_period,
             n_trials=1, periods_per_year=periods,
             max_position_fraction=request.config.max_position_fraction,
-            allow_short=request.config.allow_short)
+            allow_short=request.config.allow_short,
+            stop_loss_fraction=request.config.stop_loss_fraction,
+            max_daily_loss_fraction=request.config.max_daily_loss_fraction)
         signal, error = resolve_strategy(request.strategy_spec)
         if error or signal is None:
             raise ValueError(f"strategy resolution failed: {error}")
@@ -331,7 +338,9 @@ def _run_symbol(request: _SymbolRequest) -> Dict[str, Any]:
             risk_free_per_period=request.config.risk_free_per_period,
             n_trials=n_trials, periods_per_year=periods,
             max_position_fraction=request.config.max_position_fraction,
-            allow_short=request.config.allow_short)
+            allow_short=request.config.allow_short,
+            stop_loss_fraction=request.config.stop_loss_fraction,
+            max_daily_loss_fraction=request.config.max_daily_loss_fraction)
         is_result = run_backtest(
             is_bars, signal, params, config=validation_config,
             symbol=symbol, exchange=request.config.exchange,
@@ -342,7 +351,8 @@ def _run_symbol(request: _SymbolRequest) -> Dict[str, Any]:
             interval=request.config.interval)
         gate = _oos_gate(
             is_result.metrics, oos_result.metrics, n_trials=n_trials,
-            absolute_sharpe_floor=1.0, family_confidence=0.95)
+            absolute_sharpe_floor=1.0,
+            minimum_deflated_probability=0.95)
         state = "APPROVED" if gate["approved"] else "DEGRADED"
         state_history.append(state)
         return {

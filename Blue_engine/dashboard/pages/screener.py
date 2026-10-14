@@ -1,16 +1,11 @@
 """
-screener.py - Page: Fundamental Screener (market cap, debt/equity, universe).
+screener.py - Page: Screener.in saved-screen ingestion and fundamentals.
 
 WHAT THIS PAGE IS FOR
 ---------------------
-The screener engine answers one question: *which Indian names deserve a place in
-the tradable universe right now, on fundamentals alone?* This page shows the
-answer, the reason behind every rejection, and - critically - the difference
-between a name that FAILED a rule and a name whose data could not be measured.
-
-That last distinction is the whole reason the page exists. A screener UI that
-shows only "42 selected" hides the fact that 17 names were dropped because their
-debt/equity was blank. Those two things mean opposite things to a risk manager.
+For the primary saved-screen source, Screener.in owns stock selection and this
+page shows its screened names and fetched fundamentals. The engine does not
+apply a second market-cap/debt-equity filter.
 
 READ-ONLY, AND PROUD OF IT
 --------------------------
@@ -155,6 +150,8 @@ def _verdict_cell(row: Dict[str, Any]) -> str:
 def _result_rows(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Flatten the engine payload into table rows, selected names first."""
     rows: List[Dict[str, Any]] = []
+    from_saved_screen = bool(
+        (result.get("screen") or {}).get("rules_applied_upstream"))
     for item in (result.get("results") or []):
         metrics = item.get("metrics") or {}
         rows.append({
@@ -165,7 +162,10 @@ def _result_rows(result: Dict[str, Any]) -> List[Dict[str, Any]]:
             "debt_equity": _fmt(metrics.get("debt_equity")),
             "pe": _fmt(metrics.get("pe")),
             "roe": _fmt(metrics.get("roe")),
-            "reason": item.get("reason", ""),
+            "reason": (
+                "selected by Screener.in saved screen"
+                if from_saved_screen and item.get("selected")
+                else item.get("reason", "")),
         })
     # Selected first, then alphabetical - so the interesting rows are on top
     # without the ordering depending on the source's row order.
@@ -181,10 +181,11 @@ def body():
     screen = _config_screen()
     result = _read_json(_RESULT_PATH)
 
-    rules = _rule_rows(screen)
-    n_rules = len(rules)
-    excluded = screen.get("exclude_sectors") or []
     source = str((_read_json(_CONFIG_PATH) or {}).get("screener", {}).get("source", "-"))
+    upstream_screen = source.lower() == "screen"
+    rules = [] if upstream_screen else _rule_rows(screen)
+    n_rules = len(rules)
+    excluded = [] if upstream_screen else (screen.get("exclude_sectors") or [])
 
     if result:
         counts = result.get("counts") or {}
@@ -205,23 +206,29 @@ def body():
         derived = {}
 
     ai_rows = [
-        ("Rules active", str(n_rules), _AI_GREEN if n_rules else _AI_RED),
+        ("Selection source",
+         "Screener.in" if upstream_screen else f"{n_rules} local rules",
+         _AI_GREEN if upstream_screen or n_rules else _AI_RED),
         ("Candidates", str(n_cand), _AI_GREY),
         ("Selected", str(n_sel), _AI_GREEN if n_sel else _AI_GREY),
         ("Missing data", str(n_missing), _AI_RED if n_missing else _AI_GREEN),
         ("Data as of", as_of, _AI_GREY),
-        ("Sector gate", f"{len(excluded)} excluded" if excluded else "off",
-         _AI_GREEN if excluded else _AI_RED),
     ]
 
     panels: List[Any] = [
         ai_insight_card(
-            "Screener Setting - fundamental universe",
+            ("Screener.in saved-screen universe" if upstream_screen
+             else "Screener Setting - fundamental universe"),
             ai_rows,
-            note="Fundamental snapshots from screener.in. NOT live prices - "
-                 "use OpenAlgo quotes() for live valuation.",
+            note=(
+                "Screener.in applies selection. Blue_engine fetches the screened "
+                "companies and statements. NOT live prices - use OpenAlgo quotes()."
+                if upstream_screen else
+                "Fundamental snapshots from screener.in. NOT live prices - "
+                "use OpenAlgo quotes() for live valuation."),
         ),
-        html.H2("Fundamental Screener", style={"marginTop": 0}),
+        html.H2("Screener.in Saved Screen" if upstream_screen
+                else "Fundamental Screener", style={"marginTop": 0}),
         KpiRow([
             KpiCard("Candidates", n_cand, icon="mdi:database-search-outline"),
             KpiCard("Selected", n_sel,
@@ -233,15 +240,18 @@ def body():
                     icon="mdi:help-circle-outline"),
             KpiCard("Source", src_desc, icon="mdi:source-branch"),
         ]),
-        Panel("Screen rules",
-              DataTable(_RULE_COLUMNS, rules,
-                        empty="No rules configured.",
-                        highlight_on_hover=False),
-              icon="mdi:filter-variant"),
+        Panel(
+            "Selection rules" if upstream_screen else "Screen rules",
+            html.P(
+                "Managed and applied in the configured Screener.in saved screen."
+                if upstream_screen else "Configured local rules.",
+                style={"opacity": 0.8},
+            ) if upstream_screen else DataTable(
+                _RULE_COLUMNS, rules, empty="No rules configured.",
+                highlight_on_hover=False),
+            icon="mdi:filter-variant"),
     ]
 
-    # The sector gate deserves its own panel: it is the rule most likely to be
-    # mistaken for "the screen is broken" when a bank does not appear.
     if excluded:
         panels.append(Panel(
             "Sector gate (applied before the debt rule)",

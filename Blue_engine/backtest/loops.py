@@ -40,13 +40,20 @@ class LiveMonitor:
                  drawdown_multiple: float = 1.5,
                  loss_streak_multiple: float = 1.4,
                  regime_std_multiple: float = 2.0,
-                 regime_window: int = 10) -> None:
+                 regime_window: int = 10,
+                 baseline_source: Optional[str] = None) -> None:
         if regime_window < 2:
             raise ValueError("regime_window must be >= 2")
         multiples = (drawdown_multiple, loss_streak_multiple,
                      regime_std_multiple)
         if any(not math.isfinite(value) or value <= 0 for value in multiples):
             raise ValueError("monitor thresholds must be finite and positive")
+        source = baseline_source or historical_envelope.get("source")
+        if source not in ("live", "verified_live"):
+            raise ValueError(
+                "LiveMonitor requires baseline_source='live' or 'verified_live'; "
+                "backtest-derived baselines cannot be used for live tripwires")
+        self.baseline_source = source
         self.envelope = dict(historical_envelope)
         self.drawdown_multiple = float(drawdown_multiple)
         self.loss_streak_multiple = float(loss_streak_multiple)

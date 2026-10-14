@@ -10,10 +10,9 @@ is real and non-trivial: STT alone is 10 bps of notional on each side. A
 strategy with a 12 bps per-trade edge is *underwater* once the round trip is
 paid, and a simulator that ignores this will happily promote it.
 
-This module is the single definition of "what a fill costs" for the whole
-system. It reuses ``portfolio.optim.cost_aware`` - the cost model the portfolio
-planner already uses - so the planner's "is this rebalance worth it" answer and
-the simulator's "is this strategy worth trading" answer cannot drift apart.
+This module owns the fill-cost interface and lazily reuses the published rates
+from ``portfolio.optim.cost_aware``. The portfolio package is imported only when
+constructing a model, not when importing the backtest package.
 
 THE FOUR TERMS, AND WHY EACH IS SEPARATE
 ========================================
@@ -48,9 +47,9 @@ survive costs, and which cost is killing it?".
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
-
 from . import config, logger
 
 __all__ = ["CostModel", "CostBreakdown", "DEFAULT_MODEL"]
@@ -118,20 +117,25 @@ class CostModel:
                  latency_bps: float = config.DEFAULT_LATENCY_BPS,
                  impact_coefficient: float = 8.0,
                  charge_both_legs: bool = True) -> None:
-        # Reuse the planner's resolver so the two cost definitions stay one.
-        from ..portfolio.optim import cost_aware
-        self.rates: Dict[str, float] = cost_aware.estimate_cost_bps(cost_config)
-        # A run-specific slippage assumption can be overridden independently of
-        # the statutory rates - they are different kinds of number.
-        if cost_config and "slippage" in cost_config:
-            # ``cost_config['slippage']`` was resolved into ``self.rates`` by the
-            # cost_aware resolver; if the caller ALSO passed slippage_bps we keep
-            # the explicit argument, because it is the more specific intent.
-            pass
+        from ..portfolio.optim.cost_aware import estimate_cost_bps
+        self.rates = estimate_cost_bps(cost_config)
+        for key, value in (cost_config or {}).items():
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(numeric):
+                self.rates[key] = numeric
         self.slippage_bps = float(slippage_bps)
         self.latency_bps = float(latency_bps)
-        self.impact_coefficient = max(0.0, float(impact_coefficient))
+        self.impact_coefficient = float(impact_coefficient)
         self.charge_both_legs = bool(charge_both_legs)
+        if (not all(math.isfinite(value) for value in
+                    (self.slippage_bps, self.latency_bps,
+                     self.impact_coefficient))
+                or min(self.slippage_bps, self.latency_bps,
+                       self.impact_coefficient) < 0):
+            raise ValueError("cost model rates and impact coefficient must be finite and non-negative")
 
     # -- the statutory stack ------------------------------------------------ #
 
@@ -247,7 +251,21 @@ class CostModel:
         return new
 
 
+class _DefaultCostModelProxy:
+    """Lazy compatibility proxy; keeps importing engine side-effect free."""
+
+    def __init__(self) -> None:
+        self._model: Optional[CostModel] = None
+    def _get(self) -> CostModel:
+        if self._model is None:
+            self._model = CostModel()
+        return self._model
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._get(), name)
+
+    def __repr__(self) -> str:
+        return "DEFAULT_MODEL (lazy CostModel)"
+
 #: The default model: India delivery statutory stack + 5 bps slippage + 1 bps
-#: latency. Exposed as a module constant so callers can share one instance
-#: instead of rebuilding it (and so a test can assert on the default rates).
-DEFAULT_MODEL = CostModel()
+#: latency. Constructed on first use, not during module import.
+DEFAULT_MODEL = _DefaultCostModelProxy()

@@ -258,6 +258,7 @@ class Objective:
         # --- 2. run the folds -------------------------------------------- #
         fold_returns: List[List[float]] = []
         folds: List[Dict[str, Any]] = []
+        fold_costs: List[bool] = []
         errors: List[str] = []
 
         # We split the *period budget* across folds rather than generating one
@@ -297,6 +298,7 @@ class Objective:
                 "periods": per_fold,
                 "cost_bps": self.cost_bps,
                 "risk_free_per_period": self.risk_free_per_period,
+                "periods_per_year": self.periods_per_year,
                 "fold": k,
                 "n_folds": self.n_folds,
             }
@@ -319,11 +321,17 @@ class Objective:
                 continue
             rets = [float(r) for r in (out.get("returns") or [])
                     if r is not None and math.isfinite(float(r))]
+            fold_meta = {"fold": k}
+            if isinstance(out.get("metrics"), dict):
+                fold_meta["turnover"] = out["metrics"].get("turnover")
+            fold_meta["cost_bps"] = out.get("cost_bps")
             if len(rets) < 20:
                 errors.append(f"fold {k}: only {len(rets)} returns (need >= 20)")
                 folds.append({"fold": k, "error": "too few returns"})
                 continue
             fold_returns.append(rets)
+            folds.append(fold_meta)
+            fold_costs.append(bool(out.get("costs_applied_once", False)))
 
         if not fold_returns:
             self.n_rejected += 1
@@ -362,6 +370,7 @@ class Objective:
             if not traded:
                 inactive_folds.append(k)
             folds.append({
+                **fold_meta,
                 "fold": k,
                 "n_returns": len(rets),
                 "traded": traded,
@@ -416,17 +425,41 @@ class Objective:
         #: re-deriving it from the fold list.
         n_scored_folds = len(scored)
 
-        # --- 5. the cost gate -------------------------------------------- #
-        # Mean per-period simple return -> bps. Turnover is approximated as 1
-        # position change per period, which is the conservative assumption for a
-        # strategy that flips; a strategy that holds longer genuinely trades less
-        # but reporting the conservative case stops the gate flattering it.
-        from ..ml.evaluation.metrics import cost_adjusted_edge
-        mean_ret = (sum(all_rets) / len(all_rets)) if all_rets else 0.0
-        gate = cost_adjusted_edge(
-            (mean_ret - self.risk_free_per_period) * 10000.0,
-            turnover_per_period=1.0,
-            cost_bps_per_turnover=self.cost_bps)
+        # --- 5. cost audit block ------------------------------------------ #
+        # BacktestStrategyAdapter returns already-net returns. Do not subtract
+        # costs again here: that would penalize the exact cost stack twice and
+        # make optimizer ranking inconsistent with OOS reporting. Preserve the
+        # measured turnover and cost assumptions for audit instead.
+        fold_turnovers = [float(f.get("turnover", 0.0)) for f in folds
+                          if f.get("turnover") is not None]
+        measured_turnover = (sum(fold_turnovers) / len(fold_turnovers)
+                             if fold_turnovers else 1.0)
+        measured_costs = [float(f.get("cost_bps", self.cost_bps)) for f in folds
+                          if f.get("cost_bps") is not None]
+        effective_cost_bps = (sum(measured_costs) / len(measured_costs)
+                              if measured_costs else self.cost_bps)
+        all_costed = bool(fold_costs) and all(fold_costs)
+        if all_costed:
+            gate = {
+                "net_returns_already_costed": True,
+                "measured_turnover_per_period": measured_turnover,
+                "cost_bps_per_round_trip": effective_cost_bps,
+                "costs_applied_once": True,
+                "survives": True,
+                "verdict": "net returns ranked with costs applied once",
+            }
+        else:
+            # Legacy/generic optimizer strategies lack a cost-contract marker;
+            # retain the existing cost-adjusted score path for compatibility.
+            from ..ml.evaluation.metrics import cost_adjusted_edge
+            mean_ret = (sum(all_rets) / len(all_rets)) if all_rets else 0.0
+            gate = cost_adjusted_edge(
+                (mean_ret - self.risk_free_per_period) * 10000.0,
+                turnover_per_period=measured_turnover,
+                cost_bps_per_turnover=effective_cost_bps)
+            gate["net_returns_already_costed"] = False
+            gate["costs_applied_once"] = False
+            gate["verdict"] = "legacy gross-return cost estimate applied"
 
         # --- 6. optional hard floor -------------------------------------- #
         # NOTE: ``min_sh`` is now taken over the ACTIVITY-PADDED fold list, so an
@@ -466,7 +499,7 @@ class Objective:
             fold_sharpes=fold_sharpes,
             total_return=round(eq_all[-1] - 1.0, 6),
             max_drawdown=None if dd is None else round(dd, 6),
-            turnover=1.0,
+            turnover=measured_turnover,
             cost_gate=gate,
             folds=folds,
             seconds=time.time() - started,

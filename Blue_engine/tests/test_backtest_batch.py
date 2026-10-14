@@ -27,18 +27,48 @@ def _flat_signal(params, context, bars):
     return 0.0
 
 
-def test_oos_gate_uses_requested_sharpe_and_drawdown_thresholds():
-    accepted = _oos_gate(
-        {"sharpe": 2.0, "max_drawdown_pct": 10.0},
-        {"sharpe": 1.4, "max_drawdown_pct": 13.0})
-    rejected = _oos_gate(
-        {"sharpe": 2.0, "max_drawdown_pct": 10.0},
-        {"sharpe": 1.39, "max_drawdown_pct": 13.01})
+def test_oos_gate_requires_absolute_relative_and_deflated_sharpe():
+    base_is = {"sharpe": 2.0, "max_drawdown_pct": 10.0}
+    base_oos = {
+        "sharpe": 2.0, "max_drawdown_pct": 10.0,
+        "deflated_prob_real": 0.99, "n_trials": 1, "n_bars": 250,
+    }
+    accepted = _oos_gate(base_is, base_oos, n_trials=1)
+    overfit_rejected = _oos_gate(
+        {"sharpe": 8.0, "max_drawdown_pct": 10.0}, base_oos, n_trials=1)
+    multiple_test_rejected = _oos_gate(
+        base_is, {**base_oos, "deflated_prob_real": 0.80, "n_trials": 100},
+        n_trials=100)
+    bad_drawdown = _oos_gate(
+        base_is, {**base_oos, "max_drawdown_pct": 13.01}, n_trials=1)
 
     assert accepted["approved"] is True
     assert accepted["sharpe_floor"] == 1.4
+    assert accepted["relative_sharpe_floor"] == 1.4
+    assert accepted["absolute_sharpe_floor"] == 1.0
+    assert overfit_rejected["approved"] is False
+    assert multiple_test_rejected["dsr_pass"] is False
+    assert multiple_test_rejected["n_trials"] == 100
     assert accepted["drawdown_ceiling_pct"] == 13.0
-    assert rejected["approved"] is False
+    assert bad_drawdown["approved"] is False
+
+def test_oos_gate_rejects_trial_count_mismatch():
+    import pytest
+    with pytest.raises(ValueError, match="trial count mismatch"):
+        _oos_gate(
+            {"sharpe": 2.0, "max_drawdown_pct": 10.0},
+            {"sharpe": 2.0, "max_drawdown_pct": 10.0,
+             "deflated_prob_real": 0.99, "n_trials": 1},
+            n_trials=10)
+
+def test_oos_gate_rejects_invalid_trial_count():
+    import pytest
+    with pytest.raises(ValueError, match="n_trials"):
+        _oos_gate(
+            {"sharpe": 2.0, "max_drawdown_pct": 10.0},
+            {"sharpe": 2.0, "max_drawdown_pct": 10.0,
+             "deflated_prob_real": 0.99, "n_trials": 1},
+            n_trials=0)
 
 
 def test_intraday_period_annualization_uses_session_length():

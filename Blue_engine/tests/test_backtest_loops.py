@@ -11,7 +11,7 @@ def test_live_monitor_emits_pause_signal_to_subscribers():
     monitor = LiveMonitor({
         "max_dd": 10.0,
         "max_losing_streak": 5,
-    })
+    }, baseline_source="verified_live")
     received = []
     monitor.subscribe(received.append)
 
@@ -31,7 +31,7 @@ def test_live_monitor_does_not_trigger_inside_historical_envelope():
     monitor = LiveMonitor({
         "max_dd": 10.0,
         "max_losing_streak": 5,
-    })
+    }, baseline_source="live")
     signal = monitor.evaluate(
         live_equity=[100.0, 96.0],
         live_trade_pnls=[-1.0, 2.0],
@@ -42,6 +42,11 @@ def test_live_monitor_does_not_trigger_inside_historical_envelope():
     assert signal.state == "LIVE"
     assert signal.pause_new_entries is False
     assert signal.risk_scale == 1
+
+
+def test_live_monitor_rejects_unverified_backtest_baseline():
+    with pytest.raises(ValueError, match="baseline_source"):
+        LiveMonitor({"max_dd": 10.0, "max_losing_streak": 5})
 
 
 def test_slippage_reconciliation_calibrates_copy_and_retests():

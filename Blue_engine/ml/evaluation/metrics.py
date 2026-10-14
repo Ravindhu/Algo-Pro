@@ -339,8 +339,14 @@ def deflated_sharpe(observed_sharpe: float, *,
                                 + b[4]) * r + 1)
 
     n = float(n_trials)
-    e_max = ((1 - gamma) * _z_inv(1 - 1.0 / n)
-             + gamma * _z_inv(1 - 1.0 / (n * math.e)))
+    if n == 1.0:
+        # With one strategy there is no multiple-testing selection premium.
+        # The EVT approximation's first quantile is otherwise Z^-1(0) = -inf,
+        # which contaminates every downstream DSR value with infinity/NaN.
+        e_max = 0.0
+    else:
+        e_max = ((1 - gamma) * _z_inv(1 - 1.0 / n)
+                 + gamma * _z_inv(1 - 1.0 / (n * math.e)))
 
     # Standard error of the Sharpe estimate, corrected for skew and kurtosis.
     # Fat tails make the estimate less certain, so the denominator grows.

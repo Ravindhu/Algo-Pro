@@ -40,7 +40,23 @@ if os.name == "nt":
     )
 
 import pytest  # noqa: E402
-
+# The checkout keeps source packages flat while the install maps them to the
+# public ``blue_engine`` namespace. Make pytest against the source checkout use
+# that exact package mapping without requiring an editable install in whichever
+# interpreter launched pytest. This does not affect normal application imports.
+import importlib.util  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+_SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if "blue_engine" not in sys.modules:
+    _spec = importlib.util.spec_from_file_location(
+        "blue_engine", _SOURCE_ROOT / "__init__.py",
+        submodule_search_locations=[str(_SOURCE_ROOT)])
+    if _spec is None or _spec.loader is None:
+        raise RuntimeError("cannot initialize blue_engine from source checkout")
+    _blue_engine = importlib.util.module_from_spec(_spec)
+    sys.modules["blue_engine"] = _blue_engine
+    _spec.loader.exec_module(_blue_engine)
 
 @pytest.fixture(autouse=True)
 def _clean_process_kill_switch():

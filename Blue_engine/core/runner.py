@@ -248,6 +248,11 @@ def run_with_config(
         if not isinstance(envelope, dict):
             print("[runner] ERROR: live_monitor requires historical_envelope")
             return 4
+        baseline_source = monitor_cfg.get("baseline_source") or envelope.get("source")
+        if baseline_source not in ("live", "verified_live"):
+            print("[runner] ERROR: live_monitor baseline_source must be 'live' or 'verified_live'; backtest baselines are forbidden")
+            return 4
+        envelope = {**envelope, "source": baseline_source}
         provider = monitor_inputs_provider
         if provider is None:
             provider_ref = monitor_cfg.get("provider_ref")
@@ -266,6 +271,7 @@ def run_with_config(
                 regime_std_multiple=float(
                     monitor_cfg.get("regime_std_multiple", 2.0)),
                 regime_window=int(monitor_cfg.get("regime_window", 10)),
+                baseline_source=baseline_source,
             )
             monitor_guard = LiveMonitorGuard(
                 client=client, monitor=monitor, provider=provider,

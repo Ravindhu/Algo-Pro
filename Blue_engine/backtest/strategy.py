@@ -28,7 +28,10 @@ class BacktestStrategyAdapter:
             n_trials=1,
             periods_per_year=self.config.periods_per_year,
             max_position_fraction=self.config.max_position_fraction,
-            allow_short=self.config.allow_short)
+            allow_short=self.config.allow_short,
+            stop_loss_fraction=self.config.stop_loss_fraction,
+            max_daily_loss_fraction=self.config.max_daily_loss_fraction,
+            intra_bar_path=self.config.intra_bar_path)
         result = run_backtest(
             bars, self.signal, params, config=run_config,
             symbol=str(context.get("symbol", "")),
@@ -39,6 +42,9 @@ class BacktestStrategyAdapter:
             "returns": returns_from_equity(result.equity),
             "data_class": "historical:openalgo",
             "metrics": dict(result.metrics),
+            "risk_free_per_period": self.config.risk_free_per_period,
+            "cost_bps": self.config.cost_model.round_trip_bps(),
+            "costs_applied_once": True,
         }
 
 

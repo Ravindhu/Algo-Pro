@@ -81,6 +81,7 @@ packages = [
     "blue_engine.sectors",
     "blue_engine.screener",
     "blue_engine.screener.client",
+    "blue_engine.database",
     "blue_engine.portfolio",
     "blue_engine.portfolio.providers",
     "blue_engine.portfolio.risk",
@@ -108,6 +109,7 @@ blue_engine = "."
 "blue_engine.sectors" = "sectors"
 "blue_engine.screener" = "screener"
 "blue_engine.screener.client" = "screener/client"
+"blue_engine.database" = "database"
 "blue_engine.portfolio" = "portfolio"
 "blue_engine.portfolio.providers" = "portfolio/providers"
 "blue_engine.portfolio.risk" = "portfolio/risk"
@@ -134,10 +136,10 @@ blue_engine = "."
 # ``blue_engine.<name>`` resolves via ``package-dir`` without requiring an
 # editable install in every interpreter.
 #
-# CANONICAL INTERPRETER: ``openalgo\.venv\Scripts\python.exe`` (the same one the
-# scheduled ``BlueEngine_DailyPortfolio`` task uses). Running the suite under a
-# different interpreter is how a dependency drifts between the tested and the
-# production path - keep them identical.
+# CANONICAL INTERPRETER: ``..\.venv\Scripts\python.exe`` when the working
+# directory is Blue_engine/ (the same repository venv used by the scheduled
+# ``BlueEngine_DailyPortfolio`` task). Running another interpreter risks
+# dependency drift between the tested and production path.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

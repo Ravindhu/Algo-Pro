@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 
 # Resolve repo root from this script's location (scripts\ -> repo root).
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Python = Join-Path $RepoRoot "openalgo\.venv\Scripts\python.exe"
+$Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $WorkDir = Join-Path $RepoRoot "Blue_engine"
 
 if ($Remove) {
