@@ -28,6 +28,10 @@ $Action = New-ScheduledTaskAction `
     -Execute $Python `
     -Argument "-m blue_engine.database.sample_data" `
     -WorkingDirectory $WorkDir
+$Action1m = New-ScheduledTaskAction `
+    -Execute $Python `
+    -Argument "-m blue_engine.database.sample_data_1min" `
+    -WorkingDirectory $WorkDir
 $Trigger = New-ScheduledTaskTrigger -Daily -At $Time
 $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
@@ -45,7 +49,7 @@ if ($Existing) {
 
 Register-ScheduledTask `
     -TaskName $TaskName `
-    -Action $Action `
+    -Action $Action, $Action1m `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
