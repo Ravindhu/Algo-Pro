@@ -304,7 +304,13 @@ def parse_data_table(root: BeautifulSoup) -> Dict[str, List[Any]]:
             key = columns[i] if i < len(columns) else f"col_{i}"
             row[key] = _norm(cell.get_text())
         if cells:
-            for anchor in _qall(cells[0], "a[href]"):
+            # The company link is usually in the first cell, but screens with
+            # a leading "S.No." column carry it in the second. Scan all cells
+            # and take the first /company/ anchor found.
+            for cell in cells:
+                anchor = _q(cell, "a[href]")
+                if anchor is None:
+                    continue
                 href = str(anchor.get("href") or "")
                 match = re.search(r"/company/([^/?#]+)/", href, re.IGNORECASE)
                 if match:
