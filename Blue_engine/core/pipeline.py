@@ -38,7 +38,8 @@ from ..infrastructure import InfrastructureEngine
 from ..market import MarketEngine
 from ..portfolio import PortfolioEngine
 from ..pov import PovEngine
-from ..screener import ScreenerEngine, ValuationEngine
+from ..screener import ScreenerEngine
+from ..valuation_engine import ValuationEngine
 from ..sectors import SectorEngine
 from .frontline_agent import FrontlineAgent
 from .risk_engine import RiskEngine

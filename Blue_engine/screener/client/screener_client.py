@@ -39,11 +39,14 @@ no broker, and no order path.
 from __future__ import annotations
 
 import logging
+import ipaddress
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
+from bs4 import BeautifulSoup
 
 from .base import (
     DEFAULT_ACCEPT,
@@ -145,6 +148,125 @@ class ScreenerClient:
     # ------------------------------------------------------------------ #
     # Transport
     # ------------------------------------------------------------------ #
+    def login(self, username: str, password: str) -> ApiResponse:
+        """Authenticate through the site's login form and retain its cookies.
+
+        Credentials are only posted to a same-origin form action. Challenges
+        such as CAPTCHA or MFA are not bypassed; they result in a clear failure.
+        """
+        login_url = f"{self.base_url}/login/"
+        if not username or not password:
+            return ApiResponse(
+                data=None, meta=self._meta(login_url), ok=False,
+                error="username and password are required")
+
+        try:
+            self.throttle.wait("auth")
+            self.stats["requests"] += 1
+            response = self._session.get(
+                login_url, timeout=self.timeout_ms / 1000.0,
+                allow_redirects=True, verify=self.verify_tls)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            csrf_input = soup.select_one(
+                'form input[name="csrfmiddlewaretoken"]')
+            form = csrf_input.find_parent("form") if csrf_input else None
+            csrf_token = str(csrf_input.get("value") or "") if csrf_input else ""
+            if form is None or not csrf_token:
+                self.stats["failures"] += 1
+                return ApiResponse(
+                    data=None, meta=self._meta(response.url or login_url),
+                    ok=False, error="login form or non-empty CSRF token was not found")
+
+            action = urljoin(response.url or login_url, form.get("action") or "")
+            base_origin = urlparse(self.base_url)
+            action_origin = urlparse(action)
+            if (action_origin.scheme != base_origin.scheme
+                    or action_origin.netloc.lower() != base_origin.netloc.lower()):
+                self.stats["failures"] += 1
+                return ApiResponse(
+                    data=None, meta=self._meta(login_url), ok=False,
+                    error="login form action is not on the configured origin")
+
+            username_input = (
+                form.select_one('input[name="username"]')
+                or form.select_one('input[name="email"]')
+                or form.select_one('input[type="text"]')
+                or form.select_one('input[type="email"]')
+            )
+            password_input = form.select_one('input[type="password"]')
+            if username_input is None or password_input is None:
+                self.stats["failures"] += 1
+                return ApiResponse(
+                    data=None, meta=self._meta(login_url), ok=False,
+                    error="login form is missing username or password fields")
+
+            payload = {
+                str(field.get("name")): str(field.get("value") or "")
+                for field in form.select('input[type="hidden"][name]')
+            }
+            payload[str(csrf_input.get("name"))] = str(
+                csrf_input.get("value") or "")
+            payload[str(username_input.get("name"))] = username
+            payload[str(password_input.get("name"))] = password
+
+            self.throttle.wait("auth")
+            self.stats["requests"] += 1
+            result = self._session.post(
+                action, data=payload,
+                headers={"Referer": response.url or login_url},
+                timeout=self.timeout_ms / 1000.0, allow_redirects=False,
+                verify=self.verify_tls)
+            if result.status_code in (301, 302, 303):
+                redirect = result.headers.get("Location")
+                if not redirect:
+                    self.stats["failures"] += 1
+                    return ApiResponse(
+                        data=None, meta=self._meta(action), ok=False,
+                        error="login redirect did not include a destination")
+                destination = urljoin(action, redirect)
+                redirect_origin = urlparse(destination)
+                if (redirect_origin.scheme != base_origin.scheme
+                        or redirect_origin.netloc.lower()
+                        != base_origin.netloc.lower()):
+                    self.stats["failures"] += 1
+                    return ApiResponse(
+                        data=None, meta=self._meta(action), ok=False,
+                        error="login redirect is not on the configured origin")
+                result = self._session.get(
+                    destination, timeout=self.timeout_ms / 1000.0,
+                    allow_redirects=True, verify=self.verify_tls)
+            elif 300 <= result.status_code < 400:
+                self.stats["failures"] += 1
+                return ApiResponse(
+                    data=None, meta=self._meta(action), ok=False,
+                    error=f"unsupported login redirect (HTTP {result.status_code})")
+            result.raise_for_status()
+            if ("/login" in (result.url or "").lower()
+                    or BeautifulSoup(result.text, "html.parser").select_one(
+                        'form input[type="password"]') is not None):
+                self.stats["failures"] += 1
+                return ApiResponse(
+                    data=None, meta=self._meta(result.url or action), ok=False,
+                    error="login was not accepted; check credentials or account challenges")
+
+            session_id = self._session.cookies.get("sessionid")
+            if not session_id:
+                self.stats["failures"] += 1
+                return ApiResponse(
+                    data=None, meta=self._meta(result.url or action), ok=False,
+                    error="login response did not set a sessionid cookie")
+            self._session.headers.pop("Cookie", None)
+            return ApiResponse(
+                data={"authenticated": True, "sessionid": session_id},
+                meta=self._meta(result.url or action))
+        except requests.RequestException as exc:
+            self.stats["failures"] += 1
+            return ApiResponse(
+                data=None, meta=self._meta(login_url), ok=False,
+                error=f"{type(exc).__name__}: {exc}")
+
     def _meta(self, url: str) -> Meta:
         return Meta(
             source_url=url,
@@ -214,6 +336,92 @@ class ScreenerClient:
         self.stats["failures"] += 1
         return None, last_error or f"fetch failed for {url}"
 
+    def fetch_pdf(self, url: str, *,
+                  max_bytes: int = 25 * 1024 * 1024) -> tuple:
+        """Download a bounded PDF without sending Screener cookies off-origin."""
+        base_origin = urlparse(self.base_url)
+        current_url = url
+        public_session: Optional[requests.Session] = None
+        for redirect_count in range(4):
+            parsed = urlparse(current_url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                return None, "annual-report URL must be an absolute HTTP(S) URL"
+            if parsed.username or parsed.password:
+                return None, "annual-report URL must not contain credentials"
+            same_origin = (
+                parsed.scheme == base_origin.scheme
+                and parsed.netloc.lower() == base_origin.netloc.lower()
+            )
+            host = (parsed.hostname or "").lower().rstrip(".")
+            if not same_origin:
+                if (parsed.scheme != "https" or host in {
+                        "localhost", "localhost.localdomain"} or host.endswith(
+                            (".local", ".internal", ".localhost"))):
+                    return None, "external annual-report URLs must use a public HTTPS host"
+                try:
+                    address = ipaddress.ip_address(host)
+                except ValueError:
+                    address = None
+                if address is not None and not address.is_global:
+                    return None, "external annual-report URL uses a non-public IP address"
+            if same_origin:
+                session = self._session
+            else:
+                if public_session is None:
+                    public_session = requests.Session()
+                    public_session.headers.update({
+                        "User-Agent": self._session.headers.get(
+                            "User-Agent", DEFAULT_USER_AGENT),
+                        "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.5",
+                    })
+                session = public_session
+
+            self.throttle.wait("document")
+            self.stats["requests"] += 1
+            response = None
+            try:
+                response = session.get(
+                    current_url,
+                    timeout=self.timeout_ms / 1000.0,
+                    allow_redirects=False,
+                    stream=True,
+                    verify=self.verify_tls,
+                )
+                if response.is_redirect or response.is_permanent_redirect:
+                    location = response.headers.get("Location")
+                    if not location or redirect_count == 3:
+                        self.stats["failures"] += 1
+                        return None, "annual-report redirect limit exceeded"
+                    current_url = urljoin(current_url, location)
+                    continue
+                response.raise_for_status()
+                chunks = []
+                size = 0
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    size += len(chunk)
+                    if size > max_bytes:
+                        self.stats["failures"] += 1
+                        return None, f"annual report exceeds {max_bytes}-byte limit"
+                    chunks.append(chunk)
+                body = b"".join(chunks)
+                if not body.startswith(b"%PDF-"):
+                    self.stats["failures"] += 1
+                    return None, "annual-report response is not a PDF"
+                return body, None
+            except requests.RequestException as exc:
+                self.stats["failures"] += 1
+                return None, f"{type(exc).__name__}: {exc}"
+            finally:
+                if response is not None:
+                    response.close()
+                if public_session is not None:
+                    public_session.close()
+                    public_session = None
+        self.stats["failures"] += 1
+        return None, "annual-report redirect limit exceeded"
+
     # ------------------------------------------------------------------ #
     # URL builders (port of BaseClient.companyUrl)
     # ------------------------------------------------------------------ #
@@ -242,6 +450,7 @@ class ScreenerClient:
             "name": name,
             "symbol": symbol.upper(),
             "mode": mode,
+            "source_url": url,
             "top_ratios": P.parse_top_ratios(root),
             "quarters": P.parse_table(_sec(root, "quarters")),
             "profit_loss": P.parse_table(_sec(root, "profit-loss")),
@@ -532,7 +741,12 @@ class ScreenerClient:
 
         all_rows = list(first.data["rows"])
         warnings: List[str] = list(first.warnings)
-        total_pages = min(int(first.data.get("total_pages") or 1), max_pages)
+        available_pages = int(first.data.get("total_pages") or 1)
+        total_pages = min(available_pages, max_pages)
+        if available_pages > max_pages:
+            warnings.append(
+                f"screen has {available_pages} pages, capped at {max_pages}; "
+                "results are incomplete")
         for p in range(page + 1, total_pages + 1):
             res = fetch_page(p)
             if not res.ok or not res.data:

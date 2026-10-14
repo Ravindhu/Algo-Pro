@@ -1,41 +1,28 @@
 # blue_engine/screener/ — the Screener engine
 
-Fundamental universe selection for the Indian market, built on a Python port of
-the [screener-india](https://github.com/sahiljani/screener-india) npm package.
+Screener.in saved-screen ingestion for the Indian market, built on a Python
+port of the [screener-india](https://github.com/sahiljani/screener-india) npm
+package.
 
 ```
-Screener engine  ->  WHICH names exist and pass the fundamental gates
-Alpha engine     ->  WHICH of those to buy/sell, and at what level
+Screener.in saved screen -> selects the universe
+ScreenerEngine           -> fetches selected symbols + full statements
+Annual report enrichment -> fills only missing audited fields
+ValuationEngine          -> EPV + CANAV + DCF from supplied statements
+Alpha engine             -> scores and ranks candidates
 POV engine       ->  HOW to slice the resulting order
 ```
 
 ---
 
-## The requested screen
+## Selection responsibility
 
-```
-1. market cap  >  200 Cr
-2. debt/equity <  1
-```
-
-Declared in `blue_engine/input/screener_engine.json`. The code defaults in
-`filters.default_rules()` are identical, and a test asserts the two never drift.
-
-Both are **strict** inequalities: a company at exactly ₹200 Cr or exactly
-D/E 1.0 is excluded.
-
-### Sector gate (on by default)
-
-`bank`, `finance`, `insurance`, `nbfc` are excluded **before** the debt rule.
-
-This is not a nicety. For a lender, borrowings *are* the inventory — a bank with
-a low debt/equity is not a safe bank, it is a bank that is not lending. Applying
-"D/E < 1" to a financial company selects the opposite of what the screen means
-to select. The gate is on by default in both the shipped config and the code,
-because a default that has to be remembered is a default that will be forgotten.
-
-Override with `"exclude_sectors": []` (an explicit empty list is honoured — the
-difference between "no gate" and "I did not think about it" matters).
+Create and maintain the filters (including market capitalization and debt to
+equity) in Screener.in. With `source="screen"`, Blue_engine reads the matching
+saved screen and does **not** apply a second local filter or recalculate either
+metric. The Python `filters.py` rules remain available only for the optional
+offline/provider and sector/symbol paths; they do not override the saved-screen
+result.
 
 ---
 
@@ -51,10 +38,12 @@ screener/
   client/numbers.py                display strings -> comparable floats
   client/screener_client.py        ScreenerClient (port of src/client/*.ts)
   client/extractors.py             label-aware helpers for valuation inputs
-  filters.py                       Rule / Screener / the two requested rules
-  valuations.py                    EPV + Conservative Adjusted NAV
+  filters.py                       optional local rules for non-screen inputs
+  annual_reports.py                missing-data discovery + bounded PDF parsing
+  valuations.py                    EPV + CANAV + DCF
   yf_fallback.py                   optional yfinance gap-fill
   screener_engine.py               ScreenerEngine(BaseEngine) + CLI
+  ../valuation_engine.py           first-class Blue_engine valuation stage
 ```
 
 ---
@@ -93,24 +82,58 @@ is not installed, not imported, and not required.
 ## Quick start
 
 ```powershell
-# Offline (no network): feed candidates straight in and screen them
+# Offline (no network): feed candidates/snapshots straight into the engine
 python -c "from blue_engine.screener import ScreenerEngine; \
   e=ScreenerEngine(); print(e.screen_now())"
 ```
 
 ```powershell
-# Live: screen an explicit symbol list
+# Optional: fetch a manually specified set of companies
 python -m blue_engine.screener.screener_engine --symbols RELIANCE,TCS,INFY
 
-# Live: sweep a sector, save the result for the dashboard
+# Optional: fetch a sector table
 python -m blue_engine.screener.screener_engine --source sector --sectors IN02 --save
 
 # Raw JSON (for piping into another tool)
 python -m blue_engine.screener.screener_engine --symbols ITC --json
 ```
 
+For the primary saved-screen route, use the `.env` session cookie and screen
+URL described in **Headless saved-screen export** below. The ScreenerEngine
+publishes `company_snapshots` into pipeline context; the Blue_engine
+`ValuationEngine` consumes those snapshots automatically when both pipeline
+stages are enabled.
+
 Dashboard: **Screener** page (sidebar, `/screener`). Read-only — it renders
 `screener/last_screen.json` if the CLI wrote one.
+
+### Annual-report enrichment and valuation models
+
+For each company statement snapshot, the engine reports missing annual-report
+fields, selects the most recent linked annual report, downloads a bounded PDF,
+and fills only missing cash, minority-interest, intangible/goodwill, and
+contingent-liability values. PDF-originated values retain report URL, page,
+label, unit and extraction method. External links are fetched without Screener
+cookies and must use HTTPS. Only explicit INR units are normalized to crores;
+unitless or absent values remain missing.
+
+The parser reads text from up to 500 pages and selects the first amount after a
+matched row label as the current-period column. Annual-report typography and
+PDF extraction vary, so these are traceable candidates, not a substitute for
+audited human review. `annual_report_enrichment` can be disabled in the
+Screener config.
+
+The valuation output includes:
+
+* **EPV** - normalized no-growth earnings power, across bear/base/bull cases.
+* **CANAV** - conservatively adjusted net assets, across stress/base/moderate.
+* **DCF** - a five-year free-cash-flow projection and discounted terminal value.
+  Defaults (5% forecast growth, 12% discount rate, 3% terminal growth) are
+  explicit assumptions, not company-specific estimates. DCF fails closed when
+  free cash flow, balance-sheet bridge items, price or share count are missing.
+
+Install the scraping and PDF dependencies with
+`python -m pip install -e "Blue_engine[screener]"` from the repository root.
 
 ### Verified live output
 
@@ -228,17 +251,58 @@ match the file, and a test enforces that.
 | `cookies` | `""` | `sessionid=...`, only for **private** screens |
 | `proxy_url` | `""` | optional |
 
+### Headless saved-screen export
+
+For an authenticated saved screen, use the one-shot exporter. It fetches the
+login form's CSRF token, posts credentials from the repository-root `.env`,
+keeps the returned session cookie in memory, walks every screen page, and
+exports the original screen rows plus full parsed company statements. It uses
+this package's `ScreenerClient`; it does not create a second scraper.
+
+Install the optional dependencies from `Blue_engine/`:
+
+```bash
+python3 -m venv ../.venv
+../.venv/bin/python -m pip install -e ".[screener]"
+```
+
+The repository-root `.env` is already used by the trading system. The exporter
+reads `Screenerdotin_sessionid` and `URL_SCREENER_DOT_IN`; the screen ID and
+slug are extracted from the URL. If the session is expired, it can regenerate
+the session with credentials from `SCREENER_USERNAME` (or `username`) and
+`SCREENER_PASSWORD` (or `password`):
+
+```dotenv
+Screenerdotin_sessionid=your-session-cookie
+URL_SCREENER_DOT_IN=https://www.screener.in/screens/12345/my-custom-filter/
+SCREENER_USERNAME=your-account-username
+SCREENER_PASSWORD=your-account-password
+```
+
+Do not commit `.env`; restrict its permissions and run the exporter from `Blue_engine/`:
+
+```bash
+chmod 600 ../.env
+../.venv/bin/python -m blue_engine.screener.scrape_saved_screen \
+  --output-dir ./exports
+```
+
+The output directory receives `filtered_summary.csv` and
+`enriched_details.json`. The default limits are 40 pages and 250 companies; if
+the screen exceeds either limit, incomplete pagination or truncation is reported
+instead of exporting a misleading partial universe. Company fetches are
+sequential with at least a 1.5-second pause between companies. A login challenge,
+CAPTCHA, MFA prompt, or failed authentication is reported and is not bypassed.
+Screener.in may change its login form or restrict automated access; check its
+current terms and use this only for an account you are authorized to access.
+
 ### Sources, and the trade-off
 
 | source | requests | accuracy | notes |
 |---|---|---|---|
-| `sector` | ~1 per 50 names | table columns only | fastest; `debt_equity` usually absent |
-| `symbols` | 1 per symbol | full company page | **only source that can derive debt/equity** |
-| `screen` | 1 per page | whatever the screen shows | needs a public screen id + slug |
-
-Because `debt_equity` lives on the balance sheet, the `sector` source cannot
-evaluate the debt rule unless `enrich: true` is set. The engine reports
-`missing data` prominently rather than silently passing those names.
+| `screen` | 1 per page + statement fetches | saved screen rows + full statements | primary source; ID/slug parsed from `URL_SCREENER_DOT_IN` |
+| `sector` | ~1 per 50 names | table columns only | optional data source, not the production saved-screen selection |
+| `symbols` | 1 per symbol | full company page | optional explicit fetch; no market-cap/debt-equity derivation |
 
 ---
 

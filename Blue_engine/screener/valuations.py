@@ -1,9 +1,9 @@
 """
-valuations.py - fundamental valuation: EPV and Conservative Adjusted NAV.
+valuations.py - fundamental valuation: EPV, CANAV, and discounted cash flow.
 
 WHAT THIS MODULE IS
 -------------------
-Two independent, deliberately CONSERVATIVE estimates of what a business is
+Three independent, deliberately CONSERVATIVE estimates of what a business is
 worth, per share, from a company's reported financials:
 
   1. EPV   (Earnings Power Value)          - an earnings-based value that
@@ -11,6 +11,8 @@ worth, per share, from a company's reported financials:
   2. CANAV (Conservative Adjusted Net
            Asset Value)                    - an asset-based value after
                                              haircuts.
+  3. DCF   (Discounted Cash Flow)           - projected free cash flow plus a
+                                             Gordon-growth terminal value.
 
 They answer different questions and are useful precisely because they DISAGREE:
 
@@ -82,6 +84,7 @@ stable code (A1, A2, ...) so a reader can audit or override it.
 from __future__ import annotations
 
 import logging
+import math
 import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -329,6 +332,7 @@ class FinancialInputs:
     depreciation_series: List[float] = field(default_factory=list)
     tax_rate_series: List[float] = field(default_factory=list)
     capex_series: List[float] = field(default_factory=list)
+    free_cash_flow_series: List[float] = field(default_factory=list)
     working_capital_days_series: List[float] = field(default_factory=list)
 
     # --- balance-sheet inputs --------------------------------------------- #
@@ -450,6 +454,8 @@ def build_inputs(company: Dict[str, Any],
         _row_series(cf, "cash from investing activity", exact=False)
         or _row_series(cf, "investing activity", exact=False),
         normalisation_years, skip_trailing=ttm_cols)
+    inp.free_cash_flow_series = _normalisation_window(
+        _row_series(cf, "free cash flow"), normalisation_years)
 
     inp.working_capital_days_series = _normalisation_window(
         _row_series(ratios, "working capital days"), normalisation_years,
@@ -531,6 +537,22 @@ def build_inputs(company: Dict[str, Any],
         inp.notes.append(
             f"contingent liabilities extraction failed: "
             f"{type(exc).__name__}: {exc}")
+
+    report_data = company.get("annual_report_data")
+    if isinstance(report_data, dict):
+        for input_name, report_name in (
+                ("cash_and_equivalents", "cash_and_equivalents"),
+                ("minority_interest", "minority_interest"),
+                ("intangibles", "intangible_assets"),
+                ("contingent_liabilities", "contingent_liabilities")):
+            if getattr(inp, input_name) is not None:
+                continue
+            record = report_data.get(report_name)
+            raw = record.get("value") if isinstance(record, dict) else record
+            value = to_number(raw)
+            if value is not None and value >= 0:
+                setattr(inp, input_name, value)
+                inp.filled_by[input_name] = "screener_annual_report"
 
     # ---- market ---------------------------------------------------------- #
     inp.market_price = to_number(_first_value(top, "current_price"))
@@ -978,11 +1000,12 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
         floor = res.normalized_revenue * float(cfg.get(
             "operating_cash_floor_pct", 0.02))
         res.excess_cash = max(0.0, cash - floor)
-        if inp.source_of("cash_and_equivalents") == "yfinance":
+        if inp.source_of("cash_and_equivalents") != "screener":
             res.assumptions.append(Assumption(
                 "A2b",
                 f"cash {cash:,.0f} Cr supplied by a FALLBACK provider "
-                f"(yfinance), not by screener.in; less a "
+                f"({inp.source_of('cash_and_equivalents')}), not by the "
+                f"Screener summary table; less a "
                 f"{float(cfg.get('operating_cash_floor_pct', 0.02)):.0%} "
                 f"operating minimum on revenue.",
                 "medium - real cash, different vendor basis"))
@@ -992,14 +1015,15 @@ def compute_epv(inp: FinancialInputs, scenario: str = "base",
     if inp.minority_interest is None:
         res.assumptions.append(Assumption(
             "A10", "minority interest not reported by screener.in and not "
-                   "supplied by any fallback provider; taken as 0 "
+                   "found in the linked annual report; taken as 0 "
                    "(understates the deduction, so EPV is slightly optimistic "
                    "for consolidating groups)", "medium"))
-    elif inp.source_of("minority_interest") == "yfinance":
+    elif inp.source_of("minority_interest") != "screener":
         res.assumptions.append(Assumption(
             "A10b",
             f"minority interest {inp.minority_interest:,.0f} Cr supplied by a "
-            f"FALLBACK provider (yfinance); screener.in does not publish it. "
+            f"fallback source ({inp.source_of('minority_interest')}); "
+            f"not from the Screener summary table. "
             f"Previously this deduction was 0.",
             "medium - material improvement over the 0 default"))
 
@@ -1306,8 +1330,8 @@ def compute_canav(inp: FinancialInputs, scenario: str = "base",
     if intang is None or intang <= 0:
         res.intangible_haircut = 0.0
         res.assumptions.append(Assumption(
-            "B4", "intangibles/goodwill not reported as a separate line by "
-                  "screener.in and not supplied by any fallback provider; no "
+            "B4", "intangibles/goodwill not found in the Screener statements "
+                  "or linked annual report; no "
                   "intangible haircut applied. If the company has material "
                   "goodwill, CANAV is OVERSTATED.",
             "high"))
@@ -1379,8 +1403,8 @@ def compute_canav(inp: FinancialInputs, scenario: str = "base",
     else:
         res.contingent_liabilities = 0.0
         res.assumptions.append(Assumption(
-            "B6", "contingent liabilities are not disclosed in screener.in's "
-                  "summary tables; deducted 0. CANAV therefore IGNORES "
+            "B6", "contingent liabilities were not found in the Screener "
+                  "summary or linked annual report; deducted 0. CANAV therefore IGNORES "
                   "guarantees, tax disputes and similar off-balance-sheet claims.",
             "high"))
 
@@ -1456,6 +1480,166 @@ def _fmt_days(days: Optional[float]) -> str:
     return "n/a" if days is None else f"{days:.0f}"
 
 
+@dataclass
+class DcfResult:
+    """Five-year discounted cash-flow estimate with an auditable equity bridge."""
+
+    status: str = "insufficient_data"
+    reason: str = ""
+    missing: List[str] = field(default_factory=list)
+    base_free_cash_flow: Optional[float] = None
+    growth_rate: Optional[float] = None
+    discount_rate: Optional[float] = None
+    terminal_growth_rate: Optional[float] = None
+    forecast_years: int = 5
+    forecast: List[Dict[str, float]] = field(default_factory=list)
+    present_value_forecast: Optional[float] = None
+    terminal_value: Optional[float] = None
+    present_value_terminal: Optional[float] = None
+    enterprise_value: Optional[float] = None
+    cash_and_equivalents: Optional[float] = None
+    non_operating_investments: Optional[float] = None
+    borrowings: Optional[float] = None
+    minority_interest: Optional[float] = None
+    equity_value: Optional[float] = None
+    per_share: Optional[float] = None
+    margin_of_safety: Optional[float] = None
+    assumptions: List[Dict[str, Any]] = field(default_factory=list)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "reason": self.reason,
+            "missing": list(self.missing),
+            "base_free_cash_flow": self.base_free_cash_flow,
+            "growth_rate": self.growth_rate,
+            "discount_rate": self.discount_rate,
+            "terminal_growth_rate": self.terminal_growth_rate,
+            "forecast_years": self.forecast_years,
+            "forecast": list(self.forecast),
+            "present_value_forecast": self.present_value_forecast,
+            "terminal_value": self.terminal_value,
+            "present_value_terminal": self.present_value_terminal,
+            "enterprise_value": self.enterprise_value,
+            "cash_and_equivalents": self.cash_and_equivalents,
+            "non_operating_investments": self.non_operating_investments,
+            "borrowings": self.borrowings,
+            "minority_interest": self.minority_interest,
+            "equity_value": self.equity_value,
+            "per_share": self.per_share,
+            "margin_of_safety": self.margin_of_safety,
+            "assumptions": list(self.assumptions),
+        }
+
+
+def compute_dcf(inp: FinancialInputs,
+                config: Optional[Dict[str, Any]] = None) -> DcfResult:
+    """Value a company using reported FCF and explicitly bounded DCF inputs."""
+    cfg = dict(config or {})
+    result = DcfResult()
+    result.forecast_years = int(cfg.get("dcf_forecast_years", 5))
+    if not 1 <= result.forecast_years <= 10:
+        raise ValueError("dcf_forecast_years must be between 1 and 10")
+
+    required = {
+        "positive latest free cash flow": (
+            _latest(inp.free_cash_flow_series)
+            if inp.free_cash_flow_series else None),
+        "cash and cash equivalents": inp.cash_and_equivalents,
+        "non-operating investments": inp.non_operating_investments,
+        "borrowings": inp.borrowings,
+        "minority interest": inp.minority_interest,
+        "market price": inp.market_price,
+        "share count": inp.diluted_shares,
+    }
+    result.missing = [name for name, value in required.items() if value is None]
+    if not result.missing:
+        fcf = required["positive latest free cash flow"]
+        if fcf is None or fcf <= 0:
+            result.missing.append("positive latest free cash flow")
+        if inp.market_price is None or inp.market_price <= 0:
+            result.missing.append("positive market price")
+        if inp.diluted_shares is None or inp.diluted_shares <= 0:
+            result.missing.append("positive share count")
+    if result.missing:
+        result.missing = list(dict.fromkeys(result.missing))
+        result.reason = "cannot compute DCF without: " + ", ".join(result.missing)
+        return result
+
+    assert fcf is not None and inp.market_price is not None
+    assert inp.diluted_shares is not None
+    result.base_free_cash_flow = fcf
+    result.growth_rate = float(cfg.get("dcf_growth_rate", 0.05))
+    result.discount_rate = float(cfg.get("dcf_discount_rate", 0.12))
+    result.terminal_growth_rate = float(
+        cfg.get("dcf_terminal_growth_rate", 0.03))
+    rates = (result.growth_rate, result.discount_rate,
+             result.terminal_growth_rate)
+    if any(not math.isfinite(rate) for rate in rates):
+        raise ValueError("DCF rates must be finite")
+    if not -0.5 <= result.growth_rate <= 0.5:
+        raise ValueError("dcf_growth_rate must be between -0.5 and 0.5")
+    if not 0.0 < result.terminal_growth_rate < result.discount_rate <= 1.0:
+        raise ValueError(
+            "DCF rates require 0 < terminal growth < discount rate <= 1")
+
+    pv_fcf = 0.0
+    projected_fcf = fcf
+    for year in range(1, result.forecast_years + 1):
+        projected_fcf *= 1.0 + result.growth_rate
+        discount_factor = (1.0 + result.discount_rate) ** year
+        pv = projected_fcf / discount_factor
+        pv_fcf += pv
+        result.forecast.append({
+            "year": float(year),
+            "free_cash_flow": projected_fcf,
+            "discount_factor": discount_factor,
+            "present_value": pv,
+        })
+    result.present_value_forecast = pv_fcf
+    result.terminal_value = (
+        projected_fcf * (1.0 + result.terminal_growth_rate)
+        / (result.discount_rate - result.terminal_growth_rate))
+    result.present_value_terminal = (
+        result.terminal_value
+        / ((1.0 + result.discount_rate) ** result.forecast_years))
+    result.enterprise_value = (
+        result.present_value_forecast + result.present_value_terminal)
+
+    result.cash_and_equivalents = inp.cash_and_equivalents
+    result.non_operating_investments = inp.non_operating_investments
+    result.borrowings = inp.borrowings
+    result.minority_interest = inp.minority_interest
+    result.equity_value = (
+        result.enterprise_value
+        + inp.cash_and_equivalents
+        + inp.non_operating_investments
+        - inp.borrowings
+        - inp.minority_interest
+    )
+    result.per_share = result.equity_value / inp.diluted_shares
+    if result.per_share <= 0:
+        result.status = "insufficient_data"
+        result.reason = "DCF equity value is non-positive"
+        result.per_share = None
+        return result
+    result.margin_of_safety = 1.0 - inp.market_price / result.per_share
+    result.status = "ok"
+    result.assumptions = [
+        {"name": "forecast growth", "value": result.growth_rate,
+         "source": "configured conservative default or model_config"},
+        {"name": "discount rate", "value": result.discount_rate,
+         "source": "configured default; not a company-specific WACC estimate"},
+        {"name": "terminal growth", "value": result.terminal_growth_rate,
+         "source": "configured conservative default or model_config"},
+        {"name": "forecast horizon", "value": result.forecast_years,
+         "source": "configured default"},
+        {"name": "base FCF", "value": fcf,
+         "source": "latest Screener.in free-cash-flow row"},
+    ]
+    return result
+
+
 # --------------------------------------------------------------------------- #
 # Top-level valuation
 # --------------------------------------------------------------------------- #
@@ -1478,6 +1662,7 @@ class Valuation:
     epv: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     #: scenario name -> CanavResult.as_dict()
     canav: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    dcf: Dict[str, Any] = field(default_factory=dict)
 
     classification: str = CLASS_INSUFFICIENT
     classification_reason: str = ""
@@ -1489,6 +1674,7 @@ class Valuation:
     #: provider filled. Empty for a pure screener.in run. Mixing two vendors
     #: silently is how a valuation becomes unreproducible, so it is surfaced.
     filled_by: Dict[str, str] = field(default_factory=dict)
+    annual_report_enrichment: Optional[Dict[str, Any]] = None
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -1502,10 +1688,28 @@ class Valuation:
             "shares_are_diluted": self.shares_are_diluted,
             "epv": self.epv,
             "canav": self.canav,
+            "dcf": self.dcf,
             "classification": self.classification,
             "classification_reason": self.classification_reason,
             "assumptions": self.assumptions,
             "missing": self.missing,
+            "missing_data": {
+                "EPV": ([self.epv.get("base", {}).get("reason")]
+                        if self.epv.get("base", {}).get("status")
+                        != "ok" else []),
+                "CANAV": ([self.canav.get("base", {}).get("reason")]
+                          if self.canav.get("base", {}).get("status")
+                          != "ok" else []),
+                "DCF": (
+                    (list(self.dcf.get("missing") or [])
+                     or [self.dcf.get("reason")])
+                    if self.dcf.get("status") != "ok"
+                    else []),
+                "annual_report": list(
+                    (self.annual_report_enrichment or {}).get(
+                        "missing_after") or []),
+            },
+            "annual_report_enrichment": self.annual_report_enrichment,
             "notes": self.notes,
             "filled_by": self.filled_by,
         }
@@ -1545,14 +1749,20 @@ class Valuation:
             lines.append(f"    {name:<6} {f(c.get('per_share')):>14}  "
                          f"MoS {f(c.get('margin_of_safety'), True):>9}"
                          f"   [{c.get('status', '-')}]")
+        dcf = self.dcf or {}
+        lines.append(
+            f"  DCF per share: {f(dcf.get('per_share'))} "
+            f"[{dcf.get('status', '-')}]")
         lines.append(f"  CLASSIFICATION: {self.classification}")
         if self.classification_reason:
             lines.append(f"    {self.classification_reason}")
         if self.filled_by:
-            yf_fields = sorted(k for k, v in self.filled_by.items()
-                               if v == "yfinance")
-            lines.append(f"  fallback filled {len(yf_fields)} input(s) from "
-                         f"yfinance: {', '.join(yf_fields)}")
+            for source in sorted(set(self.filled_by.values())):
+                fields = sorted(k for k, value in self.filled_by.items()
+                                if value == source)
+                lines.append(
+                    f"  fallback filled {len(fields)} input(s) from "
+                    f"{source}: {', '.join(fields)}")
         if self.missing:
             lines.append(f"  missing inputs: {', '.join(self.missing)}")
         if self.notes:
@@ -1566,14 +1776,14 @@ def value_company(company: Dict[str, Any], *,
                   basis: str = "consolidated",
                   source_url: str = "",
                   config: Optional[Dict[str, Any]] = None) -> Valuation:
-    """Compute EPV (bear/base/bull) and CANAV (stress/base/moderate).
+    """Compute EPV, CANAV, and DCF valuations without fabricating inputs.
 
     ``company`` is the ``data`` dict from ``ScreenerClient.get_company``, so the
     caller keeps control of the fetch (and of caching). This function does no
     I/O unless a fallback provider is enabled in ``config``.
 
-    The returned :class:`Valuation` always contains all six scenario keys; a
-    scenario that could not be computed carries
+    The returned :class:`Valuation` always contains all EPV/CANAV scenario
+    keys and one DCF result; a model that cannot be computed carries
     ``status="insufficient_data"`` and a ``reason``, never a fabricated number.
 
     Fallback config keys:
@@ -1670,21 +1880,42 @@ def value_company(company: Dict[str, Any], *,
 
     val.assumptions = [by_code[c] for c in sorted(by_code, key=_code_key)]
 
-    # Top-level status: ok when at least the BASE pair computed.
+    # Top-level status includes all three model results.
     base_epv = epv_results["base"]
     base_nav = canav_results["base"]
-    if base_epv.status == "ok" or base_nav.status == "ok":
+
+    dcf_result = compute_dcf(inp, cfg)
+    val.dcf = dcf_result.as_dict()
+    val.annual_report_enrichment = company.get("annual_report_enrichment")
+    if val.annual_report_enrichment is None:
+        from .annual_reports import missing_report_fields
+        missing_report = missing_report_fields(company)
+        val.annual_report_enrichment = {
+            "status": "not_run",
+            "missing_before": missing_report,
+            "filled": [],
+            "missing_after": missing_report,
+            "report": None,
+            "error": None,
+        }
+
+    if (base_epv.status == "ok" or base_nav.status == "ok"
+            or dcf_result.status == "ok"):
         val.status = "ok"
-        if base_epv.status != "ok" and base_nav.status == "ok":
-            val.reason = f"EPV unavailable ({base_epv.reason}); CANAV available"
-        elif base_nav.status != "ok" and base_epv.status == "ok":
-            val.reason = f"CANAV unavailable ({base_nav.reason}); EPV available"
+        unavailable = []
+        if base_epv.status != "ok":
+            unavailable.append(f"EPV unavailable ({base_epv.reason})")
+        if base_nav.status != "ok":
+            unavailable.append(f"CANAV unavailable ({base_nav.reason})")
+        if dcf_result.status != "ok":
+            unavailable.append(f"DCF unavailable ({dcf_result.reason})")
+        val.reason = "; ".join(unavailable)
     else:
         val.status = "insufficient_data"
-        val.reason = (f"EPV: {base_epv.reason}; CANAV: {base_nav.reason}")
-
+        val.reason = (
+            f"EPV: {base_epv.reason}; CANAV: {base_nav.reason}; "
+            f"DCF: {dcf_result.reason}")
     return val
-
 
 # --------------------------------------------------------------------------- #
 # Company-level helper that uses the client (I/O)
@@ -1736,10 +1967,12 @@ __all__ = [
     "FinancialInputs",
     "EpvResult",
     "CanavResult",
+    "DcfResult",
     "Valuation",
     "build_inputs",
     "compute_epv",
     "compute_canav",
+    "compute_dcf",
     "classify",
     "value_company",
     "value_symbol",

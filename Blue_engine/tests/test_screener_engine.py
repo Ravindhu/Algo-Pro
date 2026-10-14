@@ -22,6 +22,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 # Every test module in this suite puts the Blue_engine root on sys.path
 # explicitly (see test_recovery.py). Without it, `blue_engine.*` only resolves
@@ -32,6 +33,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import pytest  # noqa: E402
+import requests  # noqa: E402
 
 from blue_engine.screener.client import parser as P
 from blue_engine.screener.client.numbers import (
@@ -223,6 +225,16 @@ class TestParser:
         assert tbl["columns"] == ["Name", "Mar Cap", "P/E"]
         assert len(tbl["rows"]) == 1
         assert tbl["rows"][0]["Name"] == "TCS"
+
+    def test_data_table_extracts_symbol_from_company_link(self):
+        html = """
+        <table><thead><tr><th>Name</th><th>Mar Cap</th></tr></thead>
+        <tbody><tr><td><a href="/company/RELIANCE/consolidated/">
+        Reliance Industries</a></td><td>20,00,000</td></tr></tbody></table>
+        """
+        tbl = P.parse_data_table(P.parse_html(html))
+        assert tbl["rows"][0]["Name"] == "Reliance Industries"
+        assert tbl["rows"][0]["_symbol"] == "RELIANCE"
 
     def test_screen_items(self):
         html = """
@@ -474,6 +486,54 @@ class TestClientFixtures:
         assert "LOGIN_REQUIRED" in (res.error or "")
         assert calls["n"] == 1, "a login wall must not be retried"
 
+    def test_login_posts_csrf_and_keeps_session_cookie(self, monkeypatch):
+        client = ScreenerClient(cache_dir=None, min_interval_ms=0)
+        login_html = """
+        <form action="/login/">
+          <input type="hidden" name="csrfmiddlewaretoken" value="csrf-token">
+          <input type="hidden" name="next" value="/screens/12345/example/">
+          <input type="text" name="username">
+          <input type="password" name="password">
+        </form>
+        """
+
+        class _Resp:
+            def __init__(self, text, url, status=200, headers=None):
+                self.text = text
+                self.url = url
+                self.status_code = status
+                self.headers = headers or {}
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise requests.HTTPError(str(self.status_code))
+
+        def fake_get(url, **kwargs):
+            if url.endswith("/login/"):
+                return _Resp(login_html, url)
+            return _Resp("<html>Signed in</html>", url)
+
+        def fake_post(url, data, **kwargs):
+            assert data == {
+                "csrfmiddlewaretoken": "csrf-token",
+                "next": "/screens/12345/example/",
+                "username": "user@example.com",
+                "password": "safe-test-password",
+            }
+            client._session.cookies.set(
+                "sessionid", "renewed-session", domain="www.screener.in", path="/")
+            return _Resp("", url, status=302,
+                         headers={"Location": "/screens/12345/example/"})
+
+        monkeypatch.setattr(client._session, "get", fake_get)
+        monkeypatch.setattr(client._session, "post", fake_post)
+        result = client.login("user@example.com", "safe-test-password")
+
+        assert result.ok
+        assert result.data["authenticated"] is True
+        assert result.data["sessionid"] == "renewed-session"
+        assert client._session.cookies.get("sessionid") == "renewed-session"
+
     def test_cache_avoids_second_request(self, monkeypatch):
         html = "<html><head><title>TCS Ltd</title></head><body></body></html>"
         client = ScreenerClient(cache_dir=None, min_interval_ms=0)
@@ -596,108 +656,74 @@ class TestScreenerEngine:
         assert ScreenerEngine.stage.value < EngineStage.ALPHA.value
 
 
-class TestDebtEquityDerivation:
-    """screener.in publishes no debt/equity cell, so it is derived from the
-    balance sheet. These tests pin the derivation and its failure modes.
-
-    The row labels here are copied from REAL screener.in pages: ITC uses
-    "Borrowings +" while HDFCBANK uses "Borrowing" (singular, no '+'). Matching
-    only "borrowings" silently missed every bank.
-    """
-
-    def _engine(self):
-        return ScreenerEngine(config={"enabled": True})
-
-    @staticmethod
-    def _table(rows):
-        return {"headers": ["", "Mar 2024", "Mar 2025"], "rows": rows}
-
-    def test_derives_from_borrowings_plus(self):
-        """ITC-style label."""
-        table = self._table([
-            {"": "Equity Capital", "Mar 2024": "1,253", "Mar 2025": "1,253"},
-            {"": "Reserves", "Mar 2024": "60,000", "Mar 2025": "65,000"},
-            {"": "Borrowings +", "Mar 2024": "2,000", "Mar 2025": "2,200"},
-        ])
-        de = self._engine()._debt_equity_from_balance_sheet(table)
-        assert de == pytest.approx(2200 / 66253)
-        assert de < 1
-
-    def test_derives_from_singular_borrowing(self):
-        """HDFCBANK-style label: 'Borrowing', not 'Borrowings'.
-
-        This is the regression test for the bug found on the first live run:
-        the label matcher missed banks entirely, so their debt/equity came back
-        unmeasurable - and on a different bank that could have produced a false
-        PASS rather than a false 'missing'.
-        """
-        table = self._table([
-            {"": "Equity Capital", "Mar 2024": "1,539", "Mar 2025": "1,539"},
-            {"": "Reserves", "Mar 2024": "584,520", "Mar 2025": "584,520"},
-            {"": "Borrowing", "Mar 2024": "588,485", "Mar 2025": "588,485"},
-        ])
-        de = self._engine()._debt_equity_from_balance_sheet(table)
-        assert de == pytest.approx(588485 / 586059)
-        assert de > 1, "HDFCBANK is genuinely levered above 1"
-
-    def test_missing_borrowings_is_none_not_zero(self):
-        table = self._table([
-            {"": "Equity Capital", "Mar 2025": "1,539"},
-            {"": "Reserves", "Mar 2025": "584,520"},
-        ])
-        assert self._engine()._debt_equity_from_balance_sheet(table) is None
-
-    def test_blank_borrowings_cell_is_none(self):
-        table = self._table([
-            {"": "Equity Capital", "Mar 2025": "1,539"},
-            {"": "Reserves", "Mar 2025": "584,520"},
-            {"": "Borrowings +", "Mar 2025": "-"},
-        ])
-        assert self._engine()._debt_equity_from_balance_sheet(table) is None
-
-    def test_negative_equity_is_none(self):
-        """A negative-equity company has no meaningful ratio, and a small
-        positive number would wrongly satisfy '< 1'."""
-        table = self._table([
-            {"": "Equity Capital", "Mar 2025": "100"},
-            {"": "Reserves", "Mar 2025": "-500"},
-            {"": "Borrowings +", "Mar 2025": "1,000"},
-        ])
-        assert self._engine()._debt_equity_from_balance_sheet(table) is None
-
-    def test_empty_table_is_none(self):
-        engine = self._engine()
-        assert engine._debt_equity_from_balance_sheet(None) is None
-        assert engine._debt_equity_from_balance_sheet({}) is None
-
-    def test_zero_borrowings_is_a_real_zero(self):
-        """Zero debt IS measurable and must pass - distinct from 'missing'."""
-        table = self._table([
-            {"": "Equity Capital", "Mar 2025": "100"},
-            {"": "Reserves", "Mar 2025": "900"},
-            {"": "Borrowings +", "Mar 2025": "0"},
-        ])
-        de = self._engine()._debt_equity_from_balance_sheet(table)
-        assert de == 0.0
-        assert de is not None
-
-    def test_engine_records_debt_equity_source(self):
-        engine = self._engine()
+class TestScreenerPublishedMetrics:
+    def test_debt_equity_is_never_calculated_from_balance_sheet(self):
+        engine = ScreenerEngine(config={"enabled": True})
         metrics = engine._metrics_from_company({
             "top_ratios": [{"name": "Market Cap", "value": "500 Cr."}],
-            "balance_sheet": self._table([
-                {"": "Equity Capital", "Mar 2025": "100"},
-                {"": "Reserves", "Mar 2025": "900"},
-                {"": "Borrowings +", "Mar 2025": "250"},
-            ]),
+            "balance_sheet": {
+                "headers": ["", "Mar 2025"],
+                "rows": [
+                    {"": "Equity Capital", "Mar 2025": "100"},
+                    {"": "Reserves", "Mar 2025": "900"},
+                    {"": "Borrowings +", "Mar 2025": "250"},
+                ],
+            },
         })
-        assert metrics["debt_equity"] == pytest.approx(0.25)
-        assert metrics["debt_equity_source"] == "reported"
+        assert metrics["market_cap"] == "500 Cr."
+        assert metrics["debt_equity"] is None
+        assert engine._metrics_derived() == {}
 
-    def test_metrics_derived_documents_the_method(self):
-        derived = self._engine()._metrics_derived()
-        assert "debt_equity" in derived
-        assert "Borrowings" in derived["debt_equity"]
+    def test_company_snapshots_are_available_for_valuation_handoff(self):
+        company_data = {
+            "profit_loss": {"headers": ["Mar 2025"], "rows": []},
+            "balance_sheet": {"headers": ["Mar 2025"], "rows": []},
+        }
+        engine = ScreenerEngine(config={
+            "enabled": True, "source": "symbols", "symbols": [],
+        })
+        result = engine.run({
+            "screener_inputs": {"candidates": [{
+                "symbol": "TCS",
+                "metrics": {
+                    "market_cap": "10,00,000 Cr.",
+                    "debt_equity": "0.5",
+                },
+                "company_data": company_data,
+            }]},
+        })
+        assert result.ok
+        assert result.data["company_snapshots"] == {"TCS": company_data}
+
+    def test_saved_screen_result_is_not_filtered_a_second_time(self):
+        class _Client:
+            def get_screen_details(self, screen_id, slug, **kwargs):
+                return SimpleNamespace(
+                    ok=True, data={
+                        "title": "Already screened",
+                        "rows": [{
+                            "_symbol": "TCS", "Name": "TCS",
+                            "Mar Cap": "100 Cr.", "Debt/Equity": "9",
+                        }],
+                    }, warnings=[], error=None)
+
+        engine = ScreenerEngine(
+            config={
+                "enabled": True, "source": "screen",
+                "screen_id": 12345, "screen_slug": "already-screened",
+                "enrich": False,
+                "screen": {"rules": [
+                    {"metric": "market_cap", "op": ">", "threshold": 999999},
+                    {"metric": "debt_equity", "op": "<", "threshold": 0.01},
+                ]},
+            },
+            client=_Client(),
+        )
+        result = engine.run({})
+        assert result.ok
+        assert result.data["selected"] == ["TCS"]
+        assert result.data["counts"]["rejected"] == 0
+        assert result.data["screen"]["rules_applied_upstream"] is True
 
 
 # --------------------------------------------------------------------------- #
@@ -709,16 +735,9 @@ class TestShippedConfig:
                     / "input" / "screener_engine.json")
         assert cfg_path.is_file(), "screener_engine.json must ship with the engine"
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-        rules = cfg["screener"]["screen"]["rules"]
-        assert [r["metric"] for r in rules] == ["market_cap", "debt_equity"]
-        assert rules[0]["op"] == ">" and rules[0]["threshold"] == 200
-        assert rules[1]["op"] == "<" and rules[1]["threshold"] == 1
-
-        # The shipped config must build a screen identical to the code default.
-        built = Screener.from_config(cfg["screener"]["screen"])
-        expected = default_rules()
-        assert [(r.metric, r.op, r.threshold) for r in built.rules] == \
-               [(r.metric, r.op, r.threshold) for r in expected]
+        assert cfg["screener"]["source"] == "screen"
+        assert cfg["screener"]["enrich"] is True
+        assert cfg["screener"]["screen_url"] is None
 
     def test_shipped_config_builds_an_engine(self):
         cfg_path = (Path(__file__).resolve().parents[1]

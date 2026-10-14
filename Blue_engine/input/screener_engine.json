@@ -1,16 +1,16 @@
 {
-  "_comment": "Screener engine config. Read-only fundamental screening of Indian stocks via the vendored screener-india port. THIS ENGINE NEVER PLACES AN ORDER.",
+  "_comment": "Read-only fetch from an already-filtered Screener.in saved screen. Blue_engine does not re-screen market cap/debt-equity. THIS ENGINE NEVER PLACES AN ORDER.",
   "_doc": "See Blue_engine/screener/README.md. Every key below is optional; the code defaults match these values.",
 
   "screener": {
     "enabled": true,
 
     "_source_help": [
-      "source='sector'  -> sweep sector tables (fast, ~1 request per 50 names)",
-      "source='symbols' -> fetch one company page per symbol (slow, most accurate)",
-      "source='screen'  -> read a saved public screen on screener.in"
+      "source='screen'  -> scrape an already-filtered saved screen on screener.in",
+      "source='sector'  -> optional sector-table fetch",
+      "source='symbols' -> optional explicit company fetch"
     ],
-    "source": "symbols",
+    "source": "screen",
 
     "_symbols_help": "Used when source='symbols'. These two are the acceptance smoke test.",
     "symbols": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ITC"],
@@ -18,18 +18,21 @@
     "_sectors_help": "Used when source='sector'. Slugs come from client.list_sectors(). NIFTY-500-ish root is IN02.",
     "sectors": ["IN02"],
 
-    "_screen_help": "Used when source='screen'. Find ids with list_screens() in the dashboard or the CLI.",
+    "_screen_help": "Used when source='screen'. Can be loaded from URL_SCREENER_DOT_IN in the repository-root .env.",
     "screen_id": null,
     "screen_slug": null,
+    "screen_url": null,
 
     "_caps_help": "Polite limits. The scraper is bounded on purpose - see polite_limits() in the engine output.",
     "max_symbols": 250,
     "max_pages": 40,
     "include_all_pages": true,
 
-    "_enrich_help": "Per-symbol company-page fetch to fill metrics missing from the sector table. Off by default (it multiplies request count by N).",
-    "enrich": false,
+    "_enrich_help": "Fetch full company statements after screening for downstream valuation. Sequential with a 1.5 second delay per company.",
+    "enrich": true,
     "enrich_limit": 250,
+    "_annual_report_enrichment_help": "For missing valuation fields, download the latest linked annual report, extract explicitly-unitized financial values, and preserve source/page provenance. Set false to disable PDF requests.",
+    "annual_report_enrichment": true,
 
     "_transport_help": "min_interval_ms is twice the upstream npm default (200ms). Raise it if you ever see HTTP 429.",
     "min_interval_ms": 400,
@@ -39,7 +42,7 @@
     "cache_dir": null,
     "base_url": "https://www.screener.in",
 
-    "_auth_help": "Only needed for PRIVATE saved screens, and only a limited capability. 'sessionid=<value>' copied from a logged-in browser session.",
+    "_auth_help": "Optional sessionid cookie override. Normally loaded from Screenerdotin_sessionid in the repository-root .env.",
     "cookies": "",
 
     "_proxy_help": "Optional 'http://user:pass@host:port' or socks5:// URL.",
@@ -52,7 +55,7 @@
       "require_all": true,
       "min_rules_passed": null,
 
-      "_rules_help": "TWO requested rules. Strict inequalities: exactly 200 Cr or exactly D/E 1.0 is EXCLUDED.",
+      "_rules_help": "Only used by optional local sector/symbol sources. Saved Screener.in screens are already filtered upstream.",
       "rules": [
         {
           "metric": "market_cap",

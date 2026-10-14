@@ -1,60 +1,20 @@
-"""
-screener_engine.py - the Screener engine (fundamental universe selection).
+"""Fetch a saved Screener.in universe for downstream Blue_engine stages.
 
-WHERE THIS FITS IN THE PIPELINE
--------------------------------
-    Economic -> Market -> Portfolio -> Alpha -> POV -> Infrastructure
-                                       ^
-                                       |
-                    Screener engine feeds the Alpha stage
-
-The Alpha engine (``alpha/alpha_engine.py``) already takes a ``fundamentals``
-dict per symbol and scores it. What it does NOT do is *decide which symbols
-exist* - it screens whatever universe it is handed. This engine is that missing
-half: it goes to screener.in, applies the fundamental rules, and emits the
-candidate universe with the exact metric keys Alpha already consumes
-(``pe``, ``roe``, ``de``, ...) plus the two the request named
-(``market_cap``, ``debt_equity``).
-
-So the wiring is:
-
-    ScreenerEngine.screen()  ->  {"symbols": [...], "fundamentals": {...}}
-                             ->  AlphaEngine  ->  POV
-
-The Screener engine declares ``EngineStage.MARKET``... no. Read on.
-
-STAGE CHOICE
-------------
-It is registered at ``EngineStage.PORTFOLIO`` - *before* Alpha, because the
-universe must exist before names can be scored or sized. It is deliberately NOT
-inserted into ``MacroPipeline``'s default engine list: ``MacroPipeline`` is a
-pure, offline, deterministic chain, and bolting an HTTP scraper into it would
-break that contract for every existing test and every existing run. Instead this
-engine is (a) runnable standalone, and (b) consumable as a *provider* by the
-Alpha stage, which is how the pipeline stays pure and the scraper stays optional.
-
-DATA-DATE DISCIPLINE
---------------------
-Every result carries ``as_of`` and ``source`` fields. screener.in shows the last
-reported *quarter*, not today's price. A market cap derived from it is therefore
-a point-in-time fundamental, NOT a live valuation. ``MarketEngine``/OpenAlgo
-``quotes()`` own live prices. The engine never mixes the two, and the dashboard
-renders the data date next to every screen result.
-
-SAFETY
-------
-* Read-only against screener.in. No orders, no OpenAlgo import, no config writes.
-* Never raises: any failure degrades to an ``EngineResult`` with ``ok=False``.
-* Bounded: ``max_symbols`` caps the sweep, ``min_interval_ms`` caps the request
-  rate, and ``max_pages`` caps the pagination walk. See ``polite_limits()``.
+For ``source="screen"``, Screener.in owns stock selection. This engine fetches
+the paginated result, scrapes each selected company's statements at a polite
+rate, and publishes raw snapshots to ValuationEngine and ratios to Alpha. It
+does not recalculate market cap or debt/equity and does not place orders.
 """
 from __future__ import annotations
 
 import logging
+import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 from ..core.base import BaseEngine, EngineResult, EngineStage
 from .client.numbers import (
@@ -64,7 +24,7 @@ from .client.numbers import (
     to_number,
 )
 from .client.screener_client import ScreenerClient
-from .filters import Screener
+from .filters import ScreenResult, Screener
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +34,13 @@ DEFAULT_CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
 
 class ScreenerEngine(BaseEngine):
-    """Fundamental screening engine backed by the vendored screener-india port.
+    """Saved-screen scraper backed by the vendored screener-india port.
 
     Config block (``screener`` in ``screener_engine.json``)::
 
         {
           "enabled": true,
-          "source": "sector",              # "sector" | "symbols" | "screen"
+          "source": "screen",              # primary saved-screen source
           "sectors": ["IN02/IN0201"],      # sector slugs for source="sector"
           "screen_id": null, "screen_slug": null,
           "symbols": ["RELIANCE", "TCS"],  # for source="symbols"
@@ -109,25 +69,39 @@ class ScreenerEngine(BaseEngine):
         self._client_override = client
         self._client: Optional[ScreenerClient] = None
 
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(Path(__file__).resolve().parents[2] / ".env",
+                        override=False)
+        except ImportError:
+            pass
+
         # Screen definition lives in its own sub-block so a screen can be
         # swapped without touching transport settings.
         self.screen = Screener.from_config(self.config.get("screen") or {})
 
-        self.source = str(self.config.get("source") or "sector").lower()
+        self.source = str(self.config.get("source") or "screen").lower()
         self.sectors = list(self.config.get("sectors") or [])
         self.symbols = [str(s).upper() for s in (self.config.get("symbols") or [])]
         self.screen_id = self.config.get("screen_id")
         self.screen_slug = self.config.get("screen_slug")
+        screen_url = self.config.get("screen_url") or os.environ.get(
+            "URL_SCREENER_DOT_IN")
+        if screen_url:
+            match = re.search(
+                r"/screens/(\d+)/([^/?#]+)", urlparse(str(screen_url)).path)
+            if match:
+                self.screen_id = self.screen_id or match.group(1)
+                self.screen_slug = self.screen_slug or match.group(2)
 
         self.max_symbols = int(self.config.get("max_symbols", 250))
         self.max_pages = int(self.config.get("max_pages", 40))
         self.include_all_pages = bool(self.config.get("include_all_pages", True))
-        #: Enrich each candidate with its own company page (per-symbol fetch).
-        #: Off by default: the sector/screen table already carries the columns we
-        #: need, so enrichment multiplies the request count by N for little gain.
-        #: Turn it on when a metric is missing from the table (e.g. debt/equity).
-        self.enrich = bool(self.config.get("enrich", False))
+        #: Enrich screen rows with statements for the downstream valuation stage.
+        self.enrich = bool(self.config.get("enrich", self.source == "screen"))
         self.enrich_limit = int(self.config.get("enrich_limit", self.max_symbols))
+        self.annual_report_enrichment = bool(
+            self.config.get("annual_report_enrichment", self.source == "screen"))
 
     # ------------------------------------------------------------------ #
     # Client
@@ -137,6 +111,19 @@ class ScreenerEngine(BaseEngine):
         if self._client_override is not None:
             return self._client_override
         if self._client is None:
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(Path(__file__).resolve().parents[2] / ".env",
+                            override=False)
+            except ImportError as exc:
+                raise RuntimeError(
+                    "python-dotenv is required to read the repository .env; "
+                    "install the screener extra") from exc
+            session_id = (
+                os.environ.get("Screenerdotin_sessionid")
+                or os.environ.get("SCREENER_SESSION_ID")
+                or os.environ.get("SCREENER_SESSIONID")
+                or "")
             cache_dir = self.config.get("cache_dir")
             if cache_dir is None:
                 cache_dir = str(DEFAULT_CACHE_DIR)
@@ -147,10 +134,25 @@ class ScreenerEngine(BaseEngine):
                 max_retries=int(self.config.get("max_retries", 2)),
                 timeout_ms=int(self.config.get("fetch_timeout_ms", 20_000)),
                 proxy_url=str(self.config.get("proxy_url") or ""),
-                cookies=str(self.config.get("cookies") or ""),
+                cookies=(str(self.config.get("cookies") or "")
+                         or (f"sessionid={session_id}" if session_id else "")),
                 cache_dir=cache_dir,
                 verify_tls=bool(self.config.get("verify_tls", True)),
             )
+            if not session_id and not self.config.get("cookies"):
+                username = (
+                    os.environ.get("SCREENER_USERNAME")
+                    or os.environ.get("Screenerdotin_username")
+                    or os.environ.get("username")
+                    or os.environ.get("email")
+                )
+                password = (os.environ.get("SCREENER_PASSWORD")
+                            or os.environ.get("password"))
+                if username and password:
+                    login = self._client.login(username, password)
+                    if not login.ok:
+                        raise RuntimeError(
+                            f"Screener.in authentication failed: {login.error}")
         return self._client
 
     # ------------------------------------------------------------------ #
@@ -200,9 +202,29 @@ class ScreenerEngine(BaseEngine):
         res = client.get_screen_details(
             int(self.screen_id), str(self.screen_slug),
             include_all_pages=self.include_all_pages, max_pages=self.max_pages)
+        if not res.ok and "LOGIN_REQUIRED" in (res.error or ""):
+            username = (
+                os.environ.get("SCREENER_USERNAME")
+                or os.environ.get("Screenerdotin_username")
+                or os.environ.get("username")
+                or os.environ.get("email")
+            )
+            password = (os.environ.get("SCREENER_PASSWORD")
+                        or os.environ.get("password"))
+            if username and password:
+                login = client.login(username, password)
+                if login.ok:
+                    res = client.get_screen_details(
+                        int(self.screen_id), str(self.screen_slug),
+                        include_all_pages=self.include_all_pages,
+                        max_pages=self.max_pages)
+                else:
+                    return [], [f"Screener.in login failed: {login.error}"]
         warnings.extend(res.warnings)
         if not res.ok or not res.data:
             return [], [f"screen {self.screen_id} failed: {res.error}"]
+        if res.warnings:
+            return [], warnings
         candidates = []
         for row in res.data.get("rows") or []:
             cand = self._candidate_from_row(row)
@@ -234,6 +256,7 @@ class ScreenerEngine(BaseEngine):
             "name": res.data.get("name") or "",
             "sector": None,
             "metrics": self._metrics_from_company(res.data),
+            "company_data": res.data,
         }
 
     def _candidate_from_row(self, row: Dict[str, Any],
@@ -248,12 +271,14 @@ class ScreenerEngine(BaseEngine):
         if not isinstance(row, dict):
             return None
 
-        symbol = _first_present(row, ("Name", "Symbol", "Company", "Ticker"))
+        symbol = _first_present(row, ("_symbol", "Symbol", "Ticker"))
+        if not symbol:
+            label = _first_present(row, ("Name", "Company"))
+            if label and re.fullmatch(r"[A-Za-z0-9&._-]{1,20}", label):
+                symbol = label
         if not symbol:
             return None
         symbol = str(symbol).strip().upper()
-        # A row can carry a link label like "RELIANCE 1" - keep the first token.
-        symbol = symbol.split()[0] if symbol else ""
         if not symbol or len(symbol) > 20:
             return None
 
@@ -272,21 +297,12 @@ class ScreenerEngine(BaseEngine):
             "sales": _first_present(row, ("Sales", "Revenue")),
             "net_profit": _first_present(row, ("Net Profit", "NP", "PAT")),
         }
-        # Drop nothing here: the screen's UNKNOWN policy decides what a missing
-        # metric means. If we filtered None out now, a "-" and an absent column
-        # would become indistinguishable from a real 0 downstream.
-        return {"symbol": symbol, "name": symbol, "sector": sector, "metrics": raw}
+        # Preserve blank cells as None; a missing published value is not zero.
+        name = _first_present(row, ("Name", "Company")) or symbol
+        return {"symbol": symbol, "name": name, "sector": sector, "metrics": raw}
 
     def _metrics_from_company(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract the metric dict from a full company snapshot (top ratios).
-
-        This is the authoritative path. ``debt_equity`` is not always a top
-        This is the authoritative path. screener.in does NOT publish a
-        "Debt to equity" cell on the public company page (verified against a
-        live RELIANCE page: the ratios table carries Debtor Days, Inventory
-        Days and ROCE, but no debt/equity). So ``debt_equity`` is DERIVED from
-        the balance sheet instead - see :meth:`_debt_equity_from_balance_sheet`.
-        """
+        """Extract ratios as published by Screener.in; do not recalculate them."""
         tr = data.get("top_ratios") or []
         metrics: Dict[str, Any] = {
             "market_cap": ratio_lookup(tr, "market_cap"),
@@ -307,89 +323,14 @@ class ScreenerEngine(BaseEngine):
             if row is not None:
                 de = latest_period_value(row, headers=(table or {}).get("headers"))
 
-        # 2nd choice: derive it from the balance sheet. This is the normal path.
-        if de is None:
-            de = self._debt_equity_from_balance_sheet(data.get("balance_sheet"))
-
         metrics["debt_equity"] = de
-        # Record where the number came from. "reported" vs "derived" is the
-        # difference between a figure you can reconcile with a vendor and one
-        # you cannot, and a rejection reason should say which it was.
         metrics["debt_equity_source"] = (
             "reported" if de is not None else "unavailable")
         return metrics
 
-    def _debt_equity_from_balance_sheet(self,
-                                        table: Optional[Dict[str, Any]]) -> Optional[float]:
-        """Derive debt/equity from the balance sheet's latest period.
-
-        screener.in's balance sheet reports (label -> meaning):
-
-            Equity Capital     share capital
-            Reserves           retained earnings + other reserves
-            Borrowings +       total debt  <-- the numerator
-
-        so
-
-            debt/equity = Borrowings / (Equity Capital + Reserves)
-
-        We return ``None`` - never 0 - when any of the three inputs is missing
-        or when equity is <= 0 (a negative-equity company has a meaningless
-        ratio; treating it as 0 would let a distressed name pass "< 1").
-
-        This mirrors the widely used definition (total debt over shareholders'
-        equity). It is NOT identical to every vendor's number: some include
-        lease liabilities or use standalone vs consolidated figures. The engine
-        labels the metric's provenance so the difference is visible rather than
-        hidden - see ``metrics_derived`` in the engine output.
-        """
-        if not table:
-            return None
-        headers = table.get("headers") or []
-        if not headers:
-            return None
-
-        # NOTE on the label: screener.in uses "Borrowings +" for most companies
-        # but "Borrowing" (singular, no '+') for banks - verified live against
-        # HDFCBANK vs ITC. Matching the STEM "borrowing" covers "Borrowing",
-        # "Borrowings" and "Borrowings +". Listing both spellings separately
-        # was the bug: a substring match on "borrowings" MISSES "borrowing"
-        # only if the row is compared for equality, and misses nothing if it is
-        # compared as a substring - but relying on that coincidence is fragile,
-        # so the stem is used explicitly.
-        borrowings = latest_period_value(
-            table_row_lookup(table, ("borrowing", "total debt", "debt")),
-            headers=headers)
-        equity_capital = latest_period_value(
-            table_row_lookup(table, ("equity capital", "share capital")),
-            headers=headers)
-        reserves = latest_period_value(
-            table_row_lookup(table, ("reserves",)),
-            headers=headers)
-
-        if borrowings is None or equity_capital is None or reserves is None:
-            return None
-        equity = equity_capital + reserves
-        if equity <= 0:
-            # Negative or zero book equity: the ratio is not meaningful, and a
-            # small positive number here would wrongly satisfy a "< 1" filter.
-            return None
-        return borrowings / equity
-
     def _metrics_derived(self) -> Dict[str, str]:
-        """Which metrics are computed rather than scraped verbatim.
-
-        Surfaced in the engine output so a consumer (and the dashboard) can tell
-        a reported figure from a derived one. Fundamental data provenance is not
-        optional in a trading system - the same number from two vendors differs
-        and the difference is the first question you ask when a screen
-        disagrees with your broker.
-        """
-        return {
-            "debt_equity": (
-                "derived: Borrowings / (Equity Capital + Reserves), "
-                "latest balance-sheet period"),
-        }
+        """This engine reports Screener.in ratios without calculating them."""
+        return {}
 
     # ------------------------------------------------------------------ #
     # Enrichment (opt-in per-symbol fetch)
@@ -398,29 +339,46 @@ class ScreenerEngine(BaseEngine):
                 candidates: List[Dict[str, Any]]) -> List[str]:
         """Fill missing metrics from each candidate's own company page.
 
-        Only runs when ``enrich`` is true. Only the FIRST ``enrich_limit``
-        candidates are enriched, and only metrics that are currently missing are
-        touched - an existing table value is never overwritten, because the
-        table value and the company page can legitimately differ (consolidated
-        vs standalone) and silently swapping one for the other would make a
-        screen non-reproducible.
+        Full company statements are retained for valuation. Existing metrics
+        from the saved-screen row remain authoritative.
         """
         warnings: List[str] = []
-        for cand in candidates[: self.enrich_limit]:
+        eligible = candidates[: min(self.enrich_limit, self.max_symbols)]
+        for index, cand in enumerate(eligible):
+            if index:
+                time.sleep(1.5)
             missing = [k for k, v in (cand.get("metrics") or {}).items()
                        if to_number(v) is None]
-            if not missing:
-                continue
             res = client.get_company(cand["symbol"], "consolidated")
             if not res.ok or not res.data:
                 warnings.append(f"enrich {cand['symbol']}: {res.error}")
                 continue
+            cand["company_data"] = res.data
             fresh = self._metrics_from_company(res.data)
             for key in missing:
                 if key in fresh and to_number(fresh[key]) is not None:
                     cand["metrics"][key] = fresh[key]
             if res.data.get("name") and not cand.get("name"):
                 cand["name"] = res.data["name"]
+            if self.annual_report_enrichment:
+                from .annual_reports import enrich_company_from_report
+                fetch_pdf = getattr(client, "fetch_pdf", None)
+                if callable(fetch_pdf):
+                    report_result = enrich_company_from_report(
+                        cand["company_data"], fetch_pdf)
+                    if report_result.get("error"):
+                        warnings.append(
+                            f"annual report {cand['symbol']}: "
+                            f"{report_result['error']}")
+                else:
+                    cand["company_data"]["annual_report_enrichment"] = {
+                        "status": "unavailable",
+                        "missing_before": [],
+                        "filled": [],
+                        "missing_after": [],
+                        "report": None,
+                        "error": "Screener client does not support PDF downloads.",
+                    }
         return warnings
 
     # ------------------------------------------------------------------ #
@@ -435,6 +393,7 @@ class ScreenerEngine(BaseEngine):
         #    path and the one the pipeline uses. Only when neither is present do
         #    we reach for the network.
         candidates: Optional[List[Dict[str, Any]]] = None
+        from_saved_screen = False
         supplied = self._collect(context)
         if supplied:
             candidates = list(supplied.get("candidates") or [])
@@ -452,12 +411,17 @@ class ScreenerEngine(BaseEngine):
                 candidates, w = self._from_symbols(client)
             elif self.source == "screen":
                 candidates, w = self._from_screen(client)
+                from_saved_screen = True
             else:
                 candidates, w = self._from_sectors(client)
             warnings.extend(w)
 
             if self.enrich and candidates:
                 warnings.extend(self._enrich(client, candidates))
+                if len(candidates) > min(self.enrich_limit, self.max_symbols):
+                    warnings.append(
+                        "company-statement enrichment was capped; valuation "
+                        "will receive only the enriched subset")
 
         if not candidates:
             msg = "no candidates obtained"
@@ -475,8 +439,20 @@ class ScreenerEngine(BaseEngine):
                 f"{len(candidates)} candidates truncated to {self.max_symbols}")
             candidates = candidates[: self.max_symbols]
 
-        # 4. Apply the screen.
-        results = self.screen.evaluate(candidates)
+        # The configured saved screen is already filtered by Screener.in.
+        # Other sources can still use the optional local rule utility.
+        if from_saved_screen:
+            results = [
+                ScreenResult(
+                    symbol=str(candidate.get("symbol") or "").upper(),
+                    selected=bool(candidate.get("symbol")),
+                    metrics=candidate.get("metrics") or {},
+                    name=str(candidate.get("name") or ""),
+                )
+                for candidate in candidates
+            ]
+        else:
+            results = self.screen.evaluate(candidates)
         legal_warnings = supplied.get("legal_warnings") or []
         verified_blacklist: Dict[str, Dict[str, str]] = {}
         for item in legal_warnings:
@@ -503,12 +479,26 @@ class ScreenerEngine(BaseEngine):
 
         # 5. Shape the output for the Alpha stage: same keys it already reads.
         fundamentals = self._to_alpha_fundamentals(selected)
+        selected_symbols = {result.symbol for result in selected}
+        company_snapshots = {
+            str(candidate["symbol"]).upper(): candidate["company_data"]
+            for candidate in candidates
+            if (str(candidate.get("symbol") or "").upper() in selected_symbols
+                and isinstance(candidate.get("company_data"), dict))
+        }
+        annual_report_gaps = {
+            symbol: list(
+                (snapshot.get("annual_report_enrichment") or {}).get(
+                    "missing_after") or [])
+            for symbol, snapshot in company_snapshots.items()
+            if isinstance(snapshot.get("annual_report_enrichment"), dict)
+        }
 
         elapsed = round(time.time() - started, 2)
         self.log(
             f"{len(results)} candidates -> {len(selected)} selected "
             f"({len(rejected)} rejected) in {elapsed}s "
-            f"[{self.screen.name}]")
+            f"[{'Screener.in saved screen' if from_saved_screen else self.screen.name}]")
 
         return EngineResult(
             engine=self.name, ok=True,
@@ -519,7 +509,15 @@ class ScreenerEngine(BaseEngine):
                 "data_date_note": (
                     "Fundamentals as last reported to screener.in. NOT live "
                     "prices; use OpenAlgo quotes() for live valuation."),
-                "screen": self.screen.as_dict(),
+                "screen": (
+                    {
+                        "name": "Screener.in saved screen",
+                        "id": self.screen_id,
+                        "slug": self.screen_slug,
+                        "rules_applied_upstream": True,
+                    }
+                    if from_saved_screen else self.screen.as_dict()
+                ),
                 "polite_limits": self.polite_limits(),
                 "metrics_derived": self._metrics_derived(),
                 "counts": {
@@ -537,6 +535,8 @@ class ScreenerEngine(BaseEngine):
                     for ticker, item in sorted(verified_blacklist.items())
                 ],
                 "fundamentals": fundamentals,
+                "company_snapshots": company_snapshots,
+                "annual_report_gaps": annual_report_gaps,
                 "results": [r.as_dict() for r in results],
                 "rejected": [
                     {"symbol": r.symbol, "reason": r.reason()}
@@ -630,12 +630,21 @@ class ScreenerEngine(BaseEngine):
             "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "source": self._source_description(),
             "data_kind": "fundamental_snapshot",
-            "screen": self.screen.as_dict(),
+            "screen": (
+                {
+                    "name": "Screener.in saved screen",
+                    "id": self.screen_id,
+                    "slug": self.screen_slug,
+                    "rules_applied_upstream": True,
+                }
+                if self.source == "screen" else self.screen.as_dict()
+            ),
             "polite_limits": self.polite_limits(),
             "metrics_derived": self._metrics_derived(),
             "counts": {"candidates": 0, "selected": 0,
                        "rejected": 0, "missing_data": 0},
             "selected": [], "symbols": [], "fundamentals": {},
+            "company_snapshots": {},
             "results": [], "rejected": [],
             "note": note,
         }

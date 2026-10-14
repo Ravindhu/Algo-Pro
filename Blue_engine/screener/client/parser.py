@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import unquote
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -302,6 +303,13 @@ def parse_data_table(root: BeautifulSoup) -> Dict[str, List[Any]]:
         for i, cell in enumerate(cells):
             key = columns[i] if i < len(columns) else f"col_{i}"
             row[key] = _norm(cell.get_text())
+        if cells:
+            for anchor in _qall(cells[0], "a[href]"):
+                href = str(anchor.get("href") or "")
+                match = re.search(r"/company/([^/?#]+)/", href, re.IGNORECASE)
+                if match:
+                    row["_symbol"] = unquote(match.group(1)).upper()
+                    break
         rows.append(row)
 
     return {"columns": columns, "rows": rows}

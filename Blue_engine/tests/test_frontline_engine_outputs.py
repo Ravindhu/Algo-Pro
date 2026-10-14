@@ -7,8 +7,9 @@ from blue_engine.core.risk_engine import RiskEngine
 from blue_engine.economics import EconomicEngine
 from blue_engine.market import MarketEngine
 from blue_engine.portfolio import PortfolioEngine
-from blue_engine.screener import ScreenerEngine, ValuationEngine
-from blue_engine.screener import valuation_engine
+from blue_engine.screener import ScreenerEngine
+from blue_engine.valuation_engine import ValuationEngine
+from blue_engine import valuation_engine
 
 
 def test_economic_engine_exposes_bounded_macro_decision_fields():
@@ -148,6 +149,42 @@ def test_valuation_engine_is_offline_and_returns_unfabricated_values(monkeypatch
     assert result.data["growth_rate_ceiling"] == 0.05
     assert result.data["margin_safety_adjustment"] == 0.85
     assert result.data["valuations"]["TCS"]["status"] == "ok"
+
+
+def test_valuation_engine_consumes_screener_snapshots(monkeypatch):
+    fake_valuation = SimpleNamespace(
+        as_dict=lambda: {"symbol": "TCS", "status": "ok",
+                         "classification": "fair"})
+
+    def fake_value_company(company, **kwargs):
+        assert company == {"profit_loss": {"rows": []}}
+        assert kwargs["symbol"] == "TCS"
+        return fake_valuation
+
+    monkeypatch.setattr(valuation_engine, "value_company", fake_value_company)
+    result = ValuationEngine().run({
+        "screener": {
+            "data": {
+                "company_snapshots": {
+                    "TCS": {"profit_loss": {"rows": []}},
+                },
+            },
+        },
+    })
+
+    assert result.ok
+    assert result.data["valuations"]["TCS"]["classification"] == "fair"
+
+
+def test_screener_stage_precedes_valuation_when_enabled():
+    pipeline = MacroPipeline({
+        "engines": {
+            "screener": {"pipeline_enabled": True},
+            "valuation": {"pipeline_enabled": True},
+        },
+    })
+    order = [engine.name for engine in pipeline.engines]
+    assert order.index("screener") < order.index("valuation")
 
 
 def test_risk_engine_vetoes_corrupted_data_and_live_missing_inputs():

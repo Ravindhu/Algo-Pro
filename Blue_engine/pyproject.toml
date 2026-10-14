@@ -33,12 +33,14 @@ quant = [
     "statsmodels>=0.14",
     "requests>=2.31",
 ]
-# Screener engine: HTML parsing for the screener-india port. `requests` already
-# comes with the quant extra; beautifulsoup4 + lxml are the parser stack.
+# Screener engine: HTML parsing, authenticated transport, and PDF extraction
+# for measured annual-report gap filling.
 screener = [
     "requests>=2.31",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
+    "python-dotenv>=1.0",
+    "pypdf>=5.0",
 ]
 # OPTIONAL yfinance fallback for the screener's valuation layer. Used only to
 # fill inputs screener.in does not publish (cash, DILUTED shares, minority

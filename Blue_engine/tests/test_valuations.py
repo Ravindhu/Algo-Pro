@@ -909,6 +909,7 @@ class TestYfinanceFallback:
         assert filled == []
         assert any("no symbol" in n for n in inp.notes), inp.notes
 
+
     # ---- end-to-end through value_company, offline ------------------------ #
     def test_value_company_runs_with_a_custom_provider(self):
         """The provider seam works without yfinance installed at all."""
@@ -936,6 +937,39 @@ class TestYfinanceFallback:
     def test_filled_by_is_empty_on_a_pure_screener_run(self):
         val = V.value_company(_company(), symbol="T")
         assert val.filled_by == {}
+
+
+class TestDcf:
+    def test_dcf_projects_reported_free_cash_flow_and_returns_audit_trail(self):
+        company = _company()
+        company["cash_flow"] = _table({
+            "Free Cash Flow": [
+                "5,000", "5,500", "6,000", "6,500", "7,000", "7,000"],
+        }, headers=["", "Mar 2021", "Mar 2022", "Mar 2023",
+                    "Mar 2024", "Mar 2025", "TTM"])
+        company["annual_report_data"] = {
+            "cash_and_equivalents": {"value": 500.0},
+            "minority_interest": {"value": 50.0},
+        }
+
+        value = V.value_company(company, symbol="TESTCO")
+        dcf = value.dcf
+
+        assert dcf["status"] == "ok"
+        assert dcf["base_free_cash_flow"] == 7000.0
+        assert len(dcf["forecast"]) == 5
+        assert dcf["forecast"][0]["free_cash_flow"] == pytest.approx(7350.0)
+        assert dcf["per_share"] > 0
+        assert dcf["assumptions"]
+        assert value.filled_by["cash_and_equivalents"] == "screener_annual_report"
+
+    def test_dcf_lists_missing_data_instead_of_using_zero(self):
+        value = V.value_company(_company(), symbol="TESTCO")
+
+        assert value.dcf["status"] == "insufficient_data"
+        assert "cash and cash equivalents" in value.dcf["missing"]
+        assert "minority interest" in value.dcf["missing"]
+        assert "cash_and_equivalents" in value.as_dict()["missing_data"]["annual_report"]
 
 
 class TestCapexGuard:

@@ -1,17 +1,18 @@
 """
-screener - the Screener engine (fundamental universe selection).
+screener - Screener.in client, saved-screen scraper, and valuation models.
 
 WHAT IT IS
 ----------
 A Python port of the vendored npm package
-``screener-india`` (https://github.com/sahiljani/screener-india) plus the
-screening rules that turn raw fundamentals into a tradable universe.
+``screener-india`` (https://github.com/sahiljani/screener-india) for reading
+Screener.in saved screens and company financial pages.
 
 This is the **fundamental half** of universe selection:
 
-    Screener engine  ->  "WHICH names exist and pass the fundamental gates"
-    Alpha engine     ->  "WHICH of those to buy/sell, and at what level"
-    POV engine       ->  "HOW to slice the resulting order"
+    Screener.in      ->  "WHICH names passed the saved-screen filters"
+    ScreenerEngine   ->  fetches company statements
+    ValuationEngine  ->  estimates value from those statements
+    Alpha engine     ->  scores and ranks candidates
 
 WHY IT IS VENDORED LIKE OPENALGO
 --------------------------------
@@ -30,8 +31,9 @@ LAYOUT
     client/parser.py       HTML -> Python (1:1 port of src/utils/parser.ts)
     client/numbers.py      screener.in display strings -> comparable floats
     client/screener_client.py   the ScreenerClient (port of src/client/*.ts)
-    filters.py             Rule / Screener / the two requested rules
-    valuations.py          EPV + Conservative Adjusted NAV (per-share, 3 scenarios each)
+    filters.py             optional local rules for offline/provider candidates
+    annual_reports.py      missing-data discovery + annual-report PDF parsing
+    valuations.py          EPV + CANAV + DCF (per-share valuation models)
     yf_fallback.py         OPTIONAL yfinance gap-fill for the valuation inputs
     screener_engine.py     ScreenerEngine(BaseEngine) - the engine entry point
 
@@ -66,7 +68,7 @@ from .filters import (
     default_rules,
 )
 from .screener_engine import ScreenerEngine
-from .valuation_engine import ValuationEngine
+from ..valuation_engine import ValuationEngine
 from .client.screener_client import ScreenerClient
 from . import valuations
 from . import yf_fallback
@@ -76,8 +78,10 @@ from .valuations import (
     CLASS_INSUFFICIENT,
     CLASS_RICH,
     CLASS_STRONG,
+    DcfResult,
     Valuation,
     classify,
+    compute_dcf,
     value_company,
     value_symbol,
 )
@@ -94,11 +98,13 @@ __all__ = [
     "PASS",
     "FAIL",
     "UNKNOWN",
-    # valuation layer (EPV + CANAV)
+    # valuation layer (EPV + CANAV + DCF)
     "valuations",
     "yf_fallback",
     "Valuation",
+    "DcfResult",
     "classify",
+    "compute_dcf",
     "value_company",
     "value_symbol",
     "CLASS_STRONG",
