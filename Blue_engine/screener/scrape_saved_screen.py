@@ -93,6 +93,20 @@ def scrape_saved_screen(
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "filtered_summary.csv"
     detail_path = output_dir / "enriched_details.json"
+
+    # Resolve each screen symbol to a tradable (symbol, exchange) pair so
+    # downstream stages (OpenAlgo history, watchlists, backtests) can use
+    # the export directly - BSE-code rows get the exchange tag they need.
+    from .symbol_map import resolve_many
+    resolved = resolve_many(row["symbol"] for row in summary_rows)
+    for row in summary_rows:
+        match = resolved.get(row["symbol"])
+        if match is not None:
+            row["tradable_symbol"] = match.symbol
+            row["exchange"] = match.exchange
+            row["isin"] = match.isin
+            row["symbol_resolved"] = "true" if match.resolved else "false"
+
     columns = ["symbol"]
     for row in summary_rows:
         for key in row:

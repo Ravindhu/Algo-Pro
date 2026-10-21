@@ -57,6 +57,11 @@ def test_scrape_exports_filtered_rows_and_full_company_data(tmp_path, monkeypatc
         "symbol": "RELIANCE",
         "Name": "Reliance Industries",
         "Mar Cap": "20,00,000",
+        # Resolver columns appended by the exporter.
+        "tradable_symbol": "RELIANCE",
+        "exchange": "NSE",
+        "isin": rows[0]["isin"],
+        "symbol_resolved": "true",
     }]
     assert details["companies"][0]["data"]["balance_sheet"]["headers"] == [
         "Mar 2025"]
