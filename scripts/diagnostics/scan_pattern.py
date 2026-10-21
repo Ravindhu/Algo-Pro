@@ -1,6 +1,8 @@
-"""Check whether the real INFY daily bars contain an RRG/GRR pattern.
+"""Check whether the real INFY daily bars contain an RRG pattern.
 
-If no pattern exists in the last three candles, the signal correctly
+The OCL strategy is BUY-only: it detects Red-Red-Green (RRG) and ignores
+Green-Red-Red (GRR), which used to be the bearish/SELL pattern and has been
+removed from the strategy. If no RRG exists in the last three candles, the
 reports nothing - and the e2e run stopping at Phase 1 is CORRECT behaviour,
 not a bug. This script verifies which it is, and scans recent history for
 the most recent genuine pattern so a run can be targeted at real data that
@@ -44,12 +46,12 @@ def kind(r):
     return "-"
 
 
-print("\n=== scan for the most recent RRG (R,R,G) and GRR (G,R,R) ===")
+print("\n=== scan for the most recent RRG (R,R,G) - BUY-only ===")
 found = []
 for i in range(2, len(ROWS)):
     c1, c2, c3 = ROWS[i - 2], ROWS[i - 1], ROWS[i]
     pat = kind(c1) + kind(c2) + kind(c3)
-    if pat in ("RRG", "GRR"):
+    if pat in ("RRG",):   # RRG only; GRR no longer traded
         found.append((ROWS[i]["datetime"], pat, c3))
 
 print(f"patterns found in history: {len(found)}")

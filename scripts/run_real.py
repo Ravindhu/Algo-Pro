@@ -2,8 +2,8 @@
 OCL pattern occurrence.
 
 The earlier run stopped at Phase 1 because the LAST three daily candles
-contain no RRG/GRR. That is correct signal behaviour. The daily scan found
-113 genuine patterns in the 431-bar history, so this script ends the daily
+contain no RRG. That is correct signal behaviour. The daily scan found
+113 genuine RRG patterns in the 431-bar history, so this script ends the daily
 frame at a real pattern date and runs the full chain there.
 
 Real data only: Temp/infy_daily.csv (broker, interval=D) and
@@ -67,7 +67,7 @@ print(f"  1-min bars : {len(ltf_all)}  "
 pattern_ends = []
 for i in range(2, len(daily_all)):
     pat = kind(daily_all[i - 2]) + kind(daily_all[i - 1]) + kind(daily_all[i])
-    if pat in ("RRG", "GRR"):
+    if pat in ("RRG",):   # RRG only: the strategy is BUY-only (GRR removed)
         pattern_ends.append((i, pat, daily_all[i]["datetime"]))
 
 print(f"\nreal OCL patterns in the daily history: {len(pattern_ends)}")

@@ -70,7 +70,8 @@ with (HERE / "infy_1min.csv").open(encoding="utf-8") as fh:
         day_start_bar.setdefault(d, i)
 
 levels = []
-for pat_type in ("RRG", "GRR"):
+# RRG only: the strategy is BUY-only (GRR removed).
+for pat_type in ("RRG",):
     for i in range(2, len(rows)):
         c1, c2, c3 = rows[i - 2], rows[i - 1], rows[i]
         if not validate_pattern(c1, c2, c3, pat_type, min_body_pct=0.3):
@@ -88,9 +89,8 @@ if not levels:
     print("\nno validated patterns; nothing written")
     sys.exit(1)
 
-# Only RRG (demand) levels: the BUY rule needs demand levels. GRR levels are
-# supply levels requiring the SELL rule, which this pass does not run. That
-# limitation is stated rather than hidden.
+# Only RRG (demand) levels: the BUY rule needs demand levels. GRR (supply /
+# SELL) levels are no longer generated because the strategy is BUY-only.
 specs = []
 for dt, pat, lvl in levels:
     if pat != "RRG":

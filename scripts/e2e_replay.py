@@ -7,7 +7,7 @@ PURPOSE
 Exercise the REAL production path against recorded data, with no broker and
 no live market, so the whole chain can be observed before it touches money:
 
-    daily OCL pattern (RRG/GRR)
+    daily OCL pattern (RRG, BUY-only)
       -> daily keylevel touch            (arms the setup)
       -> 15-min z-scored ROC flip        (confirms momentum)
       -> daily buyer-initiated VWAP band (+ ceiling)

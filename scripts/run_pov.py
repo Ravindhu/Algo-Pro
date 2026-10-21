@@ -105,7 +105,7 @@ USER_CONFIG = {
         "htf_candles":          5,            # candles to fetch for HTF scan
 
         # [PATTERN SETTINGS] Candlestick Pattern Parameters
-        "pattern_type":         "RRG",         # RRG (Red-Red-Green) or GRR (Green-Red-Red)
+        "pattern_type":         "RRG",         # RRG (Red-Red-Green), BUY-only; GRR removed
         "min_body_pct":         0.3,          # min body/range ratio (noise filter)
         "trade_direction":      "AUTO",        # AUTO | BUY | SELL
 
