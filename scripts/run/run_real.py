@@ -54,8 +54,8 @@ def kind(r):
             else "R" if r["close"] < r["open"] else "-")
 
 
-daily_all = load(HERE / "infy_daily.csv")
-ltf_all = load(HERE / "infy_1min.csv")
+daily_all = load(HERE.parents[1] / "data" / "infy_daily.csv")
+ltf_all = load(HERE.parents[1] / "data" / "infy_1min.csv")
 
 print(f"REAL DATA")
 print(f"  daily bars : {len(daily_all)}  "

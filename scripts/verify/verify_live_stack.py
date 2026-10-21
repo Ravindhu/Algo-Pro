@@ -31,7 +31,7 @@ for _s in (sys.stdout, sys.stderr):
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "Blue_engine"))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""

@@ -152,7 +152,12 @@ move_log.txt
 #   2. the probes are run against real data and so are a place a credential can
 #      leak by accident (a tqdm bar echoing a URL, a repr of a config object).
 # Nothing in this repo imports from Temp/, so ignoring it breaks nothing.
-# A probe worth keeping belongs in docs/ (its findings) or Scripts/ (its code).
+# A probe worth keeping belongs in docs/ (its findings) or scripts/ (its code).
+#
+# Layout since 2026-10-21: Temp/ holds ONLY live staging work. Loose files are
+# swept into Temp/archive/<YYYY-MM-DD>/<category>/ by
+# Temp/Staging Workspace/archive_temp.py, which writes an index.txt recording
+# every former path - so the root stays readable and nothing must be deleted.
 Temp/
 
 # -----------------------------------------------------------------------------

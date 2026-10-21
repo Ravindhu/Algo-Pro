@@ -1,11 +1,11 @@
-param(
+﻿param(
     [switch]$Remove,
     [string]$TaskName = "BlueEngine_DatabaseSampleUpdate",
     [string]$Time = "18:00"
 )
 
 $ErrorActionPreference = "Stop"
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)  # scripts\ops -> repo root
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $WorkDir = Join-Path $RepoRoot "Blue_engine"
 

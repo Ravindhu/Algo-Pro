@@ -89,7 +89,15 @@ decrypts, and runs the smoke gate.
 â”‚   â”œâ”€â”€ keys/          Fernet / oauth key material
 â”‚   â””â”€â”€ download/      master-contract symbol cache
 â”œâ”€â”€ blue_engine/        the engine, installed editable with [dashboard] extras
-â”œâ”€â”€ scripts/           run_pov.py, smoke_test.py, probe_sdk.py
+â”œâ”€â”€ scripts/           grouped by job (see scripts/README.md)
+â”‚   â”œâ”€â”€ run/           run_pov, run_screener_bridge, run_economic_engine
+â”‚   â”œâ”€â”€ ops/           start_openalgo, upgrade_openalgo, scheduled tasks, QA
+â”‚   â”œâ”€â”€ verify/        smoke_test, probe_sdk, verify_*, check_*
+â”‚   â”œâ”€â”€ train/         ml_train, optimize_strategy, backtests
+â”‚   â”œâ”€â”€ research/      e2e_replay, make_real_levels (offline analysis)
+â”‚   â”œâ”€â”€ data/          fetch_infy*, audits
+â”‚   â”œâ”€â”€ diagnostics/   deep_dive + scans
+â”‚   â””â”€â”€ *.py           compatibility shims for documented entry points
 â”œâ”€â”€ data/              engine state
 â”œâ”€â”€ backups/           dated copies of .env + db
 â””â”€â”€ log/               service logs

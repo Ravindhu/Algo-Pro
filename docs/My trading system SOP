@@ -1,4 +1,4 @@
-# My Trading System — SOP
+﻿# My Trading System — SOP
 _Updated: 2026-10-14_
 
 ## 1. Environment
@@ -16,7 +16,7 @@ _Updated: 2026-10-14_
 
 ```powershell
 $env:APP_MODE = "standalone"   # stops app.py from double-starting the WS proxy
-Start-Process cmd -ArgumentList "/c start /B C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe C:\Users\Admin\CodeGPT\my-trading-system\scripts\start_openalgo.py --no-scrub-on-exit"
+Start-Process cmd -ArgumentList "/c start /B C:\Users\Admin\CodeGPT\my-trading-system\.venv\Scripts\python.exe C:\Users\Admin\CodeGPT\my-trading-system\scripts\ops\start_openalgo.py --no-scrub-on-exit"
 ```
 
 - Do NOT run `gunicorn` on Windows (needs fcntl). The launcher uses Werkzeug with `allow_unsafe_werkzeug=True`.
@@ -125,7 +125,7 @@ Live protective levels: `data\protective_orders.json` (mirror; the in-process
 registry is the source of truth). Both are surfaced on `/screener`.
 ```powershell
 # from the repository root (reads tradable symbols from the export)
-.\.venv\Scripts\python.exe scripts\run_screener_bridge.py --csv "Temp/Staging Workspace/screener_exports/filtered_summary.csv" --max-active 5 --max-concurrent 1
+.\.venv\Scripts\python.exe scripts\run\run_screener_bridge.py --csv "Temp/Staging Workspace/screener_exports/filtered_summary.csv" --max-active 5 --max-concurrent 1
 ```
 - One `OCLKeylevelSignal` per symbol, polled in its own daemon thread. A fire
   becomes an intent (action/qty/SL/TP/exit_mode) -> `risk_gate.check_intent`
@@ -302,7 +302,7 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
 Start-Sleep -Seconds 4
 # 2. OpenAlgo (5000 + 8765).
 $env:APP_MODE = "standalone"
-Start-Process cmd -ArgumentList "/c start /B $R\.venv\Scripts\python.exe $R\scripts\start_openalgo.py --no-scrub-on-exit"
+Start-Process cmd -ArgumentList "/c start /B $R\.venv\Scripts\python.exe $R\scripts\ops\start_openalgo.py --no-scrub-on-exit"
 Start-Sleep -Seconds 40
 # 3. Dashboard (8050).
 Start-Process -FilePath "$R\.venv\Scripts\python.exe" `

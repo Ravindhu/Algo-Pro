@@ -15,6 +15,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+
+# -- path bootstrap added when scripts/ was grouped (2026-10-21) -----------
+for _sub in ("research", "verify", "run", "data", "ops", "train"):
+    _p = str(HERE.parent / _sub)
+    if _p not in sys.path:
+        sys.path.append(_p)
+# --------------------------------------------------------------------------
 sys.path.insert(0, str(HERE.parent / "Blue_engine"))
 
 import e2e_replay as e2e  # noqa: E402
@@ -40,8 +47,9 @@ def load(path):
     return out
 
 
-daily_all = load(HERE / "infy_daily.csv")
-ltf_all = load(HERE / "infy_1min.csv")
+DATA = HERE.parents[1] / "data"      # CSVs written by scripts/data/fetch_infy*.py
+daily_all = load(DATA / "infy_daily.csv")
+ltf_all = load(DATA / "infy_1min.csv")
 
 idx = next(i for i, r in enumerate(daily_all) if r["datetime"] == TARGET_DATE)
 daily = daily_all[: idx + 1]

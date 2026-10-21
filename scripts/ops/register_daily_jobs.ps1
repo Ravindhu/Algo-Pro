@@ -1,11 +1,11 @@
-# register_daily_jobs.ps1 - register the post-close portfolio job with Task Scheduler.
+﻿# register_daily_jobs.ps1 - register the post-close portfolio job with Task Scheduler.
 #
 # RUNS AS: the current user (no elevation needed for a non-system task).
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\register_daily_jobs.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\ops\register_daily_jobs.ps1
 #
 # Removes with:
-#   powershell -ExecutionPolicy Bypass -File scripts\register_daily_jobs.ps1 -Remove
+#   powershell -ExecutionPolicy Bypass -File scripts\ops\register_daily_jobs.ps1 -Remove
 #
 # WHY 15:40 IST AND NOT 15:35
 # ---------------------------
@@ -28,8 +28,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Resolve repo root from this script's location (scripts\ -> repo root).
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+# Resolve repo root from this script's location (scripts\ops\ -> repo root).
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)  # scripts\ops -> repo root
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $WorkDir = Join-Path $RepoRoot "Blue_engine"
 
@@ -49,7 +49,7 @@ if (-not (Test-Path $Python)) {
     throw "Python not found at $Python. Create the venv first (see README.md)."
 }
 if (-not (Test-Path $WorkDir)) {
-    throw "Blue_engine not found at $WorkDir. Run this script from the repo's scripts\ folder."
+    throw "Blue_engine not found at $WorkDir. Run this script from the repo's scripts\ops\ folder."
 }
 
 $action = New-ScheduledTaskAction `

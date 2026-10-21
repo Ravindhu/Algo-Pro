@@ -1,4 +1,4 @@
-"""Derive real keylevels from real daily INFY OCL patterns.
+﻿"""Derive real keylevels from real daily INFY OCL patterns.
 
 The backtest harness needs a list of levels. Using arbitrary round numbers
 would test nothing meaningful, so the levels come from the SAME logic the
@@ -24,7 +24,8 @@ from blue_engine.alpha.signals._pattern import (  # noqa: E402
     validate_pattern,
 )
 
-OUT = HERE / "real_levels.json"
+DATA = HERE.parents[1] / "data"        # CSVs written by scripts/data/fetch_infy*.py
+OUT = DATA / "real_levels.json"
 BARS_PER_DAY = 375          # a 1-minute NSE session
 VALID_DAYS = 10             # a level stays actionable for this many days
 
@@ -38,7 +39,7 @@ def iso(ts):
 
 
 rows = []
-with (HERE / "infy_daily.csv").open(encoding="utf-8") as fh:
+with (DATA / "infy_daily.csv").open(encoding="utf-8") as fh:
     for r in csv.DictReader(fh):
         rows.append({
             "datetime": iso(r["datetime"]),
@@ -57,14 +58,14 @@ with (HERE / "infy_daily.csv").open(encoding="utf-8") as fh:
 # Series start: the first bar of the 1-minute data. Formation bars are
 # computed as the index of the first 1-minute bar on/after the pattern date.
 first_ltf_date = None
-with (HERE / "infy_1min.csv").open(encoding="utf-8") as fh:
+with (DATA / "infy_1min.csv").open(encoding="utf-8") as fh:
     for r in csv.DictReader(fh):
         first_ltf_date = iso(r["datetime"])
         break
 
 # Bar index of each distinct trading date in the 1-minute series.
 day_start_bar: dict = {}
-with (HERE / "infy_1min.csv").open(encoding="utf-8") as fh:
+with (DATA / "infy_1min.csv").open(encoding="utf-8") as fh:
     for i, r in enumerate(csv.DictReader(fh)):
         d = iso(r["datetime"])
         day_start_bar.setdefault(d, i)

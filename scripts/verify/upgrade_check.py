@@ -1,4 +1,4 @@
-"""
+﻿"""
 upgrade_check.py - Pin and verify the OpenAlgo folder's upstream identity.
 
 WHY
@@ -43,7 +43,7 @@ import hashlib
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OA = ROOT / "openalgo"
 PIN_PATH = ROOT / "openalgo.UPSTREAM_PIN"
 

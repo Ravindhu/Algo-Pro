@@ -1,35 +1,25 @@
-"""Quick SDK contract probe against the RUNNING OpenAlgo server."""
+"""probe_sdk.py - compatibility shim (scripts/ was grouped 2026-10-21).
+
+The implementation now lives in ``scripts/verify/probe_sdk.py``. This file stays so
+every documented command keeps working unchanged (SOP, README, deploy docs,
+scheduled tasks). It imports the real module and lets it run as ``__main__``:
+``sys.argv`` is inherited untouched, so flags behave exactly as before.
+"""
+import runpy
 import sys
 from pathlib import Path
 
-ENV = Path(r"C:\Users\KanagalakshmiM\my-trading-system\.env")
+_TARGET = Path(__file__).resolve().parent / "verify" / "probe_sdk.py"
 
-key = None
-for line in ENV.read_text(encoding="utf-8").splitlines():
-    s = line.strip()
-    if s.startswith("OPENALGO_API_KEY") and "=" in s:
-        v = s.split("=", 1)[1].strip().strip("'").strip('"')
-        if v:
-            key = v
+if __name__ == "__main__":
+    sys.argv[0] = str(_TARGET)
+    runpy.run_path(str(_TARGET), run_name="__main__")
+else:                                   # `import smoke_test` style callers
+    import importlib.util
 
-if not key:
-    print("NO KEY FOUND in", ENV)
-    sys.exit(1)
-
-print("key loaded, length =", len(key))
-from openalgo import api
-c = api(api_key=key, host="http://127.0.0.1:5000")
-
-for name in ("analyzerstatus", "funds", "orderbook", "positionbook"):
-    try:
-        r = getattr(c, name)()
-        print("  [OK]  ", name, "->", r.get("status") if isinstance(r, dict) else "n/a")
-    except Exception as e:
-        print("  [FAIL]", name, "->", type(e).__name__, e)
-
-try:
-    r = c.quotes(symbol="INFY", exchange="NSE")
-    print("  [OK]   quotes ->", r.get("status") if isinstance(r, dict) else "n/a",
-          "| ltp =", (r.get("data") or {}).get("ltp") if isinstance(r, dict) else "?")
-except Exception as e:
-    print("  [FAIL] quotes ->", type(e).__name__, e)
+    _spec = importlib.util.spec_from_file_location("probe_sdk_impl", _TARGET)
+    _mod = importlib.util.module_from_spec(_spec)
+    sys.modules["probe_sdk_impl"] = _mod
+    _spec.loader.exec_module(_mod)
+    globals().update({k: v for k, v in vars(_mod).items()
+                      if not k.startswith("__")})

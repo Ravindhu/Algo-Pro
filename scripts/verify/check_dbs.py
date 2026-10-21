@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 #: OpenAlgo keeps its SQLite files here, relative to the clone root.
-CLONE_ROOT = Path(__file__).resolve().parent.parent / "openalgo"
+CLONE_ROOT = Path(__file__).resolve().parent.parent.parent / "openalgo"
 
 DATABASES = [
     "db/openalgo.db",
