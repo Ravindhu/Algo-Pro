@@ -58,6 +58,16 @@ _CONFIG_PATH = (Path(__file__).resolve().parents[2] / "input" / "screener_engine
 #: not an error, so the page renders an empty state rather than a failure.
 _RESULT_PATH = (Path(__file__).resolve().parents[2] / "screener" / "last_screen.json")
 
+#: Run report written by ``scripts/run_screener_bridge.py --report``. Bridge
+#: state only - it is a snapshot persisted at exit, not a live feed.
+_BRIDGE_REPORT_PATH = (Path(__file__).resolve().parents[3]
+                       / "data" / "screener_bridge_report.json")
+
+#: Protective-level mirror written by ``core/protective_orders.py`` as the POV
+#: slicer registers each execution's SL/TP. Refreshed on every register/update.
+_PROTECTIVE_PATH = (Path(__file__).resolve().parents[3]
+                    / "data" / "protective_orders.json")
+
 
 # --------------------------------------------------------------------------- #
 # Readers (never raise)
@@ -77,6 +87,23 @@ def _read_json(path: Path) -> Optional[Dict[str, Any]]:
             return None
         data = json.loads(raw)
         return data if isinstance(data, dict) else None
+    except Exception:  # noqa: BLE001 - see docstring
+        return None
+
+
+def _read_json_file(path: Path) -> Any:
+    """Read a JSON *value* (object or array) or None on any problem.
+
+    ``protective_orders.json`` is a dict keyed by ``execution_id|symbol``,
+    while the bridge report is a plain object; both must degrade to None.
+    """
+    try:
+        if not path.is_file():
+            return None
+        raw = path.read_text(encoding="utf-8")
+        if not raw.strip():
+            return None
+        return json.loads(raw)
     except Exception:  # noqa: BLE001 - see docstring
         return None
 
@@ -141,6 +168,118 @@ def _fmt(value: Any) -> str:
         return f"{num:,.2f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+# --------------------------------------------------------------------------- #
+# Bridge status (run report + protective-level mirror)
+# --------------------------------------------------------------------------- #
+def _bridge_summary() -> Dict[str, Any]:
+    """Merge the bridge report and the protective registry into primitives.
+
+    Pure read: no writes, no callbacks, no engine import. A missing or
+    half-written file yields zeros/empty lists, never an exception.
+    """
+    report = _read_json(_BRIDGE_REPORT_PATH)
+    if not isinstance(report, dict):
+        report = None
+    levels_raw = _read_json_file(_PROTECTIVE_PATH)
+    levels = list(levels_raw.values()) if isinstance(levels_raw, dict) else []
+
+    executed = list((report or {}).get("executed") or [])
+    disabled = dict((report or {}).get("disabled") or {})
+    open_positions = dict((report or {}).get("open_positions") or {})
+    blocks = [e for e in executed
+              if str(e.get("status")) == "risk_gate_block"]
+    errors = [e for e in executed
+              if str(e.get("status", "")).startswith(("slicer error",
+                                                       "risk_gate_block"))]
+    return {
+        "report": report,
+        "as_of": str((report or {}).get("as_of") or "-"),
+        "n_symbols": len((report or {}).get("symbols") or []),
+        "n_active": len((report or {}).get("active") or []),
+        "disabled": disabled,
+        "open_positions": open_positions,
+        "n_executed": len(executed),
+        "n_blocked": len(blocks),
+        "n_errors": len(errors),
+        "levels": levels,
+        "executed": executed,
+        "errors": errors,
+    }
+
+
+def _level_rows(levels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for rec in levels:
+        rows.append({
+            "symbol": str(rec.get("symbol", "")),
+            "exchange": str(rec.get("exchange", "")),
+            "strategy": str(rec.get("strategy", "")),
+            "exit_mode": str(rec.get("exit_mode") or "-"),
+            "stop_loss": _fmt(rec.get("stop_loss")),
+            "target": _fmt(rec.get("target")),
+            "htf_stop": _fmt(rec.get("htf_stop_loss")),
+            "updated": str(rec.get("updated_at") or rec.get("registered_at") or "-"),
+        })
+    rows.sort(key=lambda r: (r["symbol"], r["exchange"]))
+    return rows
+
+
+def _exec_row_category(row: Dict[str, Any]) -> str:
+    """Plain category, so the reader does not have to parse the status string."""
+    status = str(row.get("status", ""))
+    if status == "closed":
+        return "exit"
+    if status.startswith("risk_gate_block"):
+        return "risk gate block"
+    if status.startswith("slicer error"):
+        return "slicer error"
+    return status or "-"
+
+
+def _exec_rows(executed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for e in executed:
+        summary = e.get("summary") or {}
+        intent = e.get("intent") or {}
+        rows.append({
+            "ts": str(e.get("ts") or "-"),
+            "symbol": str(e.get("symbol", "")),
+            "exchange": str(e.get("exchange", "")),
+            "category": _exec_row_category(e),
+            "status": str(e.get("status", "-")),
+            "action": str(intent.get("action", "-")),
+            "quantity": _fmt(intent.get("quantity")),
+            "filled": _fmt(summary.get("filled")),
+            "sl": _fmt(intent.get("stop_loss")),
+            "tp": _fmt(intent.get("target")),
+        })
+    return rows[-100:][::-1]     # newest first, capped
+
+
+_PROTECTIVE_COLUMNS = [
+    {"key": "symbol", "label": "Symbol", "bold": True},
+    {"key": "exchange", "label": "Exch"},
+    {"key": "strategy", "label": "Strategy", "mono": True},
+    {"key": "exit_mode", "label": "Exit mode"},
+    {"key": "stop_loss", "label": "Stop loss", "mono": True},
+    {"key": "target", "label": "Target", "mono": True},
+    {"key": "htf_stop", "label": "HTF stop", "mono": True},
+    {"key": "updated", "label": "Updated", "mono": True},
+]
+
+_EXEC_COLUMNS = [
+    {"key": "ts", "label": "Time", "mono": True},
+    {"key": "symbol", "label": "Symbol", "bold": True},
+    {"key": "exchange", "label": "Exch"},
+    {"key": "category", "label": "Category"},
+    {"key": "action", "label": "Side"},
+    {"key": "quantity", "label": "Qty", "mono": True},
+    {"key": "filled", "label": "Filled", "mono": True},
+    {"key": "sl", "label": "SL", "mono": True},
+    {"key": "tp", "label": "TP", "mono": True},
+]
 
 
 def _verdict_cell(row: Dict[str, Any]) -> str:
@@ -213,6 +352,15 @@ def body():
         ("Selected", str(n_sel), _AI_GREEN if n_sel else _AI_GREY),
         ("Missing data", str(n_missing), _AI_RED if n_missing else _AI_GREEN),
         ("Data as of", as_of, _AI_GREY),
+    ]
+
+    bridge = _bridge_summary()
+    ai_rows += [
+        ("Bridge open positions", str(len(bridge["open_positions"])),
+         _AI_GREEN if bridge["open_positions"] else _AI_GREY),
+        ("Bridge blocked / errors",
+         f"{bridge['n_blocked']} / {bridge['n_errors']}",
+         _AI_RED if bridge["n_errors"] else _AI_GREEN),
     ]
 
     panels: List[Any] = [
@@ -294,6 +442,95 @@ def body():
                     style={"fontFamily": "monospace", "fontSize": 12}),
             icon="mdi:alert-outline"))
 
+    panels.extend(_bridge_panels(bridge))
+    return panels
+
+
+def _bridge_panels(bridge: Dict[str, Any]) -> List[Any]:
+    """Read-only bridge tiles: run state, protective levels, execution log.
+
+    Data honesty: the run report is a snapshot written when the bridge exits,
+    the protective mirror is written by the POV slicer as levels are
+    registered. Neither is a live order feed - the OpenAlgo order book is.
+    """
+    report = bridge["report"]
+    if report is None:
+        return [Panel(
+            "Screener - OCL - POV bridge",
+            html.Div([
+                html.P(
+                    "No bridge run report yet. Start the bridge from the CLI: ",
+                    style={"opacity": 0.8, "marginTop": 0}),
+                html.Code(
+                    "scripts/run_screener_bridge.py --csv <export.csv> "
+                    "--max-active 5 --max-concurrent 1",
+                    style={"fontSize": 12}),
+            ]),
+            icon="mdi:source-branch")]
+
+    disabled_rows = [
+        {"symbol": key.split("|")[0],"exchange": (key.split("|") + [""])[1],
+         "reason": str(reason)}
+        for key, reason in sorted(bridge["disabled"].items())
+    ]
+    open_rows = [
+        {"symbol": key.split("|")[0],"exchange": (key.split("|") + [""])[1],
+         "quantity": _fmt(qty)}
+        for key, qty in sorted(bridge["open_positions"].items())
+    ]
+
+    kpis = [
+        KpiCard("Symbols in run", bridge["n_symbols"], icon="mdi:format-list-numbered"),
+        KpiCard("Active workers", bridge["n_active"], icon="mdi:play-circle-outline"),
+        KpiCard("Executions", bridge["n_executed"], icon="mdi:swap-horizontal"),
+        KpiCard("Risk-gate blocks", bridge["n_blocked"],
+                colour=NEGATIVE if bridge["n_blocked"] else None,
+                icon="mdi:shield-alert-outline"),
+        KpiCard("Disabled symbols", len(bridge["disabled"]),
+                colour=NEGATIVE if bridge["disabled"] else None,
+                icon="mdi:alert-octagon-outline"),
+    ]
+
+    panels: List[Any] = [
+        html.H2("Bridge - screener to execution", style={"marginTop": 20}),
+        html.P(
+            f"Report snapshot as of {bridge['as_of']}. State is persisted at "
+            "bridge exit; protective levels below are the live slicer "
+            "registry. Verify fills in the OpenAlgo order book.",
+            style={"opacity": 0.75, "marginTop": 0}),
+        KpiRow(kpis),
+        Panel("Run state", DataTable(
+            [{"key": "symbol", "label": "Symbol", "bold": True},
+             {"key": "exchange", "label": "Exch"},
+             {"key": "quantity", "label": "Tracked qty", "mono": True}],
+            open_rows, empty="No tracked open positions in the last run.",
+            highlight_on_hover=False),
+            icon="mdi:briefcase-outline"),
+    ]
+
+    if disabled_rows:
+        panels.append(Panel("Disabled symbols (fail-closed)", DataTable(
+            [{"key": "symbol", "label": "Symbol", "bold": True},
+             {"key": "exchange", "label": "Exch"},
+             {"key": "reason", "label": "Reason", "mono": True}],
+            disabled_rows, highlight_on_hover=False),
+            icon="mdi:alert-octagon-outline"))
+
+    panels.append(Panel(
+        "Protective levels (live SL/TP registry)",
+        DataTable(_PROTECTIVE_COLUMNS, _level_rows(bridge["levels"]),
+                  empty="No protective levels registered in this process. "
+                        "The mirror file is written by the POV slicer; an "
+                        "empty registry is normal when nothing is filled.",
+                  highlight_on_hover=True),
+        icon="mdi:shield-check-outline"))
+
+    panels.append(Panel(
+        "Execution log (last 100)",
+        DataTable(_EXEC_COLUMNS, _exec_rows(bridge["executed"]),
+                  empty="No executions recorded in the last bridge run.",
+                  highlight_on_hover=True),
+        icon="mdi:history"))
     return panels
 
 

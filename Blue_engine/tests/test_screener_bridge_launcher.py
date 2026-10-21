@@ -26,7 +26,7 @@ def test_prefers_tradable_symbol_and_skips_unresolved(tmp_path):
          "symbol_resolved": "False"},
     ])
     symbols, exchange = read_symbols_from_csv(p)
-    assert symbols == ["KNRCON", "500319"]
+    assert symbols == [("KNRCON", "NSE"), ("500319", "BSE")]
     assert exchange == "NSE"          # majority exchange
 
 
@@ -37,5 +37,5 @@ def test_falls_back_to_symbol_column_without_duplicates(tmp_path):
         {"symbol": "GOCLCORP", "exchange": "NSE"},
     ])
     symbols, exchange = read_symbols_from_csv(p)
-    assert symbols == ["INFY", "GOCLCORP"]
+    assert symbols == [("INFY", "NSE"), ("GOCLCORP", "NSE")]
     assert exchange == "NSE"

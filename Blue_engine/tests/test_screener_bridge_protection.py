@@ -69,7 +69,7 @@ def test_entry_passes_protection_to_pov_and_registry(monkeypatch):
 
 def test_close_intent_uses_sell_and_tracked_quantity(monkeypatch):
     bridge = _bridge(monkeypatch)
-    bridge._open_positions["INFY"] = 7
+    bridge._open_positions["INFY|NSE"] = 7
     result = bridge.execute_intent("INFY", "NSE", {
         "action": "SELL", "quantity": 10,
         "_meta": {"position_exit": True, "exit_reason": "target"}})
@@ -77,4 +77,38 @@ def test_close_intent_uses_sell_and_tracked_quantity(monkeypatch):
     _, intent = StubSlicer.calls[0]
     assert intent["action"] == "SELL"
     assert intent["quantity"] == 7
-    assert bridge._open_positions.get("INFY", 0) == 0
+    assert bridge._open_positions.get("INFY|NSE", 0) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Per-symbol exchange (mixed NSE / BSE screens need no override)
+# --------------------------------------------------------------------------- #
+def test_normalize_symbols_keeps_pairs_and_defaults():
+    from blue_engine.core.screener_bridge import normalize_symbols
+    out = normalize_symbols(
+        ["infy", ("500319", "bse"), ("TCS", None), "INFY", ("infy", "NSE")],
+        "NSE")
+    assert out == [("INFY", "NSE"), ("500319", "BSE"), ("TCS", "NSE")]
+
+
+def test_bridge_builds_signal_with_the_row_exchange(monkeypatch):
+    import blue_engine.core.screener_bridge as module
+    monkeypatch.setattr(module, "init_client", lambda **kwargs: StubClient())
+    bridge = module.ScreenerBridge(
+        symbols=[("INFY", "NSE"), ("500319", "BSE")], exchange="NSE")
+    nse_signal = bridge._build_signal("INFY", "NSE")
+    bse_signal = bridge._build_signal("500319", "BSE")
+    assert nse_signal.exchange == "NSE"
+    assert bse_signal.exchange == "BSE"
+
+
+def test_exit_tracking_is_keyed_per_symbol_and_exchange(monkeypatch):
+    bridge = _bridge(monkeypatch)
+    bridge.execute_intent("INFY", "NSE", {
+        "action": "BUY", "quantity": 5, "price": 100.0, "_meta": {}})
+    assert bridge._open_positions == {"INFY|NSE": 5}
+    # An exit on the OTHER exchange must not touch this position.
+    assert bridge.execute_intent("INFY", "BSE", {
+        "action": "SELL", "quantity": 5,
+        "_meta": {"position_exit": True}}) is None
+    assert bridge._open_positions == {"INFY|NSE": 5}

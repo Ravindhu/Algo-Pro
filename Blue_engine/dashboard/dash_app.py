@@ -315,6 +315,11 @@ def _register_refresh_callbacks(app: dash.Dash) -> None:
         "analytics-refresh": "analytics",
         "economic-refresh": "economic",
         "infra-refresh": "infrastructure",
+        # Screener universe + the screener->OCL->POV bridge tiles. Without this
+        # entry the page's 15 s Interval ticks and nothing re-renders, so a
+        # bridge run's executions/levels would stay invisible until a manual
+        # browser refresh.
+        "screener-refresh": "screener",
         # ML scoreboard. Reads the signed artifacts the training orchestrator
         # wrote; without this entry the page's Interval ticks and nothing
         # re-renders, so a finished training run would be invisible until a

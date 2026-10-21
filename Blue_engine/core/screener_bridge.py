@@ -14,6 +14,9 @@ Design decisions
 * In-process threads (no subprocesses): each symbol gets its own
   OCLKeylevelSignal instance; a fired intent is executed SEQUENTIALLY
   by the POV slicer under a lock so total exposure stays bounded.
+* Exchange is per symbol. ``symbols`` accepts ``"INFY"`` (uses the run
+  default ``exchange``) or ``("500319", "BSE")`` pairs, so one screen
+  holding both NSE and BSE-only names runs without an override.
 * Capital protection first: ``max_active_symbols`` caps how many symbols
   may be mid-setup at once; ``max_concurrent_executions`` caps how many
   slicer executions can run concurrently (default 1 = serialized).
@@ -32,11 +35,39 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
 from blue_engine.core.client import init_client
 from blue_engine.core.time_utils import ist_now
+
+#: A screen's tradable entry: bare symbol (run-default exchange) or a
+#: ``(symbol, exchange)`` pair.
+SymbolSpec = Union[str, Tuple[str, str]]
+
+
+def normalize_symbols(specs: Optional[Sequence[SymbolSpec]],
+                      default_exchange: str) -> List[Tuple[str, str]]:
+    """Return de-duplicated ``[(SYMBOL, EXCHANGE)]`` in input order.
+
+    ``exchange`` may be ``None`` (e.g. a blank CSV cell) in which case the
+    run default is used. Order is preserved because the screener's ranking
+    decides which names fill the ``max_active_symbols`` slots.
+    """
+    out: List[Tuple[str, str]] = []
+    seen = set()
+    for spec in specs or []:
+        if isinstance(spec, (tuple, list)):
+            sym = str(spec[0] if len(spec) > 0 else "").strip().upper()
+            ex = str(spec[1] if len(spec) > 1 and spec[1] else default_exchange)
+        else:
+            sym, ex = str(spec).strip().upper(), default_exchange
+        sym, ex = sym.strip().upper(), ex.strip().upper()
+        if not sym or (sym, ex) in seen:
+            continue
+        seen.add((sym, ex))
+        out.append((sym, ex))
+    return out
 
 
 class SymbolWorker(threading.Thread):
@@ -44,28 +75,29 @@ class SymbolWorker(threading.Thread):
 
     def __init__(self, symbol: str, exchange: str, signal: OCLKeylevelSignal,
                  bridge: "ScreenerBridge", poll_seconds: float = 5.0):
-        super().__init__(name=f"ocl-{symbol}", daemon=True)
+        super().__init__(name=f"ocl-{symbol}-{exchange}", daemon=True)
         self.symbol = symbol
         self.exchange = exchange
+        self.key = f"{symbol}|{exchange}"
         self.signal = signal
         self.bridge = bridge
         self.poll_seconds = poll_seconds
         self._stop_event = threading.Event()
 
     def run(self) -> None:
-        self.bridge.log(f"[WORKER] {self.symbol} start "
+        self.bridge.log(f"[WORKER] {self.symbol}/{self.exchange} start "
                         f"(poll={self.poll_seconds}s)")
         while not self._stop_event.is_set():
             if self.bridge.kill_tripped():
-                self.bridge.log(f"[WORKER] {self.symbol} kill switch "
+                self.bridge.log(f"[WORKER] {self.key} kill switch "
                                 f"tripped -> stopping")
                 return
             try:
                 intent = self.signal.detect()
             except Exception as exc:            # noqa: BLE001
-                self.bridge.log(f"[WORKER] {self.symbol} signal error: "
+                self.bridge.log(f"[WORKER] {self.key} signal error: "
                                 f"{exc!r}")
-                self.bridge.disable_symbol(self.symbol, f"signal error: {exc}")
+                self.bridge.disable_symbol(self.key, f"signal error: {exc}")
                 return
             if intent is not None:
                 is_exit = bool((intent.get("_meta") or {}).get("position_exit"))
@@ -105,7 +137,7 @@ class ScreenerBridge:
     def __init__(self, *, api_key: Optional[str] = None,
                  host: Optional[str] = None, ws_url: Optional[str] = None,
                  exchange: str = "NSE",
-                 symbols: Optional[List[str]] = None,
+                 symbols: Optional[Sequence[SymbolSpec]] = None,
                  strategy_params: Optional[Dict[str, Any]] = None,
                  pov_params: Optional[Dict[str, Any]] = None,
                  max_active_symbols: int = 5,
@@ -115,7 +147,8 @@ class ScreenerBridge:
                  wait_for_exit: bool = True,
                  log=None):
         self.exchange = exchange.upper()
-        self.symbols = [s.upper() for s in (symbols or [])]
+        self.symbols: List[Tuple[str, str]] = normalize_symbols(
+            symbols, self.exchange)
         self.strategy_params = dict(strategy_params or {})
         self.pov_params = dict(pov_params or {})
         self.risk_config = dict(risk_config or {})
@@ -151,10 +184,11 @@ class ScreenerBridge:
         self.log(f"[DISABLED] {symbol}: {reason}")
 
     # ------------------------------------------------------------------ #
-    def _build_signal(self, symbol: str) -> OCLKeylevelSignal:
+    def _build_signal(self, symbol: str,
+                      exchange: Optional[str] = None) -> OCLKeylevelSignal:
         params = dict(self.strategy_params)
         params.setdefault("symbol", symbol)
-        params.setdefault("exchange", self.exchange)
+        params.setdefault("exchange", exchange or self.exchange)
         params.setdefault("exec_mode", "CONTINUOUS")
         params.setdefault("one_shot", True)
         return OCLKeylevelSignal(self.client, params)
@@ -167,21 +201,25 @@ class ScreenerBridge:
             return
         selected = self.symbols[: self.max_active_symbols]
         skipped = len(self.symbols) - len(selected)
+        defaulted = [f"{s}/{e}" for s, e in selected if e == self.exchange]
         self.log(f"[BRIDGE] starting {len(selected)} symbol worker(s)"
                  + (f"; {skipped} skipped (max_active_symbols="
-                    f"{self.max_active_symbols})" if skipped else ""))
-        for symbol in selected:
-            if symbol in self._disabled:
-                self.log(f"[BRIDGE] {symbol} already disabled; skip")
+                    f"{self.max_active_symbols})" if skipped else "")
+                 + (f"; {len(defaulted)} on default exchange {self.exchange}"
+                    if defaulted and len(defaulted) != len(selected) else ""))
+        for symbol, exchange in selected:
+            key = f"{symbol}|{exchange}"
+            if key in self._disabled:
+                self.log(f"[BRIDGE] {symbol}/{exchange} already disabled; skip")
                 continue
             try:
-                signal = self._build_signal(symbol)
+                signal = self._build_signal(symbol, exchange)
             except Exception as exc:            # noqa: BLE001
-                self.disable_symbol(symbol, f"init error: {exc}")
+                self.disable_symbol(key, f"init error: {exc}")
                 continue
-            worker = SymbolWorker(symbol, self.exchange, signal, self,
+            worker = SymbolWorker(symbol, exchange, signal, self,
                                   poll_seconds=self.poll_seconds)
-            self._active[symbol] = worker
+            self._active[key] = worker
             worker.start()
         self.log(f"[BRIDGE] {len(self._active)} worker(s) live; "
                  f"waiting for fires (Ctrl+C to stop)")
@@ -201,29 +239,32 @@ class ScreenerBridge:
     def execute_intent(self, symbol: str, exchange: str,
                        intent: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Execute one fired intent through RiskGate + POV slicer."""
+        pos_key = f"{symbol}|{exchange}"
         if self.kill_tripped():
-            self.log(f"[EXEC] {symbol} BLOCKED: kill switch tripped")
+            self.log(f"[EXEC] {symbol}/{exchange} BLOCKED: kill switch tripped")
             return None
         is_exit = bool((intent.get("_meta") or {}).get("position_exit"))
         if intent.get("action") != ("SELL" if is_exit else "BUY"):
-            self.log(f"[EXEC] {symbol} skipped: unexpected action "
+            self.log(f"[EXEC] {symbol}/{exchange} skipped: unexpected action "
                      f"{intent.get('action')} (position_exit={is_exit})")
             return None
 
         with self._exec_lock:
             quantity = int(intent.get("quantity") or 0)
             if is_exit:
-                tracked = int(self._open_positions.get(symbol, 0))
+                tracked = int(self._open_positions.get(pos_key, 0))
                 if tracked <= 0:
-                    self.log(f"[EXEC] {symbol} exit ignored: no tracked open quantity")
+                    self.log(f"[EXEC] {symbol}/{exchange} exit ignored: "
+                             "no tracked open quantity")
                     return None
                 quantity = min(quantity, tracked)
             if quantity <= 0:
-                self.log(f"[EXEC] {symbol} skipped: zero quantity")
+                self.log(f"[EXEC] {symbol}/{exchange} skipped: zero quantity")
                 return None
             stop_loss = intent.get("stop_loss")
             target = intent.get("target")
-            self.log(f"[EXEC] {symbol}: BUY {quantity} "
+            self.log(f"[EXEC] {symbol}/{exchange}: "
+                     f"{'SELL' if is_exit else 'BUY'} {quantity} "
                      f"(SL={stop_loss}, TP={target}, "
                      f"exit={intent.get('_meta', {}).get('exit_mode')})")
 
@@ -237,9 +278,9 @@ class ScreenerBridge:
                  "price": intent.get("price")},
                 config=self.risk_config)
             if decision is not None and not decision.approved:
-                self.log(f"[EXEC] {symbol} BLOCKED by risk gate: "
+                self.log(f"[EXEC] {symbol}/{exchange} BLOCKED by risk gate: "
                          f"{decision.reason}")
-                self._record(symbol, intent, None, "risk_gate_block")
+                self._record(symbol, exchange, intent, None, "risk_gate_block")
                 return None
 
             # ---- POV slicer ----
@@ -268,51 +309,67 @@ class ScreenerBridge:
                     "_meta": intent.get("_meta", {}),
                 })
             except Exception as exc:            # noqa: BLE001
-                self.log(f"[EXEC] {symbol} slicer error: {exc!r}")
-                self._record(symbol, intent, None, f"slicer error: {exc}")
+                self.log(f"[EXEC] {symbol}/{exchange} slicer error: {exc!r}")
+                self._record(symbol, exchange, intent, None,
+                             f"slicer error: {exc}")
                 return None
             filled = int((summary or {}).get("filled") or 0)
             if is_exit:
-                remaining = max(0, self._open_positions.get(symbol, 0) - filled)
+                remaining = max(0, self._open_positions.get(pos_key, 0) - filled)
                 if remaining:
-                    self._open_positions[symbol] = remaining
+                    self._open_positions[pos_key] = remaining
                 else:
-                    self._open_positions.pop(symbol, None)
+                    self._open_positions.pop(pos_key, None)
             elif filled > 0:
-                self._open_positions[symbol] = min(quantity, filled)
-            self._record(symbol, intent, summary,
+                self._open_positions[pos_key] = min(quantity, filled)
+            self._record(symbol, exchange, intent, summary,
                          "closed" if is_exit else "executed")
-            self.log(f"[EXEC] {symbol} summary: "
-                     f"filled={summary.get('filled')} "
-                     f"orders={summary.get('child_orders')}")
+            self.log(f"[EXEC] {symbol}/{exchange} summary: "
+                     f"filled={(summary or {}).get('filled')} "
+                     f"orders={(summary or {}).get('child_orders')}")
             return summary
 
     # ------------------------------------------------------------------ #
-    def _record(self, symbol: str, intent: Dict[str, Any],
+    def _record(self, symbol: str, exchange: str, intent: Dict[str, Any],
                 summary: Optional[Dict[str, Any]], status: str) -> None:
         self._executed.append({
             "ts": datetime.now().isoformat(),
-            "symbol": symbol, "exchange": self.exchange,
+            "symbol": symbol, "exchange": exchange,
             "status": status,
             "intent": intent, "summary": summary,
         })
 
     # ------------------------------------------------------------------ #
     def save_report(self, path: Path) -> Path:
-        """Write the run report (for the dashboard error monitor)."""
+        """Write the run report (for the dashboard error monitor).
+
+        Atomic (temp + replace): the dashboard polls this file while the
+        bridge is running, and must never read a half-written JSON body.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
+        payload = json.dumps({
             "as_of": ist_now().isoformat(),
-            "symbols": self.symbols,
+            "exchange": self.exchange,
+            "symbols": [{"symbol": s, "exchange": e}
+                        for s, e in self.symbols],
+            "active": sorted(self._active),
             "disabled": self._disabled,
+            "open_positions": dict(self._open_positions),
             "executed": self._executed,
-        }, indent=2, default=str), encoding="utf-8")
+        }, indent=2, default=str)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(payload, encoding="utf-8")
+        tmp.replace(path)
         self.log(f"[BRIDGE] report saved -> {path}")
         return path
 
 
-def run_bridge(symbols: List[str], **kwargs: Any) -> ScreenerBridge:
+def run_bridge(symbols: Sequence[SymbolSpec], **kwargs: Any) -> ScreenerBridge:
     """Convenience: build + run the bridge over the screener's list."""
     bridge = ScreenerBridge(symbols=symbols, **kwargs)
     bridge.start()
     return bridge
+
+
+__all__ = ["ScreenerBridge", "SymbolWorker", "SymbolSpec",
+           "normalize_symbols", "run_bridge"]

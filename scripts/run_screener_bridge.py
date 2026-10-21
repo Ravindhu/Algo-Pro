@@ -14,6 +14,10 @@ Examples
     python scripts/run_screener_bridge.py --symbols INFY,TCS --max-active 1 \
         --report data/screener_bridge_report.json
 
+Symbols carry their own exchange: a CSV row resolved to BSE runs on BSE
+while the NSE names run on NSE, with no override. Use ``--exchange`` only
+to force ONE exchange for every symbol.
+
 Safety
 ------
 * Kill switch (durable, from optim_policy) is checked before every fire.
@@ -39,24 +43,28 @@ if str(ROOT) not in sys.path:
 from blue_engine.core.screener_bridge import ScreenerBridge  # noqa: E402
 
 
-def read_symbols_from_csv(path: Path) -> tuple[list[str], str]:
-    """Return tradable symbols + dominant exchange from a screener export.
+def read_symbols_from_csv(path: Path) -> tuple[list[tuple[str, str]], str]:
+    """Return per-row ``[(tradable_symbol, exchange)]`` + the majority exchange.
 
     Prefers the ``tradable_symbol``/``exchange`` columns (written by the
-    symbol resolver); falls back to ``symbol``/``_symbol``.
+    symbol resolver); falls back to ``symbol``/``_symbol``. Rows flagged
+    ``symbol_resolved=false`` are skipped. The exchange is kept PER ROW so a
+    screen mixing NSE names with BSE-only codes needs no override.
     """
-    symbols: list[str] = []
+    symbols: list[tuple[str, str]] = []
     exchanges: dict[str, int] = {}
+    seen: set[tuple[str, str]] = set()
     with path.open(newline="", encoding="utf-8-sig") as fh:
         for row in csv.DictReader(fh):
             sym = (row.get("tradable_symbol") or row.get("_symbol")
                    or row.get("symbol") or "").strip().upper()
             if not sym or row.get("symbol_resolved", "True").lower() == "false":
                 continue
-            if sym not in symbols:
-                symbols.append(sym)
             ex = (row.get("exchange") or "NSE").strip().upper()
             exchanges[ex] = exchanges.get(ex, 0) + 1
+            if (sym, ex) not in seen:
+                seen.add((sym, ex))
+                symbols.append((sym, ex))
     exchange = max(exchanges, key=exchanges.get) if exchanges else "NSE"
     return symbols, exchange
 
@@ -67,7 +75,9 @@ def main() -> int:
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--csv", type=Path, help="screener export CSV")
     src.add_argument("--symbols", help="comma-separated symbol list")
-    ap.add_argument("--exchange", default=None, help="exchange override (default: from CSV)")
+    ap.add_argument("--exchange", default=None,
+                    help="force one exchange for every symbol (default: the "
+                         "exchange resolved for each row)")
     ap.add_argument("--max-active", type=int, default=5)
     ap.add_argument("--max-concurrent", type=int, default=1)
     ap.add_argument("--poll-seconds", type=float, default=5.0)
@@ -90,10 +100,20 @@ def main() -> int:
         symbols, csv_exchange = read_symbols_from_csv(args.csv)
     else:
         symbols, csv_exchange = [
-            s.strip().upper() for s in args.symbols.split(",") if s.strip()], "NSE"
+            (s.strip().upper(), args.exchange or "NSE")
+            for s in args.symbols.split(",") if s.strip()], "NSE"
+    if args.exchange:
+        # Explicit override: every symbol on that one exchange.
+        symbols = [(s, args.exchange.upper()) for s, _ in symbols]
+        csv_exchange = args.exchange.upper()
     if not symbols:
         print("No tradable symbols found; nothing to do.")
         return 1
+    by_ex: dict[str, int] = {}
+    for _, ex in symbols:
+        by_ex[ex] = by_ex.get(ex, 0) + 1
+    print(f"symbols: {', '.join(f'{s}/{e}' for s, e in symbols)}")
+    print("by exchange: " + ", ".join(f"{e}={n}" for e, n in sorted(by_ex.items())))
 
     def _json(value):
         return json.loads(value) if value else None
