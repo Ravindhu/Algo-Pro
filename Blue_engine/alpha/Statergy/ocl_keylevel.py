@@ -1,4 +1,4 @@
-""""
+"""
 ocl_keylevel.py - OCL (Open-Close-Low) Keylevel Signal Strategy
 ===============================================================
 
@@ -6,22 +6,71 @@ OCL Strategy Logic:
 -------------------
 1. SCAN HTF (Higher Timeframe):
    - Fetches last 3 candles from user-defined HTF
-   - Detects Red-Red-Green (RRG) or Green-Red-Red (GRR) pattern
+   - Detects Red-Red-Green (RRG) pattern ONLY (BUY setups)
+   - NOTE: GRR (bearish / SELL) is intentionally NOT traded by this signal.
 
-2. CALCULATE TOUCH TRIGGER LEVEL:
-   - For BULLISH (RRG): Touch Level = min(Low of Candle2, Low of Candle3)
-   - For BEARISH (GRR): Touch Level = max(High of Candle2, High of Candle3)
-   - Uses candle BODY (not wick) for structural significance
+2. CALCULATE TOUCH TRIGGER LEVEL (user-selectable):
+   - trigger_level_mode = CONSERVATIVE (default):
+       Touch Level = min(Low of Candle2, Low of Candle3)
+       (the deeper structural low; price must dip further)
+   - trigger_level_mode = AGGRESSIVE:
+       Touch Level = Open of Candle2 (the second red candle of the RRG)
+       (the higher level; price touches sooner, entry less deep)
 
 3. MONITOR LTF (Lower Timeframe):
    - Polls LTF price at user-defined interval
    - Watches for price touch of trigger level
+   - Fetches last 3 candles from user-defined LTF and detects the
+     Red-Red-Green (RRG) pattern ONLY (BUY setups) on the LTF itself
+   - Applies the Hilega-Milega gate on BOTH timeframes: bullish when
+     RSI is above EMA(RSI). The oversold cap (RSI <= level) applies to
+     the LTF always and to the HTF only if hm_htf_oversold_enabled
+     (default False - the HTF gate is the plain cross, per operator).
 
 4. TRIGGER POV ENGINE (User-Defined Execution):
-   - Fires BUY/SELL when trigger level is touched
+   - Fires BUY only if ALL gates pass:
+       HTF: RRG pattern + HM bullish (RSI > EMA; no oversold cap)
+       LTF: touch + RRG pattern + HM bullish (RSI > EMA, RSI <= oversold)
    - Execution mode is user-defined (one_shot / continuous / count-limited)
    - Optional cooldown between fires
    - Optional per-fire slicing config (qty per fire, etc.)
+
+5. RISK MANAGEMENT (IN-STRATEGY, not in the POV grid) - TWO-TIER STOPS:
+   - HTF stop (pattern invalidation):
+       SL_htf = min(low C2, low C3) of the HTF pattern. Fires when an HTF
+       candle CLOSES below it (the HTF candle decides invalidation, not
+       the LTF). Kills the whole setup; the scanner waits for a NEW HTF
+       pattern. Wick-through does not count.
+   - LTF stop (per-entry):
+       SL_ltf = the entry's own stop. Fires when an LTF candle CLOSES
+       below it while SL_htf is intact. The setup SURVIVES: the next
+       entry level steps BELOW the hit LTF stop (cheaper re-entry),
+       retried up to ``max_ltf_retries`` times per pattern.
+   - After max_ltf_retries LTF stops: setup abandoned (pattern NOT
+     invalidated - price is still above the HTF floor).
+   - Target = entry + (entry - SL_ltf) * target_rr (fixed RR, 1:3
+     default, optimizer-tunable ``target_rr``).
+   - stop_loss/htf_stop_loss/target travel WITH the fire intent metadata
+     so the risk manager and order manager can place protective orders.
+   - Exit mode ``exit_mode`` (AUTO default) - decided by WHERE the entry
+     fired:
+       AUTO: entry at/near the AGGRESSIVE level (open of C2) -> FIXED,
+             the hard RR target closes the trade (the ATR trail may
+             still exit first).
+             entry at the CONSERVATIVE level (deep min-low touch or a
+             ladder re-entry) -> DYNAMIC, no hard target; the ATR
+             trailing stop runs the trade.
+       FIXED / DYNAMIC force one behaviour regardless of entry level.
+   - Breakeven floor (all modes): once price reaches breakeven_rr x
+     risk (default 1.5R), the LTF stop ratchets to entry +
+     round_trip_cost_pct% so the worst case after breakeven is a
+     scratch (cost-neutral exit, no loss).
+   - ATR trailing stop (dynamic): after entry, stop = max(previous stop,
+     highest close since entry - atr_multiplier * ATR(atr_period)); it
+     only ratchets UP and exits when an LTF close falls below it. The
+     fixed-RR target stays active in FIXED mode; whichever level is
+     touched first closes the trade. atr_period / atr_multiplier are
+     optimizer params.
 """
 from __future__ import annotations
 
@@ -32,8 +81,6 @@ from typing import Any, Dict, Optional
 from blue_engine.core.time_utils import ist_now
 
 from ._pattern import (
-    action_for_pattern,
-    calculate_trigger_level,
     extract_ohlc,
     validate_pattern,
 )
@@ -42,6 +89,11 @@ from .base import BaseSignal
 # Confirmation-layer math. Imported at module level (not inside the gate) so
 # an ImportError surfaces at import time, not halfway through a live run.
 from blue_engine.alpha.confirm import find_flip, zscored_roc
+from blue_engine.alpha.indicators.hilega_milega import (
+    atr,
+    ema,
+    hilega_milega_rsi,
+)
 
 
 # Execution mode constants (user-selectable per run)
@@ -72,7 +124,7 @@ class OCLKeylevelSignal(BaseSignal):
     - exec_mode = COUNT_LIMITED:
         Fires up to max_fires times per run, then stops.
     - exec_mode = AUTO:
-        Fires once per NEW pattern detection (re-arms when fresh RRG/GRR forms).
+        Fires once per NEW pattern detection (re-arms when a fresh RRG forms).
 
     The class-level ``name`` is the registry key the optimizer dropdown
     surfaces (and the live runner references from the JSON config). It
@@ -102,12 +154,12 @@ class OCLKeylevelSignal(BaseSignal):
         "htf_candles":      {"kind": "int",   "default": 5,
                               "low": 3, "high": 10,
                               "note": "bars to scan on the HTF"},
-        "min_body_pct":     {"kind": "float", "default": 0.30,
-                              "low": 0.10, "high": 0.60,
-                              "note": "min candle body size as a fraction"},
         "pattern_type":     {"kind": "cat",   "default": "RRG",
-                              "choices": ["RRG", "GRR"],
-                              "note": "bullish (RRG) or bearish (GRR)"},
+                              "choices": ["RRG"],
+                              "note": "RRG only (bullish BUY); GRR removed"},
+        "trigger_level_mode": {"kind": "cat",  "default": "CONSERVATIVE",
+                              "choices": ["CONSERVATIVE", "AGGRESSIVE"],
+                              "note": "trigger: min-low (deep) vs open of 2nd red"},
         "trade_direction":  {"kind": "cat",   "default": "AUTO",
                               "choices": ["AUTO", "BUY", "SELL"],
                               "note": "BUY/SELL/AUTO from pattern"},
@@ -133,6 +185,53 @@ class OCLKeylevelSignal(BaseSignal):
         "max_fires":        {"kind": "int",   "default": 1,
                               "low": 1, "high": 100,
                               "note": "max fires (COUNT_LIMITED mode)"},
+        # [LTF GATES] LTF pattern scan + Hilega-Milega indicator gate.
+        # Both are REQUIRED for a fire: touch alone is no longer enough.
+        "ltf_pattern_enabled": {"kind": "cat", "default": True,
+                              "choices": [True, False],
+                              "note": "require RRG on the last 3 LTF candles"},
+        "hm_enabled":       {"kind": "cat",   "default": True,
+                              "choices": [True, False],
+                              "note": "HM bullish gate on HTF + LTF (RSI>EMA)"},
+        "hm_rsi_period":    {"kind": "int",   "default": 9,
+                              "low": 2, "high": 30,
+                              "note": "HM: RSI period (NK default 9)"},
+        "hm_ema_period":    {"kind": "int",   "default": 3,
+                              "low": 1, "high": 20,
+                              "note": "HM: EMA over RSI (NK default 3)"},
+        "hm_oversold_level": {"kind": "float", "default": 30.0,
+                              "low": 0.0, "high": 100.0,
+                              "note": "HM: LTF buy only when RSI at/below this"},
+        "hm_htf_oversold_enabled": {"kind": "cat", "default": False,
+                              "choices": [True, False],
+                              "note": "apply oversold cap to HTF too (opt-in)"},
+        # [RISK MANAGEMENT] Structural stop + fixed RR target (in-strategy).
+        # SL sits BELOW the pattern's structural low; it fires when an LTF
+        # candle CLOSES below it (not just a wick). Target = SL distance
+        # x target_rr from entry (1:3 by default).
+        "target_rr":        {"kind": "float", "default": 3.0,
+                              "low": 0.5, "high": 10.0,
+                              "note": "risk-reward target (1:target_rr)"},
+        # [EXIT MODE] AUTO (default): exit style chosen by WHERE the entry
+        # fired - aggressive-level entry -> FIXED (hard RR target);
+        # conservative-level entry (deep touch / ladder re-entry) ->
+        # DYNAMIC (ATR trail only). FIXED/DYNAMIC force one behaviour.
+        "exit_mode":        {"kind": "cat",   "default": "AUTO",
+                              "choices": ["AUTO", "FIXED", "DYNAMIC"],
+                              "note": "AUTO: aggressive entry->FIXED, conservative->ATR trail"},
+        # [ATR TRAILING STOP] Dynamic trailing exit (optimizer-tunable).
+        # After entry the stop trails at (highest close since entry -
+        # atr_multiplier * ATR(atr_period)), ratcheting UP only. The
+        # fixed-RR target stays active; whichever exits first wins.
+        "atr_trail_enabled": {"kind": "cat", "default": True,
+                              "choices": [True, False],
+                              "note": "dynamic ATR trailing stop after entry"},
+        "atr_period":       {"kind": "int",   "default": 14,
+                              "low": 5, "high": 50,
+                              "note": "ATR lookback for the trailing stop"},
+        "atr_multiplier":   {"kind": "float", "default": 2.0,
+                              "low": 0.5, "high": 6.0,
+                              "note": "trail distance in ATR multiples"},
     }
 
     def __init__(self, client: Any, config: Dict[str, Any]):
@@ -142,10 +241,31 @@ class OCLKeylevelSignal(BaseSignal):
         self.htf_interval = config.get("htf_interval", "15minute")
         self.htf_candles = int(config.get("htf_candles", 5))
 
-        # [PATTERN SETTINGS] Candlestick Pattern Parameters
-        self.min_body_pct = float(config.get("min_body_pct", 0.3))
+        # [PATTERN SETTINGS] RRG-only pattern. min_body_pct concept is
+        # REMOVED (operator decision): any Red-Red-Green shape qualifies
+        # (validate_pattern enforces the candle colors only).
         self.pattern_type = config.get("pattern_type", "RRG").upper()
+        if self.pattern_type != "RRG":
+            raise ValueError(
+                f"pattern_type must be 'RRG' (BUY only); GRR removed. Got {self.pattern_type!r}"
+            )
         self.trade_direction = config.get("trade_direction", "AUTO").upper()
+        if self.trade_direction == "SELL":
+            raise ValueError(
+                "trade_direction='SELL' is not supported: OCL trades RRG (BUY) only"
+            )
+
+        # [TRIGGER LEVEL MODE] CONSERVATIVE vs AGGRESSIVE selection.
+        # CONSERVATIVE: min(Low of C2, Low of C3)  - deeper level, waits more
+        # AGGRESSIVE:   Open of C2 (second red candle) - nearer level
+        self.trigger_level_mode = str(
+            config.get("trigger_level_mode", "CONSERVATIVE")
+        ).upper().strip()
+        if self.trigger_level_mode not in ("CONSERVATIVE", "AGGRESSIVE"):
+            raise ValueError(
+                "trigger_level_mode must be CONSERVATIVE or AGGRESSIVE; "
+                f"got {self.trigger_level_mode!r}"
+            )
 
         # [LTF SETTINGS] Lower Timeframe Monitoring
         self.ltf_interval = config.get("ltf_interval", "5minute")
@@ -200,6 +320,82 @@ class OCLKeylevelSignal(BaseSignal):
         if self.cooldown_seconds < 0:
             raise ValueError("cooldown_seconds must be >= 0")
 
+        # [LTF GATES] LTF RRG scan + Hilega-Milega indicator gate.
+        # Fire condition = touch AND ltf_pattern AND HM bullish (when on).
+        self.ltf_pattern_enabled = bool(config.get("ltf_pattern_enabled", True))
+        self.hm_enabled = bool(config.get("hm_enabled", True))
+        self.hm_rsi_period = int(config.get("hm_rsi_period", 9))
+        self.hm_ema_period = int(config.get("hm_ema_period", 3))
+        self.hm_oversold_level = float(config.get("hm_oversold_level", 30.0))
+        # Oversold cap applies to the LTF always; on the HTF it is OPT-IN
+        # (default OFF): a monthly RSI<=cap requirement fires only in
+        # distressed tape, so the HTF gate is the plain RSI>EMA cross.
+        self.hm_htf_oversold_enabled = bool(
+            config.get("hm_htf_oversold_enabled", False)
+        )
+        if self.hm_rsi_period < 2:
+            raise ValueError("hm_rsi_period must be >= 2")
+        if self.hm_ema_period < 1:
+            raise ValueError("hm_ema_period must be >= 1")
+        if not (0 <= self.hm_oversold_level <= 100):
+            raise ValueError("hm_oversold_level must be in [0, 100]")
+
+        # [RISK MANAGEMENT] Structural stop-loss + fixed RR target.
+        # SL = min(low C2, low C3) of the HTF pattern (ALWAYS the structural
+        # low, regardless of trigger_level_mode: the pattern is invalid if
+        # price closes below where it based). Trigger rule: an LTF candle
+        # must CLOSE below the SL - a wick through does not stop out.
+        # Target = entry + (entry - SL) * target_rr (1:3 default).
+        self.target_rr = float(config.get("target_rr", 3.0))
+        if self.target_rr <= 0:
+            raise ValueError("target_rr must be > 0")
+        # [EXIT MODE] AUTO decides by entry level: an entry taken at the
+        # AGGRESSIVE level exits on the hard RR target (FIXED); an entry
+        # taken at the CONSERVATIVE (deeper) level lets the ATR trailing
+        # stop run the trade (DYNAMIC). FIXED/DYNAMIC force one mode.
+        self.exit_mode = str(config.get("exit_mode", "AUTO")).upper().strip()
+        if self.exit_mode not in ("AUTO", "FIXED", "DYNAMIC"):
+            raise ValueError(
+                f"exit_mode must be AUTO, FIXED or DYNAMIC; got {self.exit_mode!r}"
+            )
+        # Both trigger levels are tracked so AUTO can tell WHERE the
+        # entry happened. The effective exit mode is resolved at fire time.
+        self._conservative_level: Optional[float] = None
+        self._aggressive_level: Optional[float] = None
+        self._entry_exit_mode: Optional[str] = None
+        # [BREAKEVEN] When price reaches breakeven_rr x risk, the stop is
+        # ratcheted to entry + round_trip_cost_pct (% of entry) so the
+        # worst outcome after breakeven is scratch-free.
+        self.breakeven_rr = float(config.get("breakeven_rr", 1.5))
+        self.round_trip_cost_pct = float(
+            config.get("round_trip_cost_pct", 0.20)
+        )
+        if self.breakeven_rr <= 0:
+            raise ValueError("breakeven_rr must be > 0")
+        if self.round_trip_cost_pct < 0:
+            raise ValueError("round_trip_cost_pct must be >= 0")
+        self._breakeven_armed = False
+        self.max_ltf_retries = int(config.get("max_ltf_retries", 3))
+        if self.max_ltf_retries < 1:
+            raise ValueError("max_ltf_retries must be >= 1")
+        self._htf_stop_loss: Optional[float] = None   # pattern structural low
+        self._ltf_stop_loss: Optional[float] = None   # current entry's SL
+        self._target: Optional[float] = None
+
+        # [ATR TRAILING STOP] Dynamic trailing exit (in-strategy). After a
+        # fire, the running stop = max(ratchet, highest_close_since_entry
+        # - atr_multiplier * ATR(atr_period)). Only ratchets UP for BUY.
+        self.atr_trail_enabled = bool(config.get("atr_trail_enabled", True))
+        self.atr_period = int(config.get("atr_period", 14))
+        self.atr_multiplier = float(config.get("atr_multiplier", 2.0))
+        if self.atr_period < 2:
+            raise ValueError("atr_period must be >= 2")
+        if self.atr_multiplier <= 0:
+            raise ValueError("atr_multiplier must be > 0")
+        self._trail_active = False
+        self._highest_close: Optional[float] = None
+        self._trail_stop: Optional[float] = None
+
         # Re-arm: should the pattern be re-scanned after a fire?
         # - ONE_SHOT/CONTINUOUS/COUNT_LIMITED: no, level is fixed
         # - AUTO: yes, re-scan for new pattern after each fire
@@ -237,12 +433,17 @@ class OCLKeylevelSignal(BaseSignal):
         # Internal state
         self._fired = False                       # Legacy one-shot guard
         self._fire_count = 0                      # Total fires so far
+        self._ltf_retry_count = 0                 # LTF SL hits this setup
         self._last_fire_ts: Optional[float] = None  # For cooldown
         self._start_ts = time.time()
         self._trigger_level: Optional[float] = None
         self._pattern_detected = False
         self._exhausted = False                   # All fires done
-
+        self._position_open = False
+        self._position_quantity = 0
+        self._entry_price: Optional[float] = None
+        self._position_stop: Optional[float] = None
+        self._position_target: Optional[float] = None
         # Confirmation-layer state (only used when confirm_enabled)
         if self.confirm_enabled:
             from blue_engine.alpha.confirm import ConfirmMachine
@@ -271,12 +472,20 @@ class OCLKeylevelSignal(BaseSignal):
 
         self.log(
             f"Initialized: HTF={self.htf_interval}, LTF={self.ltf_interval}, "
-            f"Pattern={self.pattern_type}, Direction={self.trade_direction}"
+            f"Pattern={self.pattern_type}, Direction={self.trade_direction}, "
+            f"Trigger={self.trigger_level_mode}"
         )
         self.log(
             f"Execution: mode={self.exec_mode}, total_qty={self.total_quantity}, "
             f"qty_per_fire={self.qty_per_fire}, max_fires={self.max_fires}, "
             f"cooldown={self.cooldown_seconds}s, rearm={self.rearm_on_fire}"
+        )
+        self.log(
+            f"LTF gates: ltf_pattern={self.ltf_pattern_enabled}, "
+            f"HM={self.hm_enabled} on HTF+LTF "
+            f"(RSI={self.hm_rsi_period}, EMA={self.hm_ema_period}, "
+            f"oversold<={self.hm_oversold_level}, "
+            f"htf_cap={self.hm_htf_oversold_enabled})"
         )
 
     # ============================================================
@@ -293,12 +502,13 @@ class OCLKeylevelSignal(BaseSignal):
         4. If pattern detected -> monitor LTF for touch
         5. On touch -> fire intent (per qty_per_fire) -> return to runner
         """
-        # -- 1. Exhaustion guard (no more fires allowed) --
-        if self._exhausted:
+        # -- 1. Exhaustion guard applies only when no position needs an exit.
+        if self._exhausted and not self._position_open:
             return None
 
-        # -- 2. Cooldown guard (must wait between fires) --
-        if self._last_fire_ts is not None and self.cooldown_seconds > 0:
+        # -- 2. Cooldown only delays entry fires, never protective exits.
+        if (not self._position_open and self._last_fire_ts is not None
+                and self.cooldown_seconds > 0):
             elapsed = time.time() - self._last_fire_ts
             if elapsed < self.cooldown_seconds:
                 remaining = self.cooldown_seconds - elapsed
@@ -308,25 +518,30 @@ class OCLKeylevelSignal(BaseSignal):
                 time.sleep(min(remaining, self.poll_seconds))
                 return None
 
-        # -- 3. Legacy one-shot guard (backward compat) --
-        if self.one_shot and self._fired and self.exec_mode == EXEC_MODE_ONE_SHOT:
-            return None
-
-        # -- 4. Overall timeout --
-        if self.wait_seconds is not None:
+        # -- 3. Overall timeout --
+        if not self._position_open and self.wait_seconds is not None:
             elapsed = time.time() - self._start_ts
             if elapsed > float(self.wait_seconds):
                 self.log(f"[TIMEOUT] {self.wait_seconds}s elapsed; giving up")
                 self._exhausted = True
                 return None
 
+        # Keep a fired position under strategy-level supervision until an
+        # explicit close intent is returned (HTF invalidation, LTF stop,
+        # fixed target, or ATR trail).
+        if self._position_open:
+            return self._monitor_open_position()
+
+        # One-shot applies to new entries only. Do not let it block
+        # supervision of an already-open position or its exit intent.
+        if self.one_shot and self._fired and self.exec_mode == EXEC_MODE_ONE_SHOT:
+            return None
         # -- 5. Step 1: Scan HTF for pattern (if not yet detected) --
         if not self._pattern_detected:
             self._scan_htf_pattern()
             if not self._pattern_detected:
                 time.sleep(self.poll_seconds)
                 return None
-
         # -- 6. Step 2: Monitor LTF for touch --
         return self._monitor_ltf_touch()
 
@@ -378,15 +593,31 @@ class OCLKeylevelSignal(BaseSignal):
             if not self._validate_pattern(c1, c2, c3):
                 return False
 
-            self._trigger_level = self._calculate_trigger_level(c1, c2, c3)
+            # HM gate on the HTF as well: same simplified rule (RSI > EMA).
+            if self.hm_enabled and not self._hilega_milega_bullish(df, label="HTF"):
+                self.log("[HTF HM GATE] Hilega-Milega not bullish on HTF; waiting")
+                return False
 
-            if self.trade_direction == "AUTO":
-                self.action = action_for_pattern(self.pattern_type)
+            self._trigger_level = self._calculate_trigger_level(c1, c2, c3)
+            self._record_trigger_levels(c2, c3)
+
+            # HTF structural stop-loss: below the pattern's base. ALWAYS
+            # the min low of C2/C3 (not the trigger level). A close below
+            # this invalidates the pattern; per-entry LTF stops live above
+            # it and each retry steps DOWN below the previous LTF stop.
+            self._htf_stop_loss = min(float(c2["low"]), float(c3["low"]))
+            self._ltf_stop_loss = None
+            self._ltf_retry_count = 0
+
+            # RRG is a BUY-only setup. Enforce the direction regardless of
+            # the configured trade_direction so no SELL intent can leak in.
+            self.action = "BUY"
 
             self._pattern_detected = True
             self.log(
                 f"[HTF PATTERN] OK {self.pattern_type} detected! "
-                f"Level={self._trigger_level:.2f}, Action={self.action}"
+                f"Level={self._trigger_level:.2f}, "
+                f"HTF-SL={self._htf_stop_loss:.2f}, Action={self.action}"
             )
             return True
 
@@ -395,11 +626,11 @@ class OCLKeylevelSignal(BaseSignal):
             return False
 
     # ============================================================
-    # [PATTERN VALIDATION] RRG / GRR Candlestick Validation
+    # [PATTERN VALIDATION] RRG Candlestick Validation
     # ============================================================
     def _validate_pattern(self, c1, c2, c3):
-        """Validate candlestick pattern (RRG or GRR). Delegates to shared helper."""
-        ok = validate_pattern(c1, c2, c3, self.pattern_type, self.min_body_pct)
+        """Validate the RRG (Red-Red-Green) pattern. Delegates to shared helper."""
+        ok = validate_pattern(c1, c2, c3, self.pattern_type, 0.0)
         if ok:
             self.log("[PATTERN] OK Validated")
         else:
@@ -407,20 +638,40 @@ class OCLKeylevelSignal(BaseSignal):
         return ok
 
     # ============================================================
-    # [TRIGGER CALCULATION] Body-Based Key Level
+    # [TRIGGER CALCULATION] Key Level (CONSERVATIVE / AGGRESSIVE)
     # ============================================================
     def _calculate_trigger_level(self, c1, c2, c3):
-        """Calculate Touch Trigger Level from candle bodies. Delegates to shared helper."""
-        level = calculate_trigger_level(c2, c3, self.pattern_type)
-        if self.pattern_type == "RRG":
-            c2_body_low = min(c2["open"], c2["close"])
-            c3_body_low = min(c3["open"], c3["close"])
-            self.log(f"[TRIGGER] Bullish: {c2_body_low:.2f}/{c3_body_low:.2f} -> {level:.2f}")
+        """Compute the touch trigger level per trigger_level_mode.
+
+        CONSERVATIVE (default):
+            min(Low of Candle2, Low of Candle3) - the deeper structural
+            level. Price must dip further before the buy fires; fewer but
+            higher-quality touches.
+        AGGRESSIVE:
+            Open of Candle2 (the second red candle of the RRG pattern).
+            A higher level that the price touches sooner - entry before
+            the full retest completes.
+        """
+        if self.trigger_level_mode == "AGGRESSIVE":
+            level = float(c2["open"])
+            self.log(
+                f"[TRIGGER] AGGRESSIVE (RRG): open of 2nd red candle -> {level:.2f}"
+            )
         else:
-            c2_body_high = max(c2["open"], c2["close"])
-            c3_body_high = max(c3["open"], c3["close"])
-            self.log(f"[TRIGGER] Bearish: {c2_body_high:.2f}/{c3_body_high:.2f} -> {level:.2f}")
+            level = min(float(c2["low"]), float(c3["low"]))
+            c2_low, c3_low = float(c2["low"]), float(c3["low"])
+            self.log(
+                f"[TRIGGER] CONSERVATIVE (RRG): "
+                f"min(low C2={c2_low:.2f}, low C3={c3_low:.2f}) -> {level:.2f}"
+            )
         return level
+
+    def _record_trigger_levels(self, c2, c3) -> None:
+        """Capture BOTH levels (aggressive + conservative) for exit_mode
+        AUTO, so the strategy knows whether the entry that eventually
+        fires happened at the aggressive or the conservative level."""
+        self._aggressive_level = float(c2["open"])
+        self._conservative_level = min(float(c2["low"]), float(c3["low"]))
 
     # ============================================================
     # [LTF MONITOR] Lower Timeframe Price Touch Detection
@@ -457,6 +708,94 @@ class OCLKeylevelSignal(BaseSignal):
 
             self.log(f"[LTF DATA] H={ohlc["high"]:.2f} L={ohlc["low"]:.2f} C={ltp:.2f}")
 
+            # ---- Risk gates FIRST (checked every poll) ----
+            # Tier 1 - HTF structural stop: judged on the HTF CANDLE CLOSE
+            # (the pattern timeframe decides invalidation, not the LTF).
+            try:
+                htf_resp = self.client.history(
+                    symbol=self.symbol, exchange=self.exchange,
+                    interval=self.htf_interval,
+                    start_date=(ist_now() - timedelta(days=120))
+                    .strftime("%Y-%m-%d"),
+                    end_date=ist_now().strftime("%Y-%m-%d"),
+                )
+                htf_last = None
+                if (htf_resp.get("status") == "success"
+                        and htf_resp.get("data") is not None
+                        and len(htf_resp["data"]) >= 1):
+                    htf_last = self._extract_ohlc(htf_resp["data"].iloc[-1])
+            except Exception as exc:
+                self.log(f"[HTF SL CHECK] history error: {exc}")
+                htf_last = None
+            if self._check_htf_stop_loss(htf_last):
+                self._pattern_detected = False
+                self._trigger_level = None
+                self._htf_stop_loss = None
+                self._ltf_stop_loss = None
+                self._ltf_retry_count = 0
+                time.sleep(self.poll_seconds)
+                return None
+
+            # Tier 2 - LTF entry stop: judged on the LTF close. The pattern stays
+            # valid; the next entry level drops below this stop. When the
+            # retry cap is reached, the setup is abandoned (pattern NOT
+            # invalidated - price is still above the HTF structural low).
+            if self._check_ltf_stop_loss(ohlc):
+                self._ltf_retry_count += 1
+                if self._ltf_retry_count >= self.max_ltf_retries:
+                    self.log(
+                        f"[SETUP ABANDONED] {self.max_ltf_retries} LTF stops "
+                        f"hit; HTF-SL {self._htf_stop_loss:.2f} not broken - "
+                        f"waiting for a new HTF pattern"
+                    )
+                    self._pattern_detected = False
+                    self._trigger_level = None
+                    self._htf_stop_loss = None
+                    self._ltf_stop_loss = None
+                    self._ltf_retry_count = 0
+                    time.sleep(self.poll_seconds)
+                    return None
+                # Step the ENTRY LEVEL down below the LTF stop that just
+                # fired - the next touch must happen at a cheaper price.
+                self._trigger_level = min(
+                    self._trigger_level,
+                    ohlc["close"],
+                )
+                self._ltf_stop_loss = None
+                # fall through: the monitor keeps watching at the new level
+                self.log(
+                    f"[RETRY {self._ltf_retry_count}/{self.max_ltf_retries}] "
+                    f"entry level re-armed at {self._trigger_level:.2f}"
+                )
+                time.sleep(self.poll_seconds)
+                return None
+
+            # ---- Post-entry management: ATR trail + breakeven floor ----
+            if self._fired:
+                if self.atr_trail_enabled:
+                    self._update_trailing_stop(df)
+                self._update_breakeven(ltp)
+                # Trail exit check (DYNAMIC mode has no hard target, so
+                # the trail is the exit; in FIXED it may pre-empt it).
+                if self.atr_trail_enabled and self._check_trailing_stop(ohlc):
+                    self.log("[EXIT] ATR trail hit; setup complete")
+                    self._reset_trail()
+                    self._fired = False
+                    time.sleep(self.poll_seconds)
+                    return None
+
+            # ---- Condition 3: LTF RRG pattern gate (last 3 LTF candles) ----
+            if self.ltf_pattern_enabled and not self._check_ltf_rrg(df):
+                self.log("[LTF GATE] no RRG on last 3 LTF candles; waiting")
+                time.sleep(self.poll_seconds)
+                return None
+
+            # ---- Condition 4: Hilega-Milega bullish gate (RSI > EMA) ----
+            if self.hm_enabled and not self._hilega_milega_bullish(df, label="LTF"):
+                self.log("[HM GATE] Hilega-Milega not bullish; waiting")
+                time.sleep(self.poll_seconds)
+                return None
+
             # ---- Confirmation-gated path (opt-in) ----
             if self.confirm_enabled:
                 return self._monitor_with_confirmation(df, ohlc, ltp)
@@ -473,6 +812,89 @@ class OCLKeylevelSignal(BaseSignal):
             self.log(f"[LTF ERROR] {e}")
             time.sleep(self.poll_seconds)
             return None
+
+    # ============================================================
+    # [LTF RRG GATE] Condition 3: RRG pattern on last 3 LTF candles
+    # ============================================================
+    def _check_ltf_rrg(self, df) -> bool:
+        """Require an RRG (Red-Red-Green) on the last three LTF candles.
+
+        The HTF scan finds the setup; this gate demands the same bullish
+        structure on the execution timeframe before the LTF touch counts.
+        BUY-only: the strategy never trades the bearish GRR structure.
+        """
+        try:
+            if df is None or len(df) < 3:
+                self.log("[LTF RRG] insufficient LTF candles (<3)")
+                return False
+            c1 = self._extract_ohlc(df.iloc[-3])
+            c2 = self._extract_ohlc(df.iloc[-2])
+            c3 = self._extract_ohlc(df.iloc[-1])
+            ok = validate_pattern(c1, c2, c3, "RRG", 0.0)
+        except Exception as exc:
+            self.log(f"[LTF RRG] error: {exc}")
+            return False
+        if ok:
+            self.log("[LTF RRG] OK last 3 LTF candles form RRG (BUY)")
+        return ok
+
+    # ============================================================
+    # [HILEGA MILEGA GATE] Condition 4: NK Hilega-Milega indicator
+    # ============================================================
+    def _hilega_milega_bullish(self, df, label: str = "LTF",
+                               apply_oversold: Optional[bool] = None) -> bool:
+        """Hilega-Milega gate: RSI > EMA(RSI), optional oversold cap.
+
+        ``apply_oversold`` controls the oversold-zone requirement:
+          * True  -> RSI must ALSO be <= hm_oversold_level (recovery from
+                     oversold). Used on the LTF by default.
+          * False -> the cross alone is enough. Used on the HTF by default
+                     (the operator dropped the oversold cap on the HTF:
+                     requiring RSI<=cap on a monthly gate filters out the
+                     strongest post-RRG uptrends).
+          * None  -> use hm_htf_oversold_enabled for HTF / always True LTF.
+        """
+        try:
+            closes = [float(c) for c in df["close"].tolist()]
+        except (KeyError, TypeError, ValueError, AttributeError):
+            self.log(f"[HM:{label}] no usable close series")
+            return False
+
+        need = self.hm_rsi_period + self.hm_ema_period + 2
+        if len(closes) < need:
+            self.log(f"[HM:{label}] insufficient bars ({len(closes)} < {need})")
+            return False
+
+        rsi = hilega_milega_rsi(closes, rsi_period=self.hm_rsi_period)
+        ema_line = ema(rsi, self.hm_ema_period)
+
+        # Last fully-defined index across the two series.
+        i = min(len(rsi), len(ema_line)) - 1
+        if i < 0 or rsi[i] is None or ema_line[i] is None:
+            self.log(f"[HM:{label}] last bar undefined (warming up); waiting")
+            return False
+
+        r, e = rsi[i], ema_line[i]
+        if apply_oversold is None:
+            apply_oversold = (label != "HTF") or self.hm_htf_oversold_enabled
+        # Oversold-only entry (when enabled): the BUY must fire from the
+        # oversold zone (RSI <= hm_oversold_level, default 30). Combined
+        # with RSI > EMA this is the recovery cross FROM oversold. When the
+        # cap is disabled (HTF default), the RSI>EMA cross alone is enough.
+        oversold_ok = r <= self.hm_oversold_level
+        bullish = r > e and (oversold_ok or not apply_oversold)
+        if bullish:
+            why = ("RSI > EMA and in/below oversold" if apply_oversold
+                   else "RSI > EMA (no oversold cap on HTF)")
+        elif r > e:
+            why = "BLOCKED (RSI above oversold; already ran up)"
+        else:
+            why = "NOT bullish (RSI <= EMA)"
+        self.log(
+            f"[HM:{label}] RSI={r:.2f} EMA(RSI)={e:.2f} "
+            f"oversold_lvl={self.hm_oversold_level} -> {why}"
+        )
+        return bullish
 
     # ============================================================
     # [CONFIRMATION GATE] Touch -> ARM -> z-ROC flip -> fire
@@ -785,6 +1207,142 @@ class OCLKeylevelSignal(BaseSignal):
         return ltp > ceiling
 
     # ============================================================
+    # [STOP LOSS CHECK] Two-tier: HTF structural SL + LTF entry SL
+    # ============================================================
+    def _check_htf_stop_loss(self, htf_candle) -> bool:
+        """HTF stop: an HTF candle CLOSES below the pattern's structural low.
+
+        This is the pattern-invalidation stop and it is judged on the HTF
+        candle's own close - an LTF close below the level does NOT kill the
+        pattern (only the LTF entry stop reacts to that). A wick through
+        does not count either. When it fires, the whole RRG setup is dead
+        and the scanner waits for a NEW HTF pattern.
+        """
+        sl = self._htf_stop_loss
+        if sl is None or self.action != "BUY" or htf_candle is None:
+            return False
+        if htf_candle["close"] < sl:
+            self.log(
+                f"[HTF SL HIT] HTF candle closed {htf_candle['close']:.2f} "
+                f"< HTF-SL {sl:.2f} -> pattern INVALIDATED; "
+                f"waiting for a new HTF pattern"
+            )
+            return True
+        return False
+
+    def _check_ltf_stop_loss(self, candle) -> bool:
+        """LTF stop: an LTF candle CLOSES below the current entry's SL.
+
+        This is a per-entry stop. When it fires (and the HTF structural
+        stop has NOT), the setup stays alive and the NEXT entry level is
+        stepped BELOW this stop-loss. Retries are capped by
+        ``max_ltf_retries``; hitting the cap abandons the setup without
+        killing the pattern.
+        """
+        sl = self._ltf_stop_loss
+        if sl is None or self.action != "BUY":
+            return False
+        if candle["close"] < sl:
+            self.log(
+                f"[LTF SL HIT] LTF close {candle['close']:.2f} < LTF-SL {sl:.2f} "
+                f"(retry {self._ltf_retry_count}/{self.max_ltf_retries}); "
+                f"next entry level steps below this stop"
+            )
+            return True
+        return False
+
+    # ============================================================
+    # [BREAKEVEN] Ratchet the LTF stop to entry+cost past breakeven_rr
+    # ============================================================
+    def _update_breakeven(self, ltp: float) -> None:
+        """Once price reaches breakeven_rr x risk, lock in entry+cost.
+
+        Applies to the live LTF stop (works with both exit modes: in
+        FIXED it protects while the target is pending; in DYNAMIC it
+        floors the trail so the trailing stop can never give back the
+        breakeven). Idempotent - arms once per trade.
+        """
+        if self._breakeven_armed or not self._fired:
+            return
+        entry_sl = self._ltf_stop_loss or self._htf_stop_loss
+        if entry_sl is None or self._trigger_level is None:
+            return
+        risk = self._trigger_level - entry_sl
+        if risk <= 0:
+            return
+        be_trigger = self._trigger_level + risk * self.breakeven_rr
+        if ltp >= be_trigger:
+            floor = self._trigger_level * (
+                1.0 + self.round_trip_cost_pct / 100.0
+            )
+            if (self._ltf_stop_loss is None or floor > self._ltf_stop_loss):
+                self._ltf_stop_loss = floor
+                self._breakeven_armed = True
+                self.log(
+                    f"[BREAKEVEN] price {ltp:.2f} >= {be_trigger:.2f} "
+                    f"({self.breakeven_rr}R); SL locked to entry+cost "
+                    f"{floor:.2f}"
+                )
+
+    # ============================================================
+    # [ATR TRAILING STOP] Dynamic ratcheting exit
+    # ============================================================
+    def _update_trailing_stop(self, df) -> None:
+        """Ratchet the trailing stop after entry (BUY only).
+
+        trail = max(prev_trail, highest_close_since_entry - mult * ATR).
+        Never moves DOWN; never below the initial LTF entry stop. Called
+        on every LTF poll while a position from this setup is open.
+        """
+        if not self.atr_trail_enabled or not self._fired:
+            return
+        try:
+            highs = [float(h) for h in df["high"].tolist()]
+            lows = [float(l) for l in df["low"].tolist()]
+            closes = [float(c) for c in df["close"].tolist()]
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return
+        if len(closes) < self.atr_period + 1:
+            return
+        atr_series = atr(highs, lows, closes, period=self.atr_period)
+        a = atr_series[-1]
+        if a is None or a <= 0:
+            return
+        c = closes[-1]
+        if self._highest_close is None or c > self._highest_close:
+            self._highest_close = c
+        candidate = self._highest_close - self.atr_multiplier * a
+        base = self._ltf_stop_loss or self._htf_stop_loss or 0.0
+        new_stop = max(candidate, base)
+        if self._trail_stop is None or new_stop > self._trail_stop:
+            if self._trail_stop is None:
+                self._trail_stop = new_stop
+                self._trail_active = True
+                self.log(
+                    f"[ATR TRAIL] armed at {new_stop:.2f} "
+                    f"(highest_close={self._highest_close:.2f}, "
+                    f"ATR={a:.2f}, mult={self.atr_multiplier})"
+                )
+            else:
+                self._trail_stop = new_stop
+                self.log(
+                    f"[ATR TRAIL] ratcheted UP to {new_stop:.2f} "
+                    f"(highest_close={self._highest_close:.2f}, ATR={a:.2f})"
+                )
+
+    def _check_trailing_stop(self, candle) -> bool:
+        """Trail exit: an LTF CLOSE below the ratcheted trail stop."""
+        if not self._trail_active or self._trail_stop is None:
+            return False
+        if candle["close"] < self._trail_stop:
+            self.log(
+                f"[ATR TRAIL EXIT] close {candle['close']:.2f} < "
+                f"trail {self._trail_stop:.2f} -> exit signal"
+            )
+            return True
+        return False
+
+    # ============================================================
     # [TOUCH CHECK] Price-vs-Level Comparison
     # ============================================================
     def _check_touch(self, ltp, candle):
@@ -798,7 +1356,7 @@ class OCLKeylevelSignal(BaseSignal):
                 return True
         else:
             if candle["high"] >= (level - buffer):
-                self.log("[TOUCH] OK Bearish resistance!")
+                self.log("[TOUCH] OK resistance touch!")
                 return True
         return False
 
@@ -823,6 +1381,52 @@ class OCLKeylevelSignal(BaseSignal):
         # This enables per-run slicing (e.g. fire 100/10x for 1000 total)
         fire_qty = self.qty_per_fire
 
+        # Per-entry LTF stop: the structural (HTF) stop is the pattern floor;
+        # the trade's own stop sits at the HTF floor if this is the first
+        # entry, otherwise... it is set by the retry ladder (see detect flow).
+        # Keep the LTF stop at the HTF structural stop when undefined so a
+        # first fire always carries a defined SL.
+        entry_sl = self._ltf_stop_loss or self._htf_stop_loss
+        entry_target = (
+            ltp + (ltp - entry_sl) * self.target_rr
+            if (entry_sl is not None and self.action == "BUY"
+                and entry_sl < ltp)
+            else None
+        )
+        # Resolve the EFFECTIVE exit mode. AUTO: an entry that touched the
+        # aggressive level (price came down to open-of-C2 zone) exits on
+        # the FIXED target; an entry that reached the deeper conservative
+        # level (min-low zone, incl. ladder re-entries) rides the ATR
+        # trailing stop (DYNAMIC - no hard target).
+        if self.exit_mode == "AUTO":
+            if (self._aggressive_level is not None
+                    and ltp >= self._aggressive_level * 0.995):
+                self._entry_exit_mode = "FIXED"
+            elif (self._conservative_level is not None
+                  and ltp <= self._conservative_level * 1.005):
+                self._entry_exit_mode = "DYNAMIC"
+            else:
+                self._entry_exit_mode = "FIXED"   # fallback: take the target
+        else:
+            self._entry_exit_mode = self.exit_mode
+        self.log(
+            f"[EXIT MODE] entry at {ltp:.2f} -> "
+            f"{self._entry_exit_mode} "
+            f"(aggr={self._aggressive_level}, cons={self._conservative_level})"
+        )
+        # In the resolved DYNAMIC mode the hard target is suppressed - the
+        # ATR trailing stop is the exit.
+        if self._entry_exit_mode == "DYNAMIC":
+            entry_target = None
+        # Arm the per-entry LTF stop so subsequent polls watch for its
+        # close-below hit (retry ladder). The HTF stop stays unchanged.
+        self._ltf_stop_loss = entry_sl
+        # Start the ATR trailing baseline at entry.
+        self._highest_close = ltp
+        self._trail_stop = None
+        self._trail_active = False
+        self._breakeven_armed = False
+
         intent = {
             "action": self.action,
             "quantity": fire_qty,
@@ -831,11 +1435,19 @@ class OCLKeylevelSignal(BaseSignal):
                 f"OCL-{self.pattern_type} fire #{self._fire_count}/{self._max_label()} "
                 f"at {ltp:.2f} (level={self._trigger_level:.2f}, mode={self.exec_mode})"
             ),
+            "stop_loss": entry_sl,
+            "htf_stop_loss": self._htf_stop_loss,
+            "target": entry_target,
             "_meta": {
                 "fire_count": self._fire_count,
                 "exec_mode": self.exec_mode,
                 "trigger_level": self._trigger_level,
                 "pattern": self.pattern_type,
+                "stop_loss": entry_sl,
+                "htf_stop_loss": self._htf_stop_loss,
+                "target_rr": self.target_rr,
+                "exit_mode": self._entry_exit_mode,
+                "ltf_retry_count": self._ltf_retry_count,
             },
         }
 
@@ -882,6 +1494,13 @@ class OCLKeylevelSignal(BaseSignal):
         )
         self.log("=" * 60)
 
+        # Entry intent handed off. Retain this signal instance to supervise
+        # exits; don't apply ONE_SHOT exhaustion until a close intent returns.
+        self._position_open = True
+        self._position_quantity = fire_qty
+        self._entry_price = float(ltp)
+        self._position_stop = entry_sl
+        self._position_target = entry_target
         # ---- Post-fire state management (per user-defined exec_mode) ----
         # The confirmation layer is per-setup: whatever the exec_mode decides
         # about re-arming, the touch VWAP and the ARM/CONFIRM state must start
@@ -894,8 +1513,7 @@ class OCLKeylevelSignal(BaseSignal):
             self.log("[CONFIRM] state + touch VWAP reset for next setup")
 
         if self.exec_mode == EXEC_MODE_ONE_SHOT:
-            self._exhausted = True
-            self.log("[MODE] ONE_SHOT -> signal exhausted (will not fire again)")
+            self.log("[MODE] ONE_SHOT -> no additional entries; supervising exit")
 
         elif self.exec_mode == EXEC_MODE_COUNT_LIMITED:
             if self._fire_count >= self.max_fires:
@@ -923,6 +1541,99 @@ class OCLKeylevelSignal(BaseSignal):
                 self.log("[AUTO] Re-armed -> will re-scan HTF for new pattern")
 
         return intent
+    def _monitor_open_position(self):
+        """Watch an open OCL position and emit a strategy-managed close."""
+        try:
+            end_date = ist_now().strftime("%Y-%m-%d")
+            start_date = (ist_now() - timedelta(days=120)).strftime("%Y-%m-%d")
+            htf_resp = self.client.history(
+                symbol=self.symbol, exchange=self.exchange,
+                interval=self.htf_interval, start_date=start_date,
+                end_date=end_date)
+            ltf_resp = self.client.history(
+                symbol=self.symbol, exchange=self.exchange,
+                interval=self.ltf_interval,
+                start_date=(ist_now() - timedelta(days=3)).strftime("%Y-%m-%d"),
+                end_date=end_date)
+            if (htf_resp.get("status") != "success"
+                    or ltf_resp.get("status") != "success"):
+                self.log("[POSITION MONITOR] history unavailable; no exit signal")
+                time.sleep(self.poll_seconds)
+                return None
+            htf_df, ltf_df = htf_resp.get("data"), ltf_resp.get("data")
+            if htf_df is None or len(htf_df) < 1 or ltf_df is None or len(ltf_df) < 1:
+                time.sleep(self.poll_seconds)
+                return None
+            htf_candle = self._extract_ohlc(htf_df.iloc[-1])
+            ltf_candle = self._extract_ohlc(ltf_df.iloc[-1])
+            ltp = ltf_candle["close"]
+
+            reason = None
+            if self._check_htf_stop_loss(htf_candle):
+                reason = "HTF structural stop: pattern invalidated"
+            elif (self._position_stop is not None
+                  and ltp <= self._position_stop):
+                reason = "LTF stop-loss close"
+            else:
+                if self.atr_trail_enabled:
+                    self._update_trailing_stop(ltf_df)
+                self._update_breakeven(ltp)
+                if self._breakeven_armed:
+                    self._position_stop = max(
+                        self._position_stop or 0.0,
+                        self._ltf_stop_loss or 0.0)
+                if (self._entry_exit_mode == "FIXED"
+                        and self._position_target is not None
+                        and ltp >= self._position_target):
+                    reason = "fixed RR target"
+                elif (self.atr_trail_enabled
+                      and self._check_trailing_stop(ltf_candle)):
+                    reason = "ATR trailing stop"
+
+            if reason is None:
+                self.log(
+                    f"[POSITION MONITOR] {self.symbol} close={ltp:.2f} "
+                    f"SL={self._position_stop} TP={self._position_target} "
+                    f"trail={self._trail_stop}"
+                )
+                time.sleep(self.poll_seconds)
+                return None
+            self.log(f"[POSITION EXIT] {self.symbol}: {reason} at {ltp:.2f}")
+            close_intent = {
+                "action": "SELL",
+                "quantity": self._position_quantity,
+                "tag": self.config.get("strategy_label", "OCL-Keylevel"),
+                "reason": reason,
+                "stop_loss": None,
+                "target": None,
+                "_meta": {
+                    "position_exit": True,
+                    "exit_reason": reason,
+                    "entry_price": self._entry_price,
+                    "exit_mode": self._entry_exit_mode,
+                    "htf_stop_loss": self._htf_stop_loss,
+                    "final_stop_loss": self._position_stop,
+                    "target": self._position_target,
+                },
+            }
+            self._position_open = False
+            self._position_quantity = 0
+            self._fired = False
+            self._reset_trail()
+            self._pattern_detected = False
+            self._trigger_level = None
+            self._htf_stop_loss = None
+            self._ltf_stop_loss = None
+            return close_intent
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"[POSITION MONITOR] error: {exc!r}")
+            time.sleep(self.poll_seconds)
+            return None
+    def _reset_trail(self) -> None:
+        """Clear the ATR trailing state (setup ended or trail exit)."""
+        self._trail_active = False
+        self._trail_stop = None
+        self._highest_close = None
 
     def _max_label(self) -> str:
         """Human-readable max-fire count for log messages."""

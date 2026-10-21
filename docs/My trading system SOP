@@ -116,6 +116,33 @@ python -m blue_engine.screener.scrape_saved_screen --output-dir .\exports
   repository root with
   `.\.venv\Scripts\python.exe -m pip install -e "Blue_engine[screener]"`.
 
+### 4b-1. Screener -> OCL -> POV bridge - added 2026-10-21
+`Blue_engine/core/screener_bridge.py` + `scripts/run_screener_bridge.py`.
+This is the **first order path** fed by the screener, so treat it as live
+unless OpenAlgo is in analyzer mode.
+```powershell
+# from the repository root (reads tradable symbols from the export)
+.\.venv\Scripts\python.exe scripts\run_screener_bridge.py --csv "Temp/Staging Workspace/screener_exports/filtered_summary.csv" --max-active 5 --max-concurrent 1
+```
+- One `OCLKeylevelSignal` per symbol, polled in its own daemon thread. A fire
+  becomes an intent (action/qty/SL/TP/exit_mode) -> `risk_gate.check_intent`
+  -> `POVSlicer.execute()` -> broker.
+- Limits: `max_active_symbols` (default 5) and `max_concurrent_executions`
+  (default 1, serialised) bound total exposure. The durable kill switch is
+  checked before every fire; a tripped switch stops all workers.
+- **Exit ownership.** `POVSlicer` no longer exits on SL/TP itself: it records
+  the levels in `Blue_engine/core/protective_orders.py` (mirrored to
+  `data/protective_orders.json`). The OCL signal supervises the filled
+  position and emits the SELL close intent (SL / HTF stop / fixed RR target /
+  breakeven / ATR trail). With `--no-wait-for-exit` the bridge stops after the
+  fill and **no process would supervise the exit** - use it only in analyzer.
+- For BSE-resolved symbols pass `--exchange BSE`; the launcher otherwise uses
+  the majority exchange in the CSV, which is wrong for BSE-only names.
+- Run report: `--report data\screener_bridge_report.json` (symbols, disabled,
+  executed intents + summaries) for the dashboard error monitor.
+- Tests: `.venv\Scripts\python.exe -m pytest Blue_engine\tests\test_screener_bridge_protection.py Blue_engine\tests\test_screener_bridge_launcher.py Blue_engine\tests\test_protective_order_passthrough.py -q`
+  (7 total, offline).
+
 ## 4c. Database engine and optional historical-data reference
 
 `Blue_engine/database/` contains the data-management engine. OHLCV continues to

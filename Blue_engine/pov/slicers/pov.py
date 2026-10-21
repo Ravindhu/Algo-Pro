@@ -79,6 +79,9 @@ class POVSlicer(BaseSlicer):
         self.stop_loss_price: Optional[float] = (
             float(config["stop_loss_price"])
             if config.get("stop_loss_price") is not None else None)
+        self.target_price: Optional[float] = (
+            float(config["target_price"])
+            if config.get("target_price") is not None else None)
         # The operator's tag. Callers (config_loader, runner, pov_engine) inject
         # this as "strategy_label"; some legacy configs used "strategy". Accept
         # both, preferring the canonical "strategy_label", so the tag sent to the
@@ -139,18 +142,48 @@ class POVSlicer(BaseSlicer):
         except Exception as exc:
             self.log(f"circuit probe failed (non-fatal): {exc}")
         execution_id = self._create_execution_record(mode)
+        # Keep strategy-provided protection at the parent execution and
+        # expose it to the slicer loop. For OCL the target may be None in
+        # DYNAMIC mode; the trailing logic is controlled by the strategy.
+        stop_loss = intent.get("stop_loss") if intent else None
+        target_level = intent.get("target") if intent else None
+        intent_meta = (intent or {}).get("_meta") or {}
+        if stop_loss is not None:
+            self.stop_loss_price = float(stop_loss)
+        if target_level is not None:
+            self.target_price = float(target_level)
+        else:
+            self.target_price = None
+        try:
+            from blue_engine.core.protective_orders import register
+            register(
+                execution_id, symbol=self.symbol, exchange=self.exchange,
+                action=self.action,
+                stop_loss=self.stop_loss_price,
+                target=self.target_price,
+                strategy=self.strategy_label, meta=intent_meta)
+            if self.stop_loss_price is not None or self.target_price is not None:
+                self.log(
+                    f"protective levels registered: SL={self.stop_loss_price}, "
+                    f"TP={self.target_price}, "
+                    f"exit_mode={intent_meta.get('exit_mode')}"
+                )
+        except Exception as exc:                # noqa: BLE001
+            self.log(f"protective-level registry failed (non-fatal): {exc}")
         # The intent carries the signal's confirmation band (daily buyer VWAP
         # + ceiling) at _meta.band. It must be passed INTO _run explicitly:
         # _run has no `intent` in scope, and reaching for it there raised
         # NameError, which silently prevented the band from ever reaching
         # the slicer.
-        band_meta = ((intent or {}).get("_meta") or {}).get("band") or {}
+        band_meta = intent_meta.get("band") or {}
         summary = self._run(execution_id=execution_id, mode=mode,
                            lot_size=lot,
                            upper_circuit=upper_circuit,
                            lower_circuit=lower_circuit,
                            band_meta=band_meta)
         summary["execution_id"] = execution_id
+        summary["stop_loss"] = self.stop_loss_price
+        summary["target_price"] = self.target_price
         return summary
 
     def _create_execution_record(self, mode: str) -> str:
@@ -325,18 +358,9 @@ class POVSlicer(BaseSlicer):
                 if self.action == "SELL" and self.ceiling_price                         and ltp < self.ceiling_price:
                     self.log(f"SELL LIMIT ltp={ltp}<{self.ceiling_price}; skip")
                     slice_qty = 0
-            # Stop-loss -> exit phase.
-            if slice_qty > 0 and self.stop_loss_price:
-                if self.action == "BUY" and ltp <= self.stop_loss_price:
-                    self.log(f"stop_loss ltp={ltp}<={self.stop_loss_price}; exit")
-                    phase = "exiting"
-                    self._sync_order_action(phase)
-                    slice_qty = 0
-                elif self.action == "SELL" and ltp >= self.stop_loss_price:
-                    self.log(f"stop_loss ltp={ltp}>={self.stop_loss_price}; exit")
-                    phase = "exiting"
-                    self._sync_order_action(phase)
-                    slice_qty = 0
+            # Protective levels are attached to the execution record and
+            # consumed by the signal/position manager for post-entry exits.
+
             # ---- CEILING HALT: checked on EVERY poll, before any slicing ----
             # "price above ceiling -> stop slicing". This runs even when
             # delta_vol produced no slice this poll, because a run that has
