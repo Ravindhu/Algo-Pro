@@ -1,6 +1,6 @@
 # My Trading System — Standard Operating Procedure
 
-**Last updated:** 2026-10-22
+**Last updated:** 2026-10-23
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
 **Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
@@ -343,6 +343,51 @@ Any change touching the Economic → POV path must:
 | `duration` expiry does **not** square off | run a separate exit |
 | `stale=False` is unreliable for monthly series | check `as_of` by eye |
 | `run_pov.py` ignores the Economic regime | the tilt does not apply to that path |
+| An LLM backend cannot loosen a limit | `_CAPS` + `_escalate` in `core/frontline_agent.py` clamp the safe direction; a veto can never be cleared by the agent |
+
+---
+
+## 12. Frontline LLM chain (Ollama → OpenRouter → disabled)
+
+Advisory only. Nothing in this chain places, sizes or cancels an order.
+
+### Setup (both are optional; either alone is enough)
+
+| Backend | Config | Notes |
+|---|---|---|
+| Ollama (primary) | `OLLAMA_HOST` (a **URL**, not a key) | default `http://127.0.0.1:11434`; unlimited, no quota |
+| OpenRouter (overflow) | `OPENROUTER_API_KEY` | free `:free` models: 20 req/min, 50/day (<10 credits) or 1000/day |
+
+```powershell
+# Is Ollama up? (no key is involved)
+Invoke-RestMethod http://127.0.0.1:11434/api/tags | Select-Object -ExpandProperty models
+```
+
+### Turn it on
+
+`Blue_engine/input/macro_master.json` → `engines.agent.enabled = true`. The
+`engines.agent.llm` block sets per-backend `enabled`, `model` and `digest`.
+
+### Verify the chain order
+
+```powershell
+cd C:\Users\Admin\CodeGPT\my-trading-system
+.\.venv\Scripts\python.exe -c "import sys;sys.path.insert(0,'Blue_engine');from blue_engine.core.frontline_agent import FrontlineAgent;print(FrontlineAgent({'enabled':True}).status()['chain'])"
+```
+
+Expect `chain: ['ollama','openrouter']` and, per backend, whether it is
+`configured`. If both show unconfigured, the agent returns `method='disabled'`
+and the pipeline continues with its deterministic values — that is normal.
+
+### Rules that must not change
+
+1. **Pin the model digest.** `:latest` is mutable; an upgrade would change agent
+   output silently. Fill `llm.ollama.digest` once known.
+2. **A 429 retires OpenRouter for the UTC day.** It is not retried.
+3. **Agentic mode is bounded**: `max_rounds` ≤ 4, `max_calls` ≤ 6, clamped in
+   code regardless of config. Tools must be **read-only**.
+4. **Escalation only**: for veto/sizing keys the agent may move toward the safe
+   side, never away. Tested in `tests/test_llm_chain.py`.
 
 ---
 

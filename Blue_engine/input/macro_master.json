@@ -195,10 +195,28 @@
       "ollama_model": "qwen2.5-coder:7b"
     },
     "agent": {
-      "_comment": "Optional OpenRouter advisory. Set enabled=true and provide a newly rotated OPENROUTER_API_KEY in the repository-root .env file or process environment. Only explicit public text from context.agent_inputs is sent. Suggestions never write configuration or place orders.",
+      "_comment": "Optional frontline advisory. Backend chain: Ollama (local, unlimited, no key) -> OpenRouter free-tier overflow -> disabled. Only explicit public text from context.agent_inputs is sent. Suggestions NEVER write configuration or place orders, and for veto-capable keys the agent may only move in the safe direction (see _CAPS in core/frontline_agent.py).",
       "enabled": false,
       "model": "openai/gpt-4o-mini",
-      "timeout_seconds": 20
+      "timeout_seconds": 20,
+      "max_rounds": 2,
+      "max_calls": 3,
+      "_agentic_comment": "max_rounds/max_calls bound the optional read-only tool loop. Hard-clamped to 4 rounds / 6 calls in AgenticLLM so a misconfiguration cannot drain the OpenRouter free tier (50 req/day below 10 credits, 1000 above).",
+      "llm": {
+        "_chain_comment": "Order is fixed in code: ollama, then openrouter, then disabled. Set enabled=false to drop a backend from the chain.",
+        "ollama": {
+          "enabled": true,
+          "model": "qwen3:8b",
+          "digest": "",
+          "timeout_seconds": 8,
+          "_comment": "OLLAMA_HOST defaults to http://127.0.0.1:11434. Fill 'digest' (e.g. sha256:...) once the model is pinned: ':latest' is mutable, so an upgrade would silently change agent output."
+        },
+        "openrouter": {
+          "enabled": true,
+          "model": "qwen/qwen-2.5-7b-instruct:free",
+          "_comment": "Overflow only. ':free' variants are capped at 20 req/min and 50 req/day (< 10 credits) or 1000 req/day (>= 10 credits). A 429 marks the backend exhausted for the rest of the UTC day."
+        }
+      }
     },
     "screener": {
       "_comment": "Optional pipeline stage. Enable only with an intentionally configured provider or input snapshot; network scraping is never enabled by the default pipeline.",
