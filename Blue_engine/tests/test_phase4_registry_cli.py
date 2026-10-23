@@ -232,11 +232,14 @@ def test_list_strategies_for_ui_includes_params_space_for_ocl():
     if "ocl_keylevel" in by_name:
         ps = by_name["ocl_keylevel"].get("params_space")
         assert ps, "OCL entry must include params_space"
-        # Spot-check the four params the test_optimizer_data_cache
-        # test asserts on.
-        for key in ("htf_interval", "min_body_pct", "pattern_type",
-                     "exec_mode"):
+        # Spot-check the params the UI needs to render the parameter table.
+        # ``min_body_pct`` is intentionally excluded - the strategy no longer
+        # consults it (see audit F-24).
+        for key in ("htf_interval", "pattern_type", "exec_mode"):
             assert key in ps, f"OCL params_space missing {key!r}"
+        assert "min_body_pct" not in ps, (
+            "min_body_pct is ignored by the strategy and must not be exposed "
+            "as a tunable parameter (F-24)")
 
 
 def test_list_strategies_for_ui_returns_empty_when_alpha_unimportable(

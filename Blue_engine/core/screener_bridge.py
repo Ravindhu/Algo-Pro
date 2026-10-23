@@ -167,9 +167,14 @@ class ScreenerBridge:
         self.poll_seconds = poll_seconds
 
     def kill_tripped(self) -> bool:
-        """Durable kill-switch check (single source: optim_policy)."""
-        from blue_engine.portfolio.optim_policy import kill_switch_state
-        return bool(kill_switch_state().get("tripped"))
+        """Durable kill-switch check (single source: optim_policy).
+
+        Uses the NON-LATCHING ``peek_kill_switch``: this is a read-only
+        polling bridge, and hydrating the process switch here would latch a
+        persisted halt into a process that never placed an order.
+        """
+        from blue_engine.portfolio.optim_policy import peek_kill_switch
+        return bool(peek_kill_switch().get("tripped"))
 
     # ------------------------------------------------------------------ #
     def log(self, msg: str) -> None:

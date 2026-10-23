@@ -61,9 +61,18 @@ __all__ = ["SPACES", "builtin_space", "load_space", "available_spaces",
 
 _OCL_KEYLEVEL: List[Dict[str, Any]] = [
     # --- pattern recognition (what counts as the setup) ------------------- #
-    dict(name="min_body_pct", kind="float", low=0.10, high=0.70, default=0.30,
-         doc="Minimum candle body as a fraction of range for the pattern to "
-             "count. Higher = fewer, cleaner patterns."),
+    # AUDIT (2026-10-22, F-24): ``min_body_pct`` is NOT searchable.
+    #
+    # It used to be declared here as float[0.10, 0.70], but
+    # ``alpha/signals/_pattern.py:88-97`` removed the body-size filter by
+    # operator instruction and now accepts-and-ignores the argument
+    # (``_ = min_body_pct``). A tuner searching this dimension therefore
+    # evaluated N identical strategies and spent its budget on a flat axis,
+    # which also made the importance plot report it as "unimportant" for a
+    # structural reason rather than a statistical one.
+    #
+    # It is deliberately NOT listed below. If the filter is ever restored in
+    # ``_pattern.py``, re-add it here at the same time.
     dict(name="pattern_type", kind="categorical", choices=["RRG", "GRR"],
          default="RRG",
          doc="RRG = bullish reversal (dip then reclaim). GRR = bearish."),

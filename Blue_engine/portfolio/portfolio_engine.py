@@ -109,6 +109,16 @@ class PortfolioEngine(BaseEngine):
         # --- views (opt-in) -------------------------------------------- #
         self.views_enabled: bool = bool(cfg.get("views_enabled", False))
 
+        # --- economic-consume (audit fix 2026-10-22, P0-3) --------------- #
+        #: The Economic engine publishes ``gross_exposure_multiplier`` as the
+        #: documented tilt for the Portfolio engine, but NOTHING used it: the
+        #: regime reached the optimiser only through the regime->policy map, so
+        #: a RISK_OFF multiplier of 0.74 produced the same gross as RISK_ON.
+        #: When enabled, the target book is scaled by the multiplier and the
+        #: result is reported under ``economic_tilt`` for audit.
+        self.consume_gross_multiplier: bool = bool(
+            cfg.get("consume_gross_multiplier", True))
+
         # --- persistence ----------------------------------------------- #
         self.persist: bool = bool(cfg.get("persist", False))
 
@@ -179,7 +189,8 @@ class PortfolioEngine(BaseEngine):
 
     # ---- 1. construction ---------------------------------------------- #
     def _construct(self, data: Dict[str, Any], market: Dict[str, Any],
-                   econ: Dict[str, Any]) -> Dict[str, Any]:
+                   econ: Dict[str, Any],
+                   warnings: Optional[List[str]] = None) -> Dict[str, Any]:
         """Build target weights via the selected optimiser.
 
         Returns a dict ``{"weights", "cash", "optimiser", "diagnostics",
@@ -192,10 +203,34 @@ class PortfolioEngine(BaseEngine):
                     "diagnostics": {}, "warnings": [], "views": []}
 
         cov = data.get("cov")
-        vols_map = {k: (safe_float(v) or 0.2)
-                    for k, v in (data.get("vols") or {}).items()}
-        betas = {k: (safe_float(v) or 1.0)
-                 for k, v in (data.get("betas") or {}).items()}
+        # AUDIT (2026-10-22): ``safe_float(v) or 0.2`` and ``safe_float(v) or 1.0``
+        # collapse two very different inputs to the same default:
+        #   * missing vol / beta  -> documented default (0.20 / 1.00)
+        #   * 0.0 (a stale or truncated sleeve) -> silently 0.20 / 1.00
+        # A sleeve whose returns stopped updating shows zero variance, and the
+        # optimiser then treats it as a FREE risk reduction. Zero is excluded
+        # explicitly and reported so a stale feed is visible, not exploited.
+        # Also: a vol above 1.0 (100% annualised) or beta above 3 is almost
+        # always a units/price-scale fault, not a real estimate.
+        vols_map: Dict[str, float] = {}
+        betas: Dict[str, float] = {}
+        invalid_inputs: List[str] = []
+        for k, v in (data.get("vols") or {}).items():
+            vol = safe_float(v)
+            if vol is None or vol <= 0.0 or vol > 1.0:
+                invalid_inputs.append(
+                    f"{k}: invalid volatility {v!r}; using 0.20 (check the feed)")
+                vol = 0.2
+            vols_map[k] = vol
+        for k, v in (data.get("betas") or {}).items():
+            beta = safe_float(v)
+            if beta is None or beta <= 0.0 or beta > 3.0:
+                invalid_inputs.append(
+                    f"{k}: invalid beta {v!r}; using 1.00 (check the feed)")
+                beta = 1.0
+            betas[k] = beta
+        if warnings is not None:
+            warnings.extend(invalid_inputs)
 
         constraints = {
             "min_weight": self.min_weight,
@@ -256,7 +291,7 @@ class PortfolioEngine(BaseEngine):
             "cash": round(clamp(1.0 - sum(weights.values()), 0.0, 1.0), 6),
             "optimiser": result.get("method", name),
             "diagnostics": result.get("diagnostics", {}),
-            "warnings": warnings + list(result.get("warnings", [])),
+            "warnings": list(result.get("warnings", [])),
             "views": views,
             "problem": problem,
         }
@@ -402,6 +437,38 @@ class PortfolioEngine(BaseEngine):
         return risk
 
     # ---- 3. sizing ----------------------------------------------------- #
+    @staticmethod
+    def _economic_tilt(targets: Dict[str, float], econ: Dict[str, Any],
+                       enabled: bool) -> tuple:
+        """Scale the book by the Economic ``gross_exposure_multiplier``.
+
+        Returns ``(targets, detail)``. The multiplier is clamped to a sane
+        range here as well as in the economics package, because a malformed
+        provider payload must never be able to lever the book up.
+        """
+        if not enabled:
+            return targets, {"applied": False, "reason": "economic tilt disabled"}
+        raw = safe_float(econ.get("gross_exposure_multiplier"))
+        if raw is None:
+            return targets, {
+                "applied": False,
+                "reason": "no economic multiplier supplied",
+                "regime": econ.get("regime")}
+        mult = clamp(raw, 0.0, 1.5)
+        if abs(mult - 1.0) < 1e-9 or not targets:
+            return targets, {"applied": False, "multiplier": round(mult, 4),
+                             "reason": "multiplier is neutral",
+                             "regime": econ.get("regime")}
+        scaled = {k: round(v * mult, 6) for k, v in targets.items()}
+        return scaled, {
+            "applied": True,
+            "multiplier": round(mult, 4),
+            "pre_tilt_gross": round(sum(abs(v) for v in targets.values()), 6),
+            "post_tilt_gross": round(sum(abs(v) for v in scaled.values()), 6),
+            "regime": econ.get("regime"),
+            "risk_on_score": econ.get("risk_on_score"),
+        }
+
     def _size(self, targets: Dict[str, float], risk: Dict[str, Any],
               econ: Dict[str, Any]) -> Dict[str, Any]:
         """Scale gross via vol-target, Kelly and the drawdown governor."""
@@ -526,10 +593,27 @@ class PortfolioEngine(BaseEngine):
                 warnings=["no portfolio inputs supplied; empty target book"],
             )
 
-        built = self._construct(data, market, econ)
+        built = self._construct(data, market, econ, warnings)
         warnings.extend(built.get("warnings", []))
         targets = self._apply_exposure_limits(
             built["weights"], data, warnings)
+        # Economic tilt BEFORE risk/sizing: the multiplier is a gross-exposure
+        # decision, so vol-target and the drawdown governor must see (and may
+        # further reduce, never increase) the already-tilted book.
+        targets, tilt = self._economic_tilt(
+            targets, econ, self.consume_gross_multiplier)
+        # Audit (2026-10-22): the tilt ran AFTER the cash-buffer/gross cap, so an
+        # up-tilt (multiplier 1.3, an allowed RISK_ON value) pushed gross back
+        # above max_gross / (1 - min_cash_buffer_pct) - verified: gross went from
+        # 0.85 to 1.105 against a 0.85 cap. The hard caps are absolute, so they
+        # are re-applied AFTER the tilt; the tilt may only reduce headroom that
+        # the caps allow, never breach them.
+        if tilt.get("applied"):
+            targets = self._apply_exposure_limits(targets, data, warnings)
+        if tilt.get("applied"):
+            warnings.append(
+                f"gross scaled by economic multiplier {tilt['multiplier']} "
+                f"(regime={tilt.get('regime')})")
         current = {k: (safe_float(v) or 0.0)
                    for k, v in (data.get("current_weights") or {}).items()}
 
@@ -584,6 +668,7 @@ class PortfolioEngine(BaseEngine):
             "gross": round(sum(targets.values()), 6),
             "constraints": built.get("diagnostics", {}),
             "sizing": sizing,
+            "economic_tilt": tilt,
             "cost": cost,
             "held_in_band": banded.get("held", []),
             "views": built.get("views", []),

@@ -22,6 +22,14 @@ class BaseSlicer(ABC):
     def __init__(self, client: Any, config: Dict[str, Any]):
         self.client = client
         self.config = config
+        #: AUDIT (2026-10-22, P1-6): the runner resolves the kill-switch once,
+        #: BEFORE the (long) signal wait, and then never re-reads it. A halt
+        #: tripped by another process mid-wait - or an operator trip from the
+        #: dashboard - was ignored and the slicer kept placing children. The
+        #: slicer now checks this on every child submission.
+        self.kill_tripped = None
+        #: Optional in-process callable returning True when trading is halted.
+        self.halt_check = None
 
     @abstractmethod
     def execute(self, intent: Dict[str, Any]) -> Dict[str, Any]:

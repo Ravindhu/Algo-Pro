@@ -77,6 +77,14 @@ DEFAULT_SIGNALS: Dict[str, Dict[str, Any]] = {
     "forex_reserves": {"direction": +1, "weight": 1.0, "label": "FX reserves"},
     # Optional, only scored when the data is present:
     "news_tone":      {"direction": +1, "weight": 0.5, "label": "News / RBI tone"},
+    # AUDIT (2026-10-22, F-25): the provider emits ``fii_inflow`` (a value_block
+    # of FII net cash in INR) but this table had NO entry for it, so the
+    # institutional-flow signal was scored by the Market engine and silently
+    # dropped by the Economic engine even though the data was present. Weight is
+    # kept modest because the Market engine already carries FII (fii_weight 0.5
+    # of risk_appetite) and double-counting one flow across two engines would
+    # overstate it.
+    "fii_inflow":     {"direction": +1, "weight": 0.5, "label": "FII net cash"},
 }
 
 # Regime cut-points now live in regime.py; re-exported here for backwards
@@ -328,6 +336,10 @@ class EconomicEngine(BaseEngine):
             "employment": 8.0, "inflation": 6.0, "climate": 100.0,
             "tax": 30.0, "currency": 85.0, "forex_reserves": 700.0,
             "news_tone": 1.0,
+            # FII net cash arrives in RUPEES (value_block multiplies Cr by 1e7).
+            # 1e11 INR = 10,000 Cr, a large one-way institutional day, so a
+            # typical +/-2,000 Cr day lands near +/-0.2 instead of saturating.
+            "fii_inflow": 1e11,
         }.get(key, 10.0)
 
     @staticmethod
@@ -411,6 +423,27 @@ class EconomicEngine(BaseEngine):
 
         # Provenance from the provider stack, when present.
         meta = macro.get("meta") or {}
+
+        # AUDIT (2026-10-22, P0): a provider that flags its data ``stale`` was
+        # ignored. Verified before this fix: a macro block with
+        # ``meta.stale=True`` still produced ``MILD_RISK_ON`` and a *levering*
+        # multiplier of 1.1016, with no warning anywhere. Data integrity ranks
+        # above strategy performance in the safety hierarchy, so a stale feed
+        # may not size risk UP. The multiplier is capped at 1.0 (never lever a
+        # stale book) and a warning is always emitted.
+        data_stale = bool(meta.get("stale"))
+        if data_stale:
+            if multiplier > 1.0:
+                warnings.append(
+                    f"macro data flagged STALE by the provider; gross multiplier "
+                    f"capped {multiplier:.3f} -> 1.000 (no leverage on stale data)")
+                multiplier = 1.0
+                mult_info = dict(mult_info, multiplier=1.0, stale_capped=True)
+            else:
+                warnings.append(
+                    f"macro data flagged STALE by the provider; regime '{regime}' "
+                    f"derived from dated inputs")
+
         decision = _decision_fields(macro, regime, multiplier, self.config)
 
         self.log(f"regime={regime} risk_on_score={composite:+.2f} "
@@ -431,6 +464,9 @@ class EconomicEngine(BaseEngine):
                 "nlp": self._nlp_signals(context) or None,
                 "event": event_info,
                 "source_meta": meta or None,
+                #: True when the provider flagged the inputs as stale. Consumers
+                #: (dashboard, RiskEngine) must treat a stale regime as advisory.
+                "data_stale": data_stale,
                 **decision,
             },
             warnings=warnings + list(meta.get("warnings") or []),

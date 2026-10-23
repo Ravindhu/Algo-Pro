@@ -23,7 +23,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import pkgutil
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from .interfaces import BaseAlphaEngine, BaseEMSEngine, BaseOMSEngine, BaseRiskEngine, EngineType
 
@@ -96,8 +96,16 @@ def register_ems_engine(name: str) -> Callable:
 
 # â”€â”€ Auto-discovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-def _discover(package_name: str, registry: Dict[str, Any]) -> None:
-    """Auto-discover and register all engine classes in a package."""
+def _discover(package_name: str, registries: List[Dict[str, Any]]) -> None:
+    """Auto-discover and register engine classes in ONE package.
+
+    AUDIT (2026-10-22): this used to be called once per REGISTRY (4x) for each
+    of 6 packages, so every module was imported and re-scanned 24 times. Because
+    ``core.registry`` is imported by ``core.base``, importing ANY engine paid the
+    full cost - measured at **47 s** for a single ``import blue_engine.core.pipeline``.
+    The caller now passes all four registries at once, so each module is
+    imported and inspected exactly once (24 scans -> 6).
+    """
     try:
         package = importlib.import_module(package_name)
     except ImportError:
@@ -106,34 +114,61 @@ def _discover(package_name: str, registry: Dict[str, Any]) -> None:
     for mod_info in pkgutil.iter_modules(package.__path__):
         if mod_info.name.startswith("_"):
             continue
-        module = importlib.import_module(f"{package_name}.{mod_info.name}")
+        try:
+            module = importlib.import_module(f"{package_name}.{mod_info.name}")
+        except Exception:  # noqa: BLE001 - a broken optional module must not
+            # take the whole registry down at import time.
+            continue
         for _, obj in inspect.getmembers(module, inspect.isclass):
-            for base in registry.values():
-                if obj is base:
-                    continue
-            for base in registry.values():
-                if inspect.isclass(obj) and issubclass(obj, base) and not inspect.isabstract(obj):
-                    engine_name = obj.__name__.replace("Engine", "").replace("Slicer", "").lower()
-                    if engine_name not in registry:
-                        registry[engine_name] = obj
+            if inspect.isabstract(obj):
+                continue
+            # NOTE: the old code had a no-op loop here
+            # (``for base in registry.values(): if obj is base: continue``)
+            # which did nothing; removed.
+            for registry in registries:
+                for base in list(registry.values()):
+                    if issubclass(obj, base):
+                        engine_name = (obj.__name__.replace("Engine", "")
+                                       .replace("Slicer", "").lower())
+                        registry.setdefault(engine_name, obj)
                         break
+
 
 def discover_all(package_prefix: str = "blue_engine") -> None:
     """Auto-discover engine implementations across all blue_engine sub-packages.
-    
+
     Args:
         package_prefix: The top-level package to scan (e.g., "blue_engine").
+
+    AUDIT (2026-10-22): the four registries are passed together so each package
+    is imported/scanned once instead of once per registry (a 4x saving).
+    Callers that only need a specific registry should prefer the explicit
+    ``register_*`` decorators.
     """
     # Engine sub-packages live FLAT under blue_engine/ -- there is deliberately
     # no intermediate `engines` package, so scan the flat sub-packages directly.
+    registries = [_alpha_registry, _risk_registry, _oms_registry, _ems_registry]
     for sub in ("alpha", "economics", "market", "portfolio", "pov", "infrastructure"):
-        _discover(f"{package_prefix}.{sub}", _alpha_registry)
-        _discover(f"{package_prefix}.{sub}", _risk_registry)
-        _discover(f"{package_prefix}.{sub}", _oms_registry)
-        _discover(f"{package_prefix}.{sub}", _ems_registry)
+        _discover(f"{package_prefix}.{sub}", registries)
+
+
+#: Discovery is DEFERRED (audit F-26). Running it at import time cost 47 s for a
+#: single ``import`` because ``core.base`` imports this module. It now runs on
+#: the first registry LOOKUP instead.
+_DISCOVERED = False
+
+
+def ensure_discovered() -> None:
+    """Run auto-discovery exactly once, on first use."""
+    global _DISCOVERED
+    if not _DISCOVERED:
+        _DISCOVERED = True
+        discover_all("blue_engine")
+
 
 def get_alpha_engine(name: str) -> Type[BaseAlphaEngine]:
     """Retrieve a registered Alpha engine by name."""
+    ensure_discovered()
     name = name.lower()
     if name not in _alpha_registry:
         available = ", ".join(sorted(_alpha_registry.keys())) or "<none>"
@@ -143,13 +178,7 @@ def get_alpha_engine(name: str) -> Type[BaseAlphaEngine]:
 
 def get_risk_engine(name: str) -> Type[BaseRiskEngine]:
     """Retrieve a registered Risk engine by name."""
-    name = name.lower()
-    if name not in _risk_registry:
-        available = ", ".join(sorted(_risk_registry.keys())) or "<none>"
-        raise KeyError(f"Unknown Risk engine '{name}'. Available: {available}")
-    return _risk_registry[name]
-def get_risk_engine(name: str) -> Type[BaseRiskEngine]:
-    """Retrieve a registered Risk engine by name."""
+    ensure_discovered()
     name = name.lower()
     if name not in _risk_registry:
         available = ", ".join(sorted(_risk_registry.keys())) or "<none>"
@@ -228,12 +257,6 @@ def clear_registry(engine_type: Optional[EngineType] = None) -> None:
         registries[engine_type].clear()
 
 
-# â”€â”€ Auto-discover at import time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# This ensures plugins are registered as soon as the registry module is imported.
-
-discover_all("blue_engine")
-
-
 __all__ = [
     "EngineType",
     "BaseAlphaEngine",
@@ -253,4 +276,5 @@ __all__ = [
     "unregister_engine",
     "clear_registry",
     "discover_all",
+    "ensure_discovered",
 ]

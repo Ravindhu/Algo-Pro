@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Tuple
 
 
@@ -80,7 +80,9 @@ def should_throttle_order(
 
     Returns ``(throttled, delay, reason)``.
     """
-    current = now or datetime.utcnow()
+    # Naive UTC, identical to the deprecated utcnow(). ``timezone.utc`` not
+    # ``datetime.UTC``: the latter exists only on Python 3.11+.
+    current = now or datetime.now(timezone.utc).replace(tzinfo=None)
 
     cool_off = float(
         request_data.get(

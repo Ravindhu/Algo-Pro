@@ -88,6 +88,14 @@ class POVSlicer(BaseSlicer):
         # OpenAlgo orderbook and the ledger execution_id actually match the run.
         self.strategy_label: str = str(
             config.get("strategy_label") or config.get("strategy") or "POV")
+        #: Exact orderbook strategy tags THIS slicer may cancel or treat as its
+        #: own working children. Default is only its own full label; the old
+        #: first-dash-prefix fallback cancelled sibling strategies' orders.
+        extra_labels = config.get("allowed_strategy_labels") or []
+        if isinstance(extra_labels, str):
+            extra_labels = [extra_labels]
+        self.allowed_strategy_labels: set = {
+            str(lbl) for lbl in ([self.strategy_label] + list(extra_labels)) if lbl}
         self.sme_periodic_call_auction: Optional[bool] = (
             None if config.get("sme_periodic_call_auction") is None
             else bool(config["sme_periodic_call_auction"]))
@@ -256,10 +264,33 @@ class POVSlicer(BaseSlicer):
         #: UnboundLocalError in a live run.
         peg_phase = phase
         poll_sec = self.interval
+        #: Date of the first valid quote in this run; used to detect a session
+        #: rollover (see the quote block below).
+        trading_day_seen: Optional[str] = None
+        summary_reason: Optional[str] = None
         quote_health = QuoteHealthMonitor(
             threshold=int(self.config.get("quote_failure_threshold", 3)))
         end_ts = (
             datetime.now() + timedelta(seconds=self.duration)).timestamp()
+        #: AUDIT (2026-10-22, P1-3): the single wall-clock deadline is correct for
+        #: a same-day POV run but wrong for a run launched after the square-off
+        #: (e.g. after 15:20 IST, or into an SME/PCAS name outside the auction
+        #: window). Those runs have nothing to trade and must fail closed rather
+        #: than spin for the full ``duration`` and then report "filled=0" as if
+        #: it were a market outcome.
+        _now_ist = ist_now()
+        if self.cutoff and is_past_cutoff(self.cutoff, now=_now_ist):
+            self.log(f"cutoff {self.cutoff} already passed; nothing to do")
+            return {"filled": 0, "target": target_qty,
+                    "child_orders": 0, "mode": mode,
+                    "phase": "aborted",
+                    "reason": "cutoff_reached_at_start"}
+        if self.squareoff and is_past_cutoff(self.squareoff, now=_now_ist):
+            self.log(f"squareoff {self.squareoff} already passed; nothing to do")
+            return {"filled": 0, "target": target_qty,
+                    "child_orders": 0, "mode": mode,
+                    "phase": "aborted",
+                    "reason": "squareoff_reached_at_start"}
         now_ts = datetime.now().timestamp()
         self.log(f"loop starts | target={target_qty} | phase={phase}")
         while now_ts < end_ts and filled_qty < target_qty:
@@ -297,6 +328,26 @@ class POVSlicer(BaseSlicer):
             quote_health.record_success()
             qd = quote.get("data") or {}
             ltp = _safe_float(qd.get("ltp"))
+            # AUDIT (2026-10-22, P1-4): ``volume`` is the broker's cumulative
+            # traded volume FOR THE DAY. Delta-volume slicing and VWAP are only
+            # valid inside one session; the moment the cache rolls over to the
+            # next trading day, ``volume`` restarts near zero, the delta goes
+            # negative and the POV loop silently stops slicing for the rest of
+            # the run (or, worse, treats the reset as a huge positive delta if
+            # the cache briefly reports a stale figure). A day rollover aborts
+            # the execution leg so a human re-plans it.
+            quote_day = str(
+                qd.get("date") or qd.get("trading_date") or qd.get("ts_date") or "")
+            if quote_day and trading_day_seen is None:
+                trading_day_seen = quote_day
+            elif quote_day and quote_day != trading_day_seen:
+                self.log(f"session rollover detected ({trading_day_seen} -> "
+                         f"{quote_day}); aborting before volume maths go wrong")
+                data_failure_handler = getattr(self, "on_data_failure", None)
+                if callable(data_failure_handler):
+                    data_failure_handler(f"session rollover to {quote_day}")
+                summary_reason = "session_rollover"
+                break
             volume = _safe_int(qd.get("volume"))
             ask = _safe_float(qd.get("ask"))
             monitor_observer = getattr(self, "monitor_observer", None)
@@ -314,12 +365,26 @@ class POVSlicer(BaseSlicer):
             # Time-of-day phase transitions.
             now_ist = ist_now()
             now_ts = now_ist.timestamp()
-            if self.squareoff and is_past_cutoff(self.squareoff, now=now_ist):
-                self.log("squareoff_time reached; exiting")
-                phase = "exiting"
-            elif self.cutoff and is_past_cutoff(self.cutoff, now=now_ist):
-                self.log("cutoff_time reached; exit phase")
-                phase = "exiting"
+            # AUDIT (2026-10-22, P1-2): entering the exit phase used to flip the
+            # working side but leave ``target_qty`` at the ENTRY quantity, so a
+            # square-off of a partially filled entry tried to sell the full
+            # parent size. If the entry had only filled 300 of 1,000 shares, the
+            # exit phase would sell 1,000 - opening an unhedged short with real
+            # money. The exit target is now pinned to what the entry actually
+            # filled, and an exit with nothing filled terminates instead of
+            # looping to the duration limit.
+            if (self.squareoff and is_past_cutoff(self.squareoff, now=now_ist)) \
+                    or (self.cutoff and is_past_cutoff(self.cutoff, now=now_ist)):
+                if phase != "exiting":
+                    phase = "exiting"
+                    exit_target = filled_qty
+                    self.log(
+                        f"{'squareoff' if self.squareoff else 'cutoff'}_time "
+                        f"reached; exit phase for {exit_target} filled shares")
+                    target_qty = exit_target
+                    if target_qty <= 0:
+                        self.log("nothing was filled; no exit required")
+                        break
             # Keep the working side in step with the phase so exits reverse.
             self._sync_order_action(phase)
             # Core POV volume gate.
@@ -378,6 +443,13 @@ class POVSlicer(BaseSlicer):
                 )
                 slice_qty = 0
             # Feature 13: band-based dynamic rate.
+            # AUDIT (2026-10-22, P1-1): ``arrival_window`` and ``slippage_acc``
+            # were constructed but never used - the LIVE slippage feedback loop
+            # (Phase 2) was advertised in the config/dashboard and silently
+            # absent from the executor, so ``max_slippage_bps`` had no effect on
+            # a live run. Implemented here.
+            ref_price = arrival_window.vwap()
+            rate_for_poll = self.pct if phase == "accumulating" else self.exit_pct
             if slice_qty > 0:
                 # Prefer the signal's confirmation band when present; fall
                 # back to the slicer's own session/buyer VWAP otherwise so
@@ -398,7 +470,26 @@ class POVSlicer(BaseSlicer):
                     action=self.action)
                 decision = compute_target_pov_rate(ltp=ltp, config=band_cfg)
                 self.log(f"rate={decision.rate:.2f}% [{decision.reason}]")
+                rate_for_poll = decision.rate
                 slice_qty = int((delta_vol * decision.rate) / 100.0)
+            # ---- SLIPPAGE FEEDBACK (Phase 2) -------------------------------
+            # Realised slippage per child = (fill-side move vs the arrival VWAP
+            # of that slice). The rolling mean of the last N samples gates the
+            # participation rate: over the cap, multiply by the penalty factor
+            # and never go below min_pov_pct.
+            if slice_qty > 0 and bool(self.config.get("slippage_guard_enabled", True)):
+                window_bps = _safe_float(self.config.get("max_slippage_bps"), 50.0)
+                current_bps = slippage_acc.current_bps()
+                if window_bps > 0 and slippage_acc.is_over_threshold(window_bps):
+                    penalty = _safe_float(
+                        self.config.get("slippage_penalty_factor"), 0.5)
+                    floor_pct = _safe_float(
+                        self.config.get("min_pov_pct"), 5.0)
+                    penalised = max(floor_pct, rate_for_poll * max(0.0, penalty))
+                    self.log(
+                        f"slippage {current_bps:.1f}bps > {window_bps:.1f}bps; "
+                        f"rate {rate_for_poll:.2f}% -> {penalised:.2f}%")
+                    slice_qty = int((delta_vol * penalised) / 100.0)
             # Re-anchor the fill count from the durable ledger so partial and
             # delayed fills are accounted for. The in-memory counter is only a
             # fallback for when the ledger has nothing to report.
@@ -499,7 +590,8 @@ class POVSlicer(BaseSlicer):
                     client=self.client, symbol=self.symbol,
                     exchange=self.exchange, strategy_label=self.strategy_label,
                     limit_expiry_pct=self.limit_expiry_pct,
-                    execution_id=execution_id)
+                    execution_id=execution_id,
+                    allowed_strategy_labels=self.allowed_strategy_labels)
             price_type = self.order_mode
             # MUST be initialised before the branches below: MARKET runs never
             # enter the PEG/LIMIT arms, and reading an unassigned name here
@@ -531,7 +623,8 @@ class POVSlicer(BaseSlicer):
                                 exchange=self.exchange,
                                 strategy_label=self.strategy_label,
                                 limit_expiry_pct=self.limit_expiry_pct,
-                                execution_id=execution_id)
+                                execution_id=execution_id,
+                                allowed_strategy_labels=self.allowed_strategy_labels)
                             peg_open_child = False
                         place_price = decision.price
                         price_type = "LIMIT"   # PEG always works as LIMIT
@@ -542,6 +635,22 @@ class POVSlicer(BaseSlicer):
                         else (float(self.config["limit_price"])
                               if self.config.get("limit_price") is not None else None))
                 pre_order_check = getattr(self, "pre_order_check", None)
+                # Kill-switch re-check on EVERY child (audit P1-6). The runner
+                # only verified the switch once, before the signal wait.
+                try:
+                    halted = bool(self.kill_tripped and self.kill_tripped())
+                    extra_halt = self.halt_check
+                    if callable(extra_halt):
+                        halted = halted or bool(extra_halt())
+                except Exception as exc:  # noqa: BLE001 - fail closed
+                    self.log(f"halt check failed: {exc!r}; aborting execution")
+                    summary_reason = "halt_check_failed"
+                    break
+                if halted:
+                    self.log("kill switch / halt active at child submission; "
+                             "aborting execution")
+                    summary_reason = "halted_by_kill_switch"
+                    break
                 if callable(pre_order_check):
                     try:
                         authorized_qty = pre_order_check(
@@ -586,6 +695,29 @@ class POVSlicer(BaseSlicer):
                 if isinstance(resp, dict) and resp.get("status") == "success":
                     oid = resp.get("order_id") or (resp.get("data") or {}).get("order_id")
                     child_count += 1; _LAST_ORDER_AT[execution_id] = datetime.now()
+                    # Record the execution's realised slippage against the
+                    # arrival VWAP of the slice just placed (see Phase 2 above).
+                    try:
+                        from blue_engine.core.benchmark import compute_slippage_bps
+                        session_vwap = (session_vwap_sum / session_vwap_vol
+                                        if session_vwap_vol > 0 else None)
+                        # Audit (2026-10-22): ``resolve_expected_price`` returns
+                        # the LARGER of the two VWAPs, a benchmark choice, not a
+                        # side-aware expectation. For a BUY whose fill is at the
+                        # touch, expected = max(...) guarantees
+                        # actual - expected <= 0, i.e. structurally "favorable"
+                        # slippage, so the guard below could never trigger. The
+                        # sign convention is side-aware here instead.
+                        expected = (session_vwap
+                                    if session_vwap is not None else ref_price)
+                        fill_px = _safe_float(
+                            (resp.get("data") or {}).get("average_price"), ltp)
+                        if expected and expected > 0 and fill_px > 0:
+                            slippage_acc.record(compute_slippage_bps(
+                                expected_price=expected, actual_price=fill_px,
+                                side=self.order_action))
+                    except Exception as exc:  # noqa: BLE001 - never block a child
+                        self.log(f"slippage sample skipped: {exc!r}")
                     if self.order_mode == "PEG":
                         peg_open_child = True
                     child_log.append({"attempted": slice_qty, "order_id": oid,
@@ -596,10 +728,14 @@ class POVSlicer(BaseSlicer):
                     self.log(f"rejected: {msg}")
             time.sleep(poll_sec); now_ts = datetime.now().timestamp()
         self.log(f"done: filled={filled_qty}/{target_qty} children={child_count} phase={phase}"
-                 + (f" | ceiling halts={band_halt_count}" if band_halt_count else ""))
-        return {"filled":filled_qty, "target":target_qty, "child_orders":child_count,
-                "mode":mode, "phase":phase, "execution_id":execution_id,
-                "ceiling_halts": band_halt_count, "children":child_log}
+                 + (f" | ceiling halts={band_halt_count}" if band_halt_count else "")
+                 + (f" | reason={summary_reason}" if summary_reason else ""))
+        summary = {"filled":filled_qty, "target":target_qty, "child_orders":child_count,
+                   "mode":mode, "phase":phase, "execution_id":execution_id,
+                   "ceiling_halts": band_halt_count, "children":child_log}
+        if summary_reason:
+            summary["reason"] = summary_reason
+        return summary
 
     def _record_child(self, execution_id: str, response: Any,
                       quantity: int, ltp: float, mode: str) -> None:
@@ -641,7 +777,8 @@ class POVSlicer(BaseSlicer):
     def _cancel_stale_limits(
         self, *, client: Any, symbol: str, exchange: str,
         strategy_label: str, limit_expiry_pct: float,
-        execution_id: Optional[str] = None) -> None:
+        execution_id: Optional[str] = None,
+        allowed_strategy_labels: Optional[set] = None) -> None:
         try: ob = client.orderbook()
         except Exception as exc:
             self.log(f"orderbook read failed: {exc}"); return
@@ -652,9 +789,16 @@ class POVSlicer(BaseSlicer):
             if not isinstance(row, dict): continue
             pt = str(row.get("pricetype") or row.get("price_type", "")).lower()
             os_ = str(row.get("order_status", "")).lower()
+            # AUDIT (2026-10-22, P1-5): the strategy-name comparison used
+            # ``strategy_label.split("-")[0]``, i.e. "POV" for "POV-INFY-NSE".
+            # On a shared orderbook (a screener bridge running three strategies,
+            # or two concurrent POV runs on different symbols) the broadened
+            # match cancelled OTHER strategies' working LIMITs as "stale". The
+            # comparison is now an explicit allow-list that includes the exact
+            # label and the full label, never a truncated token.
+            allowed_labels = allowed_strategy_labels or {strategy_label}
             if (row.get("symbol") == symbol and row.get("exchange") == exchange
-                    and (row.get("strategy") == strategy_label
-                         or row.get("strategy") == strategy_label.split("-")[0])
+                    and row.get("strategy") in allowed_labels
                     and pt == "limit"
                     and os_ in ("open", "trigger pending", "pending")):
                 oid = row.get("orderid")
@@ -673,6 +817,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "": return default
         return float(value)
+    except (TypeError, ValueError): return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    """Integer parse with the same fail-soft contract as ``_safe_float``."""
+    try:
+        if value is None or value == "": return default
+        return int(value)
     except (TypeError, ValueError): return default
 
 
@@ -707,16 +859,3 @@ def _above(ceiling: float, price: float, tick: float = 0.05) -> bool:
     above the ceiling) firmly inside the halt.
     """
     return price > (ceiling + tick / 2.0)
-    if value is None or value == "":
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_int(value: Any, default: int = 0) -> int:
-    try:
-        if value is None or value == "": return default
-        return int(float(value))
-    except (TypeError, ValueError): return default

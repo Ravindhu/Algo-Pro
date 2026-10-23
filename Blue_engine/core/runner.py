@@ -421,17 +421,46 @@ def run_with_config(
 
     # Position-dependent checks are repeated at child submission when the
     # slicer's phase tells us whether this is an entry or an exit.
+    # AUDIT (2026-10-22, P1-7): this call used ``reduces_exposure=True``
+    # unconditionally, which switched off the max_daily_loss breach for a real
+    # ENTRY. An approved intent here then only had to pass the per-child check,
+    # so a risk-blocked entry was reported as "risk gate passed". The side is
+    # derived from the intent/position instead.
+    intent_action = str(intent.get("action", "")).upper()
+    held = 0
+    try:
+        positions = client.positionbook() or {}
+        for row in (positions.get("data") or []):
+            if (str(row.get("symbol")) == str(cfg.get("symbol"))
+                    and str(row.get("exchange")).upper() == str(cfg.get("exchange")).upper()):
+                held = int(float(row.get("quantity") or 0))
+    except Exception as exc:  # noqa: BLE001 - fail-closed below
+        print(f"[runner] WARNING: position lookup failed ({exc!r}); "
+              f"assuming this intent increases exposure")
+        held = 0
+    intent_reduces = ((intent_action == "SELL" and held > 0)
+                      or (intent_action == "BUY" and held < 0))
     decision = gate.check(
         intent,
         day_pnl=rc.get("day_pnl"),
         open_exposure=rc.get("open_exposure"),
         require_intent_price=requires_order_price,
-        reduces_exposure=True,
+        reduces_exposure=intent_reduces,
     )
     if not decision.approved:
         print(f"[runner] RISK GATE REJECTED intent: {decision.reason}")
         return 4
     print(f"[runner] risk gate passed: {decision.reason}")
+
+    # Re-check the durable kill switch at the moment of execution: the switch
+    # was read before the (possibly long) signal wait, and an operator trip or
+    # a breach from another process during that wait must stop this run.
+    from blue_engine.portfolio.optim_policy import peek_kill_switch
+    if peek_kill_switch().get("tripped"):
+        print("[runner] ERROR: kill switch tripped during the run; "
+              "execution aborted")
+        return 4
+    slicer.kill_tripped = lambda: bool(peek_kill_switch().get("tripped"))
 
     summary = slicer.execute(intent)
     print(f"[runner] summary: {summary}")

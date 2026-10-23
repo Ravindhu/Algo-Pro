@@ -127,9 +127,66 @@ class MarketEngine(BaseEngine):
         parts = [v for v in (net_cash, net_fut) if v is not None]
         if not parts:
             return None
-        # Normalise with the configured scale (default ~ thousands of
-        # currency units of net flow = a strong signal).
-        return clamp((sum(parts) / len(parts)) / scale, -1.0, 1.0)
+        # Normalise with the configured scale: |flow| == scale is a full-strength
+        # signal (+/-1).
+        #
+        # AUDIT (2026-10-22): the default used to be 1000 Cr. Measured on 170 real
+        # days of vendor FII cash flow, |net| >= 1000 Cr on 82% of days, so the
+        # score saturated almost every day and a -1,305 Cr day was numerically
+        # identical to a -5,000 Cr day. The score was effectively a binary
+        # "FII bought / FII sold" flag, not a magnitude signal.
+        #
+        # At 6000 Cr (Q95 of the absolute daily distribution) saturation drops to
+        # 5% of days and the score stays continuous across normal flow.
+        #
+        # AUDIT (2026-10-22): ``scale`` arrives from JSON config, so it can be a
+        # string ("6000") or garbage ("abc"). The previous ``scale <= 0`` guard
+        # raised TypeError on a non-numeric string and silently mis-divided on a
+        # numeric string. Coerce first, then validate, so a bad scale degrades to
+        # ``None`` (the engine then falls back to breadth) instead of crashing.
+        scale_f = safe_float(scale)
+        if scale_f is None or scale_f <= 0:
+            return None
+        return clamp((sum(parts) / len(parts)) / scale_f, -1.0, 1.0)
+
+    def _fii_zscore(self, fii: Dict[str, Any],
+                    window: int) -> Optional[float]:
+        """Standardised FII flow vs its own recent distribution.
+
+        A single day of FII flow is noisy: +2,000 Cr is unremarkable in a week
+        that has been running +/-4,000 Cr, but extreme in a quiet month. The
+        z-score measures *unusualness*, which is what a desk actually trades.
+
+        Input is ``fii["history"]`` - a time-ordered list of daily net-cash
+        values (oldest first), optionally ending with today's print. Returns
+        ``None`` when there is not enough history, so the engine degrades to the
+        point score alone.
+
+        ``z`` is the standard score of the LATEST value against the window
+        *including* it; a flat window yields ``None`` (no information).
+        """
+        if not isinstance(fii, dict):
+            return None
+        hist = fii.get("history")
+        if not isinstance(hist, (list, tuple)) or len(hist) < 3:
+            return None
+        values = [safe_float(v) for v in hist]
+        values = [v for v in values if v is not None]
+        if len(values) < 3:
+            return None
+        window = max(3, int(window or 20))
+        sample = values[-window:]
+        latest = sample[-1]
+        mean = sum(sample) / len(sample)
+        if len(sample) < 2:
+            return None
+        var = sum((v - mean) ** 2 for v in sample) / (len(sample) - 1)
+        sd = math.sqrt(max(var, 0.0))
+        if sd <= 0:
+            return None
+        # tanh keeps a 4-sigma day from dominating the composite the same way
+        # the Economic engine saturates its surprise view.
+        return math.tanh((latest - mean) / sd)
 
     def _volatility_state(self, data: Dict[str, Any],
                           warnings: List[str]):
@@ -224,10 +281,27 @@ class MarketEngine(BaseEngine):
         leaders = [k for k, _ in ranked[:5]]
         laggards = [k for k, _ in ranked[-5:]][::-1] if len(ranked) > 5 else []
 
-        # FII flow score.
-        fii_scale = safe_float(self.config.get("fii_scale")) or 1000.0
-        fii_score = self._fii_score(data.get("fii") or {}, fii_scale)
-        if fii_score is None:
+        # FII flow score. 6000 Cr = the ~95th percentile of
+        # |daily FII net cash| over 170 trading days of vendor data, so a normal
+        # day lands mid-band instead of pinning the score at the clamp.
+        fii_scale = safe_float(self.config.get("fii_scale"))
+        if fii_scale is None or fii_scale <= 0:
+            fii_scale = 6000.0
+        fii_block = data.get("fii") or {}
+        fii_point = self._fii_score(fii_block, fii_scale)
+        fii_z = self._fii_zscore(
+            fii_block, int(self.config.get("fii_zscore_window", 20)))
+
+        # Blend the point score with the z-score when history is available.
+        # ``fii_zscore_weight`` 0.0 reproduces the point-only behaviour exactly,
+        # so a deployment that has no flow history is unaffected.
+        z_weight = clamp(safe_float(self.config.get("fii_zscore_weight")) or 0.0,
+                         0.0, 1.0)
+        fii_score = fii_point
+        if fii_point is not None and fii_z is not None and z_weight > 0:
+            fii_score = clamp((1.0 - z_weight) * fii_point + z_weight * fii_z,
+                              -1.0, 1.0)
+        if fii_point is None:
             warnings.append("no FII flow data (risk appetite uses breadth only)")
 
         # Composite risk appetite.
@@ -274,6 +348,14 @@ class MarketEngine(BaseEngine):
                 "risk_appetite": round(risk_appetite, 4),
                 "breadth_score": round(breadth_score, 4),
                 "fii_score": None if fii_score is None else round(fii_score, 4),
+                # Both views are reported so an operator can see WHICH one moved
+                # risk appetite: the level of today's flow, or how unusual it is
+                # versus the last N days.
+                "fii_point_score": (None if fii_point is None
+                                    else round(fii_point, 4)),
+                "fii_zscore": None if fii_z is None else round(fii_z, 4),
+                "fii_zscore_weight": z_weight,
+                "fii_scale_cr": fii_scale,
                 "commodity_market_return": None if commodity_avg is None
                 else round(commodity_avg, 4),
                 "index_returns": indices,

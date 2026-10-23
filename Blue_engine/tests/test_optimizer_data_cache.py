@@ -381,9 +381,16 @@ def test_list_strategies_for_ui_includes_params_space_for_ocl():
     _check(isinstance(params, dict) and len(params) > 0,
            f"params_space must be a non-empty dict; got {params!r}")
     # Sanity: a few well-known OCL parameters must be present.
-    for p in ("htf_interval", "min_body_pct", "pattern_type", "exec_mode"):
+    # NOTE (audit F-24): ``min_body_pct`` is deliberately ABSENT. The body-size
+    # filter was removed from ``alpha/signals/_pattern.py`` by operator
+    # instruction, so the strategy accepts-and-ignores the value. Exposing it as
+    # a tunable parameter (or requiring it in the UI payload) would advertise a
+    # control that changes nothing and would burn optimizer trials on a flat axis.
+    for p in ("htf_interval", "pattern_type", "exec_mode"):
         _check(p in params,
                f"params_space must include {p!r}; got keys {sorted(params.keys())}")
+    _check("min_body_pct" not in params,
+           "min_body_pct must NOT be tunable: the strategy ignores it (F-24)")
 
 
 def test_list_strategies_for_ui_is_dynamic_per_drop_in():

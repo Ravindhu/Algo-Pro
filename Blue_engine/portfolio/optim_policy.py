@@ -299,12 +299,44 @@ def trip_kill_switch(reason: str, *,
     return _process_kill_switch().trip(reason, trigger_value=trigger_value)
 
 
+def peek_kill_switch() -> Dict[str, Any]:
+    """NON-LATCHING read of the persisted halt state (audit fix 2026-10-22).
+
+    ``kill_switch_state()`` cannot be used as a health probe: it instantiates
+    the process switch, which loads any persisted *tripped* state into this
+    process. Reading it from a read-only pipeline/holdings/analytics path
+    would therefore latch a halt into a process that never intended to trade,
+    and a later ``trip_kill_switch()`` call in that process would short-circuit
+    on the already-tripped flag instead of persisting the real reason. Use this
+    function for reporting only.
+    """
+    if _PROCESS_KILL_SWITCH is not None:
+        return {"tripped": _PROCESS_KILL_SWITCH.tripped,
+                "reason": _PROCESS_KILL_SWITCH.reason,
+                "trigger_value": _PROCESS_KILL_SWITCH.trigger_value,
+                "source": "process"}
+    try:
+        persisted = _ks_store.load_state() or {}
+    except Exception:  # noqa: BLE001 - store is fail-soft already
+        persisted = {}
+    return {"tripped": bool(persisted.get("tripped")),
+            "reason": persisted.get("reason"),
+            "trigger_value": persisted.get("trigger_value"),
+            "source": "store"}
+
+
 def kill_switch_state() -> Dict[str, Any]:
-    """Snapshot of the latching switch for dashboards / recovery checks."""
+    """Snapshot of the latching switch for dashboards / recovery checks.
+
+    NOTE: this INSTANTIATES and (re)hydrates the process switch on first call.
+    Call it only from a component that is allowed to trade; everything else
+    must call :func:`peek_kill_switch`.
+    """
     switch = _process_kill_switch()
     return {"tripped": switch.tripped,
             "reason": switch.reason,
-            "trigger_value": switch.trigger_value}
+            "trigger_value": switch.trigger_value,
+            "source": "process"}
 
 
 def resolve_constraints(limits: Optional[Dict[str, Any]] = None, *,

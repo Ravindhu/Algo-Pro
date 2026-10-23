@@ -18,7 +18,7 @@ import os
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Deque, Optional
 
 
@@ -416,7 +416,9 @@ def finish_child(execution_id, child_number, *, success, order_id=None, message=
                 else:
                     row.submitted_quantity += int(child.get("quantity", 0))
                 row.order_count += 1
-                row.last_order_at = datetime.utcnow()
+                # Naive UTC, identical to the deprecated utcnow().
+                # ``timezone.utc`` not ``datetime.UTC`` (3.11+ only).
+                row.last_order_at = datetime.now(timezone.utc).replace(tzinfo=None)
             _persist(row)
             break
     return {"execution_id": execution_id, "order_count": row.order_count}

@@ -15,6 +15,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import websocket
@@ -194,8 +195,11 @@ def _sdk_fallback(client, symbol, exchange):
             f"broker.{broker_name}.api.data"
         )
 
-        # Last 10 minutes, 1-minute bars (same as POV slicer's interval)
-        end = datetime.utcnow()
+        # Last 10 minutes, 1-minute bars (same as POV slicer's interval).
+        # Naive UTC (utcnow-equivalent) because broker history APIs take naive
+        # timestamps. ``timezone.utc`` not ``datetime.UTC``: the latter is 3.11+
+        # only and this engine also runs on 3.10.
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
         start = end - timedelta(minutes=10)
 
         # Initialize broker data handler with auth token (and optional feed token)
@@ -255,7 +259,7 @@ def _sdk_fallback(client, symbol, exchange):
     # ------------------------------------------------------------------
     try:
         if client is not None:
-            end = datetime.utcnow()
+            end = datetime.now(timezone.utc).replace(tzinfo=None)
             start = end - timedelta(minutes=10)
 
             # SDK history method exists in client.history()

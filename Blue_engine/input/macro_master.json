@@ -95,6 +95,8 @@
         "gdp_growth":  {"direction": 1,  "weight": 1.0},
         "debt":        {"direction": -1, "weight": 0.5},
         "forex_reserves": {"direction": 1, "weight": 0.5},
+        "fii_inflow":  {"direction": 1,  "weight": 0.5},
+        "_fii_inflow_comment": "FII net cash from the vendor parquet. Kept at 0.5 because the Market engine already scores FII in risk_appetite; this adds it to the macro composite without double-counting the full weight. Stale flow is capped at multiplier 1.0 by the Economic engine.",
         "climate":     {"direction": -1, "weight": 0.0},
         "tax":         {"direction": -1, "weight": 0.0}
       }
@@ -102,7 +104,11 @@
     "market": {
       "indices": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
       "fii_weight": 0.5,
-      "fii_scale": 1000.0,
+      "fii_scale": 6000.0,
+      "fii_zscore_window": 20,
+      "_fii_zscore_comment": "20-day mean/std z-score of FII net flow, blended with the level score. One day of flow is noisy: +2000 Cr is unremarkable in a week running +/-4000 Cr but extreme in a quiet month.",
+      "fii_zscore_weight": 0.35,
+      "_fii_scale_comment": "Cr of FII net flow that scores +/-1. 6000 = ~95th pct of |daily FII net cash| over 170 vendor trading days, so normal days stay mid-band. Was 1000, which saturated the score on 82% of days and made a -1305 Cr day indistinguishable from -5000 Cr.",
       "low_volatility_pct": 15.0,
       "high_volatility_pct": 30.0,
       "market": {
