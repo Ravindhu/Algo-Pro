@@ -51,6 +51,56 @@ engine. A RISK_OFF macro state has **no effect** on a `run_pov.py` session.
 
 ---
 
+## 2a. Starting the stack (one launcher)
+
+Everything local is started by **one** command. Nothing needs a terminal window
+left open — the services run detached and keep running after you close it.
+
+```powershell
+# Start everything
+.\.venv\Scripts\python.exe scripts\ops\start_all.py
+
+# ...or double-click:
+scripts\ops\START_ALL.cmd
+```
+
+| Port | Service | Needed for |
+|---|---|---|
+| 5000 | OpenAlgo (Flask/SocketIO) | every order, broker session |
+| 8765 | WebSocket proxy | live quotes |
+| 8050 | Dash terminal | dashboard |
+
+Other commands:
+
+| Command | Does |
+|---|---|
+| `start_all.py --check` | prerequisites + ports only, then exit |
+| `start_all.py --force` | kill port holders without asking |
+| `start_all.py --no-docker` | force the native path |
+| `start_all.py --update` | pip + OpenAlgo pull + data (**off by default**) |
+| `start_all.py --stop` | stop everything |
+
+### Facts learned the hard way
+
+1. **OpenAlgo starts the WebSocket proxy itself.** Its boot fails outright if
+   8765 is already taken (`Cannot start WebSocket server with port switching`).
+   Never launch `python -m websocket_proxy.server` separately.
+2. **OpenAlgo takes ~200 s cold**, not 3–5 s. It bridges `_restored/`, runs the
+   upgrade check, loads the master contract and starts the strategy module. Give
+   the health check 300 s; a shorter timeout reports a healthy server as failed.
+3. **Dash takes ~40–60 s** to import the engine graph.
+4. **Updates are off by default.** `pip install -U` and `git pull` inside
+   `openalgo/` can break a working desk. Opt in with `--update`.
+5. **The launcher never logs into the broker.** If the restored session is
+   stale, log in yourself at `http://127.0.0.1:5000/broker`.
+6. Windows has no gunicorn (`fcntl` is Unix-only), so the native path runs the
+   Werkzeug dev server (`start_openalgo.py`, `allow_unsafe_werkzeug=True`).
+   **That is a loopback-only dev server, not a production one.**
+
+Logs: `Temp/run/<service>.log`. PIDs: `Temp/run/start_all.pids.json`.
+
+---
+
 ## 3. Running an execution (the live path)
 
 ### 3.1 Edit `scripts/run/run_pov.py`
