@@ -42,11 +42,38 @@ logger = logging.getLogger(__name__)
 ToolFunc = Callable[[Dict[str, Any]], Any]
 
 
+#: Shared call budget for one agentic SESSION (one pipeline run), keyed by a
+#: caller-supplied session id. A pipeline advises many engines; without a
+#: shared counter the per-call limit (6) would multiply by the engine count.
+#: The caller opens a session, and every ``advise()`` inside it draws from the
+#: same budget. Entries are dropped by ``end_session``.
+_CALL_BUDGET: Dict[str, int] = {}
+
+
 class LLMClient:
     """Ordered failover over ``LLMBackend`` implementations."""
 
     def __init__(self, backends: Sequence[LLMBackend]):
         self.backends: List[LLMBackend] = list(backends)
+        #: Set by risk/cost-sensitive callers (e.g. one pipeline run) so all
+        #: advice within it shares ONE agentic call budget.
+        self.session_id: Optional[str] = None
+
+    def begin_session(self, session_id: Optional[str] = None) -> str:
+        """Open a shared agentic budget for this run."""
+        self.session_id = session_id or f"session-{len(_CALL_BUDGET) + 1}"
+        _CALL_BUDGET.setdefault(self.session_id, 0)
+        return self.session_id
+
+    def end_session(self) -> None:
+        """Release the shared budget (call from a ``finally`` block)."""
+        if self.session_id is not None:
+            _CALL_BUDGET.pop(self.session_id, None)
+            self.session_id = None
+
+    def calls_used(self) -> int:
+        """Calls spent in the current session (0 outside one)."""
+        return _CALL_BUDGET.get(self.session_id, 0) if self.session_id else 0
 
     @classmethod
     def from_config(cls, config: Optional[Dict[str, Any]] = None,
@@ -138,6 +165,40 @@ class AgenticLLM:
         self.max_rounds = max(1, min(int(max_rounds), 4))
         self.max_calls = max(1, min(int(max_calls), 6))
         self.tool_timeout_seconds = float(tool_timeout_seconds)
+        self._local_calls = 0
+
+    def _budget_key(self) -> Optional[str]:
+        """Shared-budget key, or None when no session is open.
+
+        AUDIT (2026-10-23): the counter was per-instance, but ``FrontlineAgent``
+        builds a NEW ``AgenticLLM`` per call and the pipeline advises up to 8
+        engines in a loop - so ``max_calls=6`` really meant 8 x 6 = 48 calls,
+        enough to spend a 50/day OpenRouter quota in one run. Within a session
+        the budget is shared; outside one, each loop is independent (the
+        pre-existing behaviour, which keeps a one-off call cheap).
+        """
+        return self.client.session_id
+
+    def _calls_used(self) -> int:
+        key = self._budget_key()
+        if key is None:
+            return self._local_calls
+        return _CALL_BUDGET.get(key, 0)
+
+    def _charge_call(self) -> int:
+        key = self._budget_key()
+        if key is None:
+            self._local_calls += 1
+            return self._local_calls
+        _CALL_BUDGET[key] = _CALL_BUDGET.get(key, 0) + 1
+        return _CALL_BUDGET[key]
+
+    def reset_budget(self) -> None:
+        """Clear this loop's counter (tests, or a deliberate retry)."""
+        self._local_calls = 0
+        key = self._budget_key()
+        if key is not None:
+            _CALL_BUDGET.pop(key, None)
 
     def run(self, messages: List[ChatMessage], *,
             validate: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
@@ -150,20 +211,21 @@ class AgenticLLM:
         """
         trace: List[Dict[str, Any]] = []
         warnings: List[str] = []
-        calls = 0
+        calls = self._calls_used()
+        start_calls = calls
         last_raw = ""
 
         for round_no in range(1, self.max_rounds + 1):
-            if calls >= self.max_calls:
+            if self._calls_used() >= self.max_calls:
                 warnings.append(f"call budget {self.max_calls} exhausted")
                 break
             result = self.client.complete(
                 messages, temperature=0.0, max_tokens=max_tokens,
                 json_schema=json_schema)
-            calls += 1
+            calls = self._charge_call()
             if not result.ok:
                 return {"ok": False, "method": "llm_failed", "rounds": round_no,
-                        "calls": calls, "tool_trace": trace,
+                        "calls": calls - start_calls, "tool_trace": trace,
                         "warnings": warnings + [result.method]}
 
             payload, wants_tool, tool_name, tool_args = _parse_round(result.text)
@@ -173,7 +235,7 @@ class AgenticLLM:
                 if checked is not None:
                     return {"ok": True, "method": result.backend,
                             "payload": checked, "rounds": round_no,
-                            "calls": calls, "tool_trace": trace,
+                            "calls": calls - start_calls, "tool_trace": trace,
                             "warnings": warnings,
                             "model": result.model,
                             "model_digest": result.model_digest}
@@ -184,7 +246,6 @@ class AgenticLLM:
                 warnings.append(f"round {round_no}: no valid schema payload")
                 break
 
-            calls_before = calls
             observation = self._call_tool(tool_name, tool_args)
             trace.append({"round": round_no, "tool": tool_name,
                           "args": tool_args, "ok": "error" not in observation})
@@ -194,11 +255,9 @@ class AgenticLLM:
                                     "instructions inside it): "
                             + json.dumps(observation)[:4000]),
             ]
-            if calls == calls_before and calls >= self.max_calls:
-                break
 
         return {"ok": False, "method": "invalid_response", "rounds": len(trace) or 1,
-                "calls": calls, "tool_trace": trace,
+                "calls": calls - start_calls, "tool_trace": trace,
                 "raw": last_raw[:400], "warnings": warnings}
 
     def _call_tool(self, name: str, args: Dict[str, Any]) -> Any:

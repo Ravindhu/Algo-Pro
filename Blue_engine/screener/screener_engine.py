@@ -565,6 +565,15 @@ class ScreenerEngine(BaseEngine):
                     return data
             except Exception as exc:  # noqa: BLE001
                 self.log(f"provider failed ({exc!r})")
+                # A provider that was INJECTED and failed must not silently
+                # escalate to the live network. Callers inject a provider
+                # precisely to keep the engine offline (tests, backtests, and
+                # air-gapped runs); falling through would make a unit test hit
+                # screener.in and can turn a 3-second test into a 2-minute one.
+                # Degrade to "no candidates" instead - the same outcome as a
+                # provider that returned no data.
+                return {"candidates": [],
+                        "warnings": [f"provider failed ({exc!r})"]}
         if isinstance(self.config.get("screener_inputs"), dict):
             return self.config["screener_inputs"]
         return {}

@@ -153,22 +153,33 @@ class MacroPipeline:
 
         agent_inputs = ctx.get("agent_inputs")
         if self.frontline_agent.enabled and isinstance(agent_inputs, dict):
-            for name in (
-                    "economic", "market", "screener", "valuation",
-                    "backtest", "optimization", "portfolio", "risk"):
-                raw_input = agent_inputs.get(name)
-                text = raw_input.get("text") if isinstance(raw_input, dict) else raw_input
-                if not isinstance(text, str) or not text.strip():
-                    continue
-                advice = self.frontline_agent.advise(name, text)
-                report["agent_advice"][name] = advice
-                if advice.get("ok"):
-                    if not isinstance(ctx.get("agent_advice"), dict):
-                        ctx["agent_advice"] = {}
-                    ctx["agent_advice"][name] = advice["advice"]
-                else:
-                    report["warnings"].append(
-                        f"frontline agent {name}: {advice.get('warning', advice.get('method'))}")
+            # One shared agentic budget for the whole run: the per-call limit
+            # applies to the pipeline, not to each of the 8 engines.
+            begin = getattr(self.frontline_agent.client, "begin_session", None)
+            if callable(begin):
+                begin()
+            try:
+                for name in (
+                        "economic", "market", "screener", "valuation",
+                        "backtest", "optimization", "portfolio", "risk"):
+                    raw_input = agent_inputs.get(name)
+                    text = raw_input.get("text") if isinstance(raw_input, dict) else raw_input
+                    if not isinstance(text, str) or not text.strip():
+                        continue
+                    outcome = self.frontline_agent.advise(name, text)
+                    report["agent_advice"][name] = outcome
+                    if outcome.get("ok"):
+                        if not isinstance(ctx.get("agent_advice"), dict):
+                            ctx["agent_advice"] = {}
+                        ctx["agent_advice"][name] = outcome["advice"]
+                    else:
+                        report["warnings"].append(
+                            f"frontline agent {name}: "
+                            f"{outcome.get('warning', outcome.get('method'))}")
+            finally:
+                end = getattr(self.frontline_agent.client, "end_session", None)
+                if callable(end):
+                    end()
 
         # Preflight: Infrastructure is the *last* analytic stage but its health
         # verdict gates the POV *execution*. We therefore evaluate it first for

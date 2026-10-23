@@ -311,3 +311,58 @@ def test_agentic_path_cannot_clear_a_veto_end_to_end():
 
     assert result["ok"] is True
     assert result["advice"]["risk_veto_active"] is True
+
+
+# ---------------------------------------------------------------------------
+# Remote Ollama (a laptop or another VPS) and the shared call budget
+# ---------------------------------------------------------------------------
+def test_ollama_host_from_env_is_used_verbatim_for_a_remote_box(monkeypatch):
+    """The remote case: OLLAMA_HOST alone must be enough to point the agent."""
+    monkeypatch.setenv("OLLAMA_HOST", "http://100.64.1.7:11434/")
+    backend = OllamaBackend()
+
+    assert backend.host == "http://100.64.1.7:11434", "trailing / must be trimmed"
+    assert backend.endpoint == "http://100.64.1.7:11434/v1/chat/completions"
+    assert backend.available(), "a configured remote host counts as available"
+
+
+def test_agent_chain_uses_the_remote_ollama_host(monkeypatch):
+    monkeypatch.setenv("OLLAMA_HOST", "http://100.64.1.7:11434")
+    agent = FrontlineAgent({"enabled": True, "llm": {
+        "ollama": {"enabled": True, "model": "qwen3:8b"},
+        "openrouter": {"enabled": False},
+    }})
+
+    status = agent.status()["chain"]
+    assert status["chain"] == ["ollama"]
+    assert status["backends"][0]["host"] == "http://100.64.1.7:11434"
+
+
+def test_agentic_call_budget_is_shared_across_engines_in_one_run():
+    """A pipeline advises many engines; the budget must not multiply per call.
+
+    AUDIT (2026-10-23): the counter lived on AgenticLLM, and FrontlineAgent
+    builds a new one per advise(), so 8 engines x max_calls=6 = 48 calls -
+    enough to spend a 50/day OpenRouter quota in one pipeline run.
+    """
+    tool_request = json.dumps({"tool": "t", "arguments": {}})
+    backend = FakeBackend("ollama", [tool_request] * 20)
+    agent = _agent_with([backend], max_calls=2, max_rounds=2)
+    agent.client.begin_session("pipeline-run-1")
+    try:
+        for engine_text, engine in (("a", "risk"), ("b", "market"), ("c", "economic")):
+            agent.advise(engine, engine_text, tools={"t": lambda a: {"ok": 1}})
+        assert backend.calls == 2, f"budget leaked across calls: {backend.calls} calls"
+    finally:
+        agent.client.end_session()
+
+
+def test_without_a_session_each_advise_call_gets_its_own_budget():
+    """A one-off call must stay cheap, not inherit an exhausted global budget."""
+    backend = FakeBackend("ollama", [json.dumps({"tool": "t", "arguments": {}})] * 6)
+    agent = _agent_with([backend], max_calls=1, max_rounds=1)
+
+    agent.advise("risk", "a", tools={"t": lambda a: {}})
+    agent.advise("market", "b", tools={"t": lambda a: {}})
+
+    assert backend.calls == 2
