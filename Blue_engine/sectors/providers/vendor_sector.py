@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["VENDOR_DIR", "DEFAULT_INDICES_DIR", "DEFAULT_SECTORS",
            "DEFAULT_BENCHMARK", "VENDOR_EXCHANGE", "VendorSectorProvider",
-           "make_provider"]
+           "make_provider", "INDEX_TICKERS", "SECTOR_LIVE_SYMBOLS"]
 
 #: Pinned vendor checkout. ``__file__`` is
 #: ``<repo>/Blue_engine/sectors/providers/vendor_sector.py``, so ``parents[3]``
@@ -77,14 +77,104 @@ DEFAULT_INDICES_DIR = VENDOR_DIR / "data" / "INDICES"
 VENDOR_EXCHANGE = "VENDOR_INDEX"
 
 #: Vendor file stems -> sleeve names shared with the portfolio universe.
+#:
+#: COVERAGE: every sleeve in ``portfolio/providers/universe.py:DEFAULT_UNIVERSE``
+#: except NIFTY itself (the broad market is the BENCHMARK, not a sector), plus
+#: three extra broad sleeves the universe can opt into. Before 2026-10-24 this
+#: map held only four sleeves (BANKNIFTY/IT/PHARMA/MIDCAP), so AUTO, METALS,
+#: ENERGY, FMCG and REALTY had NO relative-strength reading at all and were
+#: silently invisible to the sector allocator.
 DEFAULT_SECTORS: Dict[str, str] = {
     "BANKNIFTY": "NIFTY_BANK",
     "IT": "NIFTY_IT",
     "PHARMA": "NIFTY_PHARMA",
+    "AUTO": "NIFTY_AUTO",
+    "METALS": "NIFTY_METAL",
+    "ENERGY": "NIFTY_ENERGY",
+    "FMCG": "NIFTY_FMCG",
+    "REALTY": "NIFTY_REALTY",
+    "FIN_SERVICE": "NIFTY_FIN_SERVICE",
+    "PSU_BANK": "NIFTY_PSU_BANK",
+    "INFRA": "NIFTY_INFRA",
+    "CONSUMER_DURABLES": "NIFTY_CONSUMER_DURABLES",
     "MIDCAP": "NIFTY_MIDCAP_50",
+    "MIDCAP_100": "NIFTY_MIDCAP_100",
+    "NEXT_50": "NIFTY_NEXT_50",
+    "SMALLCAP_250": "NIFTY_SMALLCAP_250",
+}
+
+#: OpenAlgo SDK symbol used for the LIVE overlay of each sleeve. The vendor
+#: parquet stems (above) are file names, not broker symbols, so this has to be
+#: declared rather than derived: ``NIFTY_MIDCAP_50`` is quoted as
+#: "NIFTY MIDCAP 50". Sleeves absent here fall back to their own key.
+SECTOR_LIVE_SYMBOLS: Dict[str, str] = {
+    "BANKNIFTY": "NIFTY BANK",
+    "IT": "NIFTY IT",
+    "PHARMA": "NIFTY PHARMA",
+    "AUTO": "NIFTY AUTO",
+    "METALS": "NIFTY METAL",
+    "ENERGY": "NIFTY ENERGY",
+    "FMCG": "NIFTY FMCG",
+    "REALTY": "NIFTY REALTY",
+    "FIN_SERVICE": "NIFTY FIN SERVICE",
+    "PSU_BANK": "NIFTY PSU BANK",
+    "INFRA": "NIFTY INFRA",
+    "CONSUMER_DURABLES": "NIFTY CONSUMER DURABLES",
+    "MIDCAP": "NIFTY MIDCAP 50",
+    "MIDCAP_100": "NIFTY MIDCAP 100",
+    "NEXT_50": "NIFTY NEXT 50",
+    "SMALLCAP_250": "NIFTY SMALLCAP 250",
 }
 
 DEFAULT_BENCHMARK = "NIFTY_50"
+
+#: EVERY index the vendor repo is expected to hold: ``stem -> Yahoo ticker``.
+#:
+#: This is the single registry the maintenance job reads, because the vendor's
+#: upstream updater (``scripts/update_indices.py``) owns its own hard-coded dict
+#: and cannot be extended from here. Each ticker below was verified against
+#: Yahoo Finance on 2026-10-24 to return at least 250 daily rows ending the
+#: latest session:
+#:
+#:   rows~4700-7200  broad indices since 2004-2011
+#:   rows~1200-4100  sectoral/theme indices since 2010-2022
+#:   rows= 1165      MIDCAP_100 ("MIDCAP.NS" only lists from 2022-01-28)
+#:
+#: DELIBERATELY EXCLUDED, because Yahoo has no usable history for them:
+#:   NIFTY MEDIA, NIFTY COMMODITIES, NIFTY SERVICES, NIFTY MIDCAP 150 -
+#:   each returns a single row (today only), so a parquet would exist but be
+#:   useless. Do not add them without a working source; a file that exists and
+#:   is empty is worse than a file that is absent, because the alarm below
+#:   cannot tell them apart from a real feed.
+INDEX_TICKERS: Dict[str, str] = {
+    # ---- benchmark + broad market -----
+    "NIFTY_50": "^NSEI",
+    "SENSEX": "^BSESN",
+    "NIFTY_100": "^CNX100",
+    "NIFTY_200": "^CNX200",
+    "NIFTY_500": "^CRSLDX",
+    "NIFTY_NEXT_50": "^NSMIDCP",
+    "NIFTY_MIDCAP_50": "^NSEMDCP50",
+    "NIFTY_MIDCAP_100": "MIDCAP.NS",
+    "NIFTY_SMALLCAP_250": "NIFTYSMLCAP250.NS",
+    # ---- volatility -----
+    "INDIA_VIX": "^INDIAVIX",
+    # ---- sectoral -----
+    "NIFTY_BANK": "^NSEBANK",
+    "NIFTY_IT": "^CNXIT",
+    "NIFTY_PHARMA": "^CNXPHARMA",
+    "NIFTY_AUTO": "^CNXAUTO",
+    "NIFTY_METAL": "^CNXMETAL",
+    "NIFTY_ENERGY": "^CNXENERGY",
+    "NIFTY_FMCG": "^CNXFMCG",
+    "NIFTY_REALTY": "^CNXREALTY",
+    "NIFTY_FIN_SERVICE": "NIFTY_FIN_SERVICE.NS",
+    "NIFTY_PSU_BANK": "^CNXPSUBANK",
+    "NIFTY_INFRA": "^CNXINFRA",
+    "NIFTY_CONSUMER_DURABLES": "^CNXCONSUM",
+    "NIFTY_MNC": "^CNXMNC",
+    "NIFTY_PSE": "^CNXPSE",
+}
 
 
 class VendorSectorProvider:
@@ -112,9 +202,7 @@ class VendorSectorProvider:
         self.stale_after_days = int(self.config.get("stale_after_days", 5))
         #: SDK symbol for each sleeve when quoting live (defaults to the name).
         self.live_symbols: Dict[str, str] = dict(
-            self.config.get("live_symbols") or
-            {"BANKNIFTY": "NIFTY BANK", "IT": "NIFTY IT",
-             "PHARMA": "NIFTY PHARMA", "MIDCAP": "NIFTY MIDCAP 50"})
+            self.config.get("live_symbols") or SECTOR_LIVE_SYMBOLS)
         self._dme = self.config.get("database_engine")
         self._cache_db = self.config.get("cache_db")
 

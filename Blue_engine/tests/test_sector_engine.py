@@ -104,11 +104,12 @@ def test_sector_engine_uses_all_wait_safety_output_for_invalid_model_advice(tmp_
     }, advisor=advisor)
 
     result = engine.run({"sector_market_data": _market_data()})
-
     assert result.ok
     assert result.data["invest_more_sectors"] == []
     assert set(result.data["wait_and_see_sectors"]) == {"NIFTY IT", "NIFTY AUTO"}
-    assert set(result.data["sector_allocation_multipliers"].values()) == {0.0}
+    # A defensive fallback HOLDS allocation (1.0), it does not liquidate it.
+    # See SectorEngine._safe_limits for why 0.0 was a bug.
+    assert set(result.data["sector_allocation_multipliers"].values()) == {1.0}
     assert result.data["dynamic_lookback_window"] == 14
     assert result.warnings
 
@@ -126,8 +127,9 @@ def test_sector_engine_keeps_agent_disabled_and_uses_defensive_limits(tmp_path):
     assert advisor.calls == 0
     assert result.data["advisor_method"] == "disabled"
     assert result.data["wait_and_see_sectors"] == ["NIFTY IT", "NIFTY AUTO"]
+    # Defensive limits HOLD allocation (1.0); see SectorEngine._safe_limits.
     assert result.data["sector_allocation_multipliers"] == {
-        "NIFTY IT": 0.0, "NIFTY AUTO": 0.0,
+        "NIFTY IT": 1.0, "NIFTY AUTO": 1.0,
     }
 
 
@@ -147,7 +149,7 @@ def test_sector_engine_defensive_veto_skips_advisor(tmp_path):
     assert result.ok
     assert advisor.calls == 0
     assert result.data["advisor_method"] == "safety_fallback"
-    assert set(result.data["sector_allocation_multipliers"].values()) == {0.0}
+    assert set(result.data["sector_allocation_multipliers"].values()) == {1.0}
 
 
 def test_older_concurrent_run_cannot_overwrite_newer_limits(tmp_path):
@@ -234,7 +236,9 @@ def test_sector_engine_rejects_bad_price_series(tmp_path):
     assert "non-positive or non-finite" in result.error
     limits = json.loads((tmp_path / "limits.json").read_text())
     assert limits["wait_and_see_sectors"] == ["NIFTY IT", "NIFTY AUTO"]
-    assert set(limits["sector_allocation_multipliers"].values()) == {0.0}
+    # Persisted defensive limits hold allocation rather than zeroing it, so a
+    # single transient data gap cannot permanently cut the sleeve.
+    assert set(limits["sector_allocation_multipliers"].values()) == {1.0}
 
 
 def test_sector_advice_requires_exact_sector_partition():

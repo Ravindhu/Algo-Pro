@@ -45,6 +45,12 @@ _PERSISTED_SEQUENCE: Dict[tuple[str, str], int] = {}
 _DATA_CLASSIFICATIONS = {
     "live", "delayed", "historical", "simulated", "derived", "estimated",
     "backtested", "unknown",
+    # AUDIT 2026-10-24: the vendor provider emits these two labels and the
+    # allow-list above rejected BOTH, so every run was rewritten to "unknown"
+    # and warned "unrecognized market-data classification". The dashboard then
+    # could not tell vetted vendor history from an unidentified feed. These are
+    # kept distinct from "historical" on purpose: they name the source.
+    "historical_vendor", "vendor+live_quote",
 }
 _DEFAULT_LIMITS_PATH = (
     Path(__file__).resolve().parents[1] / "configs" / "sector_allocation_limits.json"
@@ -338,6 +344,20 @@ class SectorEngine(BaseEngine):
         if not 5 <= self.lookback <= 60:
             raise ValueError("sector lookback_window must be between 5 and 60")
         self.agent_enabled = bool(self.config.get("agent_enabled", False))
+        # DEFAULT PROVIDER: without one, production runs keep returning
+        # ok=False (the audit finding). The vendor repo ships with the project
+        # (~2.7 MB), so wiring it by default is what makes the engine useful.
+        # An explicitly injected provider always wins; ``provider: false`` in
+        # the config disables the default for a pure/offline engine.
+        # NOTE: assigned AFTER super().__init__, which sets self.provider.
+        if provider is None and self.config.get("provider") is not False:
+            try:
+                from .providers.vendor_sector import VendorSectorProvider
+
+                self.provider = VendorSectorProvider(
+                    self.config.get("sector_data") or {})
+            except Exception as exc:  # noqa: BLE001 - never fail construction
+                logger.warning("default sector provider unavailable: %r", exc)
         self.advisor = kwargs.get("advisor") or SectorAdvisor(
             model=str(self.config.get(
                 "openrouter_model", "qwen/qwen-2.5-7b-instruct:free")),
@@ -354,10 +374,23 @@ class SectorEngine(BaseEngine):
     @staticmethod
     def _safe_limits(sector_names: List[str], lookback: int = 14,
                      rationale: str = "No valid model advice; defensive limits applied.") -> Dict[str, Any]:
+        """Defensive limits: hold, do not cut to zero.
+
+        AUDIT 2026-10-23: this previously returned multiplier 0.0 for every
+        sector. Because ``_persist_safety_limits`` writes that to
+        ``sector_limits.json`` and ``_known_sector_names`` reads it back, a
+        SINGLE missing-feed run permanently zeroed the sector sleeve - a feed
+        blip became an allocation cut that survived the recovery. A multiplier
+        of 1.0 means "allocation unchanged": the engine declines to advise
+        rather than silently liquidating the book.
+
+        ``wait_and_see_sectors`` is still returned so the caller can see that no
+        positive advice exists; ``invest_more_sectors`` stays empty.
+        """
         return {
             "invest_more_sectors": [],
             "wait_and_see_sectors": list(sector_names),
-            "sector_allocation_multipliers": {name: 0.0 for name in sector_names},
+            "sector_allocation_multipliers": {name: 1.0 for name in sector_names},
             "dynamic_lookback_window": lookback,
             "analytical_rationale": " ".join(rationale.split()[:20]),
         }
@@ -450,11 +483,47 @@ class SectorEngine(BaseEngine):
         except (TypeError, ValueError, OverflowError):
             return []
 
+    def _collect_sector_data(self, context: Dict[str, Any]) -> tuple:
+        """Resolve sector_market_data: context first, then the provider.
+
+        Returns ``(data, warnings)``. Matching ``MarketEngine._collect``, an
+        explicit context dict always wins (tests, backtests, replay), so an
+        injected provider can never override caller-supplied data.
+        """
+        supplied = context.get("sector_market_data")
+        if isinstance(supplied, dict) and supplied.get("sector_closes"):
+            return supplied, []
+        if callable(self.provider):
+            try:
+                fetched = self.provider()
+            except Exception as exc:  # noqa: BLE001 - degrade, never halt
+                self.log(f"sector provider failed ({exc!r})")
+                return {}, [f"sector provider failed ({type(exc).__name__})"]
+            if isinstance(fetched, dict):
+                notes = list(fetched.get("warnings") or [])
+                if fetched.get("ok") and fetched.get("sector_closes"):
+                    # Surface the data class so the dashboard labels this as
+                    # HISTORICAL VENDOR data, never as live market data.
+                    if fetched.get("data_classification"):
+                        notes.append(
+                            f"sector data: {fetched['data_classification']} "
+                            f"as of {fetched.get('as_of', 'unknown')}")
+                    return fetched, notes
+                if not notes:
+                    notes = ["sector provider returned no data"]
+                return {}, notes
+        if isinstance(self.config.get("sector_market_data"), dict):
+            return self.config["sector_market_data"], []
+        return {}, ["no sector provider injected and no sector_market_data supplied"]
+
     def _run(self, context: Dict[str, Any]) -> EngineResult:
         run_sequence = _next_run_sequence()
-        data = context.get("sector_market_data")
-        if not isinstance(data, dict):
-            data = {}
+        # AUDIT 2026-10-23: this used to read ONLY context["sector_market_data"],
+        # which nothing in production ever populated - so every run returned
+        # ok=False and wrote all sectors to multiplier 0.0. The engine now falls
+        # back to its injected provider (sectors/providers/vendor_sector.py),
+        # mirroring how OpenAlgoPortfolioProvider feeds the portfolio engine.
+        data, source_warnings = self._collect_sector_data(context)
         raw_sectors = data.get("sector_closes")
         sector_names = (
             list(raw_sectors.keys())
@@ -468,19 +537,20 @@ class SectorEngine(BaseEngine):
                 "sector data missing; prior sectors placed in defensive limits.")
             limits = self._safe_limits(self._known_sector_names([]))
             return EngineResult(
-                engine=self.name, ok=False, data=limits, warnings=warnings,
+                engine=self.name, ok=False, data=limits,
+                warnings=list(source_warnings) + warnings,
                 error="sector_market_data.sector_closes is missing or empty",
             )
 
-        warnings: List[str] = []
+        warnings: List[str] = list(source_warnings)
         try:
             if any(bool(context.get(key)) for key in (
                     "risk_veto_active", "tail_risk_panic", "conflicting_reports",
                     "corrupted_data", "latency_anomaly")):
                 warning_text = (
-                    "defensive veto active; all sector allocations set to zero")
+                    "defensive veto active; sector allocation held at 1.0")
                 matrix = self._fallback_matrix(data)
-                warnings = self._persist_safety_limits(
+                warnings = source_warnings + self._persist_safety_limits(
                     run_sequence, sector_names, warning_text, matrix)
                 limits = self._safe_limits(sector_names, rationale=warning_text)
                 return EngineResult(
@@ -595,6 +665,15 @@ class SectorEngine(BaseEngine):
                 ok=True,
                 data={
                     **limits,
+                    # PROVENANCE. AUDIT 2026-10-24: this block used to carry
+                    # only `data_classification` and `benchmark`, because it
+                    # spreads `limits` rather than the provider payload. The
+                    # provider's `as_of` was silently dropped, so a healthy
+                    # run logged no data date anywhere the caller could see.
+                    # `classification` above is also "unknown" whenever the
+                    # provider omits the key, which is what a real run printed
+                    # while every diagnostic said the data was good.
+                    "as_of": data.get("as_of"),
                     "sector_matrix": matrix,
                     "data_classification": classification,
                     "benchmark": snapshot["benchmark"],

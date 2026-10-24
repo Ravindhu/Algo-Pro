@@ -268,7 +268,64 @@ class DatabaseEngine:
                                 warnings=warnings,
                                 reason=f"{type(exc).__name__}: {exc}")
 
+    def ingest_local_history(self, *, symbol: str, exchange: str,
+                             interval: str, rows: Sequence[Any],
+                             source: str = "local_vendor",
+                             data_class: str = "historical_vendor") -> Dict[str, Any]:
+        """Persist trusted local history into the shared OHLCV cache.
+
+        This is the local-source counterpart to :meth:`ingest_history`: it
+        performs no network I/O, preserves daily index dates as session dates
+        (does not reinterpret date-only vendor rows as midnight IST), and writes
+        through the existing ``PriceCache`` rather than creating a second DB.
+        The source must use a distinct cache symbol/exchange namespace if its
+        values must not overwrite broker history.
+
+        Returns the standard status-bearing dict and never raises.
+        """
+        try:
+            if not symbol or not exchange or not interval:
+                raise ValueError("symbol, exchange and interval are required")
+            normalized = normalise_rows(list(rows or []))
+            clean = []
+            for row in normalized:
+                stamp = str(row.get("ts") or "")
+                # The local daily vendor path intentionally stores YYYY-MM-DD.
+                # Intraday timestamps are kept as the cache normalizer supplied.
+                if not stamp:
+                    continue
+                close = row.get("close")
+                if close is None or not math.isfinite(float(close)) or float(close) <= 0:
+                    continue
+                clean.append(row)
+            clean.sort(key=lambda row: row["ts"])
+            if not clean:
+                raise ValueError("local history contains no valid close rows")
+            written = self.price_cache.upsert(symbol, exchange, interval, clean)
+            if written <= 0:
+                raise OSError("shared OHLCV cache wrote no rows")
+            self._payload.setdefault("market", {})[symbol] = clean
+            self._payload["synced_at"] = utc_now_iso()
+            return self._result(True, symbol=symbol, exchange=exchange,
+                                 interval=interval, rows=clean, written=written,
+                                 source=source, data_class=data_class,
+                                 freshness={"fresh": None,
+                                            "latest_ts": clean[-1]["ts"],
+                                            "reason": "local historical source; "
+                                                     "freshness is reported by caller"},
+                                 warnings=[])
+        except Exception as exc:  # noqa: BLE001 - DME never halts a cycle
+            logger.warning("local history ingestion failed for %s: %s", symbol, exc)
+            self._record_diagnostic(
+                "INGESTION_ERROR", "local_history",
+                f"{type(exc).__name__}: {exc}", symbol=symbol, source=source)
+            return self._result(False, symbol=symbol, exchange=exchange,
+                                interval=interval, rows=[], written=0,
+                                source=source, data_class=data_class,
+                                warnings=[f"{type(exc).__name__}: {exc}"])
+
     def _apply_fallback(self, rows: List[Dict[str, Any]], *, symbol: str,
+
                         exchange: str,
                         interval: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """Patch rows after the latest cached bar using the injected fallback."""

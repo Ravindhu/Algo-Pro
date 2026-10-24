@@ -302,7 +302,7 @@ If `applied` is `false`, read the `reason` — the book was **not** de-risked.
 | currency | RBI FBIL, live | high (daily) |
 | employment | MoSPI, live | **check `as_of`** — was 10 months old |
 | FII / DII cash | **vendor parquet** | **check `stale`** — lagging since 2026-10-13 |
-| India VIX | **vendor parquet** | **check `stale`** — lagging since 2026-10-12 |
+| India VIX | **vendor parquet** | current to 2026-10-23 (refreshed by `vendor_maintenance`) |
 | bond_return | static | **none** — does not update |
 | debt | static | **none** |
 | forex_reserves | static | **none** |
@@ -327,28 +327,57 @@ stack went **19 s → 3.1 s**.
 today in *trading* days (`max_lag_trading_days`, default 2). Beyond that the
 values are still served but `meta.stale = True` and a warning is emitted.
 
-> **Current state: the vendor pin is behind.** Last FII/DII row **2026-10-13**,
-> last VIX **2026-10-12**. That is ~7 trading days. Expect
-> `vendor flows STALE` in the warnings until the pin is updated.
+> **Current state (2026-10-24): the INDICES pin is current, the FLOWS pin is not.**
+> The indices were refreshed to **2026-10-23** by
+> `blue_engine.jobs.vendor_maintenance`. FII/DII rows (`data/FLOWS/`) are still
+> at **2026-10-13** - that upstream repo carries no newer flow data, so expect
+> `vendor flows STALE` until it does.
 
-To update the data, refresh the vendor checkout:
+### 8.4 Refreshing the vendor data (routine, not manual)
+
+The index data is refreshed by a tested job, not by hand-editing files:
 
 ```powershell
-cd Blue_engine\database\vendor\indian-market-historical-data
-& 'C:\Program Files\Git\cmd\git.exe' sparse-checkout set scripts data/FLOWS data/MACRO data/INDICES
-& 'C:\Program Files\Git\cmd\git.exe' pull --ff-only
+cd Blue_engine
+..\.venv\Scripts\python.exe -m blue_engine.jobs.vendor_maintenance
 ```
 
-> The clone is **sparse** (scripts only by default). `data/` is intentionally not
-> checked out — that is why the data appeared to be missing. Again: the files
-> exist in the repo; they are simply excluded from the working tree.
+Useful flags: `--check` (report only, writes nothing), `--backfill` (full
+history — use this when adding an index), `--only NIFTY_IT,NIFTY_AUTO`,
+`--max-age-days 5`, `--json`.
+
+It does five things: refresh every registered index, **drop unusable rows**
+(NaN / non-positive / non-finite closes), verify each index advanced, rebuild
+`index_list.csv`, and exit **non-zero** when any index failed or the newest
+session is older than `--max-age-days`.
+
+**The index registry is `INDEX_TICKERS` in
+`Blue_engine/sectors/providers/vendor_sector.py`.** That is the only list to
+edit when adding an index — the job, the sector engine and
+`scripts/ops/update_vendor_data.py` all read it.
+
+**Scheduling.** Register the daily pre-market job (once, from an elevated
+shell — `Register-ScheduledTask` needs it):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ops\register_vendor_data_job.ps1
+```
+
+Runs 08:45 IST daily plus at logon, logs to
+`data\logs\vendor_maintenance.log`, and keeps `Last Run Result` meaningful:
+non-zero means "a human should look".
+
+> **Verified on this host:** the job itself runs clean (exit 0) and the
+> generated command writes the log correctly. Task **registration** was NOT
+> completed - it returned `Access is denied` without elevation, so run the
+> command above from an Administrator shell to finish it.
 
 **Known data caveats in this checkout:**
 
 | File | Caveat |
 |---|---|
 | `MACRO/cpi_inflation.parquet` | last print **2025-03** — use the live MoSPI provider, not this file |
-| `INDICES/*.parquet` | newest bar is often **partial** (Close = NaN, Volume = 0); drop NaN closes |
+| `INDICES/*.parquet` | newest bar is **sometimes partial** (Close = NaN, Volume = 0). The maintenance job now DROPS these — one such row on 2026-10-13 broke the sector alignment for every index |
 | `FLOWS/*.parquet` | lagging; always read `meta.stale` |
 
 ---
