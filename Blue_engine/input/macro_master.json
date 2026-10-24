@@ -219,15 +219,17 @@
       }
     },
     "screener": {
-      "_comment": "Optional pipeline stage. Enable only with an intentionally configured provider or input snapshot; network scraping is never enabled by the default pipeline.",
-      "pipeline_enabled": false,
-      "enabled": false,
+      "_comment": "Optional pipeline stage. Runs when enabled: the candidate universe is the screener.in sectors selected by the sector HM gate. Network scraping stays bounded by the polite limits below. PAPER-RUN FIRST - this is a strategy change, not just a switch.",
+      "pipeline_enabled": true,
+      "enabled": true,
       "_sector_filter_comment": "When enabled, the stock universe is chosen by the sector HM gate (RSI > EMA) instead of a hard-coded 'sectors' list. The gate and the index->screener slug map are documented in docs/My_trading_system_SOP/SOP.md section 8b. Measured out-of-sample: RSI>EMA scored 0.518 (5d) / 0.535 (20d) against 0.500 for random; adding an RSI<=40 cap REDUCED it to 0.454 / 0.446, so require_discount is false on purpose. An explicit 'sectors' list always wins over this filter.",
       "sector_filter": {
-        "enabled": false,
+        "enabled": true,
         "mode": "rsi_above_ema",
         "require_discount": false,
-        "discount_level": 40
+        "discount_level": 40,
+        "confirm_bars": 2,
+        "membership_limit": 250
       }
     },
     "valuation": {

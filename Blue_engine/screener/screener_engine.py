@@ -90,6 +90,13 @@ class ScreenerEngine(BaseEngine):
         self.sector_filter_enabled = bool(
             self.sector_filter.get("enabled", False))
         self.sector_filter_report: Dict[str, Any] = {}
+        #: Final-gate report: which candidates the sector membership check kept
+        #: or dropped, and why.
+        self.membership_report: Dict[str, Any] = {}
+        #: Rows read per sector when building the membership lookup. Bounded so
+        #: a wide sector cannot turn the gate into hundreds of page fetches.
+        self.membership_limit = int(
+            self.sector_filter.get("membership_limit", 250))
         self.symbols = [str(s).upper() for s in (self.config.get("symbols") or [])]
         self.screen_id = self.config.get("screen_id")
         self.screen_slug = self.config.get("screen_slug")
@@ -276,7 +283,88 @@ class ScreenerEngine(BaseEngine):
             if cand:
                 candidates.append(cand)
         return candidates, warnings
+    def _apply_membership_gate(self, client: ScreenerClient,
+                               candidates: List[Dict[str, Any]]
+                               ) -> Optional[List[str]]:
+        # FINAL GATE: drop any candidate that is not a member of an
+        # HM-selected sector.
+        #
+        # This is the only check that covers source='screen' and
+        # source='symbols'. For source='sector' it is a no-op logically (every
+        # row came from a selected sector) but it is still applied, so a stray
+        # row from an odd pagination cannot slip through either.
+        #
+        # FAIL-CLOSED: if the membership lookup cannot be built, or nothing
+        # survives, this returns None and the caller returns an empty
+        # universe. Keeping unverified symbols would silently re-open the
+        # universe the sector gate just closed.
+        if not self.sector_filter_enabled and not self.sector_filter_report:
+            self.membership_report = {"applied": False,
+                                      "reason": "sector filter not enabled"}
+            return []
+        if not candidates:
+            self.membership_report = {"applied": True, "kept": [],
+                                      "dropped": [], "warnings": []}
+            return []
+        try:
+            from ..sectors.sector_universe_filter import SectorUniverseFilter
+            from ..sectors.sector_membership import build_membership, \
+                apply_membership
+            from ..sectors.sector_screener_map import screener_sectors_for
+            gate = SectorUniverseFilter(self.sector_filter).screener_slugs()
+            index_to_slugs = {}
+            for index in gate.get("sectors") or []:
+                slugs = screener_sectors_for(index)
+                if slugs:
+                    index_to_slugs[index] = list(slugs)
+            if not index_to_slugs:
+                self.membership_report = {
+                    "applied": False,
+                    "warnings": ["no HM-selected sector maps to a screener "
+                                 "sector; universe is empty rather than "
+                                 "unfiltered"]}
+                return None
 
+            membership = build_membership(
+                index_to_slugs, client,
+                limit=self.membership_limit,
+                include_all_pages=self.include_all_pages,
+                max_pages=self.max_pages)
+        except Exception as exc:  # noqa: BLE001 - degrade, never halt
+            self.membership_report = {
+                "applied": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "warnings": ["sector membership unavailable; universe is "
+                             "empty rather than unfiltered"]}
+            return None
+        result = apply_membership(candidates, membership)
+        warnings: List[str] = []
+        dropped_n = len(result["dropped"])
+        if dropped_n:
+            warnings.append(
+                f"sector gate dropped {dropped_n} of {len(candidates)} "
+                f"candidate(s) outside the HM-selected sectors: "
+                + ", ".join(result["drop_symbols"][:10]))
+        if membership.failed:
+            warnings.append(
+                "some sectors could not be read for membership: "
+                + ", ".join(f"{k} ({v})" for k, v in
+                             list(membership.failed.items())[:5]))
+        self.membership_report = {
+            "applied": True,
+            "kept": result["kept"],
+            "kept_symbols": result["keep_symbols"],
+            "dropped": result["dropped"],
+            "drop_symbols": result["drop_symbols"],
+            "membership_size": len(membership.symbol_to_index),
+            "unreadable_sectors": membership.failed,
+            "warnings": warnings,
+        }
+        if not result["kept"]:
+            return None
+        self.log(f"sector gate kept {len(result['kept'])} of "
+                 f"{len(candidates)} candidate(s)")
+        return warnings
     def _from_symbols(self, client: ScreenerClient) -> tuple:
         """Build candidates from an explicit symbol list (one fetch per symbol)."""
         candidates: List[Dict[str, Any]] = []
@@ -471,6 +559,20 @@ class ScreenerEngine(BaseEngine):
                 candidates, w = self._from_sectors(client)
             warnings.extend(w)
 
+            # FINAL GATE: keep only stocks belonging to the HM-selected
+            # sectors. This is the ONLY point that covers source='screen' and
+            # source='symbols', which never consulted the sector list before.
+            gate_warnings = self._apply_membership_gate(client, candidates)
+            if gate_warnings is None:
+                return EngineResult(
+                    engine=self.name, ok=True,
+                    data=self._empty(
+                        "no candidate belongs to an HM-selected sector"),
+                    warnings=warnings + list(
+                        self.membership_report.get("warnings") or []))
+            warnings.extend(gate_warnings)
+            candidates = self.membership_report.get("kept", candidates)
+
             if self.enrich and candidates:
                 warnings.extend(self._enrich(client, candidates))
                 if len(candidates) > min(self.enrich_limit, self.max_symbols):
@@ -578,6 +680,7 @@ class ScreenerEngine(BaseEngine):
                 # Provenance of the universe: which sectors the HM gate chose,
                 # and which passed the gate but had no screener equivalent.
                 "sector_filter": self.sector_filter_report or None,
+                "sector_membership": self.membership_report or None,
                 "counts": {
                     "candidates": len(results),
                     "selected": len(selected),

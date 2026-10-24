@@ -34,7 +34,7 @@ class _FakeScorer:
 
 def _row(stem, rsi, ema, scored=True):
     return {"stem": stem, "name": stem, "scored": scored, "rsi": rsi,
-            "ema_rsi": ema, "rising": rsi > ema,
+            "ema_rsi": ema, "rising": rsi > ema, "confirm_run": 3,
             "below_level": rsi <= 40,
             "rising_flag": rsi > ema}
 

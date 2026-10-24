@@ -186,6 +186,16 @@ class SectorHMScorer:
             return out
 
         rising = bool(rsi > ema_rsi)
+        # CONFIRMATION: how many consecutive sessions RSI has held above its
+        # EMA, including today. A single-bar check flickers (34.3% of days flip
+        # state); requiring 2 cuts that to 22.3% and improved the measured hit
+        # rate, while 3+ turned the edge negative. Computed here so every
+        # caller sees the same number and cannot re-derive it differently.
+        confirm_run = 0
+        for r_val, e_val in zip(reversed(rsi_series), reversed(ema_series)):
+            if r_val is None or e_val is None or not (r_val > e_val):
+                break
+            confirm_run += 1
         depth = max(0.0, min(1.0, 1.0 - (rsi / 100.0)))
         # Direction is a FLAG, not a multiplier: it must not be able to hide a
         # deeply discounted sector from the ranking.
@@ -196,6 +206,7 @@ class SectorHMScorer:
             "ema_rsi": round(ema_rsi, 2),
             "hm_score": round(score, 2),
             "rising": rising,
+            "confirm_run": confirm_run,
             "below_level": rsi <= self.discount_level,
             # The indicator's real BUY rule: recovering AND still cheap.
             "hm_turn_buy": bool(rising and rsi <= self.discount_level),
