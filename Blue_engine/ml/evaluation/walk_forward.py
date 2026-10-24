@@ -400,7 +400,13 @@ def run_walk_forward(
         # a 0.05 Sharpe on 1%-a-day vol is a 5 bps edge, which loses to 10 bps
         # costs. Computing the bps directly, from the same return series, keeps
         # the units honest (no "Sharpe -> edge" folklore conversion).
-        gross_edge_bps = (mu / len(all_rets)) * 10_000.0
+        # BUG FIXED 2026-10-24: `mu` is already the PER-PERIOD mean return
+        # (mu = sum(clean)/len(clean) above), so dividing by len(all_rets) a
+        # second time shrank the gross edge by ~4 orders of magnitude and made
+        # EVERY strategy fail this gate as "no edge after costs" - including
+        # ones with a Sharpe above 4. The edge is simply the per-period mean
+        # expressed in bps.
+        gross_edge_bps = mu * 10_000.0
         rep.cost_check = cost_adjusted_edge(
             gross_edge_bps, turnover_per_period=turnover_per_period,
             cost_bps_per_turnover=cost_bps_per_turnover)
