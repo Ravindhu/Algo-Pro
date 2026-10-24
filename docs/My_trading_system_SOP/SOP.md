@@ -367,10 +367,11 @@ Runs 08:45 IST daily plus at logon, logs to
 `data\logs\vendor_maintenance.log`, and keeps `Last Run Result` meaningful:
 non-zero means "a human should look".
 
-> **Verified on this host:** the job itself runs clean (exit 0) and the
-> generated command writes the log correctly. Task **registration** was NOT
-> completed - it returned `Access is denied` without elevation, so run the
-> command above from an Administrator shell to finish it.
+> **Verified on this host (2026-10-24):** the task `BlueEngine_VendorData` is
+> **registered and working** - daily 08:45 IST plus at logon, `LastTaskResult: 0`
+> on a manual run, 24 indices refreshed, next run the following morning.
+> Log: `data\logs\vendor_maintenance.log`. Registration needs an elevated
+> shell (`Register-ScheduledTask` returns `Access is denied` otherwise).
 
 **Known data caveats in this checkout:**
 
