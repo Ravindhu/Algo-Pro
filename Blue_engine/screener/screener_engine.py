@@ -82,6 +82,14 @@ class ScreenerEngine(BaseEngine):
 
         self.source = str(self.config.get("source") or "screen").lower()
         self.sectors = list(self.config.get("sectors") or [])
+        # SECTOR-UNIVERSE BRIDGE. When ``sector_filter`` is enabled, the sector
+        # list is chosen by the measured HM gate (RSI > EMA) instead of being
+        # typed into config. An explicit ``sectors`` list still wins, so no
+        # existing configuration changes behaviour by accident.
+        self.sector_filter = self.config.get("sector_filter") or {}
+        self.sector_filter_enabled = bool(
+            self.sector_filter.get("enabled", False))
+        self.sector_filter_report: Dict[str, Any] = {}
         self.symbols = [str(s).upper() for s in (self.config.get("symbols") or [])]
         self.screen_id = self.config.get("screen_id")
         self.screen_slug = self.config.get("screen_slug")
@@ -171,6 +179,43 @@ class ScreenerEngine(BaseEngine):
     # ------------------------------------------------------------------ #
     # Universe acquisition
     # ------------------------------------------------------------------ #
+    def _apply_sector_filter(self) -> Optional[List[str]]:
+        # Replace self.sectors with the sectors the HM gate selects.
+        #
+        # Returns the warnings to surface, or None when the gate selected
+        # nothing - the caller then returns an empty universe instead of
+        # screening. Running with an empty sector list would otherwise walk
+        # every sector or none, and neither is what the operator asked for.
+        #
+        # An explicit `sectors` list in config always wins: this only fills the
+        # gap when `sector_filter.enabled` is true.
+        if not self.sector_filter_enabled:
+            return []
+        if self.sectors:
+            self.sector_filter_report = {
+                "applied": False,
+                "reason": "explicit sectors list in config takes precedence"}
+            return ["sector_filter ignored: config already sets sectors"]
+        try:
+            from ..sectors.sector_universe_filter import SectorUniverseFilter
+            gate = SectorUniverseFilter(self.sector_filter).screener_slugs()
+        except Exception as exc:  # noqa: BLE001 - degrade, never halt
+            self.sector_filter_report = {
+                "applied": False,
+                "error": f"{type(exc).__name__}: {exc}"}
+            return [f"sector_filter failed ({type(exc).__name__}); "
+                    f"universe is empty rather than unfiltered"]
+
+        self.sector_filter_report = dict(gate, applied=bool(gate.get("slugs")))
+        self.sectors = list(gate.get("slugs") or [])
+        warnings = list(gate.get("warnings") or [])
+        if not self.sectors:
+            return None
+        self.log(
+            f"sector filter ({gate.get('rule')}) selected "
+            f"{len(gate.get('sectors') or [])} sector(s) -> "
+            f"{len(self.sectors)} screener slug(s)")
+        return warnings
     def _from_sectors(self, client: ScreenerClient) -> tuple:
         """Build the candidate list from one or more sector tables."""
         candidates: List[Dict[str, Any]] = []
@@ -406,6 +451,16 @@ class ScreenerEngine(BaseEngine):
                     engine=self.name, ok=True,
                     data=self._empty("screener disabled in config"),
                     warnings=["screener disabled"])
+            # Resolve the sector universe BEFORE the client is touched, so a
+            # gate that selects nothing costs no network calls at all.
+            gate_warnings = self._apply_sector_filter()
+            if gate_warnings is None:
+                return EngineResult(
+                    engine=self.name, ok=True,
+                    data=self._empty("sector filter selected no sectors"),
+                    warnings=list(self.sector_filter_report.get("warnings")
+                                  or []))
+            warnings.extend(gate_warnings)
             client = self._get_client()
             if self.source == "symbols":
                 candidates, w = self._from_symbols(client)
@@ -520,6 +575,9 @@ class ScreenerEngine(BaseEngine):
                 ),
                 "polite_limits": self.polite_limits(),
                 "metrics_derived": self._metrics_derived(),
+                # Provenance of the universe: which sectors the HM gate chose,
+                # and which passed the gate but had no screener equivalent.
+                "sector_filter": self.sector_filter_report or None,
                 "counts": {
                     "candidates": len(results),
                     "selected": len(selected),
