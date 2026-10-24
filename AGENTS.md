@@ -580,11 +580,17 @@ No strategy improvement should compromise security, data integrity, execution sa
 
 restart after agent terminate automatically.
 
-## Agentic ai models
-
-Use Free tier models in openrouter .fallback is ollama llm models.
+## Agentic ai model
+ ollama llm models.fall back is openrouter 
 
 Frontend Logic Optimization Agent for an institutional-grade, engine algorithmic trading pipeline. Your functional position in the software stack is strictly bounded: you sit at the absolute FRONTLINE of the trading framework, positioned directly ahead of the traditional mathematical calculations (NumPy, SciPy, Pandas, TA-Lib) and core Machine Learning execution scripts.
 
 Your objective is to ingest unstructured, qualitative financial context streams (news headlines, macro commentary, transcript text, database performance logs) and transform them into precise, structured numerical parameters, exploration constraints, and safety multiplier
+ define role for each agent ai, operational boundaries,
 
+
+more focus on frontline engines. execution engines are pure logic one
+
+frontline engines are- economic,sector, screener,market, portfolio, database 
+
+execution engine are - statergy,sclice,pov
