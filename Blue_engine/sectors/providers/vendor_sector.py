@@ -64,7 +64,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["VENDOR_DIR", "DEFAULT_INDICES_DIR", "DEFAULT_SECTORS",
            "DEFAULT_BENCHMARK", "VENDOR_EXCHANGE", "VendorSectorProvider",
-           "make_provider", "INDEX_TICKERS", "SECTOR_LIVE_SYMBOLS"]
+           "make_provider", "INDEX_TICKERS", "SECTOR_LIVE_SYMBOLS",
+           "UNSCORABLE_NSE_SECTORS"]
 
 #: Pinned vendor checkout. ``__file__`` is
 #: ``<repo>/Blue_engine/sectors/providers/vendor_sector.py``, so ``parents[3]``
@@ -156,6 +157,7 @@ INDEX_TICKERS: Dict[str, str] = {
     "NIFTY_NEXT_50": "^NSMIDCP",
     "NIFTY_MIDCAP_50": "^NSEMDCP50",
     "NIFTY_MIDCAP_100": "MIDCAP.NS",
+    "NIFTY_MIDCAP_150": "NIFTYMIDCAP150.NS",
     "NIFTY_SMALLCAP_250": "NIFTYSMLCAP250.NS",
     # ---- volatility -----
     "INDIA_VIX": "^INDIAVIX",
@@ -174,6 +176,25 @@ INDEX_TICKERS: Dict[str, str] = {
     "NIFTY_CONSUMER_DURABLES": "^CNXCONSUM",
     "NIFTY_MNC": "^CNXMNC",
     "NIFTY_PSE": "^CNXPSE",
+}
+
+#: NSE sectoral indices that are IN the portfolio universe but have NO usable
+#: price history on any source we can reach. Probed 2026-10-24 against 17 symbol
+#: variants (^CNXCEMENT, ^CNXCMT, ^CNXCAPITL, ^CNXCHEM, ^CNXOILGAS,
+#: ^CNXHEALTH, .NS and .BO forms): ALL empty, except NIFTY_CEMENT.NS which
+#: returns a single row (today only). Yahoo does not carry these NSE sectoral
+#: series, so they cannot be scored. This is recorded explicitly rather than
+#: silently omitted, so a future data source can fill the gap and the HM score
+#: table can state WHICH sectors are unscored and why.
+UNSCORABLE_NSE_SECTORS: Dict[str, str] = {
+    "NIFTY_CEMENT": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_POWER": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_CAPITAL_GOODS": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_OIL_GAS": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_HEALTHCARE": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_CHEMICALS": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_PRIVATE_BANK": "no price history on Yahoo (all symbol variants empty)",
+    "NIFTY_MEDIA": "single row only (today); no usable series",
 }
 
 

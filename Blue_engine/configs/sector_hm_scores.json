@@ -1,0 +1,291 @@
+{
+ "kind": "sector_hm_score_history",
+ "days": [
+  {
+   "as_of": "2026-10-24",
+   "generated_at": "2026-10-24T12:52:36.982103+05:30",
+   "lookback": {
+    "rsi_period": 9,
+    "ema_period": 3,
+    "discount_level": 40.0
+   },
+   "ranked": [
+    {
+     "stem": "NIFTY_MNC",
+     "name": "NIFTY MNC",
+     "scored": true,
+     "reason": "",
+     "rsi": 11.33,
+     "ema_rsi": 18.43,
+     "hm_score": 88.67,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3859,
+     "last_close": 27765.7,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_PHARMA",
+     "name": "NIFTY PHARMA",
+     "scored": true,
+     "reason": "",
+     "rsi": 20.97,
+     "ema_rsi": 26.45,
+     "hm_score": 79.03,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3873,
+     "last_close": 25329.45,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_METAL",
+     "name": "NIFTY METAL",
+     "scored": true,
+     "reason": "",
+     "rsi": 25.11,
+     "ema_rsi": 31.9,
+     "hm_score": 74.89,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3747,
+     "last_close": 11478.2,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_FMCG",
+     "name": "NIFTY FMCG",
+     "scored": true,
+     "reason": "",
+     "rsi": 25.74,
+     "ema_rsi": 34.08,
+     "hm_score": 74.26,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3858,
+     "last_close": 42680.7,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_ENERGY",
+     "name": "NIFTY ENERGY",
+     "scored": true,
+     "reason": "",
+     "rsi": 26.55,
+     "ema_rsi": 31.12,
+     "hm_score": 73.45,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3859,
+     "last_close": 34520.05,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_PSE",
+     "name": "NIFTY PSE",
+     "scored": true,
+     "reason": "",
+     "rsi": 33.95,
+     "ema_rsi": 40.39,
+     "hm_score": 66.05,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3859,
+     "last_close": 8885.75,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_BANK",
+     "name": "NIFTY BANK",
+     "scored": true,
+     "reason": "",
+     "rsi": 34.62,
+     "ema_rsi": 45.06,
+     "hm_score": 65.38,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 4701,
+     "last_close": 54287.35,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_FIN_SERVICE",
+     "name": "NIFTY FINANCIAL SERVICES",
+     "scored": true,
+     "reason": "",
+     "rsi": 36.95,
+     "ema_rsi": 44.03,
+     "hm_score": 63.05,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3708,
+     "last_close": 24403.0,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_CONSUMER_DURABLES",
+     "name": "NIFTY CONSUMER DURABLES",
+     "scored": true,
+     "reason": "",
+     "rsi": 37.67,
+     "ema_rsi": 42.81,
+     "hm_score": 62.33,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3745,
+     "last_close": 10726.75,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_REALTY",
+     "name": "NIFTY REALTY",
+     "scored": true,
+     "reason": "",
+     "rsi": 38.25,
+     "ema_rsi": 43.08,
+     "hm_score": 61.75,
+     "rising": false,
+     "below_level": true,
+     "hm_turn_buy": false,
+     "falling_knife": true,
+     "sessions": 3994,
+     "last_close": 784.35,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_PSU_BANK",
+     "name": "NIFTY PSU BANK",
+     "scored": true,
+     "reason": "",
+     "rsi": 46.72,
+     "ema_rsi": 55.01,
+     "hm_score": 53.28,
+     "rising": false,
+     "below_level": false,
+     "hm_turn_buy": false,
+     "falling_knife": false,
+     "sessions": 3859,
+     "last_close": 8070.7,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_INFRA",
+     "name": "NIFTY INFRASTRUCTURE",
+     "scored": true,
+     "reason": "",
+     "rsi": 47.86,
+     "ema_rsi": 49.65,
+     "hm_score": 52.14,
+     "rising": false,
+     "below_level": false,
+     "hm_turn_buy": false,
+     "falling_knife": false,
+     "sessions": 3994,
+     "last_close": 8554.25,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_AUTO",
+     "name": "NIFTY AUTO",
+     "scored": true,
+     "reason": "",
+     "rsi": 50.05,
+     "ema_rsi": 52.66,
+     "hm_score": 49.95,
+     "rising": false,
+     "below_level": false,
+     "hm_turn_buy": false,
+     "falling_knife": false,
+     "sessions": 3747,
+     "last_close": 24862.3,
+     "as_of": "2026-10-24"
+    },
+    {
+     "stem": "NIFTY_IT",
+     "name": "NIFTY IT",
+     "scored": true,
+     "reason": "",
+     "rsi": 80.87,
+     "ema_rsi": 82.8,
+     "hm_score": 19.13,
+     "rising": false,
+     "below_level": false,
+     "hm_turn_buy": false,
+     "falling_knife": false,
+     "sessions": 4701,
+     "last_close": 31995.5,
+     "as_of": "2026-10-24"
+    }
+   ],
+   "unscored": [],
+   "not_available": [
+    {
+     "stem": "NIFTY_CEMENT",
+     "name": "NIFTY_CEMENT",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_POWER",
+     "name": "NIFTY_POWER",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_CAPITAL_GOODS",
+     "name": "NIFTY_CAPITAL_GOODS",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_OIL_GAS",
+     "name": "NIFTY_OIL_GAS",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_HEALTHCARE",
+     "name": "NIFTY_HEALTHCARE",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_CHEMICALS",
+     "name": "NIFTY CHEMICALS",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_PRIVATE_BANK",
+     "name": "NIFTY_PRIVATE_BANK",
+     "reason": "no price history on Yahoo (all symbol variants empty)"
+    },
+    {
+     "stem": "NIFTY_MEDIA",
+     "name": "NIFTY_MEDIA",
+     "reason": "single row only (today); no usable series"
+    }
+   ],
+   "counts": {
+    "scored": 14,
+    "unscored": 0,
+    "not_available": 8,
+    "below_level": 10,
+    "rising": 0
+   }
+  }
+ ],
+ "latest_as_of": "2026-10-24"
+}
