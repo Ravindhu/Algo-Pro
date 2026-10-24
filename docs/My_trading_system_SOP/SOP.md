@@ -383,6 +383,98 @@ non-zero means "a human should look".
 
 ---
 
+## 8b. Sector rotation (HM score) — RESEARCH VERDICT: do not enable
+
+Changed 2026-10-24. **Read this before using the sector HM score for capital.**
+
+The sector sleeve idea was: score each NSE sectoral index with the
+Hilega-Milega reading (RSI(9) vs EMA(3)), rank them, and allocate to the most
+discounted. The machinery exists and works:
+
+```powershell
+cd Blue_engine
+..\.venv\Scripts\python.exe -m blue_engine.jobs.sector_hm_report --top 5
+..\.venv\Scripts\python.exe -m blue_engine.jobs.sector_dataset_report
+```
+
+`sector_hm_scores.json` is the daily table; `sector_dataset.json` is the
+research dataset (53,130 rows, 3,830 dates, 2007→2026, 14 sector indices,
+5d/20d forward-return labels, verified zero look-ahead by truncation test).
+
+**The verdict is negative.** On out-of-sample walk-forward folds:
+
+| Test | 5-day | 20-day |
+|---|---|---|
+| Buy MOST-discounted sector → top tercile | 48.3% | **44.4%** |
+| Random | 50.0% | 50.0% |
+| Rank correlation (HM vs forward label) | **−0.047** | **−0.043** |
+
+The signal is **inverted**: on this data, "most discounted" is a negative
+predictor of relative strength, consistently at both horizons. Buying the
+least-discounted (i.e. momentum) did better. A GBM ranker only reached a
+positive Sharpe by learning that inversion (4.21 vs −0.005 at 20d).
+
+Consequences, in force until new evidence changes them:
+
+1. `engines.sector.pipeline_enabled` stays **false** in `macro_master.json`.
+2. Nobody re-implements "allocate to the most discounted sector" without
+   reading this section.
+3. The HM report remains useful as **telemetry** — it correctly returned
+   "0 sectors qualify" on 2026-10-24 rather than recommending five falling
+   sectors.
+
+If this is revisited, the direction to test is **momentum within sectors**
+(buy relative strength), which must be walk-forwarded on the same dataset and
+beat the same baseline. `blue_engine/ml/evaluation/sector_ranker_eval.py`
+provides the comparison harness.
+
+### The momentum direction was tested. It is real but NOT tradeable.
+
+Measured 2026-10-24 on the same dataset (3,810 dates, 5-day horizon):
+
+| Time block | Strongest sector | Weakest sector |
+|---|---|---|
+| 2011–2015 | 0.542 | 0.445 |
+| 2015–2018 | 0.496 | 0.454 |
+| 2018–2022 | 0.528 | 0.454 |
+| 2022–2026 | 0.547 | 0.503 |
+| **mean** | **0.528 (+2.8 pp)** | **0.465 (−4.0 pp)** |
+
+The direction is consistent in 3 of 4 blocks (2015–2018 is a flat 0.496) at
+both 5d and 20d. So the ordering is real, not noise: relative strength
+persists and relative weakness persists.
+
+**But it does not survive costs.** A 2.8 pp hit-rate edge on a 100–200 bps
+cross-sector move is ~3–6 bps of gross edge per period, against a 10 bps
+round-trip:
+
+| Cross-sector dispersion | Gross edge | Net after 10 bps |
+|---|---|---|
+| 100 bps | ~2.8 bps | **−7.2 bps** |
+| 150 bps | ~4.2 bps | **−5.8 bps** |
+| 200 bps | ~5.6 bps | **−4.3 bps** |
+
+Negative in every case. **Sector-level rotation on these ~14 indices is too
+coarse to pay for a delivery round trip.** It would need either far lower
+costs, direct/index derivatives, or a longer holding period with a much larger
+edge per trade.
+
+Practical conclusion: **do not build sector rotation into the live path.** The
+research harness stays in place so the conclusion can be re-tested if costs or
+the universe change.
+
+Two related caveats that limit any sector-level research here:
+
+- **7 NSE sectoral indices have no usable price source** (CEMENT, POWER,
+  CAPITAL GOODS, OIL & GAS, HEALTHCARE, CHEMICALS, PVT BANK — probed 17 symbol
+  variants, all empty). Any universe is ~14 of ~21 sectors, which is a thin
+  cross-section (terciles of 4–5 names).
+- **Survivorship**: the universe is today's parquets;
+  `first_date_per_sector` in the dataset provenance shows each sector's real
+  start (MIDCAP 100 only begins 2022).
+
+---
+
 ## 9. Troubleshooting
 
 | Symptom | Likely cause | Action |
