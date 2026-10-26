@@ -664,6 +664,62 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 decision — paper-run first, because a gate halt changes which stages produce
 signals.
 
+### 12.7 Measured baseline — paper shift, 2026-10-26
+
+`core/paper_shift.py` makes the measurement repeatable. It forces `dry_run=True`
+(there is no flag to change that), defaults to offline mode (no LLM calls) and
+redirects the infrastructure probes so a cycle costs ~6 s instead of ~25 s.
+
+```powershell
+.\venv\Scripts\python.exe -m blue_engine.core.paper_shift --cycles 3 --out Temp\paper_shift_baseline.json
+```
+
+First measured run (3 cycles, gate ON, tools ON, LLM chain OFFLINE):
+
+| Metric | Value | Reading |
+|---|---|---|
+| `cycles_allowed` | **0 / 3** | The line never reached risk. |
+| `gate_blocks` | `{economic: 3}` | First station starved in every cycle. |
+| `advised_stage_runs` | 9 | 3 stages per cycle were advised. |
+| `llm_unavailable_runs` | **9 / 9** | Every failure was a chain failure, **not** a bad answer. |
+| `schema_rejected_runs` | 0 | No answer was ever rejected by the schema. |
+| `mean_attempts` | 1.0 | Vacuous: no answer existed to correct. |
+| `clamp_rate` | 0.0 | Vacuous, same reason. |
+| `write_failures` | 0 | The JSON writer was never asked to refuse anything. |
+| `mean_duration_seconds` | 6.1 | Down from 22 s before the probe redirect. |
+
+**The honest conclusion: this run measured the GATE, not the self-correction
+loop.** Attempts-per-stage and clamp rate remain unmeasured because no model
+answered — they are `1.0` and `0.0` only in the vacuous sense.
+
+**Finding 1 — the gate's default requirement is too strict for a cold start.**
+`DEFAULT_REQUIREMENTS["economic"]` demands a `macro` key, but the pipeline is
+designed to accept an `agent_inputs` *text* payload, not a macro snapshot. In
+`halt_analysis` mode that blocks every analytic stage even though the agent
+produced usable advice. Before enabling the gate in any window, either:
+
+* supply a real `macro` block from the provider path, **or**
+* override the requirement, e.g.
+  `"stage_gate": {"stages": {"economic": [{"path": "agent_advice.economic",
+  "check": "present"}]}}`.
+
+**Finding 2 — offline mode cannot measure the correction loop.** To measure
+`mean_attempts` and `clamp_rate`, run with `--live-llm` and a reachable Ollama
+model. Offline is the right default for a fast, deterministic gate check, but it
+is *not* a measure of agent quality — and the harness now says so in its notes.
+
+**Finding 3 — a narrow telemetry bug, fixed.** The first version counted "no LLM
+backend available" as a schema rejection, which would have hidden the real
+blocker. `agent_telemetry[stage]["warning_kind"]` now separates
+`llm_unavailable` / `quota` / `llm_failed` / `schema_rejected`.
+
+**Next** (in priority order):
+1. Re-run with `--live-llm` and record attempts/clamp rate — the only numbers
+   that say whether the correction loop earns its call budget.
+2. Decide the gate's cold-start requirement (Finding 1) against the real
+   provider, then enable `stage_gate` in a paper window.
+3. Only then consider `agent.enabled = true` in the live loop.
+
 ---
 *This SOP documents verified behaviour only. Items marked OPEN in the audit are
 known gaps, not guarantees.*

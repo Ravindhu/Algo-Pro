@@ -226,6 +226,7 @@ class MacroPipeline:
             "gated": [],
             "skill_writes": {},
             "self_correction": {},
+            "agent_telemetry": {},
             "shift": {},
             "ready_to_trade": None,
         }
@@ -255,6 +256,24 @@ class MacroPipeline:
                             "corrections": outcome.get("corrections", 0),
                             "attempts": outcome["attempts"],
                         }
+                    # One measurement row per station. This is what the paper
+                    # harness aggregates: attempts, clamp rate, tool use.
+                    report["agent_telemetry"][name] = {
+                        "ok": bool(outcome.get("ok")),
+                        "method": outcome.get("method"),
+                        "attempts": len(outcome.get("attempts") or []),
+                        "corrections": int(outcome.get("corrections") or 0),
+                        # Distinct from ``ok``: an answer can be schema-valid
+                        # and still fail the DATA gate. A harness must not read
+                        # "the agent failed" when the truth is "the feed was
+                        # missing", so both are recorded.
+                        "warning_kind": _warning_kind(outcome),
+                        "clamped": any("clamped" in str(w) for w in
+                                       (outcome.get("warnings") or [])),
+                        "tools_used": len(outcome.get("tool_trace") or []),
+                        "json_written": bool(
+                            (report["skill_writes"].get(name) or {}).get("ok")),
+                    }
                     if outcome.get("ok"):
                         if not isinstance(ctx.get("agent_advice"), dict):
                             ctx["agent_advice"] = {}
@@ -427,6 +446,31 @@ class MacroPipeline:
         except Exception as exc:  # noqa: BLE001 - never break a run for a view
             report["warnings"].append(f"shift publish skipped: {exc!r}")
         return report
+
+
+def _warning_kind(outcome: Any) -> str:
+    """Classify why an agent outcome was not usable. ``""`` when it was.
+
+    Kept separate from ``ok`` because the paper-shift metrics must be able to
+    distinguish "the model/the chain is unavailable" from "the model answered
+    and the answer was rejected". Conflating them produced a false negative in
+    the first baseline measurement.
+    """
+    if not isinstance(outcome, dict):
+        return "unknown"
+    if outcome.get("ok"):
+        return ""
+    warning = str(outcome.get("warning") or "")
+    method = str(outcome.get("method") or "")
+    if "no LLM backend available" in warning or method == "disabled":
+        return "llm_unavailable"
+    if method in ("quota",):
+        return "quota"
+    if method in ("llm_failed", "error"):
+        return "llm_failed"
+    if "schema" in warning or method == "invalid_response":
+        return "schema_rejected"
+    return "other"
 
 
 def _data_requests(advice: Any) -> List[str]:
