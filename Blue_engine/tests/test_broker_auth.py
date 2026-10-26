@@ -90,6 +90,15 @@ class FakeOpenAlgo:
                         return self._send(200, {"status": "ok"},
                                           cookie="session=alive; Path=/")
                     return self._send(200, {"status": "ok"})
+                if self.path == "/auth/csrf-token":
+                    return self._send(200, {"csrf_token": outer.csrf_token})
+                if self.path == "/auth/session-status":
+                    # Mirrors the live endpoint: an explicit authenticated flag,
+                    # not a shell page that answers 200 to anyone.
+                    return self._send(200, {
+                        "authenticated": outer.session_ok,
+                        "logged_in": outer.session_ok,
+                        "status": "success"})
                 return self._send(404, {"error": "not found"})
 
             def do_POST(self):
@@ -110,13 +119,23 @@ class FakeOpenAlgo:
                     good = bool(body.get("totp_code"))
                     return self._send(200 if good else 401,
                                       {"status": "success" if good else "error"})
-                if self.path.startswith("/auth/broker/") and \
-                        self.path.endswith("/callback"):
+                if self.path.startswith("/") and self.path.endswith("/callback") \
+                        and not self.path.startswith("/auth/"):
+                    # Mirrors the REAL registration: brlogin_bp has no url_prefix
+                    # (app.py:308), so its "/<broker>/callback" sits at the ROOT
+                    # - "/mstock/callback", not "/auth/broker/mstock/callback"
+                    # (404).
+                    # Only accept the field map the broker actually uses
+                    # (mstock: password+totp; angel: userid+pin+totp).
+                    if "totp" not in body or not any(
+                            k in body for k in ("password", "pin")):
+                        return self._send(400, {"status": "error",
+                                                "message": "Password is required."})
                     if not outer.broker_ok:
                         # Deliberate: the broker callback succeeds/fails on the
                         # broker's own rules. A DEAD SESSION is observed at the
-                        # probe (GET / withholds the cookie), not here - that
-                        # keeps the two failure modes distinguishable.
+                        # probe (/auth/session-status), not here - that keeps
+                        # the two failure modes distinguishable.
                         return self._send(401, {"status": "error",
                                                 "error": "Invalid TOTP"})
                     code = str(body.get("totp") or "")
@@ -263,7 +282,8 @@ def test_the_full_flow_succeeds_and_hits_the_endpoints_in_order(fake):
     assert result.broker_name == "angel"
     posts = fake.paths()
     assert posts[0] == "/auth/login"
-    assert posts[-1] == "/auth/broker/angel/callback"
+    # The real broker callback is at the ROOT (brlogin_bp has no url_prefix).
+    assert posts[-1] == "/angel/callback"
     # The session probe is the app root (session-cookie protected), NOT the
     # API-key endpoint - see LOGIN_PATHS in broker_auth.py.
     assert "/" in [r["path"] for r in fake.requests]
@@ -272,8 +292,10 @@ def test_the_full_flow_succeeds_and_hits_the_endpoints_in_order(fake):
 
 def test_the_broker_callback_receives_a_valid_totp(fake):
     BrokerAuth(fake.url, credentials=creds()).run()
+    # The real route is at the ROOT (brlogin_bp has no url_prefix), and the
+    # field map is the broker's OWN - angel sends userid/pin/totp.
     callback = next(r for r in fake.requests
-                    if r["path"] == "/auth/broker/angel/callback")
+                    if r["path"] == "/angel/callback")
     assert pyotp.TOTP(SECRET).verify(callback["body"]["totp"])
     assert callback["body"]["userid"] == "AB1234"
     assert callback["body"]["pin"] == "1234"
@@ -338,7 +360,9 @@ def test_a_login_200_with_a_dead_session_is_not_trusted(fake):
     assert result.session_ready is False
     step = next(s for s in result.to_dict()["steps"]
                 if s["step"] == "session_probe")
-    assert "session cookie absent" in step["detail"]
+    # The endpoint DID answer (so the basis is known); what failed is that it
+    # said authenticated=False - the honest signal, not a missing cookie guess.
+    assert "authenticated=False" in step["detail"]
 
 
 def test_verify_can_be_skipped_but_is_on_by_default(fake):
@@ -431,8 +455,14 @@ def test_the_session_probe_is_not_the_apikey_endpoint():
     """
     from blue_engine.core.broker_auth import LOGIN_PATHS
 
-    assert LOGIN_PATHS["session_probe"] == "/"
-    assert "api/v1" not in LOGIN_PATHS["session_probe"]
+    # The authoritative signal is the endpoint the OpenAlgo SPA itself polls,
+    # which app.py exempts from the session-expiry check - it answers an
+    # explicit "authenticated" flag instead of a 200 shell.
+    assert LOGIN_PATHS["session_status"] == "/auth/session-status"
+    assert "api/v1" not in LOGIN_PATHS["session_status"]
+    assert "session_probe" not in LOGIN_PATHS          # removed, not renamed
+    # CSRF is fetched, not invented
+    assert LOGIN_PATHS["csrf_token"] == "/auth/csrf-token"
 
 
 def test_a_200_without_a_session_cookie_is_not_ready(fake):
@@ -448,4 +478,4 @@ def test_the_probe_requires_the_session_cookie(fake):
     assert result.session_ready is True
     probe_step = next(s for s in result.to_dict()["steps"]
                       if s["step"] == "session_probe")
-    assert "session cookie present" in probe_step["detail"]
+    assert "authenticated=True" in probe_step["detail"]

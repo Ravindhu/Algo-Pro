@@ -103,22 +103,52 @@ BROKER_OPTIONAL_NAMES: Dict[str, str] = {
     "broker_name": "BROKER_NAME",
 }
 
-#: Endpoint paths, verified against openalgo/blueprints/{auth,brlogin}.py.
+#: Endpoint paths, verified against openalgo/blueprints/{auth,brlogin}.py AND
+#: against the running instance (2026-10-26).
 #:
-#: AUDIT (2026-10-26): the session probe was ``/api/v1/ping``. That endpoint is
-#: API-KEY authenticated (``POST`` with ``apikey`` in the body) and answers 403
-#: "Invalid openalgo apikey" even on a perfectly valid broker session - so a
-#: good login would have been reported as a dead session. The probe must be a
-#: page that requires the Flask SESSION cookie, which is what this flow creates.
-#: ``/`` is the app root: it renders (200) for a session holder and never
-#: consumes an API key. See scripts/verify/verify_openalgo.py for the API-key
-#: contract - these are two different authentication systems.
+#: AUDIT (2026-10-26, second pass - LIVE VERIFIED):
+#: 1. The session probe was ``/api/v1/ping`` (API-key authenticated, 403 on a
+#:    good session), then ``/`` (serves the React shell to anyone, 200 even for
+#:    an anonymous caller). The probe that actually reports session state is
+#:    ``/auth/session-status``, which app.py explicitly excludes from the
+#:    session check and answers with ``{"authenticated": bool}``.
+#: 2. ``POST /auth/login`` is CSRF-protected by Flask-WTF: a form POST without
+#:    ``X-CSRFToken`` is rejected before the password is even looked at. The
+#:    SPA fetches ``GET /auth/csrf-token`` immediately before every mutating
+#:    request; so does this module.
+#: 3. BROKER FIELD NAMES DIFFER PER BROKER. ``brlogin.py::broker_callback``
+#:    reads ``userid``/``pin``/``totp`` for angel/fivepaisa, but ``password``/
+#:    ``totp`` for mstock - and mstock's clientcode comes from OpenAlgo's OWN
+#:    ``BROKER_API_KEY`` env var (read inside broker/mstock/api/auth_api.py),
+#:    NOT from the form. Sending angel's field names to mstock fails with
+#:    "Password is required" and still burns a login attempt.
 LOGIN_PATHS = {
     "openalgo_login": "/auth/login",
     "openalgo_totp": "/auth/login/totp",
+    "csrf_token": "/auth/csrf-token",
+    "session_status": "/auth/session-status",
     "broker_chooser": "/broker",
-    "broker_callback": "/auth/broker/{broker}/callback",
-    "session_probe": "/",
+    # AUDIT (live, 2026-10-26): brlogin_bp is registered WITHOUT a url_prefix
+    # (app.py:308), so its ``/<broker>/callback`` sits at the ROOT -
+    # ``/mstock/callback``, not ``/auth/broker/mstock/callback`` (404). The
+    # ``/auth/...`` guess looked right because auth_bp does own that prefix.
+    "broker_callback": "/{broker}/callback",
+}
+
+#: Per-broker broker-callback form fields. ``{totp}`` is substituted; other
+#: values come from the credential set. A broker absent from this map is
+#: refused BEFORE the POST with an explicit "unsupported broker" reason -
+#: guessing field names at a live broker costs login attempts.
+BROKER_FORM_FIELDS: Dict[str, Dict[str, str]] = {
+    # brlogin.py::broker_callback, angel branch:
+    #   clientcode = userid | clientid; broker_pin = pin; totp_code = totp
+    "angel": {"userid": "{broker_username}", "pin": "{broker_password}",
+              "totp": "{totp}"},
+    "fivepaisa": {"userid": "{broker_username}", "pin": "{broker_password}",
+                  "totp": "{totp}"},
+    # brlogin.py, mstock branch: password + totp only. The clientcode is read
+    # from OpenAlgo's OWN env (BROKER_API_KEY) inside the broker module.
+    "mstock": {"password": "{broker_password}", "totp": "{totp}"},
 }
 
 #: How long a computed TOTP is considered usable (30 s window minus one step,
@@ -132,6 +162,31 @@ TOTP_VALIDITY_SECONDS = 25
 @dataclass
 class CredentialSet:
     """The five values, held in memory only. ``describe()`` never leaks them."""
+
+    def broker_form(self, broker: str, totp_code: str) -> Dict[str, str]:
+        """The broker-callback form for this broker, using ITS field names.
+
+        AUDIT (live, 2026-10-26): ``brlogin.py::broker_callback`` reads
+        ``userid``/``pin``/``totp`` for angel and fivepaisa, but ``password``/
+        ``totp`` for mstock - and mstock's clientcode is read from OpenAlgo's
+        OWN ``BROKER_API_KEY`` env inside broker/mstock/api/auth_api.py, NOT
+        from the form. Sending angel's field names to mstock fails with
+        "Password is required" and STILL BURNS A LOGIN ATTEMPT.
+
+        Refused BEFORE the POST when the broker is unsupported, with an
+        explicit reason: guessing field names at a live broker is the same
+        failure with a different message.
+        """
+        fields = BROKER_FORM_FIELDS.get(broker)
+        if fields is None:
+            raise ValueError(
+                f"unsupported broker {broker!r}; supported: "
+                f"{sorted(BROKER_FORM_FIELDS)}. Refusing before the POST: "
+                "a guessed field name still burns a login attempt."
+            )
+        data = {key: value.format(totp=totp_code, **self.__dict__)
+                for key, value in fields.items()}
+        return data
 
     broker_totp_secret: Optional[str] = None
     broker_password: Optional[str] = None
@@ -285,20 +340,23 @@ class OpenAlgoSession:
 
     # ---- raw ------------------------------------------------------------- #
     def _request(self, path: str, *, form: Optional[Mapping[str, Any]] = None,
-                 json_body: Optional[Mapping[str, Any]] = None
+                 json_body: Optional[Mapping[str, Any]] = None,
+                 headers: Optional[Mapping[str, str]] = None
                  ) -> Dict[str, Any]:
         url = self.base_url + path
-        headers = {"Accept": "application/json",
-                   "User-Agent": "blue-engine-broker-auth/1"}
+        out_headers = {"Accept": "application/json",
+                       "User-Agent": "blue-engine-broker-auth/1"}
+        if headers:
+            out_headers.update(headers)  # caller headers win (e.g. X-CSRFToken)
         data: Optional[bytes] = None
         if json_body is not None:
             data = json.dumps(dict(json_body)).encode("utf-8")
-            headers["Content-Type"] = "application/json"
+            out_headers["Content-Type"] = "application/json"
         elif form is not None:
             data = urllib.parse.urlencode(dict(form)).encode("utf-8")
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            out_headers["Content-Type"] = "application/x-www-form-urlencoded"
         request = urllib.request.Request(url, data=data,
-                                         headers=headers, method="POST" if data else "GET")
+                                         headers=out_headers, method="POST" if data else "GET")
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 self.last_status = int(getattr(response, "status", 200))
@@ -325,8 +383,9 @@ class OpenAlgoSession:
     def get(self, path: str) -> Dict[str, Any]:
         return self._request(path)
 
-    def post_form(self, path: str, form: Mapping[str, Any]) -> Dict[str, Any]:
-        return self._request(path, form=form)
+    def post_form(self, path: str, form: Mapping[str, Any],
+                  headers: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+        return self._request(path, form=form, headers=headers)
 
     def post_json(self, path: str, body: Mapping[str, Any]) -> Dict[str, Any]:
         return self._request(path, json_body=body)
@@ -395,12 +454,33 @@ class BrokerAuth:
         return result
 
     # ---- leg 1: OpenAlgo -------------------------------------------------- #
+    def _csrf_token(self) -> str:
+        """Fetch a CSRF token. Empty on failure; the caller decides."""
+        response = self.session.get(LOGIN_PATHS["csrf_token"])
+        body = response.get("body") or {}
+        token = body.get("csrf_token") or body.get("token") or ""
+        return str(token) if token else ""
+
     def login_openalgo(self, result: AuthResult) -> AuthResult:
-        """Password leg, plus the platform's OWN TOTP when it is enabled."""
+        """Password leg, plus the platform's OWN TOTP when it is enabled.
+
+        AUDIT (live, 2026-10-26): this POST is CSRF-protected by Flask-WTF.
+        A form without ``X-CSRFToken`` is rejected before the password is read,
+        which looks exactly like "wrong password" to a caller that does not
+        know. The SPA fetches ``/auth/csrf-token`` before every mutating
+        request; this module does the same, once per attempt.
+        """
+        headers = {}
+        csrf = self._csrf_token()
+        if csrf:
+            headers["X-CSRFToken"] = csrf
+            result.add("csrf_token", True, "fetched")
+        else:
+            result.add("csrf_token", False, "unavailable; POST may be rejected")
         response = self.session.post_form(LOGIN_PATHS["openalgo_login"], {
             "username": self.credentials.openalgo_username,
             "password": self.credentials.openalgo_password,
-        })
+        }, headers=headers)
         body = response.get("body") or {}
         status = str(body.get("status") or "")
 
@@ -462,11 +542,11 @@ class BrokerAuth:
 
         code = totp_now(self.credentials.broker_totp_secret)
         path = LOGIN_PATHS["broker_callback"].format(broker=broker)
-        response = self.session.post_form(path, {
-            "userid": self.credentials.broker_username,
-            "pin": self.credentials.broker_password,
-            "totp": code,
-        })
+        form = self.credentials.broker_form(broker, code)
+        headers = {}
+        if self._csrf_token():
+            headers["X-CSRFToken"] = self._csrf_token()
+        response = self.session.post_form(path, form, headers=headers)
         body = response.get("body") or {}
         ok = bool(response.get("ok")) and str(body.get("status") or "") != "error"
         if not ok:
@@ -477,7 +557,15 @@ class BrokerAuth:
             result.add("broker_totp", False, result.reason)
             return result
 
-        result.add("broker_totp", True, f"broker session established ({broker})")
+        # A resumed session is as good as a fresh one: OpenAlgo found a still-
+        # valid broker token in its database and skipped the TOTP round-trip.
+        # AUDIT (live, 2026-10-26): the live server answered
+        # {"message": "Broker session resumed", "redirect": "/dashboard"}
+        # WITHOUT a broker_callback POST at all (auth.py:_try_resume_broker_session)
+        message = str(body.get("message") or "")
+        resumed = "resumed" in message.lower()
+        result.add("broker_totp", True,
+                   f"broker session {'resumed (no fresh TOTP needed)' if resumed else 'established'} ({broker})")
         result.broker_name = broker
         return result
 
@@ -485,23 +573,46 @@ class BrokerAuth:
     def verify_session(self, result: AuthResult) -> AuthResult:
         """Prove the session works instead of trusting the login response.
 
-        Two signals, both required:
+        Three signals, from the most authoritative down:
 
-        1. ``/`` answers 200 for this cookie jar, and
-        2. the app hands us a session cookie (``session=``), i.e. the login
-           actually promoted the request to an authenticated session.
+        1. ``GET /auth/session-status`` answers ``{"authenticated": bool}``.
+           This is the endpoint the OpenAlgo SPA itself polls, and app.py
+           explicitly exempts it from the session-expiry check, so it answers
+           honestly for an anonymous caller instead of 302-ing. (AUDIT, live
+           2026-10-26: the previous probe was ``/`` - the React shell answers
+           200 to ANYONE, so a dead session looked ready.)
+        2. the Flask session cookie is present in the jar.
+        3. ``status`` in the body, when present, says "success".
 
-        A 200 alone is not proof: OpenAlgo serves its login shell to anonymous
-        callers too. The cookie is the thing the broker token rides on.
+        A 200 alone is not proof of anything.
         """
-        probe = self.session.get(LOGIN_PATHS["session_probe"])
+        probe = self.session.get(LOGIN_PATHS["session_status"])
+        body = probe.get("body") or {}
         cookie_names = {cookie.name for cookie in self.session.jar}
         has_session = "session" in cookie_names
-        ready = bool(probe.get("ok")) and has_session
+
+        # The authoritative signal: what the app says about this session.
+        authenticated = body.get("authenticated")
+        if isinstance(authenticated, bool):
+            auth_signal = authenticated
+        else:
+            # Older builds answer {"status": "success", "logged_in": bool}
+            logged_in = body.get("logged_in")
+            auth_signal = (logged_in if isinstance(logged_in, bool) else None)
+
+        if auth_signal is None:
+            # The endpoint could not answer the question at all - fall back to
+            # the cookie, but SAY so, rather than silently trusting a weaker
+            # signal.
+            ready = has_session
+            basis = "cookie-only (session-status did not report)"
+        else:
+            ready = bool(auth_signal) and has_session
+            basis = f"session-status authenticated={auth_signal} + cookie"
+
         result.session_ready = ready
         result.add("session_probe", ready,
-                   f"HTTP {probe.get('status')}, "
-                   f"session cookie {'present' if has_session else 'absent'}")
+                   f"HTTP {probe.get('status')}; {basis}")
         if not ready:
             result.ok = False
             # AUDIT (2026-10-26): this used ``result.leg or "verify"``, and by
