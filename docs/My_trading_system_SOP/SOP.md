@@ -785,5 +785,119 @@ was taken as "no clamping happens". It was actually "clamping is never
 reported". A metric that cannot be non-zero is not a measurement.
 
 ---
+
+## 13. Headless broker login — TOTP, scheduled (2026-10-26)
+
+`Blue_engine/core/broker_auth.py` + `scripts/ops/scheduled_login.py`.
+
+### 13.1 There are TWO logins, and they are not the same
+
+Verified against the local OpenAlgo source, not assumed:
+
+| leg | who | credential | endpoint |
+|---|---|---|---|
+| 1. OpenAlgo platform | the dashboard/API account | `OPENALGO_USERNAME` + `OPENALGO_PASSWORD` (+ `OPENALGO_TOTP_SECRET` **only if** that account has 2FA) | `POST /auth/login`, then `POST /auth/login/totp` |
+| 2. Broker | the trading account | `BROKER_USERNAME` + `BROKER_PASSWORD` + `BROKER_TOTP_SECRET` | `POST /auth/broker/<BROKER_NAME>/callback` with `userid`, `pin`, `totp` |
+
+Source of truth: `openalgo/blueprints/auth.py::login` / `::login_totp` /
+`::broker_login`, and `openalgo/blueprints/brlogin.py::broker_callback`.
+**`BROKER_TOTP_SECRET` is the broker's alphanumeric key** — not the OpenAlgo
+account's. Mixing them up produces "Invalid TOTP" on the broker leg.
+
+A successful login response is **not** proof of a usable session: the module
+probes `/api/v1/ping` and reports `session_ready` separately.
+
+### 13.2 The five `.env` values
+
+```dotenv
+BROKER_AUTOLOGIN=0          # opt-in. 0 = scheduled tasks refuse to log in
+OPENALGO_URL=http://127.0.0.1:5000
+OPENALGO_USERNAME=
+OPENALGO_PASSWORD=
+OPENALGO_TOTP_SECRET=       # optional; only if the OpenAlgo ACCOUNT has 2FA
+BROKER_NAME=                # broker slug used in the callback URL
+BROKER_USERNAME=
+BROKER_PASSWORD=
+BROKER_TOTP_SECRET=         # the alphanumeric Base32 seed
+```
+
+Resolution order is the project's existing one: process env → `_restored/.env`
+→ `.env`. Only the **names** are ever printed; `redact()` shows `***<tail>` and
+the length at most. Codes are computed in memory, used, and dropped — they are
+never written to a result, log or run record.
+
+### 13.3 Running it
+
+```powershell
+python scripts\ops\scheduled_login.py --status   # creds present? never logs in
+python scripts\ops\scheduled_login.py --check    # preflight only
+python scripts\ops\scheduled_login.py            # the real thing (needs opt-in)
+python scripts\ops\scheduled_login.py --enable    # one-off opt-in
+```
+
+| exit | meaning |
+|---|---|
+| 0 | session ready (both legs + verify) |
+| 2 | not opted in (`BROKER_AUTOLOGIN` != 1) |
+| 3 | config problem (missing credential, unusable TOTP seed) |
+| 4 | OpenAlgo not reachable |
+| 5 | platform login failed |
+| 6 | broker login failed |
+| 7 | login answered, session probe failed |
+
+Writes `Temp/run/last_login.json` and appends `Temp/run/login_history.jsonl`.
+
+### 13.4 Scheduling it
+
+**Windows Task Scheduler** — import the shipped XML after replacing
+`__REPO_ROOT__` with the absolute path:
+
+```powershell
+schtasks /Create /TN "BlueEngine\BrokerLogin" /XML scripts\ops\broker_login_task.xml /F
+```
+
+The XML ships: Mon–Fri **08:50**, `StartWhenAvailable`, `RunOnlyIfNetworkAvailable`,
+3 × 2-min restart-on-failure, 5-minute execution limit, `LeastPrivilege`.
+
+**cron (Linux/WSL):**
+
+```cron
+50 8 * * 1-5  cd /path/my-trading-system && .venv/bin/python scripts/ops/scheduled_login.py >> Temp/run/login_cron.log 2>&1
+```
+
+`SCHEDULED_LOGIN.cmd` exists because Task Scheduler runs with **no working
+directory and no console**: it derives the repo root from its own location,
+calls the venv interpreter by absolute path, and logs to
+`Temp/run/login_task.log`.
+
+**Why a clock trigger and not a boot trigger.** A login at boot can land hours
+before the open with a token that expires before it matters; a login before
+OpenAlgo is up just fails leg 1. 08:50 is 25 minutes before the 09:15 open and
+after the launcher has had time to start the stack.
+
+### 13.5 Safety rules encoded in code
+
+1. **Opt-in.** No `BROKER_AUTOLOGIN=1` → exit 2, nothing attempted. A task must
+   not start logging in because a file appeared.
+2. **Fail closed, name the leg.** Each leg reports itself; a failure stops the
+   flow. Nothing retries in a loop — retry policy is the scheduler's job.
+3. **Leg isolation.** A failed platform login never reaches the broker
+   callback, so a wrong password cannot burn broker login attempts and lock the
+   account (`test_a_failed_platform_login_never_reaches_the_broker`).
+4. **Fresh code.** The TOTP is computed immediately before the POST, and the
+   flow waits for the next window if fewer than 5 s remain — a code sent with
+   1 s left fails and still counts as a login attempt.
+5. **Never trades, never starts OpenAlgo, never edits `openalgo/`.**
+6. **A dead session is not a success.** A 200 from login is verified by probe.
+
+### 13.6 Defect found while building this
+
+`verify_session()` reported a failed probe against the *previous* leg
+(`result.leg = result.leg or "verify"` — and `leg` was always already set), so a
+probe failure was blamed on the broker TOTP. Pointed at the wrong fix. The
+probe is now its own leg. Regression:
+`test_a_login_200_with_a_dead_session_is_not_trusted`.
+
+---
 *This SOP documents verified behaviour only. Items marked OPEN in the audit are
 known gaps, not guarantees.*

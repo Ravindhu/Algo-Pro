@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+  broker_login_task.xml - import into Task Scheduler for the headless login.
+
+  INSTALL
+    schtasks /Create /TN "BlueEngine\BrokerLogin" /XML scripts\ops\broker_login_task.xml /F
+
+  WHY THESE SETTINGS
+  ------------------
+  * WEEKLY MON-FRI at 08:50 - 25 min before the 09:15 open, after OpenAlgo
+    should already be up. A BOOT trigger is deliberately absent: a boot-time
+    login can land hours before the open and expire before it matters.
+  * StartWhenAvailable - a laptop waking at 09:05 still logs in.
+  * RestartOnFailure 3 x 2 min - a broker 5xx is transient; a wrong credential
+    is not, and the third failure is recorded in Temp\run\login_task.log.
+  * ExecutionTimeLimit 5 min - the flow is a handful of local HTTP calls; if it
+    has not finished in 5 minutes something is wrong and it must be killed.
+  * The task runs with the invoking user's own profile so the .env is readable.
+    It does NOT store a password in the task if "run only when logged on" is
+    used; switch to "run whether user is logged on or not" only if you accept
+    storing the Windows password with the task.
+  * Placeholders __REPO_ROOT__ must be replaced with your absolute path, e.g.
+    C:\Users\Admin\CodeGPT\my-trading-system
+-->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Blue Engine: headless OpenAlgo + broker TOTP login before the Indian market open. Never trades.</Description>
+    <URI>\BlueEngine\BrokerLogin</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-10-27T08:50:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+        <DaysOfWeek>
+          <Monday />
+          <Tuesday />
+          <Wednesday />
+          <Thursday />
+          <Friday />
+        </DaysOfWeek>
+        <WeeksInterval>1</WeeksInterval>
+      </ScheduleByWeek>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT2M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>__REPO_ROOT__\scripts\ops\SCHEDULED_LOGIN.cmd</Command>
+      <WorkingDirectory>__REPO_ROOT__</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
