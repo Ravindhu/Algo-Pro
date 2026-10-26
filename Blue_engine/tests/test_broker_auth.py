@@ -84,11 +84,12 @@ class FakeOpenAlgo:
             def do_GET(self):
                 outer.requests.append({"method": "GET", "path": self.path})
                 if self.path == "/":
+                    # The real app serves this to anyone; the SESSION COOKIE is
+                    # what proves authentication. A dead session = no cookie.
+                    if outer.session_ok:
+                        return self._send(200, {"status": "ok"},
+                                          cookie="session=alive; Path=/")
                     return self._send(200, {"status": "ok"})
-                if self.path == "/api/v1/ping":
-                    status = 200 if outer.session_ok else 401
-                    return self._send(status, {"status": "success"
-                                               if outer.session_ok else "error"})
                 return self._send(404, {"error": "not found"})
 
             def do_POST(self):
@@ -101,8 +102,10 @@ class FakeOpenAlgo:
                                                 "message": "Invalid credentials"})
                     if outer.require_platform_totp:
                         return self._send(200, {"status": "totp_required"})
-                    return self._send(200, {"status": "success"},
-                                      cookie="session=abc; Path=/")
+                    if outer.session_ok:
+                        return self._send(200, {"status": "success"},
+                                          cookie="session=abc; Path=/")
+                    return self._send(200, {"status": "success"})
                 if self.path == "/auth/login/totp":
                     good = bool(body.get("totp_code"))
                     return self._send(200 if good else 401,
@@ -110,6 +113,10 @@ class FakeOpenAlgo:
                 if self.path.startswith("/auth/broker/") and \
                         self.path.endswith("/callback"):
                     if not outer.broker_ok:
+                        # Deliberate: the broker callback succeeds/fails on the
+                        # broker's own rules. A DEAD SESSION is observed at the
+                        # probe (GET / withholds the cookie), not here - that
+                        # keeps the two failure modes distinguishable.
                         return self._send(401, {"status": "error",
                                                 "error": "Invalid TOTP"})
                     code = str(body.get("totp") or "")
@@ -118,7 +125,8 @@ class FakeOpenAlgo:
                         return self._send(401, {"status": "error",
                                                 "error": "Invalid TOTP"})
                     return self._send(200, {"status": "success"},
-                                      cookie="session=ready; Path=/")
+                                      cookie=("session=ready; Path=/"
+                                              if outer.session_ok else ""))
                 return self._send(404, {"error": "not found"})
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -198,9 +206,18 @@ def test_the_code_is_stable_within_a_window_and_rotates_across_one():
 # Credentials
 # --------------------------------------------------------------------------- #
 def test_missing_credentials_report_names_only(monkeypatch):
+    """Isolate from the operator's real .env, which now HAS values filled in.
+
+    AUDIT (2026-10-26): this test originally only deleted the env vars - but
+    ``get_secret`` falls back to ``.env``, and once the operator filled the
+    credentials in, the test started reading real values and never saw
+    "missing". The store is replaced, not just the environment.
+    """
+    from blue_engine.economics.providers import secrets as secrets_mod
+
+    monkeypatch.setattr(secrets_mod, "_file_env", lambda: {})
     for env in broker_auth.CREDENTIAL_NAMES.values():
         monkeypatch.delenv(env, raising=False)
-    broker_auth.get_secret.__globals__["_file_env"].cache_clear()
     empty = broker_auth.load_credentials()
     assert set(empty.missing_required()) <= set(broker_auth.CREDENTIAL_NAMES.values())
     for name, value in empty.describe().items():
@@ -247,7 +264,10 @@ def test_the_full_flow_succeeds_and_hits_the_endpoints_in_order(fake):
     posts = fake.paths()
     assert posts[0] == "/auth/login"
     assert posts[-1] == "/auth/broker/angel/callback"
-    assert "/api/v1/ping" in [r["path"] for r in fake.requests]
+    # The session probe is the app root (session-cookie protected), NOT the
+    # API-key endpoint - see LOGIN_PATHS in broker_auth.py.
+    assert "/" in [r["path"] for r in fake.requests]
+    assert "/api/v1/ping" not in [r["path"] for r in fake.requests]
 
 
 def test_the_broker_callback_receives_a_valid_totp(fake):
@@ -305,17 +325,35 @@ def test_platform_2fa_without_a_secret_fails_honestly(fake):
 
 
 def test_a_login_200_with_a_dead_session_is_not_trusted(fake):
+    """Both legs answer 200, but the probe withholds the session cookie.
+
+    AUDIT (2026-10-26): with the cookie check this is the exact scenario that
+    the old /api/v1/ping probe MISREPORTED - a 200 from the probe made a dead
+    session look ready. Now the missing cookie is what is detected.
+    """
     fake.session_ok = False
     result = BrokerAuth(fake.url, credentials=creds()).run()
     assert result.ok is False
     assert result.leg == "verify"
-    assert "session probe" in result.reason.lower()
+    assert result.session_ready is False
+    step = next(s for s in result.to_dict()["steps"]
+                if s["step"] == "session_probe")
+    assert "session cookie absent" in step["detail"]
 
 
 def test_verify_can_be_skipped_but_is_on_by_default(fake):
+    """verify=False reports the LOGIN's own success, not the session's.
+
+    With verify skipped the result reflects only the two legs, which is why the
+    flag exists (a scheduler may probe separately). The default is verify=True,
+    and that default is what catches a dead session.
+    """
     fake.session_ok = False
-    result = BrokerAuth(fake.url, credentials=creds()).run(verify=False)
-    assert result.ok is True
+    unverified = BrokerAuth(fake.url, credentials=creds()).run(verify=False)
+    assert unverified.ok is True          # legs only
+    verified = BrokerAuth(fake.url, credentials=creds()).run()   # default
+    assert verified.ok is False
+    assert verified.leg == "verify"
 
 
 # --------------------------------------------------------------------------- #
@@ -379,3 +417,35 @@ def test_the_session_client_keeps_cookies_across_requests(fake):
     session.post_form("/auth/login", {"username": "a", "password": "b"})
     assert len(session.jar) >= 1
     assert session.reachable() is True
+
+
+# --------------------------------------------------------------------------- #
+# REGRESSION (2026-10-26): the probe must not be an API-key endpoint.
+# --------------------------------------------------------------------------- #
+def test_the_session_probe_is_not_the_apikey_endpoint():
+    """``/api/v1/ping`` is API-KEY authenticated and 403s on a valid session.
+
+    Verifying a broker session with it reported every good login as a dead
+    session, and sent the operator chasing an OpenAlgo API key that has nothing
+    to do with broker login. The probe must require the SESSION cookie instead.
+    """
+    from blue_engine.core.broker_auth import LOGIN_PATHS
+
+    assert LOGIN_PATHS["session_probe"] == "/"
+    assert "api/v1" not in LOGIN_PATHS["session_probe"]
+
+
+def test_a_200_without_a_session_cookie_is_not_ready(fake):
+    """OpenAlgo serves its shell to anonymous callers too; that is not a login."""
+    fake.session_ok = False
+    result = BrokerAuth(fake.url, credentials=creds()).run()
+    assert result.session_ready is False
+    assert result.ok is False
+
+
+def test_the_probe_requires_the_session_cookie(fake):
+    result = BrokerAuth(fake.url, credentials=creds()).run()
+    assert result.session_ready is True
+    probe_step = next(s for s in result.to_dict()["steps"]
+                      if s["step"] == "session_probe")
+    assert "session cookie present" in probe_step["detail"]

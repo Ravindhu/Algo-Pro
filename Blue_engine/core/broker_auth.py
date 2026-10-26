@@ -104,12 +104,21 @@ BROKER_OPTIONAL_NAMES: Dict[str, str] = {
 }
 
 #: Endpoint paths, verified against openalgo/blueprints/{auth,brlogin}.py.
+#:
+#: AUDIT (2026-10-26): the session probe was ``/api/v1/ping``. That endpoint is
+#: API-KEY authenticated (``POST`` with ``apikey`` in the body) and answers 403
+#: "Invalid openalgo apikey" even on a perfectly valid broker session - so a
+#: good login would have been reported as a dead session. The probe must be a
+#: page that requires the Flask SESSION cookie, which is what this flow creates.
+#: ``/`` is the app root: it renders (200) for a session holder and never
+#: consumes an API key. See scripts/verify/verify_openalgo.py for the API-key
+#: contract - these are two different authentication systems.
 LOGIN_PATHS = {
     "openalgo_login": "/auth/login",
     "openalgo_totp": "/auth/login/totp",
     "broker_chooser": "/broker",
     "broker_callback": "/auth/broker/{broker}/callback",
-    "session_probe": "/api/v1/ping",
+    "session_probe": "/",
 }
 
 #: How long a computed TOTP is considered usable (30 s window minus one step,
@@ -474,14 +483,25 @@ class BrokerAuth:
 
     # ---- verify ----------------------------------------------------------- #
     def verify_session(self, result: AuthResult) -> AuthResult:
-        """Prove the session works instead of trusting the login response."""
+        """Prove the session works instead of trusting the login response.
+
+        Two signals, both required:
+
+        1. ``/`` answers 200 for this cookie jar, and
+        2. the app hands us a session cookie (``session=``), i.e. the login
+           actually promoted the request to an authenticated session.
+
+        A 200 alone is not proof: OpenAlgo serves its login shell to anonymous
+        callers too. The cookie is the thing the broker token rides on.
+        """
         probe = self.session.get(LOGIN_PATHS["session_probe"])
-        body = probe.get("body") or {}
-        ready = (probe.get("ok")
-                 and str(body.get("status") or "").lower() in ("success", "ok"))
-        result.session_ready = bool(ready)
-        result.add("session_probe", bool(ready),
-                   f"HTTP {probe.get('status')}")
+        cookie_names = {cookie.name for cookie in self.session.jar}
+        has_session = "session" in cookie_names
+        ready = bool(probe.get("ok")) and has_session
+        result.session_ready = ready
+        result.add("session_probe", ready,
+                   f"HTTP {probe.get('status')}, "
+                   f"session cookie {'present' if has_session else 'absent'}")
         if not ready:
             result.ok = False
             # AUDIT (2026-10-26): this used ``result.leg or "verify"``, and by
