@@ -26,6 +26,7 @@ Usage::
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 from pathlib import Path
@@ -41,6 +42,7 @@ from ..pov import PovEngine
 from ..screener import ScreenerEngine
 from ..valuation_engine import ValuationEngine
 from ..sectors import SectorEngine
+from .agent_memory import AgentMemory
 from .agent_team import AgentTeam
 from .data_tools import DataToolbox
 from .frontline_agent import FrontlineAgent
@@ -129,6 +131,15 @@ class MacroPipeline:
             read_roots=[*self._tools_cfg.get("read_roots", []), "."],
             providers={e.name: e.provider for e in self.engines if e.provider},
             catalog_paths=self._tools_cfg.get("catalog_paths") or [])
+        #: The three memories (working / calibration / mistakes). JSON under
+        #: the SAME sandbox as the skill writer, so an agent has one writable
+        #: place. Disabled by config: memory is context, not a requirement.
+        mem_cfg = dict(agent_cfg.get("memory") or {})
+        self.memory_enabled = bool(mem_cfg.get("enabled", True))
+        self.memory = (AgentMemory.load(self.skill_writer.sandbox)
+                       if self.memory_enabled else None)
+        #: Tracks which upstream results changed, for the working memory.
+        self._last_evidence: Dict[str, Any] = {}
         #: The roster: which skill is posted at which station, in line order.
         #: Recording only - it reads the finished report, it never runs engines.
         self.agent_team = AgentTeam(self.skills)
@@ -155,12 +166,90 @@ class MacroPipeline:
         tools = (self.data_toolbox.tools()
                  if (self.tools_enabled
                      and self.self_correction.get("enabled", True)) else None)
-        outcome = loop.run(stage, text, tools=tools)
+        memory_block = (self.memory.prompt_block(stage)
+                        if self.memory is not None else "")
+        outcome = loop.run(stage, text, tools=tools, memory_block=memory_block)
         if not outcome.get("ok") and self.self_correction.get("enabled", True):
             outcome["warning"] = (f"self-correction exhausted after "
                                  f"{len(outcome.get('attempts') or [])} attempt(s): "
                                  f"{outcome.get('method')}")
+        self._learn_from_outcome(stage, outcome)
         return outcome
+
+    # ---- memory ---------------------------------------------------------- #
+    def _learn_from_outcome(self, stage: str, outcome: Dict[str, Any]) -> None:
+        """Update all three memories from one finished station. Never raises.
+
+        What is learned is deliberately narrow:
+
+        * **mistake** - the deterministic judge's failure kind + detail, so the
+          next prompt carries the exact error. Only a JUDGEMENT failure is
+          recorded: ``llm_unavailable`` is an infrastructure fact, not a mistake
+          the model made, and teaching a model to avoid it would be wrong.
+        * **calibration** - the proposed and operative values, and whether the
+          rails clamped them.
+        * **working** - what this station produced and which evidence it holds.
+
+        A memory failure must never affect the trade path, so everything is
+        guarded and the error is recorded as a warning, not raised.
+        """
+        if self.memory is None:
+            return
+        try:
+            kind = _warning_kind(outcome)
+            ok = bool(outcome.get("ok"))
+            if not ok and kind in ("schema_rejected", "other"):
+                self.memory.mistakes.record(
+                    stage, kind=outcome.get("failure_kind") or kind,
+                    detail=outcome.get("failure_detail")
+                    or [str(outcome.get("warning") or "")],
+                    fix=self._fix_hint(outcome))
+                self.memory.mark("mistakes")
+
+            advice = outcome.get("advice") if ok else None
+            if isinstance(advice, dict):
+                clamped = bool(outcome.get("clamped")) or any(
+                    "clamped" in str(w) for w in (outcome.get("warnings") or []))
+                self.memory.calibration.observe(
+                    stage, proposed=advice, operative=advice,
+                    clamped=clamped, method=str(outcome.get("method") or ""))
+                self.memory.mark("calibration")
+                self.memory.working.record_station(
+                    stage, produced=advice,
+                    evidence=[str(r) for r in (advice.get("data_requests") or [])],
+                    state="worked" if not clamped else "worked_clamped")
+
+            self.memory.working.record_station(
+                stage, produced=None if ok else {"failed": kind},
+                state="worked" if ok else "failed")
+            self.memory.mark("working")
+        except Exception as exc:  # noqa: BLE001 - memory must never break a run
+            logger.warning("agent memory update failed for %s: %r", stage, exc)
+
+    @staticmethod
+    def _fix_hint(outcome: Dict[str, Any]) -> str:
+        """A one-line fix suggestion stored with the mistake, from real detail."""
+        detail = outcome.get("failure_detail") or []
+        if not detail:
+            return ""
+        first = str(detail[0])
+        if "must be one of" in first or "must be between" in first:
+            return "answer inside the stated allowed range"
+        if "absent" in first or "unexpected keys" in first:
+            return "return exactly the schema keys, nothing more"
+        if "not a single JSON object" in first:
+            return "reply with one JSON object only"
+        return ""
+
+    def save_memory(self) -> Dict[str, Any]:
+        """Persist dirty memories. Safe to call at the end of any run."""
+        if self.memory is None:
+            return {}
+        try:
+            return self.memory.save()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("agent memory save failed: %r", exc)
+            return {"error": repr(exc)}
     def _stage_position(self, name: str) -> int:
         """Index of ``name`` in the deterministic engine order (-1 if absent).
 
@@ -227,11 +316,16 @@ class MacroPipeline:
             "skill_writes": {},
             "self_correction": {},
             "agent_telemetry": {},
+            "agent_memory": {},
             "shift": {},
             "ready_to_trade": None,
         }
 
         agent_inputs = ctx.get("agent_inputs")
+        if self.memory is not None:
+            # One working-memory cycle per run. Bounded to the last few cycles.
+            self.memory.working.begin_cycle(_dt.datetime.now().strftime("%H%M%S"),
+                                            product="one risk-checked trading decision")
         if self.frontline_agent.enabled and isinstance(agent_inputs, dict):
             # One shared agentic budget for the whole run: the per-call limit
             # applies to the pipeline, not to each of the 8 engines.
@@ -432,6 +526,12 @@ class MacroPipeline:
         # The factory's work-in-progress record for this run. One row per
         # station in line order: who worked, with what evidence, what it
         # produced, where the JSON went, and what is still missing.
+        if self.memory is not None:
+            # Persist what the stations learned this cycle, then report a
+            # summary so the dashboard can show memory state without reading
+            # the sandbox.
+            self.save_memory()
+            report["agent_memory"] = self.memory.summary()
         report["shift"] = self.agent_team.run_shift(report).to_dict()
         # Hand the ledger to the dashboard (in-process mirror + one JSON file).
         # Best-effort: a dashboard handoff must never fail a trading run.

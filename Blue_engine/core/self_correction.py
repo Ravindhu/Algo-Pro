@@ -77,7 +77,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-from .frontline_agent import _SCHEMAS, _escalate
+from .frontline_agent import _META_KEYS, _SCHEMAS, _escalate
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,12 @@ def diagnose(engine: str, payload: Any,
 
     schema = _SCHEMAS.get(engine) or {}
     expected = set(schema)
-    got = {str(k) for k in payload}
+    # ``data_requests`` is OPTIONAL, append-only metadata (frontline_agent.
+    # _META_KEYS): it is not part of the decision schema, so an answer that
+    # carries it is complete, not "extra". AUDIT (2026-10-26): treating it as an
+    # extra key made the judge contradict the validator and fail every answer
+    # that legitimately asked for evidence.
+    got = {str(k) for k in payload} - set(_META_KEYS)
     missing = sorted(expected - got)
     extra = sorted(got - expected)
 
@@ -194,7 +199,12 @@ def diagnose(engine: str, payload: Any,
         changed = sorted(k for k in clamped
                          if k in payload and clamped[k] != payload[k])
         if changed:
-            return {"kind": "clamped", "keys": changed,
+            # ``advice`` carries the CLAMPED payload. AUDIT (2026-10-26): the
+            # judge reported the clamp but the loop returned the model's raw
+            # payload, so the safe rails were computed and then thrown away -
+            # a live hole. Caught by
+            # ``test_memory_never_overrides_the_safe_direction``.
+            return {"kind": "clamped", "keys": changed, "advice": clamped,
                     "detail": [f"{k}: your value was tightened to the safe "
                                f"direction" for k in changed]}
 
@@ -218,7 +228,8 @@ def correction_message(engine: str, diagnosis: Mapping[str, Any],
         lines.append("Reply with ONE JSON object and nothing else.")
     else:
         lines.append("Reply with ONE corrected JSON object containing exactly "
-                     f"these keys: {', '.join(sorted(_SCHEMAS.get(engine) or {}))}.")
+                     f"these keys: {', '.join(sorted(_SCHEMAS.get(engine) or {}))}."
+                     " A 'data_requests' list is optional.")
         if tools_available:
             lines.append("You may call a read-only tool first: "
                          + ", ".join(tools_available))
@@ -312,12 +323,22 @@ class SelfCorrectionLoop:
     # ---- main ----------------------------------------------------------- #
     def run(self, engine: str, text: str, *,
             baseline: Optional[Mapping[str, Any]] = None,
-            tools: Optional[Dict[str, Callable[[Dict[str, Any]], Any]]] = None
+            tools: Optional[Dict[str, Callable[[Dict[str, Any]], Any]]] = None,
+            memory_block: str = ""
             ) -> Dict[str, Any]:
-        """Run the loop. Never raises - returns a dict-shaped result."""
+        """Run the loop. Never raises - returns a dict-shaped result.
+
+        ``memory_block`` is the agent's memory rendered as context (see
+        ``core/agent_memory.py``). It is appended to the FIRST prompt and kept
+        for every correction, so a re-ask does not lose what the station knows.
+        It is context only: the validator and ``_escalate`` ignore it.
+        """
         engine = str(engine).lower()
         records: List[CorrectionAttempt] = []
-        messages_text = str(text or "")
+        base_text = str(text or "")
+        if memory_block:
+            base_text = base_text + "\n\n" + memory_block
+        messages_text = base_text
         last_signature = None
         warnings: List[str] = []
         tool_names = sorted(tools) if tools else None
@@ -342,7 +363,7 @@ class SelfCorrectionLoop:
                     break
                 last_signature = signature
                 if attempt < self.max_attempts:
-                    messages_text = (str(text or "") + "\n\n"
+                    messages_text = (base_text + "\n\n"
                                      + correction_message(engine, diag,
                                                           tools_available=tool_names,
                                                           attempt=attempt))
@@ -358,17 +379,23 @@ class SelfCorrectionLoop:
 
             if diag["kind"] in ("ok", "clamped"):
                 # ``clamped`` is a SUCCESS: the safe rails already bound the
-                # answer, so re-asking would only spend a call.
+                # answer, so re-asking would only spend a call. The SAFE payload
+                # is what leaves the loop - never the model's raw proposal.
+                safe_advice = (diag.get("advice")
+                               if diag["kind"] == "clamped" else advice)
                 if diag["kind"] == "clamped":
                     warnings.append("advice clamped to the safe direction")
                 return {
                     "ok": True,
-                    "advice": advice,
+                    "advice": safe_advice,
                     "attempts": [r.to_dict() for r in records],
                     "corrections": attempt - 1,
                     "method": method,
                     "warnings": warnings + list(outcome.get("warnings") or []),
                     "tool_trace": outcome.get("tool_trace"),
+                    "clamped": diag["kind"] == "clamped",
+                    "failure_kind": "",
+                    "failure_detail": [],
                 }
 
             signature = (diag["kind"], tuple(diag["detail"]))
@@ -378,7 +405,7 @@ class SelfCorrectionLoop:
             last_signature = signature
 
             if attempt < self.max_attempts:
-                messages_text = (str(text or "") + "\n\n"
+                messages_text = (base_text + "\n\n"
                                  + correction_message(engine, diag,
                                                       tools_available=tool_names,
                                                       attempt=attempt))
@@ -389,6 +416,7 @@ class SelfCorrectionLoop:
     @staticmethod
     def _fail(records: List[CorrectionAttempt], method: str,
               warnings: List[str]) -> Dict[str, Any]:
+        last = records[-1] if records else None
         return {
             "ok": False,
             "advice": None,
@@ -396,6 +424,9 @@ class SelfCorrectionLoop:
             "corrections": max(0, len(records) - 1),
             "method": method or "error",
             "warnings": warnings,
+            #: The deterministic judge's verdict - what MISTAKE MEMORY stores.
+            "failure_kind": last.diagnosis if last else "unknown",
+            "failure_detail": list(last.detail) if last else [],
         }
 
     def describe(self) -> Dict[str, Any]:

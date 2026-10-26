@@ -720,6 +720,70 @@ blocker. `agent_telemetry[stage]["warning_kind"]` now separates
    provider, then enable `stage_gate` in a paper window.
 3. Only then consider `agent.enabled = true` in the live loop.
 
+### 12.8 Agent memory — three memories, one writable place
+
+`core/agent_memory.py`. Each station now remembers, and each memory has a
+different lifetime and a different blast radius.
+
+| Memory | Lifetime | Stores | Effect on the next cycle |
+|---|---|---|---|
+| **Active working** (`_memory/working.json`) | this shift + last 5 cycles | which station produced what, which evidence was fetched, what changed | "EVIDENCE ALREADY IN HAND — do not ask again"; "YOUR INPUT CHANGED" |
+| **Historical calibration** (`_memory/calibration.json`) | rolling 50 obs/stage | proposed vs operative values, and whether the rails clamped | "this station normally produces …"; "your proposals were tightened in N% of cycles" |
+| **Mistake** (`_memory/mistakes.json`) | capped 30 rows, ≤3 signatures/stage | the exact failure the deterministic judge produced + the fix that worked | "MISTAKES TO NOT REPEAT: [missing_keys x2] veto_reason absent" |
+
+**Memory is context, never authority.** It enters the prompt and nothing else:
+it cannot set an operative number, clear a veto, or bypass `_validate` /
+`_escalate`. `test_memory_cannot_turn_a_bad_answer_into_a_good_one` and
+`test_memory_never_overrides_the_safe_direction` pin that.
+
+**What is never learned:** an infrastructure failure. `llm_unavailable`,
+`quota` and `llm_failed` are not mistakes the model made, so they are not
+taught (`test_an_infrastructure_outage_is_not_taught_as_a_mistake`).
+
+**Storage rules.** All three files live under `<agent_io.sandbox>/_memory/` and
+are written through `SkillWriter`, so the same refusals apply (`.json` only, no
+traversal, no NaN). Every string passes `_clean`, which redacts
+credential-shaped text. A corrupt file degrades to empty memory with a note; it
+never raises.
+
+```json
+"engines": { "agent": { "memory": { "enabled": true } } }
+```
+
+Delete a file to forget that memory. There is no "reset" API on purpose: the
+files are plain JSON so an operator can read and edit them.
+
+### 12.9 Three defects found while building memory (all shipped broken before)
+
+Memory was the first consumer that read the agent layer's *output shape*
+closely, and that exposed three real bugs:
+
+1. **The clamp was computed and thrown away.** `self_correction.diagnose()`
+   detected that `_escalate` had tightened an answer, the loop reported
+   `clamped: true`, and then returned the model's **raw** payload. An agent
+   proposing a 0.04 slippage ceiling against a 0.01 baseline kept 0.04.
+   Fixed: the judge now carries the clamped payload and the loop returns it.
+   Regression: `test_the_loop_returns_the_clamped_payload_not_the_raw_proposal`.
+2. **The judge contradicted the validator about `data_requests`.** The
+   validator treats the optional block as allowed; the judge treated it as an
+   *extra key* and failed every answer that legitimately asked for evidence —
+   which would have made the self-correction loop retry valid answers forever.
+   Fixed with `_META_KEYS`. Regression:
+   `test_data_requests_do_not_count_as_an_extra_key`.
+3. **`FrontlineAgent.advise()` never reported a clamp.** It compared the
+   escalated dict against *itself* (after assignment), so the "clamped"
+   warning could never fire. Fixed by comparing against the pre-clamp payload;
+   `outcome["clamped"]` is now set. (The payload was still clamped — only the
+   report was wrong.)
+
+Also fixed: `MistakeMemory.record()` truncated with `str(d)[:120]`, bypassing
+the redaction helper, so a credential-shaped string could be persisted
+verbatim. It now goes through `_clean`.
+
+**Lesson recorded:** the paper-shift baseline said "clamp rate 0.0" and that
+was taken as "no clamping happens". It was actually "clamping is never
+reported". A metric that cannot be non-zero is not a measurement.
+
 ---
 *This SOP documents verified behaviour only. Items marked OPEN in the audit are
 known gaps, not guarantees.*

@@ -580,9 +580,17 @@ class FrontlineAgent:
         if not outcome.get("ok"):
             return outcome
 
-        advice = _escalate(engine, outcome["advice"], baseline)
+        proposed = outcome["advice"]
+        advice = _escalate(engine, proposed, baseline)
         outcome["advice"] = advice
-        if baseline and advice != outcome["advice"]:
+        # Compare against the PRE-clamp value. AUDIT (2026-10-26): this compared
+        # the result against ``outcome["advice"]`` AFTER assigning it - i.e. an
+        # object against itself - so the clamp was applied but never reported,
+        # and an agent could be clamped on every cycle with no warning anywhere.
+        # Caught by ``test_memory_never_overrides_the_safe_direction`` and
+        # ``test_a_clamped_answer_teaches_the_station_what_it_can_keep``.
+        if advice != proposed:
+            outcome["clamped"] = True
             outcome["warnings"] = list(outcome.get("warnings") or []) + [
                 "agent advice clamped to the safe direction"]
         return outcome

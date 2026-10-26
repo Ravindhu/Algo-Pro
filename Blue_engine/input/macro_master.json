@@ -201,6 +201,10 @@
       "timeout_seconds": 20,
       "max_rounds": 2,
       "max_calls": 3,
+      "memory": {
+        "_comment": "Three memories for the stage skills. JSON only, under <agent_io.sandbox>/_memory/: working.json (this shift + last few cycles), calibration.json (what each station usually produces and how often the rails clamp it), mistakes.json (the exact failure each station made, capped and de-duplicated). Memory enters the prompt as CONTEXT: it never sets an operative number, never clears a veto and never bypasses the validator. Delete a file to forget that memory; it degrades to empty, never to an error.",
+        "enabled": true
+      },
       "self_correction": {
         "_comment": "Automatic self-correction loop. After each skill answer a DETERMINISTIC judge (schema validator + data gate) decides whether to re-ask. max_attempts is hard-clamped 1..3; every attempt shares the ONE session call budget above, so a loop cannot drain the free tier. 'tools' enables the read-only data toolbelt (core/data_tools.py) so the agent can fetch missing evidence instead of guessing. A clamped answer is a SUCCESS and is not retried.",
         "enabled": true,

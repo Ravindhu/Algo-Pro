@@ -294,3 +294,41 @@ def test_self_correction_never_imports_an_execution_module():
                       "import risk_engine", "import risk_gate",
                       "place_order(", "cancel_order(", "submit_order("):
         assert forbidden not in text
+
+# --------------------------------------------------------------------------- #
+# REGRESSION: the loop must RETURN the clamped payload, not the raw proposal.
+# --------------------------------------------------------------------------- #
+def test_the_loop_returns_the_clamped_payload_not_the_raw_proposal():
+    """AUDIT (2026-10-26): the judge detected the clamp, the loop discarded it.
+
+    The loop asked ``diagnose`` whether the rails had tightened the answer,
+    reported "clamped", and then returned the model's RAW payload. The safe
+    value was computed and thrown away - so an agent could propose a slippage
+    ceiling of 0.04 against a 0.01 baseline and the wider number survived.
+
+    This test fails on that version and passes only when the payload that
+    leaves the loop is the escalated one.
+    """
+    wide = dict(RISK_OK, max_allowed_slippage_pct=0.04)
+    agent = FakeAgent([_ok(wide)])
+    result = SelfCorrectionLoop(agent, max_attempts=1).run(
+        "risk", "context", baseline={"max_allowed_slippage_pct": 0.01})
+    assert result["ok"] is True
+    assert result["advice"]["max_allowed_slippage_pct"] == 0.01
+    assert result["clamped"] is True
+
+
+def test_a_clamp_never_clears_a_veto_even_through_the_loop():
+    no_veto = dict(RISK_OK, risk_veto_active=False)
+    agent = FakeAgent([_ok(no_veto)])
+    result = SelfCorrectionLoop(agent, max_attempts=1).run(
+        "risk", "context", baseline={"risk_veto_active": True})
+    assert result["advice"]["risk_veto_active"] is True
+
+
+def test_data_requests_do_not_count_as_an_extra_key():
+    """The judge and the validator must agree about the optional block."""
+    agent = FakeAgent([_ok(dict(RISK_OK, data_requests=["macro.cpi"]))])
+    result = SelfCorrectionLoop(agent, max_attempts=1).run("risk", "context")
+    assert result["ok"] is True, result
+    assert result["corrections"] == 0
