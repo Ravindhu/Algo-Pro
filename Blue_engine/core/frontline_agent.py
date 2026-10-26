@@ -144,6 +144,12 @@ _CAPS = {
 }
 
 
+#: Keys that are never part of a stage's DECISION schema. ``data_requests`` is
+#: optional, append-only metadata (see ``_validate_data_requests``) and must not
+#: be compared against the decision schema or clamped by ``_escalate``.
+_META_KEYS = frozenset({"data_requests"})
+
+
 def _escalate(engine: str, value: Dict[str, Any],
               baseline: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fold an agent payload into ``baseline`` in the SAFE direction only.
@@ -192,13 +198,62 @@ def _escalate(engine: str, value: Dict[str, Any],
     return out
 
 
+def _validate_data_requests(value: Any) -> Optional[List[str]]:
+    """Validate the OPTIONAL ``data_requests`` block of a skill answer.
+
+    This is the mechanism behind "the agent helps the logic code to get enough
+    data": a skill names the evidence it is missing instead of inventing a
+    number. Two shapes are accepted, because both are natural for a model::
+
+        {"needs": ["macro.cpi", ...], "reason": "why"}
+
+    and the bare list ``["macro.cpi", ...]``.
+
+    Rules (deliberately strict, because the strings are echoed into the report
+    and the dashboard): max 20 entries, each 1..64 chars of
+    ``[A-Za-z0-9_.:/ -]``. Anything else returns None so the caller can reject
+    the whole answer - a garbage request list is a failed answer, not silent
+    data loss. Returns [] for an absent block (``None`` means INVALID).
+    """
+    if value is None:
+        return []
+    needs = value.get("needs") if isinstance(value, dict) else value
+    if needs is None:
+        return []
+    if isinstance(needs, str):
+        needs = [needs]
+    if not isinstance(needs, list) or len(needs) > 20:
+        return None
+    clean: List[str] = []
+    for item in needs:
+        if not isinstance(item, str):
+            return None
+        text = item.strip()
+        if not 1 <= len(text) <= 64:
+            return None
+        if any(not (c.isalnum() or c in "_.:/ -") for c in text):
+            return None
+        if text not in clean:
+            clean.append(text)
+    return clean
+
+
 def _validate(engine: str, value: Any) -> Optional[Dict[str, Any]]:
     schema = _SCHEMAS.get(engine)
-    if not schema or not isinstance(value, dict) or set(value) != set(schema):
+    if not schema or not isinstance(value, dict):
+        return None
+
+    # ``data_requests`` is OPTIONAL and append-only: it is not part of the
+    # stage's decision schema, so it is stripped here and validated separately.
+    has_requests = "data_requests" in value
+    value_requests = value.get("data_requests")
+    core_value = {k: v for k, v in value.items() if k != "data_requests"}
+    if set(core_value) != set(schema):
         return None
 
     result: Dict[str, Any] = {}
     try:
+        value = core_value
         for key, rule in schema.items():
             kind = rule[0]
             item = value[key]
@@ -277,6 +332,12 @@ def _validate(engine: str, value: Any) -> Optional[Dict[str, Any]]:
         reason_tickers = {row["ticker"] for row in result["blacklist_reasons"]}
         if not reason_tickers.issubset(set(result["asset_blacklist"])):
             return None
+    if has_requests:
+        requests = _validate_data_requests(value_requests)
+        if requests is None:
+            return None
+        if requests:
+            result["data_requests"] = requests
     return result
 
 
@@ -609,4 +670,5 @@ class FrontlineAgent:
         return _validate(engine, parsed)
 
 
-__all__ = ["FrontlineAgent", "_validate", "_escalate", "_CAPS"]
+__all__ = ["FrontlineAgent", "_validate", "_validate_data_requests",
+           "_escalate", "_CAPS"]

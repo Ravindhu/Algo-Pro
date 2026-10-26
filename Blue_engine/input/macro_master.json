@@ -201,6 +201,17 @@
       "timeout_seconds": 20,
       "max_rounds": 2,
       "max_calls": 3,
+      "self_correction": {
+        "_comment": "Automatic self-correction loop. After each skill answer a DETERMINISTIC judge (schema validator + data gate) decides whether to re-ask. max_attempts is hard-clamped 1..3; every attempt shares the ONE session call budget above, so a loop cannot drain the free tier. 'tools' enables the read-only data toolbelt (core/data_tools.py) so the agent can fetch missing evidence instead of guessing. A clamped answer is a SUCCESS and is not retried.",
+        "enabled": true,
+        "max_attempts": 2,
+        "tools": true
+      },
+      "tools": {
+        "_comment": "Read-only evidence the agent may fetch for itself. read_roots are directories whose *.json payloads may be read (capped at 512 KB each). Nothing here can write.",
+        "read_roots": ["data", "output"],
+        "catalog_paths": []
+      },
       "_agentic_comment": "max_rounds/max_calls bound the optional read-only tool loop. Hard-clamped to 4 rounds / 6 calls in AgenticLLM so a misconfiguration cannot drain the OpenRouter free tier (50 req/day below 10 credits, 1000 above).",
       "llm": {
         "_chain_comment": "Order is fixed in code: ollama, then openrouter, then disabled. Set enabled=false to drop a backend from the chain.",
@@ -217,6 +228,18 @@
           "_comment": "Overflow only. ':free' variants are capped at 20 req/min and 50 req/day (< 10 credits) or 1000 req/day (>= 10 credits). A 429 marks the backend exhausted for the rest of the UTC day."
         }
       }
+    },
+    "agent_io": {
+      "_comment": "Where an agentic stage skill may publish its answer. JSON ONLY: core/skill_writer.py refuses any other extension, any path outside this sandbox, NaN/Infinity, and every protected config basename (macro_master.json, strategy.active.json). An agent can never write code or configuration.",
+      "sandbox": "",
+      "audit": true,
+      "_sandbox_comment": "Empty = <repo>/data/agent_stage. Every accepted AND refused write is appended to <sandbox>/_audit/writes.jsonl."
+    },
+    "stage_gate": {
+      "_comment": "DATA SUFFICIENCY gate, evaluated by deterministic code only (core/stage_gate.py) - never by an LLM. 'halt_analysis' stops the analytic chain at the first stage whose evidence is missing; risk/infrastructure/POV-block still run so the report is complete. 'warn' records the verdict and continues. Per-stage requirements may be overridden in 'stages'; a stage listing [] is left ungated.",
+      "enabled": false,
+      "on_block": "halt_analysis",
+      "stages": {}
     },
     "screener": {
       "_comment": "Optional pipeline stage. Runs when enabled: the candidate universe is the screener.in sectors selected by the sector HM gate. Network scraping stays bounded by the polite limits below. PAPER-RUN FIRST - this is a strategy change, not just a switch.",

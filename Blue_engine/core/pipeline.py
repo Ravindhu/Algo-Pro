@@ -41,8 +41,14 @@ from ..pov import PovEngine
 from ..screener import ScreenerEngine
 from ..valuation_engine import ValuationEngine
 from ..sectors import SectorEngine
+from .agent_team import AgentTeam
+from .data_tools import DataToolbox
 from .frontline_agent import FrontlineAgent
 from .risk_engine import RiskEngine
+from .self_correction import SelfCorrectionLoop
+from .skill_writer import SkillWriter
+from .stage_gate import StageGate
+from .stage_skills import AGENT_STAGES, load_skills
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,25 @@ class MacroPipeline:
 
         engines_cfg = self.config.get("engines") or {}
         self.frontline_agent = FrontlineAgent(engines_cfg.get("agent", {}))
+        # ---- agentic frontline layer (data/gate/JSON only, never execution) -- #
+        # Skills describe WHAT each stage may conclude; the gate decides whether
+        # there is enough evidence to advance; the writer publishes the answer
+        # as JSON. None of the three can place, size or cancel an order.
+        self.skills = load_skills(self.config, stages=AGENT_STAGES)
+        self.stage_gate = StageGate.from_config(self.config)
+        agent_io = engines_cfg.get("agent_io") or {}
+        self.skill_writer = SkillWriter(
+            agent_io.get("sandbox"), audit=bool(agent_io.get("audit", True)))
+        #: Self-correction / toolbelt config. The toolbox itself is built AFTER
+        #: the engines exist (it reuses their injected providers), below.
+        agent_cfg = engines_cfg.get("agent") or {}
+        self._tools_cfg = dict(agent_cfg.get("tools") or {})
+        #: The self-correction loop config: attempts, and whether tools are on.
+        self.self_correction = dict(agent_cfg.get("self_correction") or {})
+        self.tools_enabled = bool(self.self_correction.get("tools", True))
+        #: A stopped analytic chain still runs risk + infrastructure + POV-block
+        #: logic so the operator sees a complete, honestly-blocked report.
+        self._post_gate_stages = ("risk", "infrastructure", "pov")
         self.engines = [
             EconomicEngine(engines_cfg.get("economic", {}),
                            provider=self._provider("economic"), log=log),
@@ -98,6 +123,54 @@ class MacroPipeline:
         # Deterministic order by stage.
         self.engines.sort(key=lambda e: e.stage.value)
 
+        #: Read-only evidence the agent may fetch for itself: the SAME providers
+        #: the engines were injected with (never new ones), plus JSON roots.
+        self.data_toolbox = DataToolbox(
+            read_roots=[*self._tools_cfg.get("read_roots", []), "."],
+            providers={e.name: e.provider for e in self.engines if e.provider},
+            catalog_paths=self._tools_cfg.get("catalog_paths") or [])
+        #: The roster: which skill is posted at which station, in line order.
+        #: Recording only - it reads the finished report, it never runs engines.
+        self.agent_team = AgentTeam(self.skills)
+
+    # ---- agentic advice -------------------------------------------------- #
+    def _advise_with_correction(self, stage: str, text: str,
+                                ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """Run one stage skill through the bounded self-correction loop.
+
+        Two independent things make an answer unacceptable:
+
+        * the schema/validator rejected it, or
+        * the DATA GATE says the stage still lacks evidence.
+
+        Only those two produce a correction prompt. A clamped answer is a
+        success - the safe rails already bound it, so re-asking would just
+        spend a call.
+        """
+        loop = SelfCorrectionLoop(
+            self.frontline_agent,
+            max_attempts=int(self.self_correction.get("max_attempts", 2)),
+            stage_gate=self.stage_gate if self.stage_gate.enabled else None,
+            context=lambda: ctx, gate_stage=stage)
+        tools = (self.data_toolbox.tools()
+                 if (self.tools_enabled
+                     and self.self_correction.get("enabled", True)) else None)
+        outcome = loop.run(stage, text, tools=tools)
+        if not outcome.get("ok") and self.self_correction.get("enabled", True):
+            outcome["warning"] = (f"self-correction exhausted after "
+                                 f"{len(outcome.get('attempts') or [])} attempt(s): "
+                                 f"{outcome.get('method')}")
+        return outcome
+    def _stage_position(self, name: str) -> int:
+        """Index of ``name`` in the deterministic engine order (-1 if absent).
+
+        Used by the data gate so "halt at stage N" skips only stages N+1.. and
+        never erases the stages that already produced usable evidence.
+        """
+        for index, engine in enumerate(self.engines):
+            if engine.name == name:
+                return index
+        return -1
     # ---- provider resolution ------------------------------------------ #
     def _provider(self, key: str) -> Optional[Callable[[], Dict[str, Any]]]:
         """Resolve a provider callable from config.
@@ -148,6 +221,12 @@ class MacroPipeline:
             "order": [e.name for e in self.engines],
             "warnings": [],
             "agent_advice": {},
+            "data_requests": {},
+            "stage_gate": {},
+            "gated": [],
+            "skill_writes": {},
+            "self_correction": {},
+            "shift": {},
             "ready_to_trade": None,
         }
 
@@ -166,12 +245,40 @@ class MacroPipeline:
                     text = raw_input.get("text") if isinstance(raw_input, dict) else raw_input
                     if not isinstance(text, str) or not text.strip():
                         continue
-                    outcome = self.frontline_agent.advise(name, text)
+                    # Self-correction loop: the model answers, a DETERMINISTIC
+                    # judge diagnoses, and only an actual failure is re-asked -
+                    # bounded by max_attempts and the shared call budget.
+                    outcome = self._advise_with_correction(name, text, ctx)
                     report["agent_advice"][name] = outcome
+                    if outcome.get("attempts"):
+                        report["self_correction"][name] = {
+                            "corrections": outcome.get("corrections", 0),
+                            "attempts": outcome["attempts"],
+                        }
                     if outcome.get("ok"):
                         if not isinstance(ctx.get("agent_advice"), dict):
                             ctx["agent_advice"] = {}
                         ctx["agent_advice"][name] = outcome["advice"]
+                        # The skill publishes its answer as JSON in the sandbox.
+                        # This is the ONLY file an agent may write: no code, no
+                        # config, no order state (see core/skill_writer.py).
+                        skill = self.skills.get(name)
+                        if skill is not None:
+                            write = self.skill_writer.write_stage(
+                                skill.stage, outcome["advice"],
+                                meta={"skill_id": skill.skill_id,
+                                      "method": outcome.get("method")})
+                            report["skill_writes"][name] = write
+                            if not write.get("ok"):
+                                report["warnings"].append(
+                                    f"skill {name} JSON write refused: "
+                                    f"{write.get('reason')}")
+                        # An agent that lacks evidence names it here; the data
+                        # layer supplies it on the next cycle. This never
+                        # changes an order - it only fills a gap.
+                        needs = _data_requests(outcome["advice"])
+                        if needs:
+                            report["data_requests"][name] = needs
                     else:
                         report["warnings"].append(
                             f"frontline agent {name}: "
@@ -180,6 +287,39 @@ class MacroPipeline:
                 end = getattr(self.frontline_agent.client, "end_session", None)
                 if callable(end):
                     end()
+
+        # ---- data-sufficiency gate (read-only, logic-only) ----------------- #
+        # "Only data-satisfied logic code moves to the next stage."
+        #
+        # Two modes, one meaning:
+        #
+        #   halt_analysis -> the FIRST starved stage stops execution of every
+        #                    later analytic stage; earlier stages still run so
+        #                    the report shows how far the evidence got.
+        #   warn          -> every verdict is recorded and the chain runs to
+        #                    completion unchanged.
+        #
+        # The verdict is evaluated BEFORE a stage runs; whether the stage itself
+        # executes is decided by ``gate_execution`` inside the loop below.
+        chain_halted_at: Optional[str] = None
+        halted_position = -1
+        gate_execution = self.stage_gate.on_block == "halt_analysis"
+        for engine in self.engines:
+            verdict = self.stage_gate.check(engine.name, ctx)
+            report["stage_gate"][engine.name] = verdict.to_dict()
+            if verdict.satisfied or report["gated"]:
+                continue
+            chain_halted_at = engine.name
+            halted_position = self._stage_position(engine.name)
+            report["gated"].append(engine.name)
+            report["ready_to_trade"] = False
+            if gate_execution:
+                report["warnings"].append(
+                    f"analysis halted at {engine.name}: {verdict.reason}")
+            else:
+                report["warnings"].append(
+                    f"insufficient data at {engine.name} (warn mode): "
+                    f"{verdict.reason}")
 
         # Preflight: Infrastructure is the *last* analytic stage but its health
         # verdict gates the POV *execution*. We therefore evaluate it first for
@@ -197,6 +337,31 @@ class MacroPipeline:
             report["warnings"].extend(pre.warnings)
 
         for engine in self.engines:
+            # Halted analytic chain: record the stop honestly instead of running
+            # logic on evidence we already know is insufficient. Risk /
+            # infrastructure / POV still run (see _post_gate_stages). In "warn"
+            # mode nothing is skipped - the chain is only annotated.
+            # Skip only stages strictly AFTER the halt: the starved stage and
+            # everything before it still run, so the report shows how far the
+            # evidence actually got instead of erasing successful work.
+            skip = (gate_execution
+                    and chain_halted_at is not None
+                    and self._stage_position(engine.name) > halted_position
+                    and engine.name not in self._post_gate_stages)
+            if skip:
+                report["stages"][engine.name] = {
+                    "engine": engine.name,
+                    "ok": False,
+                    "data": {"gated": True,
+                             "halted_at": chain_halted_at,
+                             "reason": "insufficient data at "
+                                       f"{chain_halted_at}"},
+                    "warnings": [f"skipped: data gate halted at "
+                                 f"{chain_halted_at}"],
+                    "error": None,
+                }
+                continue
+
             # Skip the POV execution when infrastructure is not ready and the
             # gate is enabled. The analytic POV config is still built so the
             # operator can inspect it.
@@ -227,6 +392,12 @@ class MacroPipeline:
                 stage_result["data"] = dict(result.data)
                 stage_result["data"]["agent_advice"] = \
                     report["agent_advice"][engine.name]
+            if engine.name in report["skill_writes"]:
+                # Where the skill's JSON answer landed, so the dashboard can
+                # link the card to the file without reading the sandbox.
+                stage_result.setdefault("data", {})
+                stage_result["data"]["skill_json"] = \
+                    report["skill_writes"][engine.name].get("path")
             report["stages"][engine.name] = stage_result
             report["warnings"].extend(result.warnings)
             if engine.name == "risk":
@@ -239,7 +410,53 @@ class MacroPipeline:
 
         report["alpha_selected"] = (
             report["stages"].get("alpha", {}).get("data", {}).get("selected"))
+        # The factory's work-in-progress record for this run. One row per
+        # station in line order: who worked, with what evidence, what it
+        # produced, where the JSON went, and what is still missing.
+        report["shift"] = self.agent_team.run_shift(report).to_dict()
+        # Hand the ledger to the dashboard (in-process mirror + one JSON file).
+        # Best-effort: a dashboard handoff must never fail a trading run.
+        try:
+            from ..dashboard.state import publish_shift
+
+            published = publish_shift(report["shift"])
+            if not published.get("ok"):
+                report["warnings"].append(
+                    f"shift not published to the dashboard: "
+                    f"{published.get('reason')}")
+        except Exception as exc:  # noqa: BLE001 - never break a run for a view
+            report["warnings"].append(f"shift publish skipped: {exc!r}")
         return report
+
+
+def _data_requests(advice: Any) -> List[str]:
+    """Extract a skill's ``data_requests`` from its validated payload.
+
+    Two shapes are accepted, because both already exist in the LLM layer:
+
+    * ``{"data_requests": ["cpi_history", ...]}`` - explicit list
+    * ``{"data_requests": {"needs": [...], "reason": "..."}}`` - the
+      ``DATA_REQUESTS_SCHEMA_KEYS`` shape
+
+    Returns a clean ``list[str]`` (max 20 entries). Never raises: this sits on
+    the trading path and a malformed request is not a reason to halt a cycle.
+    """
+    if not isinstance(advice, dict):
+        return []
+    raw = advice.get("data_requests")
+    needs: List[str] = []
+    if isinstance(raw, dict):
+        raw = raw.get("needs")
+    if isinstance(raw, str):
+        raw = [raw]
+    if isinstance(raw, (list, tuple)):
+        for item in raw[:20]:
+            if not isinstance(item, str):
+                continue          # a non-string "need" is not a data name
+            text = item.strip()
+            if text:
+                needs.append(text)
+    return needs
 
 
 def _as_ctx(result: EngineResult) -> Dict[str, Any]:

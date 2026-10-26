@@ -42,6 +42,7 @@ _NAV: list[tuple[str, str, str]] = [
     ("mdi:server-network", "Infrastructure", "/infra"),
     ("mdi:brain", "ML Models", "/ml"),
     ("mdi:tune-variant", "Optimizer", "/optimizer"),
+    ("mdi:factory", "Agent Line", "/agent-line"),
 ]
 
 _DARK_COLORS = [

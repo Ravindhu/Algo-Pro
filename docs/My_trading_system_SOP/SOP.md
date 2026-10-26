@@ -1,6 +1,6 @@
 # My Trading System — Standard Operating Procedure
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-26
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
 **Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
@@ -562,6 +562,108 @@ and the pipeline continues with its deterministic values — that is normal.
    side, never away. Tested in `tests/test_llm_chain.py`.
 
 ---
+## 12. Agent Line — the agentic frontline (2026-10-26)
 
+The stage skills are a **factory line**: the product is one risk-checked trading
+decision, each stage is a station, and the deterministic engine at each station
+is the machine. The employee supplies raw material and reports what is missing;
+it never operates the machine.
+
+### 12.1 What the agent may and may not do
+
+| May | May not |
+|---|---|
+| Answer inside its stage schema | Write code, config or order state |
+| Veto for any reason (risk station) | Clear a veto or widen a limit |
+| Blacklist any symbol with a reason | Add a symbol to the universe |
+| **Ask for missing evidence** (`data_requests`) | Invent a number when evidence is absent |
+| Read JSON + call wired read-only providers | Touch the broker or the POV slicer |
+
+Enforcement lives in code, not in prompts:
+
+* `core/skill_writer.py` — the only write path; refuses non-`.json`, path
+  traversal, NaN/inf, and every protected config basename.
+* `core/frontline_agent.py` `_CAPS` / `_escalate` — capital clamps. The veto is
+  forced ON and `rebalance_allowed` forced OFF regardless of what the model says.
+* `tests/test_skill_writer.py::test_execution_modules_never_import_the_writer` —
+  fails the suite if `pov/`, `risk_gate`, `risk_engine`, `orchestrator`,
+  `live_monitor`, `runner` or `ledger` ever imports the agent layer.
+
+**"No cap" means no cap on judgement.** A skill may veto anything, blacklist
+anything, or demand any evidence. It may not widen a magnitude that protects
+capital — that clamp is the difference between an advisory layer and an
+uncontrolled one, and it is what keeps the project's own protection order
+(Capital → Data → Risk → Execution → Strategy → Optimization) true.
+
+### 12.2 The data gate — "only data-satisfied logic moves on"
+
+`core/stage_gate.py`. Deterministic Python, never an LLM, fail-closed: a
+requirement that cannot be *evaluated* is a block, not a pass.
+
+```json
+"engines": { "stage_gate": { "enabled": false, "on_block": "halt_analysis" } }
+```
+
+| `on_block` | Behaviour |
+|---|---|
+| `halt_analysis` | Stages after the first starved station are not executed; `risk`, `infrastructure` and the POV block still run so the report is complete |
+| `warn` | Every verdict is recorded, the chain runs unchanged |
+
+Checks: `present`, `min_rows`, `min_count`, `range`, `one_of`, `enum_keys`, plus
+optional freshness (`timestamp_path` + `max_age_seconds`). A naive or
+future-dated timestamp is rejected.
+
+### 12.3 The self-correction loop
+
+`core/self_correction.py`. The model answers → a **deterministic judge** (schema
+validator + data gate) decides → only a real failure produces a correction
+prompt built from whitelisted fragments → a repeated identical failure stops the
+loop.
+
+```json
+"engines": { "agent": { "self_correction": {
+    "enabled": true, "max_attempts": 2, "tools": true } } }
+```
+
+* `max_attempts` is clamped 1..3 in code.
+* Every attempt shares the ONE session call budget (`begin_session`), so a loop
+  cannot drain the free tier.
+* A **clamped** answer is a success and is not retried.
+* `disabled` / `quota` / `llm_failed` are never retried.
+
+### 12.4 The read-only toolbelt
+
+`core/data_tools.py` supplies `list_sources`, `read_json`, `cycle_payload`,
+`price_history`, `provider`, `data_catalog`. No write tool exists. `read_json`
+is confined to `read_roots` (`data`, `output`), refuses traversal and anything
+over 512 KB, and returns `{"error": ...}` instead of raising — the model chooses
+the path, so a bad argument must be correctable, not fatal.
+
+### 12.5 The shift ledger and the dashboard
+
+Every run publishes `data/last_shift.json` (`dashboard/state.py`, atomic write)
+and renders it at **Agent Line** (`/agent-line`). One row per station:
+`worked` / `idle` / `blocked` / `failed` / `skipped`, plus the exact material the
+next shift needs. Stations behind a stop are `skipped`, never blamed as
+`blocked`; a station with no agent opinion is `idle` and the machine uses its
+own defaults — the line only stops for missing **data**.
+
+### 12.6 Operating checks
+
+```powershell
+cd C:\Users\Admin\CodeGPT\my-trading-system
+# the whole agent layer
+.\venv\Scripts\python.exe -m pytest Blue_engine\tests\test_stage_gate.py Blue_engine\tests\test_skill_writer.py Blue_engine\tests\test_stage_skills.py Blue_engine\tests\test_data_tools.py Blue_engine\tests\test_self_correction.py Blue_engine\tests\test_agent_team.py Blue_engine\tests\test_agent_line.py Blue_engine\tests\test_pipeline_stage_integration.py -q
+
+# is the write sandbox still JSON-only? (should print a refusal)
+.\venv\Scripts\python.exe -c "import sys;sys.path.insert(0,'.');from blue_engine.core.skill_writer import SkillWriter;print(SkillWriter().write_json('core/risk_engine.py',{'x':1})['reason'])"
+```
+
+**Current defaults:** `engines.agent.enabled = false`,
+`engines.stage_gate.enabled = false`. Enabling either is an explicit operator
+decision — paper-run first, because a gate halt changes which stages produce
+signals.
+
+---
 *This SOP documents verified behaviour only. Items marked OPEN in the audit are
 known gaps, not guarantees.*
