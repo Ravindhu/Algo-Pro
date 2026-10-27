@@ -365,11 +365,21 @@ class OptimizerEngine:
         # Local binding so the long ``evaluate(...)`` calls below stay
         # short; the slicing happens inside ``Objective.evaluate``.
         bars_arg: Optional[List[Dict[str, Any]]] = bars
+        # Each blueprint (setup_mode) is a SEPARATE study so its trials,
+        # parameters, importance ranking and best config never mix with
+        # another mode's. cfg.name stays the caller's label, the suffix makes
+        # the split explicit in the store and in report filenames.
+        setup_mode = (self.space.defaults() or {}).get("setup_mode")
+        if setup_mode:
+            study_name = f"{cfg.name}::{setup_mode}"
+        else:
+            study_name = cfg.name
         study = Study(
-            name=cfg.name, space_name=self.space.name,
+            name=study_name, space_name=self.space.name,
             strategy=self.strategy_name, objective_version=__version__,
             seed=cfg.seed,
             meta={"backend": self._backend_name(),
+                  "setup_mode": setup_mode,
                   "space_description": self.space.description})
 
         # --- trial 0: the production defaults, always --------------------- #

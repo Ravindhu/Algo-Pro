@@ -85,6 +85,33 @@ _OCL_KEYLEVEL: List[Dict[str, Any]] = [
          doc="How close price must come to the keylevel to count as a touch, "
              "as a fraction of price. 0 = exact touch only, which almost never "
              "fills on Indian index levels."),
+    dict(name="trigger_level_mode", kind="categorical",
+         choices=["CONSERVATIVE", "AGGRESSIVE"], default="CONSERVATIVE",
+         doc="CONSERVATIVE buys at C3 open, AGGRESSIVE buys at C3 close "
+             "(see aggressive/conservative_level_source)."),
+    dict(name="aggressive_level_source", kind="categorical",
+         choices=["C3_CLOSE", "LEGACY"], default="C3_CLOSE",
+         doc="AGGRESSIVE level: close of C3 (default) or legacy open of C2."),
+    dict(name="conservative_level_source", kind="categorical",
+         choices=["C3_OPEN", "LEGACY"], default="C3_OPEN",
+         doc="CONSERVATIVE level: open of C3 (default) or legacy min low C2/C3."),
+    dict(name="require_close_above_c2_open", kind="categorical",
+         choices=[True, False], default=True,
+         doc="Setup requires a candle to CLOSE above C2's open."),
+    dict(name="allow_c4_confirmation", kind="categorical",
+         choices=[True, False], default=True,
+         doc="If C3 fails the close rule, accept C4 closing above C2 open."),
+    dict(name="min_body_pct_c23", kind="float", low=0.0, high=0.9,
+         default=0.5,
+         doc="C2 and C3 must each have a body/range ratio above this "
+             "(0.5 = more than half-body candle)."),
+    dict(name="setup_mode", kind="categorical",
+         choices=["OCL", "SELL_FAILURE_BOTTOM", "SELL_FAILURE_TOP"],
+         default="OCL",
+         doc="Blueprint: OCL (classic buy), SELL_FAILURE_BOTTOM (buy the "
+             "failed short on a retest from above), SELL_FAILURE_TOP (sell "
+             "the failed long on a retest from below). Run each separately - "
+             "each yields its own study, params and report."),
 
     # --- confirmation gate (the momentum filter) -------------------------- #
     dict(name="roc_period", kind="int", low=3, high=30, default=10,
@@ -196,6 +223,32 @@ def _ocl_constraints() -> List[Any]:
             return "dvs_reference_period must be > atr_period"
         return None
 
+    def failure_top_is_a_sell_blueprint(p: Dict[str, Any]) -> Optional[str]:
+        # SELL_FAILURE_TOP is the only SELL blueprint in this family. Anything
+        # that assumes a BUY-only keylevel strategy is meaningless there, so
+        # the combination is refused rather than silently evaluated on a
+        # configuration the signal will reject.
+        if str(p.get("setup_mode")) == "SELL_FAILURE_TOP" and str(
+                p.get("trend_filter", "")).upper() == "BULL_ONLY":
+            return "trend_filter=BULL_ONLY is incompatible with SELL_FAILURE_TOP"
+        return None
+
+    def sell_failure_ignores_touch_buffer(p: Dict[str, Any]) -> Optional[str]:
+        # In sell-failure mode the entry is a RETEST of the broken level,
+        # so the extra touch buffer would widen a level that the market has
+        # already proven. Left in the space it would be a dead axis.
+        if p.get("sell_failure_enabled") and float(
+                p.get("ltf_touch_buffer") or 0) > 0.05:
+            return "ltf_touch_buffer must be <= 0.05 under sell_failure_enabled"
+        return None
+
+    def body_filter_needs_half_candle(p: Dict[str, Any]) -> Optional[str]:
+        # A body threshold at/above 0.9 rejects almost every real candle and
+        # shrinks the candidate set to noise; the blueprint says >50%.
+        if float(p.get("min_body_pct_c23") or 0) >= 0.9:
+            return "min_body_pct_c23 must be < 0.9"
+        return None
+
     def breakeven_below_target(p: Dict[str, Any]) -> Optional[str]:
         # A breakeven trigger above the fixed target can never arm before
         # the trade is already closed - a structural dead axis, not a real
@@ -207,7 +260,9 @@ def _ocl_constraints() -> List[Any]:
         return None
 
     return [cooldown_only_when_multi_fire, z_window_long_enough_for_roc,
-            dvs_reference_longer_than_atr, breakeven_below_target]
+            dvs_reference_longer_than_atr, breakeven_below_target,
+            failure_top_is_a_sell_blueprint,
+            sell_failure_ignores_touch_buffer, body_filter_needs_half_candle]
 
 
 # --------------------------------------------------------------------------- #
