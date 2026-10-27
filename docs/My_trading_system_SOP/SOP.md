@@ -1,6 +1,6 @@
 # My Trading System — Standard Operating Procedure
 
-**Last updated:** 2026-10-26
+**Last updated:** 2026-10-27
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
 **Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
@@ -901,3 +901,51 @@ probe is now its own leg. Regression:
 ---
 *This SOP documents verified behaviour only. Items marked OPEN in the audit are
 known gaps, not guarantees.*
+
+---
+
+## 14. Ubuntu VPS: one-click launch, desktop, remote access (2026-10-27)
+
+Three scripts. Only the first is new behaviour; the other two automate what
+this SOP already documents by hand.
+
+| Script | Role |
+|---|---|
+| `Servers/launch_ubuntu_server.sh` | **one click.** Stages: preflight → `install_ubuntu.sh` → `provision_desktop_remote.sh` → 08:45 pre-open timer → 16:00 backup cron → verify |
+| `Servers/provision_desktop_remote.sh` | XFCE, xrdp, Google Chrome, Node LTS + PM2, UFW, boot stack (openalgo / openalgo-ws / pov-dash) |
+| `scripts/ops/preopen_launch.sh` | gated pre-open start: clock → lock → platform → login → smoke → engine |
+
+```bash
+sudo bash Servers/launch_ubuntu_server.sh --rdp-allow 203.0.113.7/32
+```
+
+### 14.1 Rules this implements (do not relax them)
+
+1. **systemd is the supervisor of record.** PM2 is installed (requested) and its
+   boot hook is set, but no trading process is registered with it. Two
+   supervisors over one port is how a duplicate order is placed.
+2. **`pov-runner` never auto-starts at boot.** `--start-engine` and the 08:45
+   timer start it behind a gate; a reboot does not. AGENTS.md §Automatic
+   Recovery.
+3. **UFW fails safe.** 22/tcp is allowed *before* `ufw enable`; 3389 is opened
+   only for the CIDR given with `--rdp-allow`; 80/443 stay closed until TLS.
+4. **The pre-open chain is fail-closed.** Exit 10/11/12/13/14/15 all mean the
+   engine did not start. `log/preopen/last_preopen.json` records which gate.
+5. **No secrets added anywhere.** Both new scripts read `Servers/deploy.env`
+   with the same non-`source` parser `install_ubuntu.sh` uses. No credential is
+   written to any file they create.
+
+### 14.2 Facts that are easy to get wrong
+
+| Claim | Reality |
+|---|---|
+| "Install WinSCP on the Ubuntu server" | WinSCP is Windows-only. Use WinSCP **on the laptop** with an SFTP session, or `apt-get install filezilla` on the server. |
+| "XFCE + xrdp just works" | No. `/etc/xrdp/startwm.sh` must `exec startxfce4` or every session is black. `xorgxrdp` must be present. The colord polkit prompt blocks the first login. All three are handled in `provision_desktop_remote.sh`. |
+| "cron is enough for the 08:45 start" | The default is a systemd timer: `Persistent=true`, journald logging, `RandomizedDelaySec`. The cron line is written but commented. Use one, never both. |
+| "pm2 saves the day" | `pm2 startup` gives a user-scoped daemon. It does not know about `_restored/`, systemd dependencies, or the smoke gate. Use `systemctl`. |
+| "RDP is safe on 3389 worldwide" | RDP has a long history of pre-auth RCE. Either restrict to your IP or tunnel over SSH (`ssh -L 3389:127.0.0.1:3389`). |
+
+Verified at authoring time: `bash -n` clean on all three scripts. **Not run**
+against a live Ubuntu VPS from this host - the package/unit names follow the
+Ubuntu 22.04/24.04 archive, but treat the first real run as the acceptance
+test and read every `[WARN]`/`[FAIL]` line.

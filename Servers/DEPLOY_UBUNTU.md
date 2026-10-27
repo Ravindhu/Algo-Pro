@@ -60,6 +60,19 @@ sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
      /opt/my-trading-system/scripts/smoke_test.py
 ```
 
+### Or ONE command (this section's recommended path)
+
+```bash
+sudo bash Servers/launch_ubuntu_server.sh            # platform + desktop/remote + schedules
+sudo bash Servers/launch_ubuntu_server.sh --rdp-allow 203.0.113.7/32   # + RDP for your IP
+```
+
+`launch_ubuntu_server.sh` runs six stages: preflight, `install_ubuntu.sh`,
+`provision_desktop_remote.sh` (XFCE + xrdp + Chrome + Node/PM2 + UFW), the
+08:45 pre-open schedule, the 16:00 backup job, and verification. Stage flags:
+`--skip-platform --skip-desktop --skip-schedule --skip-backup --dry-run
+--start-engine --no-chrome --no-rdp`. See sections 12-14.
+
 Command 1 reads `deploy.env`, clones OpenAlgo, builds the venv, installs
 `blue_engine`, writes the systemd units, configures nginx, bridges `_restored/`,
 writes the API key into `_restored/.env`, verifies the `.env`/`db` pairing still
@@ -306,3 +319,101 @@ to a git remote.
 | `pov-dash` exits immediately | bad config JSON | check `blue_engine/input/*.json` |
 | `pov-runner` exits immediately | platform not up yet | it has `Restart=on-failure`; check `journalctl -u pov-runner` |
 | Dashboard unreachable at `/pov-dash/` | dash unit stopped | `systemctl start pov-dash` |
+| RDP connects, screen is black | `startwm.sh` starts a bare X session | `provision_desktop_remote.sh` rewrites it to `startxfce4`; verify `/etc/xrdp/startwm.sh` |
+| RDP login loops back to the prompt | user not in `ssl-cert`, or XFCE missing | `usermod -aG ssl-cert xrdp`; `dpkg -l xfce4` |
+| `ufw` blocks you out | reset ran before port 22 was allowed | the script allows 22 **before** `ufw enable`; console access: `ufw disable` |
+| Pre-open timer did nothing | outside 08:00-09:30 IST, weekend, or lock held | `journalctl -u pov-preopen -n 80`; `cat /opt/my-trading-system/log/preopen/last_preopen.json` |
+
+---
+
+## 12. Desktop + remote access (`provision_desktop_remote.sh`)
+
+Adds the human-access layer to a box built by `install_ubuntu.sh`.
+
+| Item | What is installed | Why |
+|---|---|---|
+| XFCE | `xfce4 xfce4-goodies xfce4-terminal dbus-x11` | lightweight GUI; ~700 MB |
+| xrdp | `xrdp xorgxrdp x11-xserver-utils` | Remote Desktop server on 3389 |
+| Chrome | official `google-chrome-stable_current_amd64.deb` | real browser inside the desktop |
+| Node.js LTS | NodeSource `setup_lts.x`, fallback to distro | required by PM2 |
+| PM2 | `npm i -g pm2` + `pm2 startup` | for **non-trading** helpers only |
+| UFW | deny-incoming default, 22 allowed, 3389 only per `--rdp-allow` | lock the VPS down |
+
+**XFCE over RDP needs two fixes** that the packages do not apply themselves:
+`/etc/xrdp/startwm.sh` must `exec startxfce4` (otherwise black screen), and
+`/etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla` stops the
+"authentication required" colour-profile prompt from blocking the session.
+
+**PM2 is not the supervisor for trading processes.** systemd already
+supervises OpenAlgo, the websocket proxy, the dashboard and the engine, with
+journald and cgroup accounting. Two supervisors on one port is how an order
+gets placed twice. PM2 is installed and its boot hook is set, but it is used
+only for non-trading helpers. Supervisor-of-record = **systemd**.
+
+## 13. Firewall + WinSCP
+
+```bash
+# RDP only from your laptop's public IP (recommended)
+sudo ufw allow from 203.0.113.7/32 to any port 3389 proto tcp
+
+# or tunnel RDP over SSH and keep 3389 closed entirely
+ssh -L 3389:127.0.0.1:3389 algo@<server>     # then mstsc 127.0.0.1:3389
+```
+
+**WinSCP is Windows-only.** There is no WinSCP package for Ubuntu - installing
+one does not exist, and the "apt install winscp" recipe you will find online is
+wrong. Use WinSCP **on the laptop** with an SFTP session:
+
+```
+WinSCP -> New Session -> File protocol: SFTP -> Host: <server-ip> -> Port: 22
+File protocol: SFTP  (NOT SCP)
+Username: algo       (or your sudo user)
+```
+
+For a Linux-side SFTP GUI: `sudo apt-get install -y filezilla`. For scripts,
+the shipped `rsync`/`scp` are already enough.
+
+nginx 80/443 are deliberately **not** opened by the script. Open them when TLS
+exists:
+
+```bash
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+sudo certbot --nginx -d trade.example.com
+```
+
+## 14. Pre-open automation (`scripts/ops/preopen_launch.sh`)
+
+Scheduled at **08:45 IST, Mon-Fri** (`pov-preopen.timer`). Each step is a gate;
+any failure stops the chain and the engine does **not** start.
+
+```
+clock window (08:00-09:30 IST, weekdays, or --force)
+  -> flock (one engine, ever)
+  -> start openalgo + openalgo-ws
+  -> wait for :5000 (300 s) and :8765 (120 s)
+  -> scheduled_login.py   (BROKER_AUTOLOGIN=1 opt-in; exit 2 = not opted in, continue)
+  -> smoke_test.py        (must PASS)
+  -> start pov-dash + pov-runner
+  -> wait for :8050, assert pov-runner is-active
+  -> write log/preopen/last_preopen.json
+```
+
+```bash
+bash scripts/ops/preopen_launch.sh --check     # prerequisites only
+bash scripts/ops/preopen_launch.sh --dry-run   # decide, start nothing
+bash scripts/ops/preopen_launch.sh --force     # ignore the clock window
+systemctl list-timers pov-preopen.timer
+journalctl -u pov-preopen -n 80
+```
+
+Exit codes: `10` outside window · `11` lock held · `12` platform down ·
+`13` broker session failed · `14` smoke gate failed · `15` engine not up.
+
+A commented crontab line is written to `/etc/cron.d/mts-preopen`. Use the
+timer **or** cron, never both. The timer is the default because it has
+`Persistent=true` (a missed 08:45 runs after boot, still inside the launcher's
+own gate) and its output goes to journald instead of a mailbox nobody reads.
+
+**`pov-runner` is still not enabled at boot.** A reboot does not start the
+order-placing engine. Only the clock trigger, behind the smoke gate, or an
+explicit `systemctl start pov-runner`. That is AGENTS.md, not an oversight.
