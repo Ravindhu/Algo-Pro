@@ -106,18 +106,14 @@ _OCL_KEYLEVEL: List[Dict[str, Any]] = [
          doc="C2 and C3 must each have a body/range ratio above this "
              "(0.5 = more than half-body candle)."),
     dict(name="setup_mode", kind="categorical",
-         choices=["OCL", "SELL_FAILURE_TOP", "SELL_FAILURE_BOTTOM",
-                  "SELL_FAILURE_LOW"],
+         choices=["OCL", "SELL_FAILURE_TOP", "SELL_FAILURE_BOTTOM"],
          default="OCL",
-         doc="BUY blueprint. OCL = 2 levels off the OCL candle (aggr C3 close, "
-             "cons C3 open). SELL_FAILURE_TOP = 2 key levels, no body filter. "
-             "SELL_FAILURE_BOTTOM = 2 key levels + >50% bodies. "
-             "SELL_FAILURE_LOW = 1 key level (lowest swing candle open). "
+         doc="BUY blueprint. OCL = no body filter, 2 levels (aggressive = C2 "
+             "open when C3 breaks it, else C3 close; conservative = C3 open). "
+             "SELL_FAILURE_TOP = >50% bodies, 2 key levels (aggressive = "
+             "broken C3 open, conservative = C2 open). "
+             "SELL_FAILURE_BOTTOM = 1 key level (lowest swing candle open). "
              "Run each separately - each yields its own study and report."),
-    dict(name="apply_body_filter_failure", kind="categorical",
-         choices=[True, False], default=True,
-         doc="Apply the >50% body filter on the failure blueprints "
-             "(SELL_FAILURE_TOP defaults to off, per the blueprint)."),
 
     # --- confirmation gate (the momentum filter) -------------------------- #
     dict(name="roc_period", kind="int", low=3, high=30, default=10,

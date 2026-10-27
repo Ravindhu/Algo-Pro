@@ -8,27 +8,28 @@ OCL Strategy Logic:
    - Fetches the last 3 candles (plus a 4th when enabled) from HTF
    - Detects Red-Red-Green (RRG) pattern ONLY (BUY setups)
    - NOTE: GRR (bearish / SELL) is intentionally NOT traded by this signal.
-   - SETUP RULES:
-       C3 (or C4 when C3 did not) must CLOSE above C2's OPEN
-       (allow_c4_confirmation, default on).
-       C2 and C3 must each be a >50%-body candle, except on the
-       SELL_FAILURE_TOP blueprint which carries no body filter
-       (min_body_pct_c23 = 0.50; apply_body_filter_failure).
+   ALL THREE BLUEPRINTS ARE BUY SETUPS (``setup_mode``):
 
-   ALL FOUR BLUEPRINTS ARE BUY SETUPS (``setup_mode``):
-   1) OCL - 2 levels straight off the OCL candle:
-        aggressive = C3 close, conservative = C3 open.
-   2) SELL_FAILURE_TOP - 2 key levels, no body filter:
-        the failed short breaks and closes above the conservative SELL
-        level (C3 open); that broken level becomes the aggressive BUY
-        level and C3 close becomes the conservative BUY level. Entry on
-        the RETEST from above.
-   3) SELL_FAILURE_BOTTOM - 2 key levels, >50% bodies:
-        same flip/retest rules as TOP.
-   4) SELL_FAILURE_LOW - 1 key level:
-        same failed-short trigger, but the entry level is the LOWEST SWING
-        CANDLE's OPEN, recorded as the conservative BUY level. Entry on
-        the retest from above.
+   1) OCL - 2 levels, NO body filter:
+        C3 closes above C2 open  -> aggressive = C2 open
+        C4 closes above it instead -> aggressive = C3 close
+        conservative = C3 open.
+
+   2) SELL_FAILURE_TOP - 2 key levels, >50% bodies on C2 and C3:
+        the failing pattern is a real SHORT: C2 GREEN (its open, e.g. 120,
+        is the conservative SELL level) then C3 RED (its open, e.g. 135,
+        is the aggressive SELL level). A later candle that CLOSES ABOVE
+        the aggressive SELL level breaks the pattern; the levels then FLIP
+        to BUY levels and the trade fires on the RETEST from above:
+            aggressive BUY   = broken C3 open (e.g. 135) - tier 1
+            conservative BUY = C2 open           (e.g. 120) - tier 2
+        If tier 1 fails, tier 2 is the next entry.
+
+   3) SELL_FAILURE_BOTTOM - 1 key level, >50% bodies:
+        same failed-short trigger. The single BUY level is the OPEN of the
+        LOWEST SWING candle in the window; the stop is that candle's LOW.
+        Reached after BOTH SELL_FAILURE_TOP levels have failed (the monitor
+        logs [ESCALATE] and switches the blueprint).
 
 2. CALCULATE TOUCH TRIGGER LEVEL (user-selectable):
    - trigger_level_mode = CONSERVATIVE (default):
@@ -136,21 +137,16 @@ EXEC_MODE_CONTINUOUS = "CONTINUOUS"      # Fire on every touch (with cooldown)
 EXEC_MODE_COUNT_LIMITED = "COUNT_LIMITED"  # Fire up to N times (max_fires)
 EXEC_MODE_AUTO = "AUTO"                  # One-shot per pattern detection
 
-# Setup modes - the four tradeable blueprints. ALL FOUR ARE BUY SETUPS.
-# Each one is backtested, optimized and logged SEPARATELY (the label lands
-# in every log line and in the fire intent metadata as ``setup_mode``).
-SETUP_MODE_NORMAL = "OCL"                    # 2 levels: aggr C3 close,
-#                                              cons C3 open
-SETUP_MODE_SELL_FAILURE_TOP = "SELL_FAILURE_TOP"       # 2 key levels,
-#    no body filter: broken C3 open -> aggr BUY, C3 close -> cons BUY
-SETUP_MODE_SELL_FAILURE_BOTTOM = "SELL_FAILURE_BOTTOM"  # 2 key levels
-#    + >50% bodies: broken C3 open -> aggr BUY, C3 close -> cons BUY
-SETUP_MODE_SELL_FAILURE_LOW = "SELL_FAILURE_LOW"        # 1 key level:
-#    lowest swing candle open -> conservative BUY level
+# Setup modes - the three tradeable blueprints. ALL ARE BUY SETUPS and each
+# one is backtested, optimized and logged SEPARATELY (the label lands in
+# every log line and in the fire intent metadata as ``setup_mode``).
+SETUP_MODE_NORMAL = "OCL"                 # 2 levels, NO body filter
+SETUP_MODE_SELL_FAILURE_TOP = "SELL_FAILURE_TOP"        # 2 key levels,
+#    >50% bodies: broken C3 open -> aggressive BUY, C2 open -> conservative
+SETUP_MODE_SELL_FAILURE_BOTTOM = "SELL_FAILURE_BOTTOM"  # 1 key level:
+#    lowest swing candle open -> the single BUY level
 SETUP_MODES = (SETUP_MODE_NORMAL, SETUP_MODE_SELL_FAILURE_TOP,
-               SETUP_MODE_SELL_FAILURE_BOTTOM, SETUP_MODE_SELL_FAILURE_LOW)
-# Every blueprint in this family is long-only.
-BUY_SETUP_MODES = SETUP_MODES
+               SETUP_MODE_SELL_FAILURE_BOTTOM)
 
 
 class OCLKeylevelSignal(BaseSignal):
@@ -334,8 +330,7 @@ class OCLKeylevelSignal(BaseSignal):
         # long on a retest from below).
         "setup_mode":       {"kind": "cat",   "default": "OCL",
                               "choices": ["OCL", "SELL_FAILURE_TOP",
-                                          "SELL_FAILURE_BOTTOM",
-                                          "SELL_FAILURE_LOW"],
+                                          "SELL_FAILURE_BOTTOM"],
                               "note": "which BUY blueprint (run each separately)"},
         "apply_body_filter_failure": {"kind": "cat", "default": True,
                               "choices": [True, False],
@@ -400,6 +395,9 @@ class OCLKeylevelSignal(BaseSignal):
             config.get("sell_failure_enabled", False))
         self.setup_mode = str(
             config.get("setup_mode", SETUP_MODE_NORMAL)).upper().strip()
+        if self.setup_mode == "SELL_FAILURE_LOW":
+            # Retired alias: the single-level blueprint is now BOTTOM.
+            self.setup_mode = SETUP_MODE_SELL_FAILURE_BOTTOM
         if self.setup_mode not in SETUP_MODES:
             raise ValueError(
                 f"setup_mode must be one of {SETUP_MODES}; "
@@ -424,6 +422,9 @@ class OCLKeylevelSignal(BaseSignal):
         self._sell_failure_broken = False           # level broken, awaiting retest
         self._broken_sell_level: Optional[float] = None
         self._low_swing_level: Optional[float] = None
+        # SELL_FAILURE_TOP two-tier ladder bookkeeping.
+        self._oc_top_used = False       # aggressive level already failed
+        self._oc_bottom_used = False    # already escalated to BOTTOM
 
         # [LTF SETTINGS] Lower Timeframe Monitoring
         self.ltf_interval = config.get("ltf_interval", "5minute")
@@ -849,73 +850,75 @@ class OCLKeylevelSignal(BaseSignal):
                 return False
             self.setup_mode = mode
             if mode == SETUP_MODE_NORMAL:
+                # ---- OCL (2 levels, NO body filter) ----
+                # C3 closes above C2's open -> AGGRESSIVE = C2 open.
+                # C4 closes above it instead  -> AGGRESSIVE = C3 close.
+                # CONSERVATIVE is always C3's open.
                 confirmed, confirm_candle, _sf = self._resolve_confirmation(
                     c2, c3, c4)
                 if not confirmed:
                     return False
                 self._setup_candle = confirm_candle
                 self._sell_failure_broken = False
-                self._trigger_level = self._calculate_trigger_level(c1, c2, c3)
-                self._record_trigger_levels(c2, c3, confirm_candle, False)
+                self._oc_top_used = False
+                c3_break = float(c3["close"]) > float(c2["open"])
+                aggr = (float(c2["open"]) if c3_break
+                        else float(c3["close"]))
+                cons = float(c3["open"])
+                self._aggressive_level = aggr
+                self._conservative_level = cons
+                self._sell_failure_armed = False
+                self._broken_sell_level = None
+                self.log(
+                    f"[OCL] {'C3' if c3_break else 'C4'} broke "
+                    f"{'C2 open' if c3_break else 'via C3 close'} -> "
+                    f"aggressive {aggr:.2f}, conservative {cons:.2f}")
+                self._trigger_level = self._calculate_trigger_level(
+                    c1, c2, c3)
                 base_candles = [c2, c3, confirm_candle]
                 base_side = "BUY"
-            elif mode == SETUP_MODE_SELL_FAILURE_BOTTOM:
-                # Bottom reversal: the OCL SHORT fails. C4 (or C3) closes
-                # above the conservative SELL level (C3 open); that broken
-                # level becomes the aggressive BUY level and the trade waits
-                # for a RETEST from above. Base = min(low C2, low C3, low C4).
-                fail_candle = self._sell_failure_candle(c3, c4)
-                if fail_candle is None:
-                    return False
-                self._setup_candle = fail_candle
-                self._sell_failure_broken = False   # armed, break pending
-                self._record_trigger_levels(c2, c3, fail_candle, True,
-                                            broken=float(c3["open"]),
-                                            former=float(c3["close"]))
-                # Entry level = the broken conservative SELL level (C3 open).
-                self._trigger_level = self._broken_sell_level
-                base_candles = [c2, c3, fail_candle]
-                base_side = "BUY"
-            elif mode == SETUP_MODE_SELL_FAILURE_TOP:
-                # 2-KEY-LEVEL BUY. The failed OCL short is bought: the broken
-                # conservative SELL level (C3 open) becomes the aggressive BUY
-                # level, the aggressive SELL level (C3 close) becomes the
-                # conservative BUY level. No body filter on this blueprint.
-                fail_candle = self._sell_failure_candle(c3, c4)
+            else:
+                # ---- SELL-FAILURE family ----
+                # The failing pattern is a REAL SHORT: C2 GREEN (open = the
+                # conservative sell level), C3 RED (open = the aggressive sell
+                # level). A later candle that CLOSES ABOVE the aggressive sell
+                # level breaks it; any such candle turns the pattern into the
+                # sell-FAIL setup and the levels FLIP to buy levels on the
+                # retest from above.
+                fail_candle = self._sell_failure_candle(c2, c3, c4)
                 if fail_candle is None:
                     return False
                 self._setup_candle = fail_candle
                 self._sell_failure_broken = False
-                self._record_trigger_levels(c2, c3, fail_candle, True,
-                                            broken=float(c3["open"]),
-                                            former=float(c3["close"]))
-                self._trigger_level = self._broken_sell_level
-                base_candles = [c2, c3, fail_candle]
-                base_side = "BUY"
-            else:  # SETUP_MODE_SELL_FAILURE_LOW
-                # 1-KEY-LEVEL BUY. The failed OCL short is bought at the
-                # LOWEST SWING candle's open, which becomes the CONSERVATIVE
-                # BUY level. Entry only on the retest from above.
-                fail_candle = self._sell_failure_candle(c3, c4)
-                if fail_candle is None:
-                    return False
-                low_candle = self._lowest_swing_candle(
-                    [c1, c2, c3, c4, fail_candle])
-                if low_candle is None:
-                    self.log("[SELL_FAILURE_LOW] no swing candle; skip")
-                    return False
-                self._setup_candle = fail_candle
-                self._sell_failure_broken = False
-                self._record_trigger_levels(c2, c3, fail_candle, True,
-                                            broken=float(c3["open"]),
-                                            former=float(c3["close"]))
-                self._low_swing_level = float(low_candle["open"])
-                self._conservative_level = self._low_swing_level
-                self.log(
-                    f"[SELL_FAILURE_LOW] lowest swing open "
-                    f"{self._low_swing_level:.2f} = conservative BUY level "
-                    f"(aggressive {self._aggressive_level:.2f})")
-                self._trigger_level = self._low_swing_level
+                self._oc_top_used = False
+                aggr = float(c3["open"])      # broken aggressive SELL level
+                cons = float(c2["open"])      # conservative SELL level
+                self._aggressive_level = aggr
+                self._conservative_level = cons
+                self._sell_failure_armed = True
+                self._broken_sell_level = aggr
+                if mode == SETUP_MODE_SELL_FAILURE_TOP:
+                    # 2 levels -> the retest ladder starts at the nearer
+                    # (aggressive) level.
+                    self._trigger_level = aggr
+                    self.log(
+                        f"[SELL_FAILURE_TOP] broken C3 open {aggr:.2f} = "
+                        f"aggressive BUY level, C1 open {cons:.2f} = "
+                        f"conservative BUY level")
+                else:  # SETUP_MODE_SELL_FAILURE_BOTTOM
+                    # 1 level -> the LOWEST SWING candle's open.
+                    low_candle = self._lowest_swing_candle(
+                        [c1, c2, c3, c4, fail_candle])
+                    if low_candle is None:
+                        self.log("[SELL_FAILURE_BOTTOM] no swing candle; skip")
+                        return False
+                    self._low_swing_level = float(low_candle["open"])
+                    self._conservative_level = self._low_swing_level
+                    self._trigger_level = self._low_swing_level
+                    self.log(
+                        f"[SELL_FAILURE_BOTTOM] lowest swing open "
+                        f"{self._low_swing_level:.2f} = SINGLE BUY level "
+                        f"(broken C3 open {aggr:.2f} = sell failure trigger)")
                 base_candles = [c2, c3, fail_candle]
                 base_side = "BUY"
 
@@ -983,28 +986,23 @@ class OCLKeylevelSignal(BaseSignal):
             self.log(
                 f"[TRIGGER] {self.setup_mode}: broken sell level -> {level:.2f}")
             return level
+        # OCL blueprint (operator spec):
+        #   C3 breaks C2 open  -> AGGRESSIVE level = C2 open
+        #   C4 breaks instead  -> AGGRESSIVE level = C3 close
+        # CONSERVATIVE is always C3 open (the deeper key level).
+        c3_break = float(c3["close"]) > float(c2["open"])
+        aggr = float(c2["open"]) if c3_break else float(c3["close"])
+        cons = float(c3["open"])
+        self._aggressive_level = aggr
+        self._conservative_level = cons
         if self.trigger_level_mode == "AGGRESSIVE":
-            if self.aggressive_level_source == "C3_CLOSE":
-                level = float(c3["close"])
-                self.log(
-                    f"[TRIGGER] AGGRESSIVE (RRG): C3 close -> {level:.2f}")
-            else:
-                level = float(c2["open"])
-                self.log(
-                    f"[TRIGGER] AGGRESSIVE (RRG): open of 2nd red candle -> {level:.2f}"
-                )
+            level = aggr
+            self.log(
+                f"[TRIGGER] AGGRESSIVE (OCL): "
+                f"{'C2 open' if c3_break else 'C3 close'} -> {level:.2f}")
         else:
-            if self.conservative_level_source == "C3_OPEN":
-                level = float(c3["open"])
-                self.log(
-                    f"[TRIGGER] CONSERVATIVE (RRG): C3 open -> {level:.2f}")
-            else:
-                level = min(float(c2["low"]), float(c3["low"]))
-                c2_low, c3_low = float(c2["low"]), float(c3["low"])
-                self.log(
-                    f"[TRIGGER] CONSERVATIVE (RRG): "
-                    f"min(low C2={c2_low:.2f}, low C3={c3_low:.2f}) -> {level:.2f}"
-                )
+            level = cons
+            self.log(f"[TRIGGER] CONSERVATIVE (OCL): C3 open -> {level:.2f}")
         return level
 
     def _record_trigger_levels(self, c2, c3, confirm_candle=None,
@@ -1043,13 +1041,10 @@ class OCLKeylevelSignal(BaseSignal):
         self._sell_failure_armed = bool(sell_failure)
         self._broken_sell_level = cons if sell_failure else None
         if sell_failure:
-            # The retest level is the blueprint's entry level: the broken
-            # (aggressive) level, except for the LOW blueprint which levels
-            # off the lowest swing candle open.
-            if self.setup_mode == SETUP_MODE_SELL_FAILURE_LOW:
-                self._trigger_level = self._conservative_level
-            else:
-                self._trigger_level = self._aggressive_level
+            # The retest level is the blueprint's entry level:
+            #   TOP    -> the broken aggressive level (first tier)
+            #   BOTTOM -> the lowest swing candle open (single level)
+            self._trigger_level = self._retest_level()
         # Sanity: the aggressive level of a retest blueprint IS the broken
         # level, so the two must agree.
         if (sell_failure and self._broken_sell_level is not None
@@ -1082,11 +1077,10 @@ class OCLKeylevelSignal(BaseSignal):
             f"{('close %.2f' % c4['close']) if c4 else 'none'}")
         if mode == SETUP_MODE_NORMAL:
             return mode if self._normal_setup_ok(c2, c3, c4) else None
-        if mode in (SETUP_MODE_SELL_FAILURE_BOTTOM, SETUP_MODE_SELL_FAILURE_TOP,
-                    SETUP_MODE_SELL_FAILURE_LOW):
-            # Every failure blueprint buys the FAILED SHORT: a later candle
-            # breaks and CLOSES above the conservative SELL level (C3 open).
-            if self._sell_failure_candle(c3, c4) is None:
+        if mode in (SETUP_MODE_SELL_FAILURE_BOTTOM, SETUP_MODE_SELL_FAILURE_TOP):
+            # A candle must CLOSE ABOVE the aggressive SELL level (C3 open)
+            # to break the pattern.
+            if self._sell_failure_candle(c2, c3, c4) is None:
                 return None
             return mode
         return None
@@ -1158,57 +1152,35 @@ class OCLKeylevelSignal(BaseSignal):
                     return False
             return True
 
+        # The OCL blueprint carries NO body filter (operator spec), so the
+        # shape helpers below are pure colour tests. The failure blueprints
+        # apply their >50% body rule separately (see _failure_body_filter).
         def seq(w):
-            # The core of every blueprint satisfies the OCL sequence as
-            # stated (C3 close ABOVE C2 open). The BEARISH variant that the
-            # failure blueprints trade is expressed by the failure candle,
-            # not by inverting the core. Body filter hits C2/C3 only.
-            ok_claim = self._is_red_green_claim(w[0], w[1], w[2])
-            return ok_claim and bodies(w[1], w[2])
+            return self._is_red_green_claim(w[0], w[1], w[2])
 
         def seq_no_claim(w):
-            return (self._is_red_green(w[0], w[1], w[2])
-                    and bodies(w[1], w[2]))
+            return self._is_red_green(w[0], w[1], w[2])
 
-        if self.setup_mode in (SETUP_MODE_SELL_FAILURE_BOTTOM,
-                               SETUP_MODE_SELL_FAILURE_TOP,
-                               SETUP_MODE_SELL_FAILURE_LOW):
-            # Core = the OCL sequence (C1 red, C2 red, C3 green). Per the
-            # operator blueprint Candle 3 **or** Candle 4 must close above
-            # Candle 2's open, so a window whose C3 is still below C2's open
-            # is a legitimate core - C4 is the candle that satisfies the
-            # close. Body filter follows the blueprint (TOP has none).
-            # OLDEST window first: a newer window would leave nothing after
-            # it to hold the failure candle, so the earliest valid sequence is
-            # the one whose levels the market actually broke.
+        if self._is_failure_blueprint():
+            # Core = a SELL pattern: C2 GREEN (conservative sell level = C2
+            # open), C3 RED (aggressive sell level = C3 open). C2 and C3
+            # bodies must both exceed min_body_pct_c23 (operator: >50%).
+            # OLDEST window first so a candle remains AFTER the core to hold
+            # the failure candle.
             use_body = self._failure_body_filter()
             for cand, pos in ((w4[:3] if w4 else None, [0, 1, 2]),
                               (w3, [1, 2, 3])):
-                self.log(
-                    f"[WINDOW TRY] pos={pos} "
-                    f"c3close={cand[2]['close'] if cand else 'n/a'} "
-                    f"c2open={cand[1]['open'] if cand else 'n/a'} "
-                    f"succ={self._window_successor(w4, pos) is not None}")
-                if not cand:
+                if not cand or not self._is_sell_sequence(
+                        cand[0], cand[1], cand[2]):
                     continue
-                if not self._is_red_green(cand[0], cand[1], cand[2]):
-                    continue
-                # Body rule: C2 and C3 must each be a >body candle. Applies
-                # to OCL, BOTTOM and LOW; SELL_FAILURE_TOP runs without it.
                 if use_body and not bodies(cand[1], cand[2]):
                     continue
-                c4_after = self._window_successor(w4, pos)
-                # Cable: a close AT the level does not count as "above";
-                # the comparison is strict, with a 1-tick tolerance so float
-                # noise on an exact touch cannot flip the decision.
-                level = float(cand[1]["open"])
-                tick = max(1e-9, level * 1e-9)
-                c3_ok = float(cand[2]["close"]) > level
-                c4_ok = (c4_after is not None
-                         and float(c4_after["close"]) > level + tick)
-                if c3_ok or c4_ok:
-                    self._core_positions = pos if w4 else [0, 1, 2]
-                    return cand
+                if self._window_successor(w4, pos) is None:
+                    # Nothing after the core in this frame -> the failure
+                    # candle has not printed yet; keep looking.
+                    continue
+                self._core_positions = pos if w4 else [0, 1, 2]
+                return cand
             return None
 
         # OCL blueprint: C1..C3 first (the C4 rule is what makes it valid),
@@ -1234,6 +1206,16 @@ class OCLKeylevelSignal(BaseSignal):
             self._core_positions = [1, 2, 3]
             return w4[1:]
         return None
+
+    @staticmethod
+    def _is_sell_sequence(c1, c2, c3) -> bool:
+        """SELL pattern traded by the failure blueprints.
+
+        C2 is GREEN (its open is the conservative sell level, e.g. 120) and
+        C3 is RED (its open is the aggressive sell level, e.g. 135). C1 is
+        the preceding candle and is not colour-constrained.
+        """
+        return (c2["close"] > c2["open"] and c3["close"] < c3["open"])
 
     @staticmethod
     def _is_red_green(c1, c2, c3) -> bool:
@@ -1299,22 +1281,29 @@ class OCLKeylevelSignal(BaseSignal):
         return None
 
     def _is_failure_blueprint(self) -> bool:
-        """True for the failure blueprints (mode-independent helpers)."""
+        """True for the two sell-failure blueprints."""
         return self.setup_mode in (SETUP_MODE_SELL_FAILURE_BOTTOM,
-                                   SETUP_MODE_SELL_FAILURE_TOP,
-                                   SETUP_MODE_SELL_FAILURE_LOW)
+                                   SETUP_MODE_SELL_FAILURE_TOP)
+
+    def _retest_level(self) -> Optional[float]:
+        """Live retest target for the failure blueprints.
+
+        TOP escalates down: aggressive first, conservative once the
+        aggressive level has failed (both are BUY levels on the retest).
+        BOTTOM trades its single level.
+        """
+        if self.setup_mode == SETUP_MODE_SELL_FAILURE_TOP:
+            return self._conservative_level if self._oc_top_used \
+                else self._aggressive_level
+        return self._conservative_level  # BOTTOM: the single level
 
     def _failure_body_filter(self) -> bool:
         """Does THIS blueprint require the >50% body on C2 and C3?
 
-        Operator spec: the plain OCL, the BOTTOM blueprint and the LOW
-        blueprint require it; the 2-key-level TOP blueprint does not.
+        Operator spec: the plain OCL blueprint carries NO body filter; both
+        sell-failure blueprints require >50% bodies on the failing C2 and C3.
         """
-        if self.min_body_pct_c23 <= 0:
-            return False
-        if self.setup_mode == SETUP_MODE_SELL_FAILURE_TOP:
-            return False
-        return True
+        return self.min_body_pct_c23 > 0
 
     @staticmethod
     def _window_successor(w4, pos) -> Optional[dict]:
@@ -1351,26 +1340,30 @@ class OCLKeylevelSignal(BaseSignal):
             return True
         return False
 
-    def _sell_failure_candle(self, c3, c4):
-        """Candle that closed ABOVE the conservative SELL level (C3 open).
+    def _sell_failure_candle(self, c2, c3, c4):
+        """Candle that BREAKS the SELL pattern by closing above it.
 
-        The OCL short needs the sequence to be bearish first, so C3 must
-        close BELOW its own open (no reclaim yet). The failure candle is a
-        later candle - C4 - that closes above the sell level, or C3 itself
-        when it closed above it. Returns None when the short never failed.
+        SELL levels: conservative = C2 open, aggressive = C3 open. A candle
+        that CLOSES ABOVE the nearer (aggressive) sell level has broken the
+        pattern - that candle is the failure candle and the levels flip to
+        BUY levels. C4 is checked first (the latest candle), then C3 itself.
+        Returns None when the pattern has not been broken yet.
         """
         c3_open = float(c3["open"])
-        if float(c3["close"]) > c3_open:
-            self.log(
-                f"[SELL FAILURE] C3 close {c3['close']:.2f} > sell level "
-                f"{c3_open:.2f}; retest-from-above entry")
-            return c3
-        if c4 is not None and float(c4["close"]) > c3_open:
-            self.log(
-                f"[SELL FAILURE] C4 close {c4['close']:.2f} > sell level "
-                f"{c3_open:.2f}; retest-from-above entry")
-            return c4
-        self.log("[SELL FAILURE] sell level not violated; no long setup")
+        c2_open = float(c2["open"])
+        for label, cand in (("C4", c4), ("C3", c3)):
+            if cand is None or cand is c3 and label == "C4":
+                continue
+            if float(cand["close"]) > c3_open:
+                self.log(
+                    f"[SELL FAILURE] {label} close "
+                    f"{cand['close']:.2f} > aggressive sell level "
+                    f"{c3_open:.2f} (conservative {c2_open:.2f}) "
+                    f"-> levels FLIP, retest-from-above entry")
+                return cand
+        self.log(
+            f"[SELL FAILURE] no close above {c3_open:.2f}; sell pattern "
+            f"still intact")
         return None
 
     def _c23_bodies_ok(self, c2, c3) -> bool:
@@ -1524,20 +1517,14 @@ class OCLKeylevelSignal(BaseSignal):
             # FAILURE-RETEST ladder (all three failure blueprints are BUY):
             #   phase 1 (not broken): price must BREAK UP - close above the
             #            conservative SELL level (C3 open).
-            #   phase 2 (broken):     entry only on the RETEST from above of
-            #            the blueprint's entry level (BOTTOM/TOP: the broken
-            #            level; LOW: the lowest swing candle open).
-            #            A close below the failure base kills the setup.
+            #   phase 2 (broken):     entry only on the RETEST from above.
+            #     SELL_FAILURE_TOP -> two-tier ladder: aggressive (broken C3
+            #        open) first; if that level fails, the conservative level
+            #        (C2 open) is the second entry.
+            #     SELL_FAILURE_BOTTOM -> single level (lowest swing open).
+            #     A close below the failure base kills the setup.
             if self._sell_failure_armed:
-                side = self._failure_side()
                 break_level = self._broken_sell_level
-                # Entry level on the retest:
-                #   BOTTOM / TOP -> the broken (aggressive) level
-                #   LOW          -> the lowest swing candle open (conservative)
-                if self.setup_mode == SETUP_MODE_SELL_FAILURE_LOW:
-                    level = self._conservative_level
-                else:
-                    level = self._aggressive_level
                 if not self._sell_failure_broken:
                     if break_level is None:
                         time.sleep(self.poll_seconds)
@@ -1555,7 +1542,7 @@ class OCLKeylevelSignal(BaseSignal):
                             f"{break_level:.2f} (BUY)")
                         time.sleep(self.poll_seconds)
                         return None
-                self._trigger_level = level
+                self._trigger_level = self._retest_level()
                 # Setup death: an LTF close back BELOW the failure base.
                 dead = (self._htf_stop_loss is not None
                         and ohlc["close"] < self._htf_stop_loss)
@@ -1589,8 +1576,42 @@ class OCLKeylevelSignal(BaseSignal):
             # valid; the next entry level drops below this stop. When the
             # retry cap is reached, the setup is abandoned (pattern NOT
             # invalidated - price is still above the HTF structural low).
+            # SELL_FAILURE_TOP ESCALATION: once the aggressive BUY level is
+            # used (a trade fired there and its LTF stop was hit), the
+            # blueprint drops to its conservative level. When BOTH levels
+            # have failed the operator switches to the BOTTOM blueprint -
+            # logged explicitly so the hand-off is never silent.
+            if (self._is_failure_blueprint() and self._sell_failure_armed
+                    and self._sell_failure_broken
+                    and self.setup_mode == SETUP_MODE_SELL_FAILURE_TOP
+                    and self._oc_top_used and not self._oc_bottom_used):
+                self.log(
+                    f"[ESCALATE] SELL_FAILURE_TOP aggressive "
+                    f"{self._aggressive_level:.2f} AND conservative "
+                    f"{self._conservative_level:.2f} both failed -> "
+                    f"look for SELL_FAILURE_BOTTOM (lowest swing open)")
+                self._oc_bottom_used = True
+                self.setup_mode = SETUP_MODE_SELL_FAILURE_BOTTOM
+                self._low_swing_level = self._conservative_level
+                self._trigger_level = self._conservative_level
+
             if self._check_ltf_stop_loss(ohlc):
                 self._ltf_retry_count += 1
+                if (self.setup_mode == SETUP_MODE_SELL_FAILURE_TOP
+                        and self._sell_failure_armed
+                        and self._sell_failure_broken
+                        and not self._oc_top_used):
+                    # The aggressive level did not hold -> step to the
+                    # conservative BUY level instead of abandoning.
+                    self._oc_top_used = True
+                    self._ltf_stop_loss = None
+                    self._trigger_level = self._conservative_level
+                    self.log(
+                        f"[SELL_FAILURE_TOP] aggressive level failed -> "
+                        f"conservative BUY level armed at "
+                        f"{self._conservative_level:.2f}")
+                    time.sleep(self.poll_seconds)
+                    return None
                 if self._ltf_retry_count >= self.max_ltf_retries:
                     self.log(
                         f"[SETUP ABANDONED] {self.max_ltf_retries} LTF stops "
