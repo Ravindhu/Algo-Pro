@@ -949,3 +949,36 @@ Verified at authoring time: `bash -n` clean on all three scripts. **Not run**
 against a live Ubuntu VPS from this host - the package/unit names follow the
 Ubuntu 22.04/24.04 archive, but treat the first real run as the acceptance
 test and read every `[WARN]`/`[FAIL]` line.
+
+---
+
+## 15. Dependencies: which file owns which environment (2026-10-27)
+
+`requirements.txt` in the repo root now exists. Before this it did not, yet
+`start_all.py --update`, `upgrade_openalgo.ps1` and `START_ALL.cmd` all
+named it, so every dependency refresh failed silently into a warning.
+
+| Environment | File | Installs |
+|---|---|---|
+| Windows / dev host, root `.venv` | `requirements.txt` (this repo) | openalgo SDK, Dash 4 + DMC, pandas/numpy/pyarrow, sklearn/statsmodels/scipy, optuna, screener stack, pyotp, yfinance, pytest, **eventlet** |
+| Ubuntu VPS | `openalgo/requirements.txt` (upstream, pinned) + `blue_engine[dashboard]` | the platform's own stack; the engine only as an editable package |
+
+**Rules**
+1. Every pin in `requirements.txt` was read from installed distribution
+   metadata on this host (2026-10-27), not recalled from memory.
+2. `eventlet` is pinned deliberately: a stock venv gets no async SocketIO
+   server, which is why `start_openalgo.py` has to pass
+   `allow_unsafe_werkzeug=True`. `gunicorn` is *not* installed on Windows
+   (it needs `fcntl`).
+3. `pyotp` is required, not optional. `core/broker_auth.py` imports it
+   lazily, so its absence does not stop the engine - it makes every 08:45 login
+   fail. Same class of bug as a missing `_restored/.env`.
+4. `pydantic` is bounded (`>=2.6,<3`) rather than patch-pinned: the exact
+   build resolved here has no cached wheel on an offline resolver.
+5. matplotlib, kaleido, TA-Lib and pandas_ta are deliberately absent - the code
+   implements indicators by hand and renders every figure in the browser.
+6. Do not add engine deps here *and* in `pyproject.toml`. `requirements.txt`
+   mirrors the extras; `pyproject.toml` stays the packaging truth.
+
+Verified: `pip install --dry-run --no-index -r requirements.txt` resolves
+clean against the current `.venv` (python 3.13.15).

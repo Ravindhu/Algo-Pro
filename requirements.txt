@@ -1,0 +1,180 @@
+# =============================================================================
+# requirements.txt - the ROOT (Windows / dev-host) environment
+# =============================================================================
+#
+# WHAT THIS FILE IS
+#   The repo-root venv is the ONE interpreter the whole desk uses on Windows:
+#   scripts/ops/start_all.py, scripts/ops/start_openalgo.py, the Dash terminal,
+#   the scheduled tasks, and the OpenAlgo app itself (Eventlet WSGI here, not on
+#   a stock venv - see the note at the bottom).
+#
+# WHAT THIS FILE IS NOT
+#   * It does NOT describe the Ubuntu VPS. There, `Servers/install_ubuntu.sh`
+#     builds the venv from the upstream `openalgo/requirements.txt` (pinned,
+#     generated upstream) and then installs `blue_engine[dashboard]`. Installing
+#     this file there would make a second, conflicting source of truth.
+#   * It is NOT a lock file. Floor pins with a deliberate upper cap only where a
+#     known break exists. Regenerate exact versions with:
+#         .\.venv\Scripts\python.exe -m pip freeze > requirements.lock.txt
+#
+# HOW IT IS USED
+#   Fresh host:
+#       python -m venv .venv
+#       .\.venv\Scripts\python.exe -m pip install -U pip
+#       .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+#   scripts/ops/start_all.py --update runs the same command.
+#
+# PROVENANCE OF EVERY PIN BELOW (verified 2026-10-27, python 3.13.15, this host)
+#   Each version was read from the installed distribution metadata, not chosen
+#   from memory. Where a package is pinned by an extra in Blue_engine/pyproject
+#   the extra is named in the comment, so the two files cannot drift silently.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. PLATFORM (required - the engine cannot talk to the broker without these)
+# -----------------------------------------------------------------------------
+
+# The ONLY supported way the engine reaches OpenAlgo. PINNED on purpose: the
+# SDK surface is the contract (see pyproject: "bump deliberately after testing,
+# never silently with platform upgrades"). The clone in openalgo/ ships 2.0.5;
+# the engine is tested against 2.0.3.
+openalgo==2.0.3
+
+# Config loading: start_openalgo.py, scheduled_login.py, secrets resolver.
+python-dotenv==1.2.4
+
+# HTTP for headline/macro providers and the smoke tests.
+requests==2.34.2
+
+# Container for the parameters the frontline agent and the stage skills emit.
+# `schema` is what enforces that an unsanitised LLM payload never reaches a
+# calculation; it is a correctness dependency, not a convenience.
+# NOT PINNED EXACTLY, unlike everything else here: 2.13.4 is the version this
+# host resolved, but it is not guaranteed to exist on every mirror that pip may
+# be pointed at (verified: `pip --no-index` has no cached wheel for it). The
+# contract this file has to protect is "pydantic v2", not one patch number.
+pydantic>=2.6,<3
+
+
+# -----------------------------------------------------------------------------
+# 2. DASH TERMINAL  (pyproject extra: dashboard)
+# -----------------------------------------------------------------------------
+# Dash 4.x is required by the DMC component set used in dashboard/ui/. Dash 2.x
+# cannot render those components - a 2.x pin is a hard break, not a preference.
+
+dash==4.4.1
+dash-mantine-components==2.8.0
+dash-iconify==0.1.2
+
+# Plotly 7.x pairs with Dash 4.x. Kaleido is NOT installed: no server-side
+# image export path is used (every chart is rendered in the browser).
+plotly==7.1.0
+
+# Rich renders the terminal dashboard (dashboard/render.py) - a hard import of
+# the dashboard package, so the suite fails at import without it.
+rich==15.0.0
+
+
+# -----------------------------------------------------------------------------
+# 3. DATA / NUMERICS  (pyproject extras: dashboard, quant)
+# -----------------------------------------------------------------------------
+# pandas 3.x needs python >= 3.11 and numpy >= 2.25's C-API. Keep this trio
+# consistent: pandas 3.x + numpy 2.4 will build but fail at runtime.
+
+pandas==3.0.6
+numpy==2.5.3
+pyarrow==25.0.1
+
+# scipy arrives as a pin because sklearn + statsmodels both use it; it is not
+# imported directly by the engine (several modules document that they avoid it).
+scipy==1.18.1
+scikit-learn==1.9.1
+statsmodels==0.15.0
+
+# TPE hyper-parameter search. OPTIONAL at runtime - blue_engine/optimizer/
+# sampler.py ships a self-contained TPE fallback and engine.py detects Optuna
+# once, at construction. Installed because the dashboard's parameter-importance
+# / slice / parallel-coordinate workflow is the documented optimisation path.
+optuna==5.0.0
+
+
+# -----------------------------------------------------------------------------
+# 4. SCREENER  (pyproject extra: screener)
+# -----------------------------------------------------------------------------
+
+beautifulsoup4==4.15.0
+lxml==6.1.3
+pypdf==6.20.1
+pdfplumber==0.11.10
+
+# REQUIRED, not optional, despite living in a fallback module:
+# Blue_engine/core/broker_auth.py computes the broker's 6-digit TOTP with it.
+# The import is lazy, so a missing pyotp does not stop the engine starting - it
+# just makes every scheduled login fail at 08:45. Pin it here.
+pyotp==2.10.0
+
+
+# -----------------------------------------------------------------------------
+# 5. OPTIONAL ANALYTICS  (pyproject extra: screener-fallback)
+# -----------------------------------------------------------------------------
+# Fills only the inputs screener.in does not publish (diluted shares, cash,
+# minority interest, capex). Every caller degrades when it is absent
+# (screener/yf_fallback.py, portfolio/providers/yfinance_provider.py), so this
+# line is safe to delete on a host that must stay lean.
+
+yfinance==1.7.0
+
+
+# -----------------------------------------------------------------------------
+# 6. OPTIONAL: RESEARCH / DIAGNOSTICS TOOLING
+# -----------------------------------------------------------------------------
+# Not imported by production code. Remove the whole block for a lean server.
+
+# scripts/diagnostics/inspect_historify.py + job_detail.py read the historify
+# download job store (a DuckDB file, not SQLite).
+duckdb==1.5.6
+
+# Headless QA of the OpenAlgo/Dash UI (scripts/ops/qa_*.mjs still need Node;
+# this is for any Python-driven browser check).
+selenium==4.50.0
+webdriver-manager==4.1.2
+
+
+# -----------------------------------------------------------------------------
+# 7. TEST
+# -----------------------------------------------------------------------------
+# pytest-timeout is not used: the suite is offline and deterministic, and a
+# timeout plugin would silently convert a slow test into a pass-by-kill.
+
+pytest==9.1.1
+
+
+# -----------------------------------------------------------------------------
+# 8. RUNTIME THE PLATFORM NEEDS ON WINDOWS THAT UPSTREAM DOES NOT DECLARE
+# -----------------------------------------------------------------------------
+# WHY THESE ARE HERE AND NOT IN openalgo/requirements.txt
+#   The upstream file is generated for the Docker image (gunicorn + eventlet).
+#   A native venv installing only that file gets neither, which is why
+#   start_openalgo.py must pass `allow_unsafe_werkzeug=True`: Flask-SocketIO has
+#   no async server and falls back to Werkzeug. That fallback works for one
+#   local user; it is not what the dashboard's live callbacks are tested on.
+#   Installing eventlet here gives the app its intended async backend, the same
+#   one the VPS runs under gunicorn.
+#
+#   gunicorn itself is NOT installed on Windows: it needs fcntl. The Windows
+#   launcher uses Werkzeug (SOP 2026-10-14, "Known Windows pitfalls").
+eventlet==0.41.2
+
+
+# -----------------------------------------------------------------------------
+# DELIBERATELY NOT INSTALLED
+# -----------------------------------------------------------------------------
+# matplotlib    - no plotting code in the repo; every figure is Plotly.
+# kaleido       - no server-side static image export.
+# TA-Lib        - ml/features/engineering.py implements indicators by hand on
+#                 purpose (documented in that module); a C dependency would
+#                 make the "runs anywhere" claim false.
+# pandas_ta     - same reason; also pinned to pandas 2.x on most releases.
+# torch         - pyproject extra `deep`; offline research only, never on the
+#                 production path, and it is the single largest wheel here.
