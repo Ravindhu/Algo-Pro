@@ -23,6 +23,7 @@ from blue_engine.dashboard.pages._ai_insight import (
     _RED as _AI_RED,
     ai_insight_card,
 )
+from blue_engine.dashboard.pages import login_status
 from blue_engine.dashboard.ui.kpi import KpiCard, KpiRow, NEGATIVE, POSITIVE, pill
 from blue_engine.dashboard.ui.log_view import LogView, format_alerts
 from blue_engine.dashboard.ui.panel import Panel
@@ -84,7 +85,12 @@ def body():
     n_alerts = len(snap.alerts)
     n_crit = sum(1 for a in snap.alerts
                  if str(a.get("severity", "")).lower() in ("critical", "error"))
+    # Broker login state: the LAST RUN's result, read-only. A failed 08:50
+    # login is visible here instead of only inside a log file.
+    login_card, login_rows_ai, login_state = login_status.login_card()
     ai_rows = [
+        ("Broker login", login_state["label"],
+         _AI_GREEN if login_state["ok"] else _AI_RED),
         ("Config", "loaded" if cfg_ok else "missing",
          _AI_GREEN if cfg_ok else _AI_RED),
         ("Ledger", "available" if snap.ledger_ok else "offline",
@@ -127,6 +133,10 @@ def body():
         # chrome and its own 5 s poll interval. See ui/service_control.py for
         # why there is no Stop button and no Blue Engine button.
         service_control.control_panel(),
+        # Broker login: reads Temp/run/last_login.json only. It shows the LAST
+        # run, never starts one - see pages/login_status.py for the honesty
+        # rules (today only, stale after 4h, no fabrication).
+        login_card,
         Panel("Raw log tail",
               LogView(format_alerts(snap.alerts), empty="No log/alert entries yet."),
               icon="mdi:text-box-outline"),

@@ -55,6 +55,25 @@ Starting the bridge is not a trading action:
 
 That asymmetry -- Stop is destructive and unrecoverable, Start is additive and
 idempotent -- is the whole reason one got a button and the other did not.
+
+WHY A LOGIN BUTTON IS ALLOWED (added 2026-10-27)
+------------------------------------------------
+The 08:50 Task Scheduler run is now the only thing that logs the desk in, so a
+failed run meant an operator with no session and no way to fix it from the UI
+they were already looking at. A LOGIN button is safe on the same test as START:
+
+  * It cannot place an order. ``scripts/ops/scheduled_login.py`` only POSTs two
+    auth endpoints; it has no order path at all.
+  * It is IDEMPOTENT -- a live session is reused ("Broker session resumed") and
+    the broker is never re-hit with a fresh TOTP when it does not need one.
+  * It is additive to safety -- a session that is up can only make the desk MORE
+    able to act, never less.
+
+It runs DETACHED and reports the started PID, exactly like START, because the
+login leg can take minutes when OpenAlgo is reloading its master contract. A
+blocking callback would freeze the browser and invite the operator to click
+again. The result is read back from ``Temp/run/last_login.json`` on the next
+poll, so the card shows the REAL outcome, not the click.
 """
 from __future__ import annotations
 
@@ -70,7 +89,8 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 __all__ = ["probe_all", "probe_http", "probe_tcp", "probe_ws",
-           "start_openalgo", "start_command_preview", "openalgo_pids"]
+           "start_openalgo", "start_command_preview", "openalgo_pids",
+           "launch_login"]
 
 # Repo root: this file is Blue_engine/dashboard/ui/service_control.py
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -337,7 +357,8 @@ def start_command_preview() -> List[str]:
 
 
 def _launch_detached(argv: List[str], env: Optional[Dict[str, str]] = None,
-                     cwd: Optional[str] = None) -> int:
+                     cwd: Optional[str] = None,
+                     log_path: Optional[Path] = None) -> int:
     """Spawn ``argv`` detached and return its pid.
 
     Isolated into its own function for two reasons:
@@ -358,11 +379,23 @@ def _launch_detached(argv: List[str], env: Optional[Dict[str, str]] = None,
     if os.name == "nt":
         flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
                  | getattr(subprocess, "DETACHED_PROCESS", 0))
+    # A detached login must still leave a trail: Task Scheduler and the button
+    # write to the same log, so one file explains a failed morning either way.
+    sink = None
+    if log_path is not None:
+        try:
+            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+            sink = open(log_path, "a", encoding="utf-8")
+        except OSError:
+            sink = None
     proc = subprocess.Popen(
         argv, cwd=cwd or str(_REPO_ROOT), env=env or dict(os.environ),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=sink if sink else subprocess.DEVNULL,
+        stderr=subprocess.STDOUT if sink else subprocess.DEVNULL,
         stdin=subprocess.DEVNULL, creationflags=flags, close_fds=True,
     )
+    if sink is not None:
+        sink.close()   # the child holds its own duplicate of the handle
     return int(proc.pid)
 
 
@@ -427,6 +460,60 @@ def start_openalgo(*, force: bool = False) -> Dict[str, Any]:
     }
 
 
+def launch_login() -> Dict[str, Any]:
+    """Start the headless broker login DETACHED; report the pid, not the result.
+
+    Why detached and not a blocking run:
+
+    * The login leg can take minutes. OpenAlgo reloads a 166,945-symbol master
+      contract inside its own login hook (observed 2026-10-27), and a Dash
+      callback that blocks that long freezes the browser and invites a second
+      click - which is a second browser login.
+    * The REAL outcome already has an owner: ``scheduled_login.py`` writes
+      ``Temp/run/last_login.json``, which the broker-login card renders on the
+      next 5 s poll. The button must not invent a result of its own.
+
+    It runs WITHOUT ``--enable``: the login script's own ``BROKER_AUTOLOGIN``
+    opt-in check still applies, so the button cannot widen the permission the
+    operator granted in ``.env``. Never raises.
+    """
+    script = _REPO_ROOT / "scripts" / "ops" / "scheduled_login.py"
+    python = Path(sys.executable)
+    # COOLDOWN GATE. The child enforces this too, but launching a process that
+    # we already know will exit 8 is a worse message than refusing here, and a
+    # hurried operator clicking three times must see ONE reason, not three.
+    try:
+        from blue_engine.core.broker_auth import login_guard
+        guard = login_guard()
+    except Exception as exc:  # noqa: BLE001 - never block on a broken import
+        guard = {"allowed": True, "reason": f"guard unavailable: {exc}"}
+    if not guard.get("allowed"):
+        return {"ok": False, "launched": False, "cooldown": True,
+                "reason": str(guard.get("reason") or "login cooldown")}
+    if not script.is_file():
+        return {"ok": False, "launched": False,
+                "reason": f"login script not found at {script}"}
+    if not python.is_file():
+        return {"ok": False, "launched": False,
+                "reason": f"python not found at {python}"}
+    log = _REPO_ROOT / "Temp" / "run" / "login_dashboard.log"
+    try:
+        pid = _launch_detached([str(python), str(script)],
+                               cwd=str(_REPO_ROOT), log_path=log)
+    except Exception as exc:  # noqa: BLE001 - report, never raise into a callback
+        logger.warning("launch_login failed: %r", exc)
+        return {"ok": False, "launched": False,
+                "reason": f"launch failed: {exc}"}
+
+    logger.info("launch_login started pid=%s", pid)
+    return {
+        "ok": True, "launched": True, "pid": pid,
+        "reason": (f"Login started (pid {pid}). It takes ~5 s warm and up to "
+                   f"minutes after an OpenAlgo restart; the Broker login card "
+                   f"shows the real result on its next poll."),
+    }
+
+
 if __name__ == "__main__":  # manual probe from the CLI
     import json
     print(json.dumps(probe_all(), indent=2))
@@ -477,6 +564,18 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
         disabled=rest_up, n_clicks=0, leftSection=None,
     )
 
+    # LOGIN button. Requires a WORKING bridge: a login against a server that is
+    # not answering is a guaranteed failure and burns nothing but log noise.
+    # It is enabled by default (not on a red-looking login card) because the
+    # reason to press it is usually a rollover or a stale session, which the
+    # card alone cannot distinguish from a valid one.
+    login_btn = dmc.Button(
+        "Login broker (TOTP)" if rest_up else "Login - start OpenAlgo first",
+        id="svc-login-broker",
+        color="blue", variant="filled" if rest_up else "light",
+        disabled=not rest_up, n_clicks=0,
+    )
+
     stop_hint = dmc.Alert(
         title="Stop is deliberately not a button",
         color="orange", variant="light",
@@ -512,7 +611,8 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
         [
             dmc.Group([
                 dmc.Title("Service Control", order=4),
-                dmc.Badge("read-only except START", color="gray", variant="light"),
+                dmc.Badge("read-only except START + LOGIN", color="gray",
+                          variant="light"),
             ], justify="space-between"),
             dmc.Text(
                 "Probes are live: REST over HTTP, the WS proxy over a real "
@@ -526,7 +626,7 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
                 ])), html.Tbody(table_rows)],
                 striped=True, highlightOnHover=True, mt="sm",
             ),
-            dmc.Group([start_btn], mt="md"),
+            dmc.Group([start_btn, login_btn], mt="md"),
             dcc.Interval(id="svc-poll", interval=5000, n_intervals=0),
             html.Div([stop_hint, no_engine],
                      style={"marginTop": "16px",
@@ -537,10 +637,10 @@ def control_panel(snapshot: Optional[Dict[str, Any]] = None) -> Any:
 
 
 def register_callbacks(app: Any) -> None:
-    """Wire the status poll and the START action.
+    """Wire the poll, the START action and the LOGIN action.
 
     Kept in this module (not the page) so the control has exactly one owner.
-    Both callbacks are defensive: an exception renders as a message, never a
+    Every callback is defensive: an exception renders as a message, never a
     500 in the operator's face.
     """
     from dash import Input, Output, State, no_update
@@ -563,13 +663,35 @@ def register_callbacks(app: Any) -> None:
         except Exception as exc:  # noqa: BLE001 - never 500 a callback
             return _alert("Start failed", repr(exc), "red")
 
+    @app.callback(
+        Output("svc-action-result", "children", allow_duplicate=True),
+        Input("svc-login-broker", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _login(n_clicks):           # noqa: ANN001
+        if not n_clicks:
+            return no_update
+        try:
+            # A probe-then-launch race is harmless here: the login script's own
+            # preflight reports "OpenAlgo is not reachable" honestly if the
+            # bridge went down between the click and the child's first request.
+            res = launch_login()
+            return _alert("Login started" if res.get("ok") else "Login not started",
+                          res.get("reason", ""),
+                          "green" if res.get("ok") else "red",
+                          tail="The Broker login card below shows the real "
+                               "result on its next poll.")
+        except Exception as exc:  # noqa: BLE001 - never 500 a callback
+            return _alert("Login failed", repr(exc), "red")
 
-def _alert(title: str, body: str, colour: str) -> Any:
+
+def _alert(title: str, body: str, colour: str,
+           tail: Optional[str] = None) -> Any:
     from dash import html
     import dash_mantine_components as dmc
 
     return dmc.Alert(html.Span([
         html.B(body + " "),
-        html.Span("The service table refreshes on the next poll (5 s).",
+        html.Span(tail or "The service table refreshes on the next poll (5 s).",
                   style={"opacity": 0.75}),
     ]), title=title, color=colour, variant="light")

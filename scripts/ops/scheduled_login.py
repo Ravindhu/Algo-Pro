@@ -38,6 +38,15 @@ EXIT CODES
 5  platform login failed
 6  broker login failed
 7  login responded but the session probe failed
+8  refused by the login cooldown (too soon after the last attempt)
+
+COOLDOWN (why exit 8 exists)
+-----------------------------
+A broker locks an account for repeated logins, and OpenAlgo rate-limits
+``/auth/login`` to 5/minute and 25/hour per IP. So a real attempt is never
+made faster than 10 minutes after a success, or 30 minutes after a failure -
+regardless of how many times Task Scheduler restarts the task. ``--force``
+is the only way past it, and it is for a human at a terminal.
 
 USAGE
 -----
@@ -87,6 +96,7 @@ EXIT_UNREACHABLE = 4
 EXIT_PLATFORM = 5
 EXIT_BROKER = 6
 EXIT_VERIFY = 7
+EXIT_COOLDOWN = 8
 
 
 def _write_run_record(payload: Dict[str, Any]) -> None:
@@ -153,6 +163,9 @@ def main(argv: Optional[list] = None) -> int:
                         help="opt in for this run even if BROKER_AUTOLOGIN=0")
     parser.add_argument("--no-verify", action="store_true",
                         help="skip the post-login session probe (not advised)")
+    parser.add_argument("--force", action="store_true",
+                        help="ignore the login cooldown. A HUMAN decision only "
+                             "- repeated logins can lock the broker account")
     parser.add_argument("--url", default=None, help="OpenAlgo base URL")
     parser.add_argument("--json", action="store_true", help="machine-readable")
     args = parser.parse_args(argv)
@@ -184,11 +197,17 @@ def main(argv: Optional[list] = None) -> int:
             for name, value in payload["credentials"].items():
                 print(f"  {name:24s} {value}")
             print("totp seed         :", payload["totp_seed"]["reason"])
+            guard = broker_auth.login_guard()
+            print("login allowed now :", guard["allowed"], "|", guard["reason"])
             if last:
-                print("last login        :",
-                      "OK" if last.get("ok") else "FAILED",
-                      "|", last.get("finished_at"),
-                      "|", last.get("reason") or "")
+                if last.get("cooldown"):
+                    print("last login        : SKIPPED (cooldown) |",
+                          last.get("at"), "|", last.get("reason") or "")
+                else:
+                    print("last login        :",
+                          "OK" if last.get("ok") else "FAILED",
+                          "|", last.get("finished_at") or last.get("at"),
+                          "|", last.get("reason") or "")
         return EXIT_OK
 
     url = args.url or get_secret("OPENALGO_URL") or "http://127.0.0.1:5000"
@@ -218,7 +237,35 @@ def main(argv: Optional[list] = None) -> int:
             _print_human(payload)
         return EXIT_NOT_OPTED_IN
 
+    # ---- COOLDOWN: refuse BEFORE any broker request -----------------------
+    # Task Scheduler's restart-on-failure plus a curious operator is how an
+    # account gets locked. The guard is independent of --enable: opting in
+    # grants permission for A login, not for unlimited logins.
+    guard = broker_auth.login_guard()
+    if not guard["allowed"] and not args.force:
+        payload = {"ok": False, "skipped": True, "cooldown": True,
+                   "leg": "cooldown", "reason": guard["reason"],
+                   "wait_seconds": guard["wait_seconds"],
+                   "last_attempt_at": guard.get("last_attempt_at"),
+                   "mode": "login",
+                   "at": datetime.now(timezone.utc).isoformat()}
+        _write_run_record(payload)
+        if args.json:
+            print(json.dumps(payload, indent=2, default=str))
+        else:
+            print("=" * 62)
+            print("BLUE ENGINE - scheduled broker login")
+            print("=" * 62)
+            print(f"  [SKIP] {guard['reason']}")
+            print("  No broker attempt was made. Retrying now risks an account lock.")
+        return EXIT_COOLDOWN
+
     result = auth.run(verify=not args.no_verify)
+    # Stamp the attempt here too: this script does not go through
+    # broker_auth.run_scheduled_login(), so without this the guard would never
+    # see the logins it is meant to limit.
+    broker_auth.record_login_attempt(ok=bool(result.ok),
+                                     outcome=(result.reason or "attempt completed"))
     payload = result.to_dict()
     payload["skipped"] = False
     payload["mode"] = "login"
