@@ -61,16 +61,29 @@ OCL Strategy Logic:
              ladder re-entry) -> DYNAMIC, no hard target; the ATR
              trailing stop runs the trade.
        FIXED / DYNAMIC force one behaviour regardless of entry level.
-   - Breakeven floor (all modes): once price reaches breakeven_rr x
-     risk (default 1.5R), the LTF stop ratchets to entry +
-     round_trip_cost_pct% so the worst case after breakeven is a
-     scratch (cost-neutral exit, no loss).
+   - Breakeven (all modes): once price reaches breakeven_rr x risk
+     (default 1.5R) the stop is raised to entry +
+     round_trip_cost_pct% (cost-neutral floor). After that point the
+     DYNAMIC-VOLATILITY-SMOOTHING ATR may LIFT the stop further, and the
+     live protective stop is always max(cost floor, DV-ATR lift).
    - ATR trailing stop (dynamic): after entry, stop = max(previous stop,
      highest close since entry - atr_multiplier * ATR(atr_period)); it
      only ratchets UP and exits when an LTF close falls below it. The
      fixed-RR target stays active in FIXED mode; whichever level is
      touched first closes the trade. atr_period / atr_multiplier are
      optimizer params.
+   - DYNAMIC-VOLATILITY-SMOOTHING ATR (DV-ATR): a self-scaling trail.
+     With realized volatility above its typical level the trail WIDENS
+     (multiplier scaled up by ``dvs_sensitivity``), below it the trail
+     TIGHTENS. distance = atr_multiplier * ATR * (1 + sens*(vol/ref-1)),
+     clamped to [1/dvs_max_scale, 1/dvs_max_scale] times atr_multiplier.
+     vol = stdev(TR)/mean(TR) over ``atr_period``, ref = the mean of that
+     ratio over ``dvs_reference_period`` bars (causal). The classic
+     stop = entry - risk * stop_fallback_atr_mult maintains TRADITIONAL
+     STOP LOSS as a fallback floor and always stays below the DV-ATR
+     trail, so the DV-ATR can take over only after it has lifted above
+     it. The live protective stop = max(traditional SL, DV-ATR), and
+     DV-ATR activation degree for sizing is ``dvs_atr_sizing_factor``.
 """
 from __future__ import annotations
 
@@ -232,6 +245,29 @@ class OCLKeylevelSignal(BaseSignal):
         "atr_multiplier":   {"kind": "float", "default": 2.0,
                               "low": 0.5, "high": 6.0,
                               "note": "trail distance in ATR multiples"},
+        # [DYNAMIC-VOLATILITY-SMOOTHING ATR] Self-scaling trail. The ATR
+        # distance is multiplied by (1 + sensitivity*(vol/ref-1)) and
+        # clamped, so the stop widens in high volatility and tightens in
+        # low volatility. The traditional stop-loss stays as the fallback
+        # floor (stop_fallback_atr_mult) and always sits BELOW the DV-ATR.
+        "dvs_enabled":      {"kind": "cat", "default": True,
+                              "choices": [True, False],
+                              "note": "dynamic volatility smoothing ATR trail"},
+        "dvs_sensitivity":  {"kind": "float", "default": 1.0,
+                              "low": 0.0, "high": 3.0,
+                              "note": "how strongly vol change scales the trail"},
+        "dvs_max_scale":    {"kind": "float", "default": 2.5,
+                              "low": 1.0, "high": 5.0,
+                              "note": "max widening/tightening factor of the ATR distance"},
+        "dvs_reference_period": {"kind": "int", "default": 50,
+                              "low": 10, "high": 300,
+                              "note": "lookback for the reference (typical) volatility"},
+        "dvs_atr_sizing_factor": {"kind": "float", "default": 1.0,
+                              "low": 0.1, "high": 2.0,
+                              "note": "position-size multiplier when DV-ATR owns the stop"},
+        "stop_fallback_atr_mult": {"kind": "float", "default": 2.0,
+                              "low": 0.2, "high": 10.0,
+                              "note": "traditional SL = entry - mult*ATR (fallback, below DV-ATR)"},
     }
 
     def __init__(self, client: Any, config: Dict[str, Any]):
@@ -392,9 +428,34 @@ class OCLKeylevelSignal(BaseSignal):
             raise ValueError("atr_period must be >= 2")
         if self.atr_multiplier <= 0:
             raise ValueError("atr_multiplier must be > 0")
+        # [DV-ATR] Self-scaling trail parameters.
+        self.dvs_enabled = bool(config.get("dvs_enabled", True))
+        self.dvs_sensitivity = float(config.get("dvs_sensitivity", 1.0))
+        self.dvs_max_scale = float(config.get("dvs_max_scale", 2.5))
+        self.dvs_reference_period = int(
+            config.get("dvs_reference_period", 50))
+        self.dvs_atr_sizing_factor = float(
+            config.get("dvs_atr_sizing_factor", 1.0))
+        self.stop_fallback_atr_mult = float(
+            config.get("stop_fallback_atr_mult", 2.0))
+        if self.dvs_sensitivity < 0:
+            raise ValueError("dvs_sensitivity must be >= 0")
+        if self.dvs_max_scale < 1.0:
+            raise ValueError("dvs_max_scale must be >= 1.0")
+        if self.dvs_reference_period < 5:
+            raise ValueError("dvs_reference_period must be >= 5")
+        if self.dvs_atr_sizing_factor <= 0:
+            raise ValueError("dvs_atr_sizing_factor must be > 0")
+        if self.stop_fallback_atr_mult <= 0:
+            raise ValueError("stop_fallback_atr_mult must be > 0")
         self._trail_active = False
         self._highest_close: Optional[float] = None
         self._trail_stop: Optional[float] = None
+        self._dvs_scale: float = 1.0        # last applied volatility scale
+        self._dvs_stop: Optional[float] = None   # DV-ATR trail level
+        self._dvs_active = False
+        self._traditional_sl: Optional[float] = None  # fallback floor
+        self._traditional_sl_frozen = False
 
         # Re-arm: should the pattern be re-scanned after a fire?
         # - ONE_SHOT/CONTINUOUS/COUNT_LIMITED: no, level is fixed
@@ -770,15 +831,27 @@ class OCLKeylevelSignal(BaseSignal):
                 time.sleep(self.poll_seconds)
                 return None
 
-            # ---- Post-entry management: ATR trail + breakeven floor ----
+            # ---- Post-entry management: ATR/DV-ATR trail + breakeven ----
             if self._fired:
-                if self.atr_trail_enabled:
+                if self.atr_trail_enabled or self.dvs_enabled:
                     self._update_trailing_stop(df)
                 self._update_breakeven(ltp)
+                # Traditional SL stays the fallback: never let the live
+                # stop fall below it.
+                if self._traditional_sl is not None:
+                    self._ltf_stop_loss = max(
+                        self._ltf_stop_loss or 0.0, self._traditional_sl)
+                if self._dvs_active:
+                    self.log(
+                        f"[DV-ATR] stop={self._dvs_stop:.2f} scale="
+                        f"{self._dvs_scale:.2f} fallback_SL="
+                        f"{self._traditional_sl:.2f}"
+                    )
                 # Trail exit check (DYNAMIC mode has no hard target, so
                 # the trail is the exit; in FIXED it may pre-empt it).
-                if self.atr_trail_enabled and self._check_trailing_stop(ohlc):
-                    self.log("[EXIT] ATR trail hit; setup complete")
+                if ((self.atr_trail_enabled or self.dvs_enabled)
+                        and self._check_trailing_stop(ohlc)):
+                    self.log("[EXIT] DV/ATR trail hit; setup complete")
                     self._reset_trail()
                     self._fired = False
                     time.sleep(self.poll_seconds)
@@ -1271,17 +1344,27 @@ class OCLKeylevelSignal(BaseSignal):
         if risk <= 0:
             return
         be_trigger = self._trigger_level + risk * self.breakeven_rr
-        if ltp >= be_trigger:
-            floor = self._trigger_level * (
-                1.0 + self.round_trip_cost_pct / 100.0
+        be_floor = self._trigger_level * (
+            1.0 + self.round_trip_cost_pct / 100.0
+        )
+        if not self._breakeven_armed and ltp >= be_trigger:
+            if (self._ltf_stop_loss is None or be_floor > self._ltf_stop_loss):
+                self._ltf_stop_loss = be_floor
+            self._breakeven_armed = True
+            self.log(
+                f"[BREAKEVEN] price {ltp:.2f} >= {be_trigger:.2f} "
+                f"({self.breakeven_rr}R); SL locked to entry+cost "
+                f"{be_floor:.2f}"
             )
-            if (self._ltf_stop_loss is None or floor > self._ltf_stop_loss):
-                self._ltf_stop_loss = floor
-                self._breakeven_armed = True
+        # [BREAKEVEN + DV-ATR] After the cost floor is armed, the DV-ATR
+        # may LIFT the stop even higher. The protective stop never falls
+        # back to the cost floor once lifted.
+        if self._breakeven_armed and self._dvs_stop is not None:
+            if self._dvs_stop > (self._ltf_stop_loss or 0.0):
+                self._ltf_stop_loss = self._dvs_stop
                 self.log(
-                    f"[BREAKEVEN] price {ltp:.2f} >= {be_trigger:.2f} "
-                    f"({self.breakeven_rr}R); SL locked to entry+cost "
-                    f"{floor:.2f}"
+                    f"[DV-ATR LIFT] breakeven stop raised to "
+                    f"{self._dvs_stop:.2f} (was {be_floor:.2f})"
                 )
 
     # ============================================================
@@ -1311,7 +1394,19 @@ class OCLKeylevelSignal(BaseSignal):
         c = closes[-1]
         if self._highest_close is None or c > self._highest_close:
             self._highest_close = c
-        candidate = self._highest_close - self.atr_multiplier * a
+        # [DV-ATR] volatility-adaptive distance. Scale > 1 widens the
+        # trail in high vol, < 1 tightens it in low vol.
+        scale = 1.0
+        distance = self.atr_multiplier * a
+        if self.dvs_enabled:
+            scale = self._dvs_scale_from_series(highs, lows, closes)
+            self._dvs_scale = scale
+            distance = self.atr_multiplier * a * scale
+        # Traditional stop loss = fallback floor. It sits BELOW the
+        # DV-ATR distance so the DV-ATR only takes over once it has lifted
+        # above the classic stop.
+        self._update_traditional_stop(a)
+        candidate = max(self._highest_close - distance, 0.0)
         base = self._ltf_stop_loss or self._htf_stop_loss or 0.0
         new_stop = max(candidate, base)
         if self._trail_stop is None or new_stop > self._trail_stop:
@@ -1329,6 +1424,116 @@ class OCLKeylevelSignal(BaseSignal):
                     f"[ATR TRAIL] ratcheted UP to {new_stop:.2f} "
                     f"(highest_close={self._highest_close:.2f}, ATR={a:.2f})"
                 )
+        if self.dvs_enabled:
+            # DV-ATR never sits above the price-implied trail; it ratchets
+            # up and only counts once it clears the traditional fallback.
+            self._sync_dvs_stop(candidate)
+
+    # ============================================================
+    # [DV-ATR] Dynamic Volatility Smoothing ATR
+    # ============================================================
+    def _dvs_scale_from_series(self, highs, lows, closes) -> float:
+        """Volatility scale = 1 + sens*(realized/typical - 1), clamped.
+
+        realized vol  = stdev(TR) / mean(TR) over ``atr_period`` bars.
+        typical  vol  = mean of that ratio over ``dvs_reference_period``
+                        bars (causal; only closed history is used).
+        A flat/undefined window returns 1.0 (classic ATR behaviour).
+        """
+        p = self.atr_period
+        ref_n = max(self.dvs_reference_period, p + 2)
+        if len(closes) < ref_n + 1:
+            return 1.0
+        trs = []
+        for i in range(1, len(closes)):
+            tr = max(highs[i] - lows[i],
+                     abs(highs[i] - closes[i - 1]),
+                     abs(lows[i] - closes[i - 1]))
+            trs.append(float(tr))
+        if len(trs) < ref_n:
+            return 1.0
+        def _cv(window):
+            n = len(window)
+            if n < 2:
+                return None
+            m = sum(window) / n
+            if m <= 0:
+                return None
+            var = sum((x - m) ** 2 for x in window) / (n - 1)
+            return (var ** 0.5) / m
+        hist_cv = []
+        for j in range(len(trs) - ref_n, len(trs) - p):
+            cv = _cv(trs[j:j + p])
+            if cv is not None:
+                hist_cv.append(cv)
+        cur = _cv(trs[-p:])
+        # exclude the current window from its own reference
+        ref_vals = [v for v in hist_cv if v is not None]
+        if cur is None or not ref_vals:
+            return 1.0
+        ref = sum(ref_vals) / len(ref_vals)
+        if ref <= 0:
+            return 1.0
+        raw = 1.0 + self.dvs_sensitivity * (cur / ref - 1.0)
+        lo = 1.0 / self.dvs_max_scale
+        hi = self.dvs_max_scale
+        return max(lo, min(hi, raw))
+
+    def _update_traditional_stop(self, a: float) -> None:
+        """Traditional SL = entry - stop_fallback_atr_mult * ATR.
+
+        This is the CLASSIC stop, kept as the hard fallback FLOOR beneath
+        the DV-ATR. It is computed once per trade and then frozen, so the
+        DV-ATR trail has a fixed level to sit ABOVE.
+        """
+        if self._traditional_sl_frozen:
+            return
+        entry = self._entry_price or self._trigger_level
+        if entry is None or a <= 0:
+            return
+        self._traditional_sl = entry - self.stop_fallback_atr_mult * a
+        self._traditional_sl_frozen = True
+        self.log(
+            f"[TRAD SL] fallback = {self._traditional_sl:.2f} "
+            f"(entry {entry:.2f} - {self.stop_fallback_atr_mult}*ATR {a:.2f})"
+        )
+
+    def _sync_dvs_stop(self, dv_atr_level: float) -> None:
+        """Ratchet the DV-ATR stop UP; log when it clears the fallback."""
+        if dv_atr_level <= 0:
+            return
+        trad = self._traditional_sl
+        prev = self._dvs_stop
+        if prev is not None and dv_atr_level <= prev:
+            return
+        self._dvs_stop = dv_atr_level
+        if not self._dvs_active and trad is not None and dv_atr_level > trad:
+            self._dvs_active = True
+            self.log(
+                f"[DV-ATR] ACTIVE: stop {dv_atr_level:.2f} lifted above "
+                f"traditional SL {trad:.2f} (scale={self._dvs_scale:.2f})"
+            )
+        elif self._dvs_active:
+            self.log(
+                f"[DV-ATR] ratcheted to {dv_atr_level:.2f} "
+                f"(scale={self._dvs_scale:.2f})"
+            )
+
+    def protective_stop(self) -> Optional[float]:
+        """Live protective stop = max(traditional SL, DV-ATR trail).
+
+        The DV-ATR always sits ABOVE the traditional fallback stop once it
+        has lifted, so the traditional level remains the safety floor.
+        """
+        levels = [v for v in (self._traditional_sl, self._dvs_stop)
+                  if v is not None]
+        return max(levels) if levels else None
+
+    def effective_size_factor(self) -> float:
+        """Position-size multiplier: DV-ATR active -> sizing factor."""
+        if self.dvs_enabled and self._dvs_active:
+            return self.dvs_atr_sizing_factor
+        return 1.0
 
     def _check_trailing_stop(self, candle) -> bool:
         """Trail exit: an LTF CLOSE below the ratcheted trail stop."""
@@ -1426,6 +1631,13 @@ class OCLKeylevelSignal(BaseSignal):
         self._trail_stop = None
         self._trail_active = False
         self._breakeven_armed = False
+        self._dvs_stop = None
+        self._dvs_active = False
+        self._dvs_scale = 1.0
+        # Traditional fallback SL is derived on the first post-entry poll
+        # as entry - stop_fallback_atr_mult * ATR (frozen afterwards).
+        self._traditional_sl = None
+        self._traditional_sl_frozen = False
 
         intent = {
             "action": self.action,
@@ -1575,20 +1787,26 @@ class OCLKeylevelSignal(BaseSignal):
                   and ltp <= self._position_stop):
                 reason = "LTF stop-loss close"
             else:
-                if self.atr_trail_enabled:
+                if self.atr_trail_enabled or self.dvs_enabled:
                     self._update_trailing_stop(ltf_df)
                 self._update_breakeven(ltp)
                 if self._breakeven_armed:
                     self._position_stop = max(
                         self._position_stop or 0.0,
                         self._ltf_stop_loss or 0.0)
+                # [DV-ATR] traditional fallback floor + DV-ATR lift
+                ps = self.protective_stop()
+                if ps is not None:
+                    self._position_stop = max(
+                        self._position_stop or 0.0, ps)
                 if (self._entry_exit_mode == "FIXED"
                         and self._position_target is not None
                         and ltp >= self._position_target):
                     reason = "fixed RR target"
-                elif (self.atr_trail_enabled
+                elif ((self.atr_trail_enabled or self.dvs_enabled)
                       and self._check_trailing_stop(ltf_candle)):
-                    reason = "ATR trailing stop"
+                    reason = ("DV-ATR trailing stop" if self._dvs_active
+                              else "ATR trailing stop")
 
             if reason is None:
                 self.log(
@@ -1630,10 +1848,15 @@ class OCLKeylevelSignal(BaseSignal):
             time.sleep(self.poll_seconds)
             return None
     def _reset_trail(self) -> None:
-        """Clear the ATR trailing state (setup ended or trail exit)."""
+        """Clear the ATR / DV-ATR trailing state (setup ended or exit)."""
         self._trail_active = False
         self._trail_stop = None
         self._highest_close = None
+        self._dvs_stop = None
+        self._dvs_active = False
+        self._dvs_scale = 1.0
+        self._traditional_sl = None
+        self._traditional_sl_frozen = False
 
     def _max_label(self) -> str:
         """Human-readable max-fire count for log messages."""

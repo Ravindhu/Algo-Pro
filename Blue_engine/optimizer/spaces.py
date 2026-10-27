@@ -113,6 +113,51 @@ _OCL_KEYLEVEL: List[Dict[str, Any]] = [
          default=0.0,
          doc="Minimum gap between consecutive fires. Only meaningful for "
              "CONTINUOUS / COUNT_LIMITED."),
+
+    # --- exit management (stops / breakeven) ------------------------------- #
+    dict(name="target_rr", kind="float", low=0.5, high=10.0, default=3.0,
+         doc="Fixed risk-reward target (entry + risk * target_rr). Used when "
+             "exit_mode resolves to FIXED."),
+    dict(name="exit_mode", kind="categorical",
+         choices=["AUTO", "FIXED", "DYNAMIC"], default="AUTO",
+         doc="AUTO: aggressive entry -> FIXED target, conservative entry -> "
+             "ATR trail. FIXED/DYNAMIC force one behaviour."),
+    dict(name="breakeven_rr", kind="float", low=0.5, high=4.0, default=1.5,
+         doc="Price must reach this many R before the stop moves to entry + "
+             "round-trip cost. Lower = protects earlier, cuts more winners."),
+    dict(name="round_trip_cost_pct", kind="float", low=0.0, high=1.0,
+         default=0.20,
+         doc="Round-trip cost in percent of entry. Sets the breakeven floor "
+             "so a breakeven exit is scratch, not a small loss."),
+    dict(name="atr_trail_enabled", kind="categorical", choices=[True, False],
+         default=True,
+         doc="Enable the ATR trailing stop after entry."),
+    dict(name="atr_period", kind="int", low=5, high=50, default=14,
+         doc="ATR lookback for the trailing stop."),
+    dict(name="atr_multiplier", kind="float", low=0.5, high=6.0, default=2.0,
+         doc="Trail distance in ATRs below the highest close since entry."),
+
+    # --- DV-ATR: dynamic volatility smoothing ATR ------------------------- #
+    dict(name="dvs_enabled", kind="categorical", choices=[True, False],
+         default=True,
+         doc="Dynamic-volatility-smoothing ATR: the trail widens when realized "
+             "volatility is above its typical level and tightens below it."),
+    dict(name="dvs_sensitivity", kind="float", low=0.0, high=3.0, default=1.0,
+         doc="How strongly the vol ratio scales the trail. 0 = classic ATR."),
+    dict(name="dvs_max_scale", kind="float", low=1.0, high=5.0, default=2.5,
+         doc="Clamp on the widening/tightening factor so one vol spike cannot "
+             "push the stop arbitrarily far."),
+    dict(name="dvs_reference_period", kind="int", low=10, high=300, default=50,
+         doc="Lookback that defines the 'typical' volatility the current one "
+             "is compared against."),
+    dict(name="dvs_atr_sizing_factor", kind="float", low=0.1, high=2.0,
+         default=1.0,
+         doc="Size multiplier while the DV-ATR owns the stop. Under 1 trims "
+             "risk when the adaptive trail is doing the work."),
+    dict(name="stop_fallback_atr_mult", kind="float", low=0.2, high=10.0,
+         default=2.0,
+         doc="Traditional fallback SL = entry - mult * ATR. Always sits below "
+             "the DV-ATR trail, so it is the wide safety net, not the exit."),
 ]
 
 
@@ -141,7 +186,28 @@ def _ocl_constraints() -> List[Any]:
             return "z_window must be >= roc_period"
         return None
 
-    return [cooldown_only_when_multi_fire, z_window_long_enough_for_roc]
+    def dvs_reference_longer_than_atr(p: Dict[str, Any]) -> Optional[str]:
+        # The reference window must be longer than the ATR window, otherwise
+        # the 'typical volatility' sample is built from the same bars it is
+        # supposed to benchmark and the scaling collapses to ~1.
+        if not p.get("dvs_enabled", True):
+            return None
+        if int(p.get("dvs_reference_period") or 0) <= int(p.get("atr_period") or 0):
+            return "dvs_reference_period must be > atr_period"
+        return None
+
+    def breakeven_below_target(p: Dict[str, Any]) -> Optional[str]:
+        # A breakeven trigger above the fixed target can never arm before
+        # the trade is already closed - a structural dead axis, not a real
+        # finding.
+        if str(p.get("exit_mode", "AUTO")).upper() == "DYNAMIC":
+            return None
+        if float(p.get("breakeven_rr") or 0) > float(p.get("target_rr") or 0):
+            return "breakeven_rr must be <= target_rr"
+        return None
+
+    return [cooldown_only_when_multi_fire, z_window_long_enough_for_roc,
+            dvs_reference_longer_than_atr, breakeven_below_target]
 
 
 # --------------------------------------------------------------------------- #
