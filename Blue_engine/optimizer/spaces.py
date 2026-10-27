@@ -106,12 +106,18 @@ _OCL_KEYLEVEL: List[Dict[str, Any]] = [
          doc="C2 and C3 must each have a body/range ratio above this "
              "(0.5 = more than half-body candle)."),
     dict(name="setup_mode", kind="categorical",
-         choices=["OCL", "SELL_FAILURE_BOTTOM", "SELL_FAILURE_TOP"],
+         choices=["OCL", "SELL_FAILURE_TOP", "SELL_FAILURE_BOTTOM",
+                  "SELL_FAILURE_LOW"],
          default="OCL",
-         doc="Blueprint: OCL (classic buy), SELL_FAILURE_BOTTOM (buy the "
-             "failed short on a retest from above), SELL_FAILURE_TOP (sell "
-             "the failed long on a retest from below). Run each separately - "
-             "each yields its own study, params and report."),
+         doc="BUY blueprint. OCL = 2 levels off the OCL candle (aggr C3 close, "
+             "cons C3 open). SELL_FAILURE_TOP = 2 key levels, no body filter. "
+             "SELL_FAILURE_BOTTOM = 2 key levels + >50% bodies. "
+             "SELL_FAILURE_LOW = 1 key level (lowest swing candle open). "
+             "Run each separately - each yields its own study and report."),
+    dict(name="apply_body_filter_failure", kind="categorical",
+         choices=[True, False], default=True,
+         doc="Apply the >50% body filter on the failure blueprints "
+             "(SELL_FAILURE_TOP defaults to off, per the blueprint)."),
 
     # --- confirmation gate (the momentum filter) -------------------------- #
     dict(name="roc_period", kind="int", low=3, high=30, default=10,
@@ -223,23 +229,18 @@ def _ocl_constraints() -> List[Any]:
             return "dvs_reference_period must be > atr_period"
         return None
 
-    def failure_top_is_a_sell_blueprint(p: Dict[str, Any]) -> Optional[str]:
-        # SELL_FAILURE_TOP is the only SELL blueprint in this family. Anything
-        # that assumes a BUY-only keylevel strategy is meaningless there, so
-        # the combination is refused rather than silently evaluated on a
-        # configuration the signal will reject.
-        if str(p.get("setup_mode")) == "SELL_FAILURE_TOP" and str(
-                p.get("trend_filter", "")).upper() == "BULL_ONLY":
-            return "trend_filter=BULL_ONLY is incompatible with SELL_FAILURE_TOP"
-        return None
+
 
     def sell_failure_ignores_touch_buffer(p: Dict[str, Any]) -> Optional[str]:
         # In sell-failure mode the entry is a RETEST of the broken level,
         # so the extra touch buffer would widen a level that the market has
         # already proven. Left in the space it would be a dead axis.
-        if p.get("sell_failure_enabled") and float(
+        failure_modes = {"SELL_FAILURE_TOP", "SELL_FAILURE_BOTTOM",
+                         "SELL_FAILURE_LOW"}
+        if str(p.get("setup_mode")) in failure_modes and float(
                 p.get("ltf_touch_buffer") or 0) > 0.05:
-            return "ltf_touch_buffer must be <= 0.05 under sell_failure_enabled"
+            return ("ltf_touch_buffer must be <= 0.05 under the "
+                    "SELL_FAILURE_* blueprints")
         return None
 
     def body_filter_needs_half_candle(p: Dict[str, Any]) -> Optional[str]:
@@ -261,7 +262,6 @@ def _ocl_constraints() -> List[Any]:
 
     return [cooldown_only_when_multi_fire, z_window_long_enough_for_roc,
             dvs_reference_longer_than_atr, breakeven_below_target,
-            failure_top_is_a_sell_blueprint,
             sell_failure_ignores_touch_buffer, body_filter_needs_half_candle]
 
 
