@@ -888,6 +888,15 @@ class OCLKeylevelSignal(BaseSignal):
                 fail_candle = self._sell_failure_candle(c2, c3, c4)
                 if fail_candle is None:
                     return False
+                # Both SELL levels must be FRESH: no candle between C3 and the
+                # failure candle may have already traded at or above them.
+                if not self._levels_are_fresh(
+                        self._core_window, self._core_positions, c2, c3,
+                        fail_candle):
+                    self.log(
+                        "[FRESH] a candle before the break already traded "
+                        "at/above a sell level -> sequence stale, skip")
+                    return False
                 self._setup_candle = fail_candle
                 self._sell_failure_broken = False
                 self._oc_top_used = False
@@ -1163,8 +1172,9 @@ class OCLKeylevelSignal(BaseSignal):
 
         if self._is_failure_blueprint():
             # Core = a SELL pattern: C2 GREEN (conservative sell level = C2
-            # open), C3 RED (aggressive sell level = C3 open). C2 and C3
-            # bodies must both exceed min_body_pct_c23 (operator: >50%).
+            # open) then C3 RED (aggressive sell level = C3 open). C1 is
+            # unconstrained - it may be green or red. C2 and C3 bodies must
+            # both exceed min_body_pct_c23 (operator: >50%).
             # OLDEST window first so a candle remains AFTER the core to hold
             # the failure candle.
             use_body = self._failure_body_filter()
@@ -1213,9 +1223,38 @@ class OCLKeylevelSignal(BaseSignal):
 
         C2 is GREEN (its open is the conservative sell level, e.g. 120) and
         C3 is RED (its open is the aggressive sell level, e.g. 135). C1 is
-        the preceding candle and is not colour-constrained.
+        the preceding candle and is NOT colour-constrained - it may be green
+        or red, it only frames the window.
         """
         return (c2["close"] > c2["open"] and c3["close"] < c3["open"])
+
+    def _levels_are_fresh(self, w4, pos, c2, c3, fail_candle) -> bool:
+        """True when BOTH sell levels are untouched before the break.
+
+        Levels: conservative = C2 open, aggressive = C3 open.
+
+        "Fresh" means no candle BETWEEN C3 and the failure candle already
+        traded at or above either level. Such a candle would have consumed
+        the level before the break, so the retest would not be the first
+        retest of a virgin level. The failure candle itself is excluded - it
+        is the break, so by definition it trades above the aggressive level.
+        When the failure candle IS C3 there is no in-between candle at all
+        and the sequence is fresh by construction.
+        """
+        if not w4 or fail_candle is c3:
+            return True
+        last = int(pos[2]) if pos else len(w4) - 1
+        between = [c for c in w4[last + 1:]
+                   if c is not None and c is not fail_candle and c is not c3]
+        if not between:
+            return True
+        aggr = float(c3["open"])
+        cons = float(c2["open"])
+        top = max(aggr, cons)
+        for c in between:
+            if float(c["high"]) >= top:
+                return False
+        return True
 
     @staticmethod
     def _is_red_green(c1, c2, c3) -> bool:
