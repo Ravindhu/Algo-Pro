@@ -475,6 +475,83 @@ Two related caveats that limit any sector-level research here:
 
 ---
 
+## 8c. OCL blueprint comparison — gate before ANY paper enable
+
+Added 2026-10-28. **No `setup_mode` goes to paper trading without this run.**
+
+The OCL keylevel strategy ships three BUY blueprints (`setup_mode`): `OCL`,
+`SELL_FAILURE_TOP`, `SELL_FAILURE_BOTTOM`. They are three different trading
+ideas sharing one code path, so "which one" is a research question, not a
+preference. `blue_engine/backtest/blueprints.py` answers it.
+
+### Run it
+
+```powershell
+cd C:\Users\Admin\CodeGPT\my-trading-system
+
+# bars must already be in the optimizer cache; this step downloads what is missing
+.\.venv\Scripts\python.exe -m blue_engine.backtest.blueprints `
+  --symbols INFY,TCS,RELIANCE,HDFCBANK,SBIN `
+  --start 2025-01-01 --end 2026-06-30 `
+  --trials 100 --folds 4 --oos-fraction 0.2 --seed 7
+
+# same run, explicit blueprint list and report location
+.\.venv\Scripts\python.exe -m blue_engine.backtest.blueprints `
+  --symbols symbols.csv --start 2025-01-01 --end 2026-06-30 `
+  --modes OCL,SELL_FAILURE_TOP,SELL_FAILURE_BOTTOM `
+  --out data\backtest_results\blueprint_comparison.json
+```
+
+Output: `blueprint_comparison.json` + `.md` next to it (one table, one
+verdict), and one candidate parameter file per blueprint under
+`blueprint_candidates/`. **Nothing is enabled by this run.**
+
+Exit codes: `0` RECOMMENDED, `2` TIE, `3` NO BLUEPRINT ELIGIBLE. Chain the
+command only on `0`.
+
+### What the run holds constant (read before quoting a number)
+
+| Held constant | Why it matters |
+|---|---|
+| symbols, start, end | a blueprint is never compared on a bigger universe than its rival; a symbol that fails for one blueprint is dropped for all |
+| cost model | one `CostModel` instance (statutory stack + slippage + latency + impact) for every run |
+| fold geometry, seed, trials | the deflated-Sharpe correction is comparable across the table |
+| every parameter except `setup_mode` | the study space is pinned to a single categorical value, so the difference is the blueprint, not a lucky `entry_z` |
+
+Only out-of-sample numbers appear in the table. Expectancy is net of the
+engine's per-fill costs; Sharpe is the median of per-symbol OOS Sharpe;
+deflated probability is the WORST per-symbol value.
+
+### The gate (all five must pass)
+
+1. pooled OOS trades ≥ 10
+2. post-cost expectancy > 0
+3. median OOS Sharpe ≥ 1.0
+4. worst OOS deflated probability ≥ 0.95
+5. every symbol `APPROVED` by the Loop A gate
+
+Eligible blueprints are ranked by Sharpe then expectancy. A runner-up inside
+**0.25 Sharpe** produces a `TIE` and no recommendation — that gap is inside
+the sampling error of a one-year Sharpe estimate.
+
+### Enabling for paper (manual, after a RECOMMENDED verdict)
+
+1. Confirm the verdict names the blueprint you intend to run.
+2. Set `"setup_mode"` in the `ocl_keylevel` config block
+   (`scripts/run/run_pov.py` / `input/*.json`) to that value. Keep
+   `strategies.ocl_keylevel = false` until the paper session is scheduled.
+3. Run paper (OpenAlgo `analyze` mode) and reconcile per §5.
+4. Record the comparison `timestamp`, universe and window in the work log —
+the verdict is only valid for the data it was measured on.
+
+### Regression tests
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest Blue_engine\tests\test_backtest_blueprints.py -q
+```
+
+---
+
 ## 9. Troubleshooting
 
 | Symptom | Likely cause | Action |

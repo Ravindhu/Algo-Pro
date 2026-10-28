@@ -80,6 +80,10 @@ LAYOUT
     strategy.py     the optimizer strategy contract that wraps the engine
     loops.py        Loop A (IS/OOS), Loop B (live monitor), Loop C (slippage)
     batch.py        cached symbol ingestion, parallel search, OOS gate and JSON output
+    blueprints.py   side-by-side walk-forward comparison of the OCL setup_mode
+                    blueprints (OCL / SELL_FAILURE_TOP / SELL_FAILURE_BOTTOM)
+                    on one universe + window, with a published verdict. Writes
+                    a report; it never enables a blueprint for paper trading.
 
 Every module logs through ``blue_engine.backtest.<module>`` so one dashboard
 page can tail all backtest activity, exactly like ``blue_engine.optimizer``.
