@@ -4,9 +4,17 @@ A **later, stricter** entry for the OCL strategy. The shipped model fires on the
 first LTF touch of the HTF key level. This one refuses to fire until the whole
 smart-money sequence is visible on closed bars.
 
-It lives **inside `ocl_keylevel.py`** — not in a separate module. The OCL code
-is reused on all three frames, and SL / TP / R-multiple / sizing / trailing
-stops are the ones that already exist. Nothing is duplicated.
+It lives in **`conformation_model.py`**. `ocl_keylevel.py` keeps the three
+AGGRESSIVE blueprints (HTF pattern, key levels, touch/crossover gates, stops,
+targets, trailing exits) and delegates to the model only when
+`entry_model="conformation"`. No pattern rule is duplicated: the model calls
+the class's own `_scan_htf_pattern`, `_check_touch`, `_check_ltf_rrg`,
+`_hilega_milega_bullish` and `_fire_intent`.
+
+```
+ocl_keylevel.py        aggressive strategy          (default, unchanged)
+conformation_model.py  the state machine that gates it
+```
 
 ---
 
@@ -46,6 +54,20 @@ Operationally, on the HTF (daily):
   floor for the walk-back),
 - the level is the **OPEN of the oldest candle of the run** (`c1`), never the
   deepest and never the last.
+
+### Rung selection — `rung_mode`
+
+Which level of a ladder the chain works from, for **both** the monthly and the
+daily ladder:
+
+| `rung_mode` | Behaviour |
+|---|---|
+| `"aggressive"` | the NEAREST level only (ladder[0]); never walks — **default** |
+| `"conservative"` | the DEEPEST level only (ladder[-1]); never walks |
+| `"ladder"` | walks aggressive → conservative → bottom |
+
+A blueprint reporting one level (`SELL_FAILURE_BOTTOM`) behaves identically
+under all three.
 
 ### The level ladder
 

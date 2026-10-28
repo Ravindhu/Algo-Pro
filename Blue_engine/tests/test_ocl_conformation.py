@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from blue_engine.alpha.Statergy import ocl_keylevel as mod
+from blue_engine.alpha.Statergy import conformation_model as cm
+from blue_engine.alpha.Statergy.conformation_model import ConformationModel
 from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
 
 CFG = {"symbol": "TEST", "exchange": "NSE", "quantity": 10}
@@ -19,6 +20,17 @@ def _signal(**overrides):
     cfg = dict(CFG)
     cfg.update(overrides)
     return OCLKeylevelSignal(None, cfg)
+
+
+
+def _model(sig, rung_mode="aggressive"):
+    """Attach (or rebuild) the conformation model for a test signal."""
+    model = getattr(sig, "_conf_model", None)
+    if model is None:
+        model = ConformationModel(sig, rung_mode=rung_mode)
+        sig._conf_model = model
+        sig._conf = model.conf
+    return model
 
 
 def _bar(o, h, l, c, ts="2026-01-01"):
@@ -41,7 +53,7 @@ def test_conformation_model_allocates_state():
     sig = _signal(entry_model="conformation")
     assert sig.entry_model == "conformation"
     assert sig._conf is not None
-    assert sig._conf.state == mod._ConfState.IDLE
+    assert sig._conf.state == cm.ConfState.IDLE
 
 
 def test_unknown_entry_model_is_rejected():
@@ -70,7 +82,7 @@ def test_cisd_is_the_open_of_the_oldest_red_candle_of_the_run():
         _bar(100, 102, 99, 101),    # 4 displacement (green)
     ]
     fvg = {"index": 3, "low": 101, "high": 104}      # inside c3 -> floor = 1
-    found = mod._conf_cisd_level(rows, 4, max_lookback=10, fvg=fvg)
+    found = cm.cisd_level(rows, 4, max_lookback=10, fvg=fvg)
     assert found == (1, 109.0)
 
 
@@ -84,12 +96,12 @@ def test_cisd_run_stops_at_the_fvg_window_floor():
         _bar(101, 106, 100, 105),   # 4 displacement
     ]
     fvg = {"index": 3, "low": 102, "high": 105}
-    assert mod._conf_cisd_level(rows, 4, max_lookback=10, fvg=fvg) == (1, 110.0)
+    assert cm.cisd_level(rows, 4, max_lookback=10, fvg=fvg) == (1, 110.0)
 
 
 def test_cisd_is_undefined_when_the_candle_before_displacement_is_green():
     rows = [_bar(100, 101, 99, 100.5), _bar(100.5, 106, 100, 105)]
-    assert mod._conf_cisd_level(rows, 1, max_lookback=10) is None
+    assert cm.cisd_level(rows, 1, max_lookback=10) is None
 
 
 def test_cisd_respects_max_lookback():
@@ -98,7 +110,7 @@ def test_cisd_respects_max_lookback():
     rows.append(_bar(180, 190, 179, 189))            # displacement at index 12
     # The run is walked back from index 11. max_lookback=3 stops the walk at
     # index 8, so the level is the OPEN of the oldest red candle it reached.
-    found = mod._conf_cisd_level(rows, 12, max_lookback=3)
+    found = cm.cisd_level(rows, 12, max_lookback=3)
     assert found is not None
     assert found[0] == 8
     assert found[1] == 192.0                          # open of bar 8
@@ -114,23 +126,26 @@ def test_bearish_fvg_detection_uses_the_spec_definition():
         _bar(100, 102, 98, 99),      # 0
         _bar(99, 100, 95, 96),       # 1
         _bar(96, 97, 93, 94),        # 2
-        _bar(94, 95, 91, 92),        # 3  -> rows[1].low (95) > rows[3].high (95)? no
-        _bar(92, 92.5, 88, 89),      # 4  -> rows[2].low (93) > rows[4].high (92.5) yes
+        _bar(94, 95, 91, 92),        # 3
+        _bar(92, 92.5, 88, 89),      # 4 -> rows[2].low (93) > rows[4].high (92.5)
     ]
-    gap = mod._conf_bearish_fvg(rows, 2, 4, 0.0)
-    assert gap == {"index": 4, "low": 92.5, "high": 93.0}
+    # first_bearish_fvg is the OLDEST gap in the window - the one the
+    # displacement has to invert. Here that is bars 0..2: rows[0].low (98) sits
+    # above rows[2].high (97), so the gap 97.0-98.0 completes first.
+    assert cm.first_bearish_fvg(rows, 2, 4, 0.0) == {
+        "index": 2, "low": 97.0, "high": 98.0}
 
 
 def test_no_fvg_when_the_window_overlaps():
     rows = [_bar(100, 102, 98, 99), _bar(99, 101, 97, 98), _bar(98, 100, 96, 97)]
-    assert mod._conf_bearish_fvg(rows, 2, 2, 0.0) is None
+    assert cm.first_bearish_fvg(rows, 2, 2, 0.0) is None
 
 
 def test_fvg_min_size_filter():
     rows = [_bar(100, 102, 98, 99), _bar(99, 100, 95, 96), _bar(96, 97, 93, 94),
             _bar(94, 95, 91, 92), _bar(92, 92.4, 88, 89)]
-    assert mod._conf_bearish_fvg(rows, 2, 4, 0.0) is not None
-    assert mod._conf_bearish_fvg(rows, 2, 4, 5.0) is None
+    assert cm.first_bearish_fvg(rows, 2, 4, 0.0) is not None
+    assert cm.first_bearish_fvg(rows, 2, 4, 5.0) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -139,16 +154,16 @@ def test_fvg_min_size_filter():
 
 
 def test_stop_is_swing_low_minus_absolute_buffer():
-    sl, reject = mod._conf_validate_stop(entry=105.0, swing_low=99.0,
+    sl, reject = cm.validate_stop(entry=105.0, swing_low=99.0,
                                          buffer_abs=0.5)
     assert reject is None
     assert sl == 98.5
 
 
 def test_stop_rejected_when_not_below_swing_low_or_entry():
-    assert mod._conf_validate_stop(105.0, 99.0, -1.0)[0] is None
-    assert mod._conf_validate_stop(98.0, 99.0, 0.0)[0] is None   # SL >= entry
-    assert mod._conf_validate_stop(105.0, 0.0, 0.0)[0] is None
+    assert cm.validate_stop(105.0, 99.0, -1.0)[0] is None
+    assert cm.validate_stop(98.0, 99.0, 0.0)[0] is None   # SL >= entry
+    assert cm.validate_stop(105.0, 0.0, 0.0)[0] is None
 
 
 # --------------------------------------------------------------------------- #
@@ -159,16 +174,16 @@ def test_stop_rejected_when_not_below_swing_low_or_entry():
 def test_fractal_low_needs_bars_on_both_sides():
     rows = [_bar(10, 11, 9, 10), _bar(10, 11, 8, 10), _bar(10, 11, 7, 10),
             _bar(10, 11, 8, 10), _bar(10, 11, 9, 10)]
-    assert mod._conf_fractal_lows(rows, 2) == [(4, 7.0)]
+    assert cm.fractal_lows(rows, 2) == [(4, 7.0)]
 
 
 def test_displacement_needs_a_big_body_closing_near_the_high():
     row = _bar(100, 110, 99.5, 109)          # body 9, closes 1 below the high
-    assert mod._conf_is_displacement(row, 2.0, mult=1.5, close_frac=0.33)
+    assert cm.is_displacement(row, 2.0, mult=1.5, close_frac=0.33)
     weak = _bar(100, 104, 99.5, 101)         # body 1
-    assert not mod._conf_is_displacement(weak, 2.0, mult=1.5, close_frac=0.33)
+    assert not cm.is_displacement(weak, 2.0, mult=1.5, close_frac=0.33)
     no_ref = _bar(100, 110, 99.5, 109)
-    assert not mod._conf_is_displacement(no_ref, None, mult=1.5, close_frac=0.33)
+    assert not cm.is_displacement(no_ref, None, mult=1.5, close_frac=0.33)
 
 
 # --------------------------------------------------------------------------- #
@@ -184,9 +199,10 @@ class _Fake:
 
 
 def test_ladder_orders_aggressive_then_conservative_then_low_swing():
-    assert mod._conf_pick_levels(_Fake(105.0, 100.0)) == [105.0, 100.0]
-    assert mod._conf_pick_levels(_Fake(105.0, 105.0)) == [105.0]
-    assert mod._conf_pick_levels(_Fake(None, 100.0, 95.0)) == [100.0, 95.0]
+    assert cm.pick_levels(105.0, 100.0) == [105.0, 100.0]
+    assert cm.pick_levels(105.0, 105.0) == [105.0]
+    assert cm.pick_levels(None, 100.0, 95.0) == [100.0, 95.0]
+    assert cm.pick_levels(None, None, None) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -315,17 +331,17 @@ def _chain_frames():
     _pre = {
         "mitigation": any(b["low"] <= AGG for b in htf),
         "fractal low exists": any(
-            p == pytest.approx(FIB) for _, p in mod._conf_fractal_lows(htf, 3)),
+            p == pytest.approx(FIB) for _, p in cm.fractal_lows(htf, 3)),
         "gap inside the run": any(
             g["low"] == pytest.approx(GAP_LOW)
             and g["high"] == pytest.approx(GAP_HIGH)
-            for g in [mod._conf_first_bearish_fvg(htf, 33, 36, 0.0)] if g),
-        "displacement is real": mod._conf_is_displacement(
-            htf[37], mod._conf_avg_body(htf, 36, 20), mult=1.5, close_frac=0.33),
+            for g in [cm.first_bearish_fvg(htf, 33, 36, 0.0)] if g),
+        "displacement is real": cm.is_displacement(
+            htf[37], cm.avg_body(htf, 36, 20), mult=1.5, close_frac=0.33),
         "displacement inverts the gap": htf[37]["close"] > GAP_LOW,
-        "c1 is the run's oldest red": mod._conf_cisd_level(
+        "c1 is the run's oldest red": cm.cisd_level(
             htf, 37, max_lookback=10,
-            fvg=mod._conf_first_bearish_fvg(htf, 33, 36, 0.0)) == (33, CISD),
+            fvg=cm.first_bearish_fvg(htf, 33, 36, 0.0)) == (33, CISD),
     }
     assert all(_pre.values()), f"fixture precondition failed: {_pre}"
     return mhtf, htf, ltf
@@ -334,7 +350,7 @@ def _chain_frames():
 def test_mhtf_scan_returns_a_ladder_and_a_direction():
     mhtf, _, _ = _chain_frames()
     sig = _signal(entry_model="conformation")
-    reading = mod._conformation_scan(sig, "1month", mhtf, use_hm=False)
+    reading = _model(sig).scan("1month", mhtf, use_hm=False)
     assert reading is not None
     assert reading["direction"] in ("BUY", "SELL")
     assert reading["levels"]
@@ -344,17 +360,17 @@ def test_cisd_level_is_the_oldest_red_open_of_the_run():
     """The displacement's red run is c1..c4; the level is c1's OPEN (98.90)."""
     mhtf, htf, _ = _chain_frames()
     sig = _signal(entry_model="conformation")
-    mod._conformation_refresh_ladder(sig, mhtf, mhtf[-1]["timestamp"])
+    _model(sig).refresh_ladder(mhtf, mhtf[-1]["timestamp"])
     for i in range(len(htf)):
-        mod._conformation_step(sig, htf[:i + 1], htf[i]["timestamp"])
+        _model(sig).step(htf[:i + 1], htf[i]["timestamp"])
         if sig._conf.cisd_level is not None:
             break
     # c1 is bar 33 of the fixture; its OPEN is the CISD level.
     assert sig._conf.cisd_level == pytest.approx(htf[33]["open"])
     assert sig._conf.cisd_level == pytest.approx(98.90)
-    assert sig._conf.state in (mod._ConfState.AWAIT_CISD,
-                               mod._ConfState.AWAIT_CISD_TOUCH,
-                               mod._ConfState.AWAIT_HTF_OCL)
+    assert sig._conf.state in (cm.ConfState.AWAIT_CISD,
+                               cm.ConfState.AWAIT_CISD_TOUCH,
+                               cm.ConfState.AWAIT_HTF_OCL)
 
 
 def test_chain_reaches_the_ltf_state_on_a_full_sequence():
@@ -362,10 +378,10 @@ def test_chain_reaches_the_ltf_state_on_a_full_sequence():
     sig = _signal(entry_model="conformation")
     out = sig.evaluate_bars(ltf, htf, mhtf)
     states = [t["state"] for t in out["transitions"]]
-    for expected in (mod._ConfState.AWAIT_HUNT, mod._ConfState.AWAIT_IFVG,
-                     mod._ConfState.AWAIT_CISD,
-                     mod._ConfState.AWAIT_CISD_TOUCH,
-                     mod._ConfState.AWAIT_HTF_OCL, mod._ConfState.AWAIT_LTF):
+    for expected in (cm.ConfState.AWAIT_HUNT, cm.ConfState.AWAIT_IFVG,
+                     cm.ConfState.AWAIT_CISD,
+                     cm.ConfState.AWAIT_CISD_TOUCH,
+                     cm.ConfState.AWAIT_HTF_OCL, cm.ConfState.AWAIT_LTF):
         assert expected in states, f"chain never reached {expected}: {states}"
 
 
@@ -385,31 +401,32 @@ def test_aggressive_model_never_touches_the_conformation_state():
 
 def test_daily_ladder_is_walked_rung_by_rung_not_collapsed():
     """A daily OCL with several levels must arm the FIRST rung, not all of them."""
-    sig = _signal(entry_model="conformation")
+    sig = _signal(entry_model="conformation", rung_mode="ladder")
     conf = sig._conf
-    conf.state = mod._ConfState.AWAIT_HTF_OCL
+    conf.state = cm.ConfState.AWAIT_HTF_OCL
     conf.cisd_level = 98.90
     conf.htf_ladder = []
     reading = {"direction": "BUY", "levels": [99.70, 99.20, 98.80],
                "setup_mode": "OCL"}
-    orig = mod._conformation_scan
-    mod._conformation_scan = lambda *a, **k: reading
+    model = _model(sig, rung_mode="ladder")
+    orig = model.scan
+    model.scan = lambda *a, **k: reading
     try:
         htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-01-{i + 1:02d}")
                for i in range(6)]
-        mod._conformation_step(sig, htf, "2025-01-06")
+        model.step(htf, "2025-01-06")
     finally:
-        mod._conformation_scan = orig
+        model.scan = orig
     assert conf.htf_ladder == [99.70, 99.20, 98.80]
     assert conf.htf_rung == 0
     assert conf.htf_zone == 99.70
-    assert conf.state == mod._ConfState.AWAIT_LTF
+    assert conf.state == cm.ConfState.AWAIT_LTF
 
 
 def test_daily_rung_break_steps_down_one_rung():
-    sig = _signal(entry_model="conformation")
+    sig = _signal(entry_model="conformation", rung_mode="ladder")
     conf = sig._conf
-    conf.state = mod._ConfState.AWAIT_LTF
+    conf.state = cm.ConfState.AWAIT_LTF
     conf.htf_ladder = [99.70, 99.20, 98.80]
     conf.htf_rung = 0
     conf.htf_zone = 99.70
@@ -417,16 +434,16 @@ def test_daily_rung_break_steps_down_one_rung():
     htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-02-{i + 1:02d}")
            for i in range(5)]
     htf.append(_bar(99.0, 99.05, 98.9, 99.15, "2025-02-06"))   # close < 99.70
-    mod._conformation_step(sig, htf, "2025-02-06")
+    _model(sig, rung_mode="ladder").step(htf, "2025-02-06")
     assert conf.htf_rung == 1
     assert conf.htf_zone == 99.20
     assert conf.ltf_zone == 99.20
 
 
 def test_daily_ladder_exhaustion_returns_to_the_cisd_gate():
-    sig = _signal(entry_model="conformation")
+    sig = _signal(entry_model="conformation", rung_mode="ladder")
     conf = sig._conf
-    conf.state = mod._ConfState.AWAIT_LTF
+    conf.state = cm.ConfState.AWAIT_LTF
     conf.htf_ladder = [99.70]
     conf.htf_rung = 0
     conf.htf_zone = 99.70
@@ -434,23 +451,92 @@ def test_daily_ladder_exhaustion_returns_to_the_cisd_gate():
     htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-03-{i + 1:02d}")
            for i in range(5)]
     htf.append(_bar(99.0, 99.05, 98.5, 98.9, "2025-03-06"))
-    mod._conformation_step(sig, htf, "2025-03-06")
+    _model(sig, rung_mode="ladder").step(htf, "2025-03-06")
     assert conf.htf_zone is None
     assert conf.ltf_zone is None
-    assert conf.state == mod._ConfState.AWAIT_CISD_TOUCH, \
+    assert conf.state == cm.ConfState.AWAIT_CISD_TOUCH, \
         "an exhausted daily ladder must wait for a NEW CISD, not reuse this one"
 
 
-def test_monthly_close_below_the_bottom_rung_is_terminal():
+def test_aggressive_rung_mode_never_walks_the_daily_ladder():
+    """Default mode: the nearest rung is the rung, and a break does not step down."""
+    sig = _signal(entry_model="conformation")            # aggressive default
+    conf = sig._conf
+    conf.state = cm.ConfState.AWAIT_LTF
+    conf.htf_ladder = [99.70, 99.20, 98.80]
+    conf.htf_rung = 0
+    conf.htf_zone = 99.70
+    conf.ltf_zone = 99.70
+    htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-04-{i + 1:02d}")
+           for i in range(5)]
+    htf.append(_bar(99.0, 99.05, 98.9, 99.15, "2025-04-06"))
+    _model(sig).step(htf, "2025-04-06")
+    assert conf.htf_rung == 0
+    assert conf.htf_zone == 99.70
+
+
+def test_conservative_rung_mode_arms_the_deepest_level():
+    sig = _signal(entry_model="conformation", rung_mode="conservative")
+    model = _model(sig, rung_mode="conservative")
+    ladder = [99.70, 99.20, 98.80]
+    assert model._rung_value(ladder, 0) == 98.80
+    assert model._rung_value(ladder, 2) == 98.80      # never walks
+
+
+def test_aggressive_rung_mode_arms_the_nearest_level():
+    sig = _signal(entry_model="conformation")
+    model = _model(sig)
+    assert model._rung_value([99.70, 99.20, 98.80], 0) == 99.70
+    assert model._rung_value([99.70, 99.20, 98.80], 2) == 99.70
+
+
+def test_unknown_rung_mode_is_rejected():
+    with pytest.raises(ValueError, match="rung_mode"):
+        _signal(entry_model="conformation", rung_mode="clever")
+
+
+def test_rung_mode_is_in_the_optimizer_space():
+    spec = OCLKeylevelSignal.params_space["rung_mode"]
+    assert spec["default"] == "aggressive"
+    assert set(spec["choices"]) == {"aggressive", "conservative", "ladder"}
+
+
+def test_monthly_close_through_the_bottom_and_the_swept_low_is_terminal():
+    """Both conditions: below the bottom rung AND a new lower low."""
     sig = _signal(entry_model="conformation")
     sig._conf.ladder = [99.70, 99.10]
+    sig._conf.mhtf_armed_index = 0
+    mhtf = [_bar(99.0, 99.2, 98.8, 99.1, "2025-01-01"),     # swept low 98.8
+            _bar(99.1, 99.2, 98.9, 99.0, "2025-02-01"),
+            _bar(99.0, 99.05, 97.5, 97.8, "2025-03-01")]     # 97.8 < 99.10 < 98.8
+    assert _model(sig).mhtf_broken(mhtf, "2025-03-01") is True
+    assert sig._conf.mhtf_dead is True
+    assert _model(sig).mhtf_broken(mhtf, "2025-03-01") is True
+
+
+def test_monthly_close_inside_the_swept_range_does_not_kill_the_chain():
+    """The RELIANCE case: below the bottom rung, but no new ground."""
+    sig = _signal(entry_model="conformation")
+    sig._conf.ladder = [99.70, 99.10]
+    sig._conf.mhtf_armed_index = 0
+    mhtf = [_bar(99.0, 99.2, 98.8, 99.1, "2025-01-01"),     # swept low 98.8
+            _bar(99.1, 99.2, 98.9, 99.0, "2025-02-01"),
+            _bar(99.0, 99.05, 98.5, 98.9, "2025-03-01")]     # 98.9 < 99.10 BUT > 98.8
+    assert _model(sig).mhtf_broken(mhtf, "2025-03-01") is False
+    assert sig._conf.mhtf_dead is False
+    assert any(t["state"] == "MHTF_INSIDE_RANGE" for t in sig._conf.transitions)
+
+
+def test_the_stop_hunt_low_counts_as_already_swept():
+    """A hunt low below the MHTF bars still protects the chain."""
+    sig = _signal(entry_model="conformation")
+    sig._conf.ladder = [99.70, 99.10]
+    sig._conf.mhtf_armed_index = 0
+    sig._conf.sweep_low = 98.0              # hunted deeper than any MHTF bar
     mhtf = [_bar(99.0, 99.2, 98.8, 99.1, "2025-01-01"),
             _bar(99.1, 99.2, 98.9, 99.0, "2025-02-01"),
-            _bar(99.0, 99.05, 98.5, 98.8, "2025-03-01")]      # close < 99.10
-    assert mod._conformation_mhtf_broken(sig, mhtf, "2025-03-01") is True
-    assert sig._conf.mhtf_dead is True
-    # Stays dead on later calls.
-    assert mod._conformation_mhtf_broken(sig, mhtf, "2025-03-01") is True
+            _bar(99.0, 99.05, 98.4, 98.5, "2025-03-01")]     # 98.5 > 98.0
+    assert _model(sig).mhtf_broken(mhtf, "2025-03-01") is False
 
 
 def test_a_monthly_close_above_the_bottom_rung_is_not_terminal():
@@ -458,7 +544,7 @@ def test_a_monthly_close_above_the_bottom_rung_is_not_terminal():
     sig._conf.ladder = [99.70, 99.10]
     mhtf = [_bar(99.0, 99.2, 98.8, 99.1, "2025-01-01"),
             _bar(99.1, 99.3, 99.05, 99.25, "2025-02-01")]      # closes above
-    assert mod._conformation_mhtf_broken(sig, mhtf, "2025-02-01") is False
+    assert _model(sig).mhtf_broken(mhtf, "2025-02-01") is False
     assert sig._conf.mhtf_dead is False
 
 
@@ -466,5 +552,64 @@ def test_a_new_mhtf_pattern_reopens_a_dead_chain():
     mhtf, _, _ = _chain_frames()
     sig = _signal(entry_model="conformation")
     sig._conf.mhtf_dead = True
-    mod._conformation_refresh_ladder(sig, mhtf, mhtf[-1]["timestamp"])
+    _model(sig).refresh_ladder(mhtf, mhtf[-1]["timestamp"])
     assert sig._conf.mhtf_dead is False
+
+
+# --------------------------------------------------------------------------- #
+# MHTF pattern age cap
+# --------------------------------------------------------------------------- #
+
+
+def _monthly_with_pattern(pattern_at_end, total):
+    """Monthly bars where a bullish OCL completes at ``pattern_at_end``."""
+    rows = [_bar(100.0, 101.0, 99.5, 100.5, f"2020-{i + 1:02d}-01")
+            for i in range(total)]
+    if pattern_at_end >= 3:
+        rows[pattern_at_end - 3] = _bar(100.0, 100.6, 99.6, 99.7,
+                                        f"2020-{pattern_at_end - 2:02d}-01")
+        rows[pattern_at_end - 2] = _bar(99.7, 100.1, 99.0, 99.1,
+                                        f"2020-{pattern_at_end - 1:02d}-01")
+        rows[pattern_at_end - 1] = _bar(99.1, 100.9, 99.0, 100.6,
+                                        "PATTERN-C3")
+        rows[pattern_at_end] = _bar(100.6, 100.9, 100.3, 100.5, "PATTERN-C4")
+    return rows
+
+
+def test_stale_monthly_pattern_does_not_arm_the_ladder():
+    """INFY: a 10-month-old OCL must not arm a level 40% above spot."""
+    sig = _signal(entry_model="conformation", mhtf_max_pattern_age=3)
+    rows = _monthly_with_pattern(pattern_at_end=6, total=17)   # 10 bars old
+    armed = _model(sig).refresh_ladder(rows, "2026-01-01")
+    assert armed is False
+    assert sig._conf.ladder == []
+    assert sig._conf.state == cm.ConfState.IDLE
+    assert any(t["state"] == "MHTF_NO_RECENT_PATTERN"
+               for t in sig._conf.transitions)
+
+
+def test_fresh_monthly_pattern_arms_the_ladder():
+    sig = _signal(entry_model="conformation", mhtf_max_pattern_age=3)
+    rows = _monthly_with_pattern(pattern_at_end=15, total=17)   # 1 bar old
+    armed = _model(sig).refresh_ladder(rows, "2026-01-01")
+    assert armed is True
+    assert sig._conf.ladder
+    assert sig._conf.state == cm.ConfState.AWAIT_MITIGATION
+    assert sig._conf.mhtf_pattern_index == 15
+
+
+def test_age_cap_of_zero_disables_the_check():
+    sig = _signal(entry_model="conformation", mhtf_max_pattern_age=0)
+    rows = _monthly_with_pattern(pattern_at_end=6, total=17)
+    assert _model(sig).refresh_ladder(rows, "2026-01-01") is True
+
+
+def test_age_cap_is_in_the_optimizer_space():
+    spec = OCLKeylevelSignal.params_space["mhtf_max_pattern_age"]
+    assert spec["default"] == 30
+    assert spec["low"] == 0
+
+
+def test_negative_age_cap_is_rejected():
+    with pytest.raises(ValueError, match="mhtf_max_pattern_age"):
+        _signal(entry_model="conformation", mhtf_max_pattern_age=-1)
