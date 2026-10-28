@@ -335,6 +335,21 @@ class OCLKeylevelSignal(BaseSignal):
         "apply_body_filter_failure": {"kind": "cat", "default": True,
                               "choices": [True, False],
                               "note": ">50% body filter on failing modes (TOP=off, BOTTOM=on)"},
+        # [ENTRY MODEL] Which entry model this run uses.
+        #   aggressive   - current behaviour: HTF level armed, LTF touch fires.
+        #   conformation - three frames: MHTF (monthly) OCL key level -> HTF
+        #                  (daily) stop hunt -> IFVG -> CISD -> CISD
+        #                  mitigation -> daily OCL pattern -> LTF (15m) entry.
+        # The default MUST stay aggressive: this key is opt-in so no existing
+        # study, test or live config changes behaviour.
+        "entry_model":      {"kind": "cat",   "default": "aggressive",
+                              "choices": ["aggressive", "conformation"],
+                              "note": "aggressive = LTF touch; conformation = MHTF->HTF->LTF chain"},
+        # [MHTF] The regime frame used by entry_model=conformation (monthly by
+        # default). Ignored by the aggressive model.
+        "mhtf_interval":    {"kind": "cat",   "default": "1month",
+                              "choices": ["1week", "1month"],
+                              "note": "MHTF frame for the conformation model"},
     }
 
     def __init__(self, client: Any, config: Dict[str, Any]):
@@ -672,6 +687,32 @@ class OCLKeylevelSignal(BaseSignal):
             f"htf_cap={self.hm_htf_oversold_enabled})"
         )
 
+        # ============================================================
+        # [ENTRY MODEL] aggressive (default) vs conformation
+        # ============================================================
+        # "aggressive" is the shipped behaviour: HTF level armed, the LTF
+        # touch fires. "conformation" inserts the three-frame chain described
+        # in the CONFORMATION ENTRY MODEL section at the bottom of this file.
+        # The default is aggressive, so every existing study, test and live
+        # config keeps its exact behaviour.
+        self.entry_model = str(config.get("entry_model", "aggressive")).lower().strip()
+        if self.entry_model not in ("aggressive", "conformation"):
+            raise ValueError(
+                "entry_model must be 'aggressive' or 'conformation'; "
+                f"got {self.entry_model!r}")
+        self.mhtf_interval = config.get("mhtf_interval", "1month")
+        # Conformation-only state. Left None/unused by the aggressive model so
+        # the aggressive path stays byte-identical.
+        self._conf = None
+        self._mhtf_client = None
+        if self.entry_model == "conformation":
+            self._conf = _ConformationState()
+            self.log(
+                f"[CONFORMATION] enabled: MHTF={self.mhtf_interval} -> "
+                f"HTF={self.htf_interval} -> LTF={self.ltf_interval}, "
+                f"setup_mode={self.setup_mode}"
+            )
+
     # ============================================================
     # [DETECT LOOP] Main entry point - called by POV runner
     # ============================================================
@@ -686,6 +727,13 @@ class OCLKeylevelSignal(BaseSignal):
         4. If pattern detected -> monitor LTF for touch
         5. On touch -> fire intent (per qty_per_fire) -> return to runner
         """
+        # -- 0. Conformation model: the three-frame chain owns the sequence --
+        # When entry_model="conformation", the HTF pattern is not the trigger
+        # any more: the MHTF (monthly) key level is. The chain runs first and
+        # returns an intent (or None) exactly like the aggressive path.
+        if self.entry_model == "conformation":
+            return self._conformation_detect()
+
         # -- 1. Exhaustion guard applies only when no position needs an exit.
         if self._exhausted and not self._position_open:
             return None
@@ -2755,3 +2803,856 @@ class OCLKeylevelSignal(BaseSignal):
             f"({self.pattern_type}, {self.action}, Level={level_str}, "
             f"mode={self.exec_mode}, fires={self._fire_count})"
         )
+
+
+# ============================================================================
+# [CONFORMATION ENTRY MODEL]  entry_model = "conformation"
+# ============================================================================
+# Three frames, one chain. The OCL blueprints are reused on ALL of them:
+#
+#   MHTF (monthly)  OCL pattern -> KEY-LEVEL LADDER + bias
+#   HTF  (daily)    mitigation -> stop hunt -> IFVG -> CISD -> CISD
+#                   mitigation -> daily OCL pattern
+#   LTF  (15 min)   daily key-level mitigation -> OCL BUY trigger -> fire
+#
+# The aggressive model arms on the HTF level and fires on the first LTF
+# touch. This model refuses to fire until the whole sequence is visible.
+#
+# LEVEL LADDER (from the MHTF pattern, top -> bottom)
+#   OCL                 aggressive (C2 open / C3 close) -> conservative (C3 open)
+#   SELL_FAILURE_TOP    aggressive (broken C3 open)     -> conservative (C2 open)
+#   SELL_FAILURE_BOTTOM single level (lowest swing open)
+# Conformation always runs at the CURRENT rung. If a candle CLOSES below the
+# swing low (stop-loss event) the rung is dead and the chain waits for the
+# NEXT rung below, restarting the whole conformation there.
+#
+# BIAS: a monthly BUY pattern is bullish. A monthly SELL_FAILURE_TOP is
+# bearish until the sell fails - handled exactly like the LTF does it: wait
+# for the break, then wait for the retracement through the ladder. It is a
+# valid bullish trigger, never a blocker.
+#
+# CISD (operator definition, verbatim):
+#   "first red candle open of consecutive down candles with IFVG, and then
+#    price moves and closes above the red candle open - this level is CISD."
+#   c1..cN are the consecutive red candles, the bearish FVG sits inside the
+#   run (c3-c5 window), and the level is the OPEN of c1 - the OLDEST candle.
+#
+# EXITS ARE NOT REIMPLEMENTED. SL = swing low - sl_buffer (absolute), and
+# the existing machinery (target_rr, breakeven, ATR/DV-ATR trail, HTF/LTF
+# stops) runs the position exactly as it does for the aggressive model.
+# Costs are not charged here: execution happens once, on the 15m frame, so a
+# single round trip is the correct charge and the live stack applies it.
+# ============================================================================
+
+
+class _ConfState:
+    """The chain's position in the sequence. One value at a time."""
+
+    IDLE = "IDLE"                    # no MHTF ladder yet
+    AWAIT_MITIGATION = "AWAIT_MITIGATION"
+    AWAIT_HUNT = "AWAIT_HUNT"
+    AWAIT_IFVG = "AWAIT_IFVG"
+    AWAIT_CISD = "AWAIT_CISD"
+    AWAIT_CISD_TOUCH = "AWAIT_CISD_TOUCH"
+    AWAIT_HTF_OCL = "AWAIT_HTF_OCL"
+    AWAIT_LTF = "AWAIT_LTF"
+
+
+class _ConformationState:
+    """Mutable bookkeeping for the conformation model (per instance)."""
+
+    __slots__ = (
+        "state", "ladder", "rung", "bias", "zone", "mitigated_ts",
+        "swing_low", "sweep_ts", "sweep_low", "pending_sweep", "sweep_index",
+        "ifvg", "displacement_ts", "cisd_level", "cisd_ts",
+        "cisd_touched_ts", "htf_ocl_ts", "ltf_zone", "used_keys",
+        "transitions", "mhtf_mode", "mhtf_ts",
+    )
+
+    def __init__(self) -> None:
+        self.state = _ConfState.IDLE
+        self.ladder: list = []
+        self.rung = 0
+        self.bias = "BUY"
+        self.zone = None
+        self.mitigated_ts: Optional[str] = None
+        self.swing_low: Optional[float] = None
+        self.sweep_ts: Optional[str] = None
+        self.sweep_low: Optional[float] = None
+        self.sweep_index: Optional[int] = None
+        self.pending_sweep = None
+        self.ifvg = None
+        self.displacement_ts: Optional[str] = None
+        self.cisd_level: Optional[float] = None
+        self.cisd_ts: Optional[str] = None
+        self.cisd_touched_ts: Optional[str] = None
+        self.htf_ocl_ts: Optional[str] = None
+        self.ltf_zone = None
+        self.used_keys: set = set()
+        self.transitions: list = []
+        self.mhtf_mode: Optional[str] = None
+        self.mhtf_ts: Optional[str] = None
+
+    def reset(self) -> None:
+        self.__init__()
+
+
+class _ConfHistoryClient:
+    """Answers ``client.history`` from a fixed DataFrame - no network.
+
+    The OCL scanner reads its candles through ``client.history``. Swapping the
+    client for exactly one scan is how the MHTF and HTF patterns are evaluated
+    on historical frames without a broker and without a second copy of the
+    pattern rules.
+    """
+
+    def __init__(self, frame: Any) -> None:
+        self._frame = frame
+
+    def history(self, **_kwargs: Any) -> Dict[str, Any]:
+        return {"status": "success", "data": self._frame}
+
+
+def _conf_rows(frame: Any) -> list:
+    """Bars / DataFrame / list-of-dicts -> rows with ``timestamp`` + OHLC."""
+    rows: list = []
+    if frame is None:
+        return rows
+    if hasattr(frame, "reset_index") and hasattr(frame, "to_dict"):
+        try:
+            frame = frame.reset_index()
+        except Exception:                                    # noqa: BLE001
+            pass
+        for record in frame.to_dict("records"):
+            rows.append(dict(record))
+    else:
+        for item in frame:
+            if isinstance(item, dict):
+                rows.append(dict(item))
+            else:
+                rows.append({"timestamp": getattr(item, "ts", ""),
+                             "open": getattr(item, "open", 0.0),
+                             "high": getattr(item, "high", 0.0),
+                             "low": getattr(item, "low", 0.0),
+                             "close": getattr(item, "close", 0.0),
+                             "volume": getattr(item, "volume", 0.0)})
+    for row in rows:
+        if "timestamp" not in row:
+            for key in ("ts", "date", "datetime", "index"):
+                if key in row:
+                    row["timestamp"] = row[key]
+                    break
+    return rows
+
+
+def _conf_ohlc(row: Any) -> Dict[str, float]:
+    """OHLC dict from a row or a Bar."""
+    if isinstance(row, dict):
+        return {"open": float(row.get("open", 0.0)),
+                "high": float(row.get("high", 0.0)),
+                "low": float(row.get("low", 0.0)),
+                "close": float(row.get("close", 0.0))}
+    return {"open": float(row.open), "high": float(row.high),
+            "low": float(row.low), "close": float(row.close)}
+
+
+def _conf_is_red(c: Dict[str, float]) -> bool:
+    return c["close"] < c["open"]
+
+
+def _conf_fractal_lows(rows: list, lookback: int) -> list:
+    """``(confirm_index, low)`` for every strict fractal low in ``rows``."""
+    out: list = []
+    for i in range(lookback, len(rows) - lookback):
+        low = _conf_ohlc(rows[i])["low"]
+        left = all(_conf_ohlc(rows[j])["low"] > low
+                   for j in range(i - lookback, i))
+        right = all(_conf_ohlc(rows[j])["low"] > low
+                    for j in range(i + 1, i + lookback + 1))
+        if left and right:
+            out.append((i + lookback, low))
+    return out
+
+
+def _conf_avg_body(rows: list, end: int, n: int) -> Optional[float]:
+    start = max(0, end - n + 1)
+    window = rows[start:end + 1]
+    if n <= 0 or len(window) < n:
+        return None
+    total = sum(abs(_conf_ohlc(b)["close"] - _conf_ohlc(b)["open"])
+                for b in window)
+    return total / len(window)
+
+
+def _conf_is_displacement(row: Any, reference: Optional[float], *,
+                          mult: float, close_frac: float) -> bool:
+    """Bullish displacement: body > mult x average body, closing near the high."""
+    if reference is None or reference <= 0:
+        return False
+    c = _conf_ohlc(row)
+    body = c["close"] - c["open"]
+    if body <= 0 or body <= mult * reference:
+        return False
+    span = c["high"] - c["low"]
+    if span <= 0:
+        return False
+    return (c["high"] - c["close"]) <= close_frac * span
+
+
+def _conf_bearish_fvg(rows: list, start: int, end: int,
+                      min_size: float) -> Optional[Dict[str, Any]]:
+    """Most recent bearish gap completing in ``[start, end]``.
+
+    Definition (spec): ``rows[i-2].low > rows[i].high``; the band is
+    ``[rows[i].high, rows[i-2].low]``.
+    """
+    found = None
+    for i in range(max(2, start), min(end, len(rows) - 1) + 1):
+        first, third = _conf_ohlc(rows[i - 2]), _conf_ohlc(rows[i])
+        if first["low"] > third["high"]:
+            low, high = third["high"], first["low"]
+            if high - low >= min_size and high > low:
+                found = {"index": i, "low": low, "high": high}
+    return found
+
+
+def _conf_first_bearish_fvg(rows: list, start: int, end: int,
+                            min_size: float) -> Optional[Dict[str, Any]]:
+    """The OLDEST bearish gap completing in ``[start, end]``.
+
+    The down leg's first gap is the one the displacement has to travel through,
+    so it - not the last gap before the displacement - is the IFVG. Using the
+    last gap pushes the CISD walk-back floor right up against the displacement
+    and truncates the red run to a single candle.
+    """
+    for i in range(max(2, start), min(end, len(rows) - 1) + 1):
+        first, third = _conf_ohlc(rows[i - 2]), _conf_ohlc(rows[i])
+        if first["low"] > third["high"]:
+            low, high = third["high"], first["low"]
+            if high - low >= min_size and high > low:
+                return {"index": i, "low": low, "high": high}
+    return None
+
+
+def _conf_cisd_level(rows: list, displacement_index: int, *,
+                     max_lookback: int,
+                     fvg: Optional[Dict[str, Any]] = None) -> Optional[tuple]:
+    """CISD = the OPEN of the FIRST (oldest) red candle of the down-run.
+
+    Operator definition: "first red candle open of consecutive down candles
+    with IFVG". So:
+
+      * the run is the consecutive red candles immediately before the
+        displacement,
+      * the bearish FVG must sit INSIDE that run (its 3-candle window starts
+        at ``fvg.index - 2``, so the run may not start above it),
+      * the level is ``rows[run_start].open`` - the oldest candle, not the
+        deepest and not the last.
+
+    Returns ``(run_start_index, level)`` or ``None`` when the candle
+    immediately before the displacement is not red (skip the setup).
+    """
+    j = displacement_index - 1
+    if j < 0 or not _conf_is_red(_conf_ohlc(rows[j])):
+        return None
+    floor = 0
+    if fvg is not None:
+        floor = max(0, int(fvg["index"]) - 2)
+    top = j
+    steps = 0
+    while (j - 1 >= 0 and j - 1 >= floor
+           and _conf_is_red(_conf_ohlc(rows[j - 1]))
+           and steps < max_lookback):
+        j -= 1
+        steps += 1
+        top = j
+    return top, _conf_ohlc(rows[top])["open"]
+
+
+def _conf_validate_stop(entry: float, swing_low: float,
+                        buffer_abs: float) -> tuple:
+    """SL = swing low - absolute buffer, with the two hard rules."""
+    if swing_low <= 0:
+        return None, "swing low must be positive"
+    if buffer_abs < 0:
+        return None, "sl_buffer must be >= 0"
+    sl = swing_low - buffer_abs
+    if not sl < swing_low:
+        return None, f"SL {sl:.4f} is not below the swing low {swing_low:.4f}"
+    if not sl < entry:
+        return None, f"SL {sl:.4f} is not below entry {entry:.4f}"
+    return sl, None
+
+
+def _conf_pick_levels(signal: "OCLKeylevelSignal") -> list:
+    """The level ladder reported by a just-scanned pattern, top -> bottom.
+
+    Uses the module's OWN levels so the conformation model and the aggressive
+    model trade the same prices: ``_aggressive_level`` (nearest) then
+    ``_conservative_level`` (deeper). For SELL_FAILURE_BOTTOM the single
+    low-swing level is the conservative one, so the ladder is one rung.
+    """
+    aggr = getattr(signal, "_aggressive_level", None)
+    cons = getattr(signal, "_conservative_level", None)
+    low = getattr(signal, "_low_swing_level", None)
+    levels: list = []
+    for value in (aggr, cons, low):
+        if value is None:
+            continue
+        price = float(value)
+        if price <= 0 or any(abs(price - seen) < 1e-9 for seen in levels):
+            continue
+        levels.append(price)
+    return levels
+
+
+# ---------------------------------------------------------------------------
+# the model itself
+# ---------------------------------------------------------------------------
+
+
+def _conformation_scan(self: "OCLKeylevelSignal", interval: str,
+                       rows: list,
+                       use_hm: Optional[bool] = None) -> Optional[Dict[str, Any]]:
+    """Run THIS class's own pattern scanner on ``rows`` (closed bars only).
+
+    ``_scan_htf_pattern`` reads candles through ``client.history`` and the
+    wall clock. Both are swapped for the duration of one call - the client for
+    a fixed DataFrame, the clock implicitly because the frame's last row IS
+    "now" - and restored in ``finally`` so a failed scan cannot leave the live
+    object pointing at a fake client.
+
+    Args:
+        use_hm: overrides ``hm_enabled`` for this scan only. The MHTF/HTF
+            *pattern* is a shape test (RRG + the C3/C4 close rule); the
+            momentum filter belongs to the LTF execution gates, where the
+            aggressive model applies it. Leaving HM on here would silently
+            require ``hm_rsi_period + hm_ema_period + 2`` bars of the slowest
+            frame before any pattern could ever form. ``None`` keeps the
+            configured value (the caller decides).
+
+    Returns ``{"direction", "levels", "setup_mode"}`` or ``None``.
+    """
+    if not rows or len(rows) < 4:
+        return None
+    import pandas as pd
+
+    frame = pd.DataFrame(rows)
+    saved_client = self.client
+    saved_interval = self.htf_interval
+    saved_mode = self.setup_mode
+    saved_hm = self.hm_enabled
+    try:
+        self.client = _ConfHistoryClient(frame)
+        self.htf_interval = interval
+        if use_hm is not None:
+            self.hm_enabled = bool(use_hm)
+        detected = bool(self._scan_htf_pattern())
+        if not detected:
+            return None
+        return {
+            "direction": str(getattr(self, "action", "BUY")).upper(),
+            "levels": _conf_pick_levels(self),
+            "setup_mode": str(getattr(self, "setup_mode", saved_mode)),
+        }
+    except Exception as exc:                                  # noqa: BLE001
+        self.log(f"[CONF SCAN] {interval} scan error: {exc}")
+        return None
+    finally:
+        self.client = saved_client
+        self.htf_interval = saved_interval
+        self.setup_mode = saved_mode
+        self.hm_enabled = saved_hm
+
+
+def _conformation_log(self: "OCLKeylevelSignal", state: str, ts: str,
+                      reason: str, **detail: Any) -> None:
+    """Every transition is logged with its timestamp and reason."""
+    conf = self._conf
+    conf.transitions.append({"ts": ts, "state": state, "reason": reason,
+                             "detail": dict(detail)})
+    extra = " ".join(f"{k}={v}" for k, v in detail.items())
+    self.log(f"[CONF {ts}] -> {state}: {reason}" + (f" | {extra}" if extra else ""))
+
+
+def _conformation_reset(self: "OCLKeylevelSignal", reason: str,
+                        ts: str = "") -> None:
+    """Drop the chain but KEEP the used-zone memory (no re-use of a rung)."""
+    used = set(self._conf.used_keys)
+    self._conf.reset()
+    self._conf.used_keys = used
+    self._pattern_detected = False
+    self._trigger_level = None
+    self.log(f"[CONF RESET {ts}] {reason}")
+
+
+def _conformation_refresh_ladder(self: "OCLKeylevelSignal",
+                                 mhtf_rows: list, ts: str) -> bool:
+    """Re-scan the MHTF frame and (re)build the ladder + bias.
+
+    Called only when a NEW MHTF bar has closed: a monthly pattern is formed
+    at a monthly candle close, and acting before that close is the classic
+    look-ahead this model exists to avoid.
+    """
+    conf = self._conf
+    reading = _conformation_scan(self, self.mhtf_interval, mhtf_rows,
+                                 use_hm=False)
+    if reading is None:
+        return False
+    if not reading["levels"]:
+        self.log(f"[CONF {ts}] MHTF pattern had no usable levels; ignored")
+        return False
+    conf.ladder = list(reading["levels"])
+    conf.rung = 0
+    conf.bias = reading["direction"]
+    conf.mhtf_mode = reading["setup_mode"]
+    conf.state = _ConfState.AWAIT_MITIGATION
+    self.log(
+        f"[CONF {ts}] MHTF {self.mhtf_interval} {reading['setup_mode']} "
+        f"{reading['direction']} ladder={[round(v, 2) for v in conf.ladder]}")
+    return True
+
+
+def _conformation_step(self: "OCLKeylevelSignal", htf_rows: list,
+                       ts: str) -> bool:
+    """Advance the HTF states by one closed daily bar. True when ready for LTF."""
+    conf = self._conf
+    cfg = self
+    if not htf_rows or len(htf_rows) < 5:
+        return False
+    bar = _conf_ohlc(htf_rows[-1])
+
+    # ---- STATE 0/1: MHTF key level mitigation ---------------------------- #
+    if conf.state == _ConfState.AWAIT_MITIGATION:
+        if conf.rung >= len(conf.ladder):
+            return False
+        level = conf.ladder[conf.rung]
+        key = (round(level, 6), conf.rung)
+        if key in conf.used_keys:
+            return False
+        # A wick into the level mitigates it; a close below kills the rung.
+        if bar["low"] <= level:
+            conf.zone = level
+            conf.mitigated_ts = ts
+            conf.used_keys.add(key)
+            conf.state = _ConfState.AWAIT_HUNT
+            _conformation_log(self, _ConfState.AWAIT_HUNT, ts,
+                              "daily wick entered the MHTF key level",
+                              level=round(level, 2))
+        return False
+
+    # ---- rung invalidation: a CLOSE below the swing low ------------------- #
+    # Applies AFTER the sweep (the spec: "once stoploss hit and close below the
+    # swing low, wait for conformation again") and NOT to the hunt itself - a
+    # sweep bar closes below the low by definition, and the red run that builds
+    # the CISD closes lower still. Killing the rung there would make the chain
+    # unreachable, so the guard starts at AWAIT_CISD.
+    if (conf.swing_low is not None
+            and conf.state in (_ConfState.AWAIT_CISD,
+                               _ConfState.AWAIT_CISD_TOUCH)
+            and bar["close"] < conf.swing_low):
+        _conformation_log(self, "RUNG_DEAD", ts,
+                          "daily closed below the swing low (stop-loss event); "
+                          "waiting for the next MHTF level below",
+                          swing_low=round(conf.swing_low, 2),
+                          close=round(bar["close"], 2))
+        conf.rung += 1
+        conf.state = _ConfState.AWAIT_MITIGATION
+        conf.swing_low = None
+        conf.pending_sweep = None
+        conf.ifvg = None
+        conf.cisd_level = None
+        return False
+
+    # ---- STATE 2: stop hunt ---------------------------------------------- #
+    if conf.state == _ConfState.AWAIT_HUNT:
+        lookback = int(cfg.config.get("swing_lookback", 3))
+        i = len(htf_rows) - 1
+        if conf.pending_sweep is not None:
+            pending = conf.pending_sweep
+            # Re-read the fractal every bar: the newest CONFIRMED swing low is
+            # the one being swept. Latching onto the first low ever seen made
+            # the chain measure every later sweep against a stale level far
+            # above the real one, and the setup could never complete.
+            current = [p for c, p in _conf_fractal_lows(htf_rows, lookback)
+                       if c <= i]
+            target = current[-1] if current else float(pending["swing_low"])
+            if bar["low"] < target < bar["close"]:
+                conf.swing_low = target
+                conf.sweep_low = bar["low"]
+                conf.sweep_ts = ts
+                conf.sweep_index = i
+                conf.pending_sweep = None
+                conf.state = _ConfState.AWAIT_IFVG
+                _conformation_log(self, _ConfState.AWAIT_IFVG, ts,
+                                  "swept the daily swing low and closed back "
+                                  "above it", swing_low=round(target, 2),
+                                  sweep_low=round(bar["low"], 2))
+            elif bar["low"] < target:
+                conf.pending_sweep = {"swing_low": target, "low": bar["low"],
+                                      "index": i}
+            else:
+                # Closed back above the swing low after an earlier wick: that
+                # is the confirmation the pending sweep was waiting for.
+                conf.swing_low = target
+                conf.sweep_low = float(pending["low"])
+                conf.sweep_ts = ts
+                conf.sweep_index = int(pending.get("index", i))
+                conf.pending_sweep = None
+                conf.state = _ConfState.AWAIT_IFVG
+                _conformation_log(self, _ConfState.AWAIT_IFVG, ts,
+                                  "closed back above the swept swing low",
+                                  swing_low=round(target, 2),
+                                  sweep_low=round(conf.sweep_low, 2))
+            return False
+        # ``_conf_fractal_lows`` already returns the CONFIRM index
+        # (swing bar + lookback), so the only requirement here is that the
+        # swing was knowable at this bar: ``confirm <= i``. Filtering by
+        # ``i - lookback`` again would push every usable swing one lookback
+        # window into the past and the sweep could never fire on time.
+        fractals = [p for c, p in _conf_fractal_lows(htf_rows, lookback)
+                    if c <= i]
+        if not fractals:
+            return False
+        swing_low = fractals[-1]
+        if bar["low"] < swing_low < bar["close"]:
+            conf.swing_low = swing_low
+            conf.sweep_low = bar["low"]
+            conf.sweep_ts = ts
+            conf.sweep_index = i
+            conf.state = _ConfState.AWAIT_IFVG
+            _conformation_log(self, _ConfState.AWAIT_IFVG, ts,
+                              "swept the daily swing low and closed back above it",
+                              swing_low=round(swing_low, 2),
+                              sweep_low=round(bar["low"], 2))
+        elif bar["low"] < swing_low:
+            # Wick below, close at/below: the confirmation is allowed on a later
+            # bar, so this is the normal shape of a sweep - not a rejection.
+            conf.pending_sweep = {"swing_low": swing_low, "low": bar["low"],
+                                  "index": i}
+        return False
+
+    # ---- STATE 3: IFVG ---------------------------------------------------- #
+    if conf.state == _ConfState.AWAIT_IFVG:
+        mult = float(cfg.config.get("displacement_mult", 1.5))
+        avg_bars = int(cfg.config.get("displacement_avg_bars", 20))
+        close_frac = float(cfg.config.get("displacement_close_frac", 0.33))
+        ref = _conf_avg_body(htf_rows, len(htf_rows) - 2, avg_bars)
+        if not _conf_is_displacement(htf_rows[-1], ref, mult=mult,
+                                     close_frac=close_frac):
+            return False
+        # The bearish gap of the down leg completes on an EARLIER bar than the
+        # displacement: bars[i-2].low > bars[i].high is knowable two bars
+        # after the gap's first candle, so it must be searched from the sweep
+        # forward, not from the displacement bar backward.
+        sweep = conf.sweep_index
+        if sweep is None:
+            return False
+        # The gap's COMPLETING bar must come after the sweep - the sweep bar
+        # itself cannot close a gap that formed before it. Only the oldest gap
+        # after the sweep qualifies; a later gap is closer to the displacement
+        # and would exclude most of the red run from the CISD walk-back.
+        # The displacement bar CAN complete the gap (its own high forms the
+        # gap's lower edge), so the window ends at the current bar.
+        fvg = _conf_first_bearish_fvg(
+            htf_rows, sweep + 1, len(htf_rows) - 1,
+            float(cfg.config.get("fvg_min_size", 0.0)))
+        if fvg is None:
+            return False
+        confirm = str(cfg.config.get("ifvg_confirm", "body_close")).lower()
+        inverted = (bar["close"] > fvg["high"] if confirm == "body_close"
+                    else bar["high"] > fvg["high"])
+        if not inverted:
+            return False
+        conf.ifvg = fvg
+        conf.displacement_ts = ts
+        found = _conf_cisd_level(
+            htf_rows, len(htf_rows) - 1,
+            max_lookback=int(cfg.config.get("cisd_max_lookback", 10)),
+            fvg=fvg)
+        if found is None:
+            _conformation_log(self, "REJECTED", ts,
+                              "no red candle before the displacement: CISD "
+                              "undefined, setup skipped")
+            conf.state = _ConfState.AWAIT_HUNT
+            conf.ifvg = None
+            return False
+        conf.cisd_level = found[1]
+        conf.state = _ConfState.AWAIT_CISD
+        _conformation_log(self, _ConfState.AWAIT_CISD, ts,
+                          "bullish displacement inverted the bearish FVG; "
+                          "CISD level = open of c1 of the red run",
+                          ifvg=[round(fvg["low"], 2), round(fvg["high"], 2)],
+                          cisd=round(conf.cisd_level, 2))
+        return False
+
+    # ---- STATE 4: CISD confirmation -------------------------------------- #
+    if conf.state == _ConfState.AWAIT_CISD:
+        required = bool(cfg.config.get("cisd_close_required", True))
+        confirmed = (bar["close"] > conf.cisd_level if required
+                     else bar["high"] > conf.cisd_level)
+        if not confirmed:
+            return False
+        conf.state = _ConfState.AWAIT_CISD_TOUCH
+        _conformation_log(self, _ConfState.AWAIT_CISD_TOUCH, ts,
+                          "closed above the CISD level",
+                          cisd=round(conf.cisd_level, 2))
+        return False
+
+    # ---- STATE 5: CISD mitigation ---------------------------------------- #
+    if conf.state == _ConfState.AWAIT_CISD_TOUCH:
+        if bar["low"] <= conf.cisd_level:
+            conf.cisd_touched_ts = ts
+            conf.state = _ConfState.AWAIT_HTF_OCL
+            _conformation_log(self, _ConfState.AWAIT_HTF_OCL, ts,
+                              "price returned to the CISD level; waiting for "
+                              "the daily OCL pattern",
+                              cisd=round(conf.cisd_level, 2))
+        return False
+
+    # ---- STATE 6: daily OCL pattern -------------------------------------- #
+    if conf.state == _ConfState.AWAIT_HTF_OCL:
+        reading = _conformation_scan(self, self.htf_interval, htf_rows,
+                                     use_hm=False)
+        if reading is None or reading["direction"] != "BUY":
+            return False
+        if not reading["levels"]:
+            return False
+        conf.htf_ocl_ts = ts
+        # The daily pattern's nearest level becomes the LTF key level; the
+        # CISD level is the fallback so the 15m always has a level to mitigate.
+        conf.ltf_zone = reading["levels"][0]
+        conf.state = _ConfState.AWAIT_LTF
+        _conformation_log(self, _ConfState.AWAIT_LTF, ts,
+                          f"daily {reading['setup_mode']} formed; LTF key "
+                          "level armed",
+                          level=round(conf.ltf_zone, 2),
+                          cisd=round(conf.cisd_level, 2))
+        return True
+    return conf.state == _ConfState.AWAIT_LTF
+
+
+def _conformation_entry(self: "OCLKeylevelSignal", ltf_df: Any,
+                        ts: str) -> Optional[Dict[str, Any]]:
+    """STATE 7: LTF mitigates the daily key level, then the OCL BUY fires."""
+    conf = self._conf
+    if conf.state != _ConfState.AWAIT_LTF or conf.ltf_zone is None:
+        return None
+    try:
+        bar = extract_ohlc(ltf_df.iloc[-1])
+    except Exception:                                          # noqa: BLE001
+        return None
+    if bar["low"] > conf.ltf_zone:
+        return None
+    _conformation_log(self, "LTF_MITIGATED", ts,
+                      "15m mitigated the daily key level",
+                      level=round(conf.ltf_zone, 2))
+
+    # Hand the level and the structural stop to the class's OWN gates: the
+    # touch check, the LTF RRG filter and the HM gate all run unchanged.
+    self._trigger_level = float(conf.ltf_zone)
+    self._htf_stop_loss = float(conf.swing_low)
+    self._sell_failure_armed = bar["close"] > conf.ltf_zone
+    self._sell_failure_broken = self._sell_failure_armed
+    if not self._check_touch(bar["close"], bar):
+        return None
+    if self.ltf_pattern_enabled and not self._check_ltf_rrg(ltf_df):
+        return None
+    if self.hm_enabled and not self._hilega_milega_bullish(ltf_df, label="LTF"):
+        return None
+    intent = self._fire_intent(bar["close"])
+    if intent is None:
+        return None
+    # The conformation stop is the swing low minus the ABSOLUTE buffer; the
+    # existing exit machinery (target_rr, breakeven, ATR/DV-ATR trail) then
+    # owns the position exactly as in the aggressive model.
+    buffer_abs = float(self.config.get("sl_buffer", 0.0))
+    sl, reject = _conf_validate_stop(float(intent.get("price") or bar["close"]),
+                                     float(conf.swing_low), buffer_abs)
+    if sl is None:
+        self.log(f"[CONF {ts}] entry refused: {reject}")
+        _conformation_reset(self, f"stop validation failed: {reject}", ts)
+        return None
+    intent["stop_loss"] = sl
+    intent["htf_stop_loss"] = sl
+    intent["target"] = (intent.get("price") or bar["close"]) \
+        + self.target_rr * ((intent.get("price") or bar["close"]) - sl)
+    intent["setup_mode"] = self.setup_mode
+    intent["entry_model"] = "conformation"
+    intent["conformation"] = {
+        "mhtf_level": conf.ladder[conf.rung] if conf.rung < len(conf.ladder) else None,
+        "swing_low": conf.swing_low,
+        "sweep_low": conf.sweep_low,
+        "ifvg": None if conf.ifvg is None else [conf.ifvg["low"], conf.ifvg["high"]],
+        "cisd_level": conf.cisd_level,
+        "cisd_ts": conf.cisd_ts,
+        "cisd_touched_ts": conf.cisd_touched_ts,
+        "htf_ocl_ts": conf.htf_ocl_ts,
+        "ltf_level": conf.ltf_zone,
+        "transitions": list(conf.transitions),
+    }
+    self.log(
+        f"[CONF {ts}] ENTRY BUY {intent.get('price')} SL={sl:.2f} "
+        f"TP={intent['target']:.2f} cisd={conf.cisd_level:.2f} "
+        f"swing_low={conf.swing_low:.2f}")
+    _conformation_reset(self, "entry fired", ts)
+    return intent
+
+
+def _conformation_detect(self: "OCLKeylevelSignal"):
+    """The conformation model's replacement for ``detect()``.
+
+    Same contract as the aggressive loop: returns a trade intent or None.
+    Fetches three frames, walks the chain, and fires only when the whole
+    sequence has completed on closed bars.
+    """
+    # Protective exits still run first: an open position must never be left
+    # unmanaged because the chain is waiting for a pattern.
+    try:
+        if self._position_open:
+            return self._monitor_open_position()
+    except Exception as exc:                                   # noqa: BLE001
+        self.log(f"[CONF] position monitor error: {exc}")
+
+    if self._exhausted:
+        return None
+
+    frames = self._conf_fetch_frames()
+    if frames is None:
+        time.sleep(self.poll_seconds)
+        return None
+    mhtf_df, htf_df, ltf_df = frames
+    mhtf_rows = _conf_rows(mhtf_df)
+    htf_rows = _conf_rows(htf_df)
+    ts = str(htf_rows[-1].get("timestamp")) if htf_rows else ""
+    ltf_ts = str(_conf_rows(ltf_df)[-1].get("timestamp")) if ltf_df is not None else ts
+
+    conf = self._conf
+    # A new MHTF close re-reads the ladder. Without one, the chain keeps the
+    # ladder it has - a monthly pattern does not change intra-month.
+    mhtf_ts = str(mhtf_rows[-1].get("timestamp")) if mhtf_rows else ""
+    if getattr(conf, "mhtf_mode", None) is None or mhtf_ts != getattr(
+            conf, "mhtf_ts", None):
+        if _conformation_refresh_ladder(self, mhtf_rows, mhtf_ts):
+            conf.mhtf_ts = mhtf_ts
+    if conf.state == _ConfState.IDLE:
+        self.log("[CONF] no MHTF ladder yet; waiting for a monthly pattern")
+        time.sleep(self.poll_seconds)
+        return None
+
+    ready = _conformation_step(self, htf_rows, ts)
+    if not ready:
+        time.sleep(self.poll_seconds)
+        return None
+    intent = _conformation_entry(self, ltf_df, ltf_ts)
+    if intent is None:
+        time.sleep(self.poll_seconds)
+    return intent
+
+
+def _conformation_fetch_frames(self: "OCLKeylevelSignal"):
+    """Three ``client.history`` calls: MHTF, HTF, LTF. None on any failure."""
+    try:
+        now = ist_now()
+        out = []
+        for interval, days in ((self.mhtf_interval, 3650),
+                               (self.htf_interval, 400),
+                               (self.ltf_interval, 5)):
+            response = self.client.history(
+                symbol=self.symbol, exchange=self.exchange,
+                interval=interval,
+                start_date=(now - timedelta(days=days)).strftime("%Y-%m-%d"),
+                end_date=now.strftime("%Y-%m-%d"))
+            if response.get("status") != "success":
+                self.log(f"[CONF] {interval} history failed: "
+                         f"{response.get('message')}")
+                return None
+            frame = response.get("data")
+            if frame is None or len(frame) < 1:
+                self.log(f"[CONF] {interval} history empty")
+                return None
+            out.append(frame)
+        return tuple(out)
+    except Exception as exc:                                   # noqa: BLE001
+        self.log(f"[CONF] history error: {exc}")
+        return None
+
+
+def _conformation_evaluate_bars(self: "OCLKeylevelSignal", ltf_bars: Any,
+                                htf_bars: Any, mhtf_bars: Any) -> Dict[str, Any]:
+    """OFFLINE evaluation over historical frames - same chain, no polling.
+
+    The live ``detect()`` polls and sleeps; a backtest cannot. This walks the
+    LTF bars once, feeding each one the HTF/MHTF history that had CLOSED by
+    that timestamp, and returns the entries plus every state transition.
+
+    Returns ``{"signals": [...], "transitions": [...], "rejections": [...]}``.
+    Exits are NOT simulated here: the strategy's own stop/target/trail live in
+    the live position manager, and a second exit model would be the
+    duplication this design avoids.
+    """
+    mhtf_rows = _conf_rows(mhtf_bars)
+    htf_rows = _conf_rows(htf_bars)
+    ltf_rows = _conf_rows(ltf_bars)
+    if not ltf_rows or not htf_rows:
+        return {"signals": [], "transitions": [], "rejections": []}
+
+    def _upto(rows: list, ts: str) -> list:
+        lo, hi, found = 0, len(rows) - 1, -1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if str(rows[mid].get("timestamp", "")) <= ts:
+                found = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return rows[:found + 1]
+
+    import pandas as pd
+
+    self._conf = _ConformationState()
+    signals: list = []
+    rejections: list = []
+    seen_mhtf = None
+    for row in ltf_rows:
+        ts = str(row.get("timestamp", ""))
+        m_win = _upto(mhtf_rows, ts)
+        h_win = _upto(htf_rows, ts)
+        if not h_win or len(h_win) < 5:
+            continue
+        m_ts = str(m_win[-1].get("timestamp")) if m_win else ""
+        # Refresh the ladder ONLY when a new MHTF bar has closed, and only when
+        # the chain is not mid-sequence. Re-reading the same ladder on every
+        # bar would restart the setup; never reading it leaves the chain IDLE.
+        if m_ts and m_ts != seen_mhtf:
+            seen_mhtf = m_ts
+            if self._conf.state in (_ConfState.IDLE,
+                                    _ConfState.AWAIT_MITIGATION):
+                _conformation_refresh_ladder(self, m_win, m_ts)
+        if self._conf.state == _ConfState.IDLE:
+            continue
+        try:
+            _conformation_step(self, h_win, str(h_win[-1].get("timestamp")))
+        except Exception as exc:                               # noqa: BLE001
+            rejections.append({"ts": ts, "reason": f"step error: {exc}"})
+            continue
+        if self._conf.state != _ConfState.AWAIT_LTF:
+            continue
+        frame = pd.DataFrame([row])
+        # The OCL gates need history, not a single row.
+        window = pd.DataFrame(_upto(ltf_rows, ts)[-120:])
+        intent = _conformation_entry(self, window, ts)
+        if intent is not None:
+            intent["ts"] = ts
+            signals.append(intent)
+    return {"signals": signals, "transitions": self._conf.transitions,
+            "rejections": rejections}
+
+
+# Bind the methods to the class (kept as free functions so the conformation
+# section stays one readable block at the end of this file).
+OCLKeylevelSignal._conformation_detect = _conformation_detect
+OCLKeylevelSignal._conf_fetch_frames = _conformation_fetch_frames
+OCLKeylevelSignal.evaluate_bars = _conformation_evaluate_bars
+OCLKeylevelSignal.conformation_transitions = (
+    lambda self: list(self._conf.transitions) if self._conf else [])
