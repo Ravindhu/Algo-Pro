@@ -376,3 +376,95 @@ def test_aggressive_model_never_touches_the_conformation_state():
     # function bound separately and only reached via entry_model.
     assert sig._conf is None
     assert OCLKeylevelSignal._conformation_detect.__name__ == "_conformation_detect"
+
+
+# --------------------------------------------------------------------------- #
+# the daily ladder + the monthly terminal stop
+# --------------------------------------------------------------------------- #
+
+
+def test_daily_ladder_is_walked_rung_by_rung_not_collapsed():
+    """A daily OCL with several levels must arm the FIRST rung, not all of them."""
+    sig = _signal(entry_model="conformation")
+    conf = sig._conf
+    conf.state = mod._ConfState.AWAIT_HTF_OCL
+    conf.cisd_level = 98.90
+    conf.htf_ladder = []
+    reading = {"direction": "BUY", "levels": [99.70, 99.20, 98.80],
+               "setup_mode": "OCL"}
+    orig = mod._conformation_scan
+    mod._conformation_scan = lambda *a, **k: reading
+    try:
+        htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-01-{i + 1:02d}")
+               for i in range(6)]
+        mod._conformation_step(sig, htf, "2025-01-06")
+    finally:
+        mod._conformation_scan = orig
+    assert conf.htf_ladder == [99.70, 99.20, 98.80]
+    assert conf.htf_rung == 0
+    assert conf.htf_zone == 99.70
+    assert conf.state == mod._ConfState.AWAIT_LTF
+
+
+def test_daily_rung_break_steps_down_one_rung():
+    sig = _signal(entry_model="conformation")
+    conf = sig._conf
+    conf.state = mod._ConfState.AWAIT_LTF
+    conf.htf_ladder = [99.70, 99.20, 98.80]
+    conf.htf_rung = 0
+    conf.htf_zone = 99.70
+    conf.ltf_zone = 99.70
+    htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-02-{i + 1:02d}")
+           for i in range(5)]
+    htf.append(_bar(99.0, 99.05, 98.9, 99.15, "2025-02-06"))   # close < 99.70
+    mod._conformation_step(sig, htf, "2025-02-06")
+    assert conf.htf_rung == 1
+    assert conf.htf_zone == 99.20
+    assert conf.ltf_zone == 99.20
+
+
+def test_daily_ladder_exhaustion_returns_to_the_cisd_gate():
+    sig = _signal(entry_model="conformation")
+    conf = sig._conf
+    conf.state = mod._ConfState.AWAIT_LTF
+    conf.htf_ladder = [99.70]
+    conf.htf_rung = 0
+    conf.htf_zone = 99.70
+    conf.ltf_zone = 99.70
+    htf = [_bar(99.0, 99.1, 98.9, 99.0, f"2025-03-{i + 1:02d}")
+           for i in range(5)]
+    htf.append(_bar(99.0, 99.05, 98.5, 98.9, "2025-03-06"))
+    mod._conformation_step(sig, htf, "2025-03-06")
+    assert conf.htf_zone is None
+    assert conf.ltf_zone is None
+    assert conf.state == mod._ConfState.AWAIT_CISD_TOUCH, \
+        "an exhausted daily ladder must wait for a NEW CISD, not reuse this one"
+
+
+def test_monthly_close_below_the_bottom_rung_is_terminal():
+    sig = _signal(entry_model="conformation")
+    sig._conf.ladder = [99.70, 99.10]
+    mhtf = [_bar(99.0, 99.2, 98.8, 99.1, "2025-01-01"),
+            _bar(99.1, 99.2, 98.9, 99.0, "2025-02-01"),
+            _bar(99.0, 99.05, 98.5, 98.8, "2025-03-01")]      # close < 99.10
+    assert mod._conformation_mhtf_broken(sig, mhtf, "2025-03-01") is True
+    assert sig._conf.mhtf_dead is True
+    # Stays dead on later calls.
+    assert mod._conformation_mhtf_broken(sig, mhtf, "2025-03-01") is True
+
+
+def test_a_monthly_close_above_the_bottom_rung_is_not_terminal():
+    sig = _signal(entry_model="conformation")
+    sig._conf.ladder = [99.70, 99.10]
+    mhtf = [_bar(99.0, 99.2, 98.8, 99.1, "2025-01-01"),
+            _bar(99.1, 99.3, 99.05, 99.25, "2025-02-01")]      # closes above
+    assert mod._conformation_mhtf_broken(sig, mhtf, "2025-02-01") is False
+    assert sig._conf.mhtf_dead is False
+
+
+def test_a_new_mhtf_pattern_reopens_a_dead_chain():
+    mhtf, _, _ = _chain_frames()
+    sig = _signal(entry_model="conformation")
+    sig._conf.mhtf_dead = True
+    mod._conformation_refresh_ladder(sig, mhtf, mhtf[-1]["timestamp"])
+    assert sig._conf.mhtf_dead is False

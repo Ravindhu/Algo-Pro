@@ -2867,6 +2867,7 @@ class _ConformationState:
         "ifvg", "displacement_ts", "cisd_level", "cisd_ts",
         "cisd_touched_ts", "htf_ocl_ts", "ltf_zone", "used_keys",
         "transitions", "mhtf_mode", "mhtf_ts",
+        "htf_ladder", "htf_rung", "htf_zone", "mhtf_dead",
     )
 
     def __init__(self) -> None:
@@ -2892,6 +2893,16 @@ class _ConformationState:
         self.transitions: list = []
         self.mhtf_mode: Optional[str] = None
         self.mhtf_ts: Optional[str] = None
+        #: The DAILY ladder reported by the daily OCL pattern, walked rung by
+        #: rung exactly like the MHTF ladder above it.
+        self.htf_ladder: list = []
+        self.htf_rung = 0
+        #: The daily rung currently armed for the 15m frame (None = none).
+        self.htf_zone: Optional[float] = None
+        #: True once a MONTHLY close breaks the bottom MHTF rung. That is the
+        #: terminal stop for the whole chain: no new CISD is hunted until a
+        #: fresh MHTF pattern forms.
+        self.mhtf_dead = False
 
     def reset(self) -> None:
         self.__init__()
@@ -3207,10 +3218,44 @@ def _conformation_refresh_ladder(self: "OCLKeylevelSignal",
     conf.bias = reading["direction"]
     conf.mhtf_mode = reading["setup_mode"]
     conf.state = _ConfState.AWAIT_MITIGATION
+    # A fresh MHTF pattern reopens the chain: the monthly stop that closed it
+    # was a property of the OLD ladder, not of this one.
+    conf.mhtf_dead = False
     self.log(
         f"[CONF {ts}] MHTF {self.mhtf_interval} {reading['setup_mode']} "
         f"{reading['direction']} ladder={[round(v, 2) for v in conf.ladder]}")
     return True
+
+
+def _conformation_mhtf_broken(self: "OCLKeylevelSignal", mhtf_rows: list,
+                              ts: str) -> bool:
+    """TERMINAL STOP: has a MONTHLY close broken the bottom MHTF rung?
+
+    Operator rule: "daily rung level break -> wait for another CISD, until the
+    MHTF bottom stop level is broken by a monthly candle". So the bottom rung
+    of the MHTF ladder is the floor of the whole chain, and only a MONTHLY
+    CLOSE through it ends the sequence - a daily close, a wick, or any number
+    of failed daily attempts do not.
+
+    Once broken the chain stops hunting CISD until a fresh MHTF pattern forms
+    (``_conformation_refresh_ladder`` clears the flag).
+    """
+    conf = self._conf
+    if conf.mhtf_dead or not conf.ladder or not mhtf_rows:
+        return conf.mhtf_dead
+    bottom = min(conf.ladder)          # the lowest rung = the MHTF stop level
+    # Only a MONTHLY bar can kill it, and only a CLOSE through it. The caller
+    # passes the newest monthly bars that have closed, so ``last`` IS the
+    # month-end bar - a daily timestamp here would not be a monthly close.
+    close = _conf_ohlc(mhtf_rows[-1])["close"]
+    if close < bottom:
+        conf.mhtf_dead = True
+        _conformation_log(self, "MHTF_DEAD", ts,
+                          "monthly closed below the MHTF bottom level; the "
+                          "chain stops until a new MHTF pattern forms",
+                          bottom=round(bottom, 2), close=round(close, 2))
+        return True
+    return False
 
 
 def _conformation_step(self: "OCLKeylevelSignal", htf_rows: list,
@@ -3247,21 +3292,44 @@ def _conformation_step(self: "OCLKeylevelSignal", htf_rows: list,
     # sweep bar closes below the low by definition, and the red run that builds
     # the CISD closes lower still. Killing the rung there would make the chain
     # unreachable, so the guard starts at AWAIT_CISD.
+    #
+    # What happens next depends on WHERE the chain is:
+    #   * still building the MHTF ladder (AWAIT_CISD) -> step down one MHTF
+    #     rung and re-conform there;
+    #   * already past the daily OCL gate (AWAIT_CISD_TOUCH / AWAIT_LTF) ->
+    #     the daily ladder rung broke. Per the operator: "daily rung level
+    #     break wait for another CISD need to form" - the MHTF ladder stays,
+    #     the daily sequence restarts from a fresh CISD.
     if (conf.swing_low is not None
             and conf.state in (_ConfState.AWAIT_CISD,
-                               _ConfState.AWAIT_CISD_TOUCH)
+                               _ConfState.AWAIT_CISD_TOUCH,
+                               _ConfState.AWAIT_LTF)
             and bar["close"] < conf.swing_low):
-        _conformation_log(self, "RUNG_DEAD", ts,
-                          "daily closed below the swing low (stop-loss event); "
-                          "waiting for the next MHTF level below",
-                          swing_low=round(conf.swing_low, 2),
-                          close=round(bar["close"], 2))
-        conf.rung += 1
-        conf.state = _ConfState.AWAIT_MITIGATION
+        if conf.state is _ConfState.AWAIT_CISD:
+            _conformation_log(self, "RUNG_DEAD", ts,
+                              "daily closed below the swing low (stop-loss "
+                              "event); waiting for the next MHTF level below",
+                              swing_low=round(conf.swing_low, 2),
+                              close=round(bar["close"], 2))
+            conf.rung += 1
+            conf.state = _ConfState.AWAIT_MITIGATION
+            conf.used_keys.discard((round(float(conf.ladder[conf.rung - 1]), 6),
+                                    conf.rung - 1))
+        else:
+            _conformation_log(self, "DAILY_RUNG_DEAD", ts,
+                              "daily closed below the swing low after the daily "
+                              "OCL gate; waiting for a new CISD",
+                              swing_low=round(conf.swing_low, 2),
+                              close=round(bar["close"], 2),
+                              htf_rung=conf.htf_rung)
+            conf.state = _ConfState.AWAIT_CISD_TOUCH
         conf.swing_low = None
         conf.pending_sweep = None
         conf.ifvg = None
         conf.cisd_level = None
+        conf.cisd_touched_ts = None
+        conf.htf_ocl_ts = None
+        conf.ltf_zone = None
         return False
 
     # ---- STATE 2: stop hunt ---------------------------------------------- #
@@ -3410,7 +3478,7 @@ def _conformation_step(self: "OCLKeylevelSignal", htf_rows: list,
                               cisd=round(conf.cisd_level, 2))
         return False
 
-    # ---- STATE 6: daily OCL pattern -------------------------------------- #
+    # ---- STATE 6: daily OCL pattern -> the DAILY ladder ------------------- #
     if conf.state == _ConfState.AWAIT_HTF_OCL:
         reading = _conformation_scan(self, self.htf_interval, htf_rows,
                                      use_hm=False)
@@ -3418,17 +3486,51 @@ def _conformation_step(self: "OCLKeylevelSignal", htf_rows: list,
             return False
         if not reading["levels"]:
             return False
+        # The daily pattern gets the SAME treatment as the monthly one: its
+        # levels become a ladder that is walked rung by rung, not a single
+        # float. levels[0] is the aggressive rung, the next is conservative,
+        # and a sell-fail-bottom blueprint contributes its one level.
+        conf.htf_ladder = list(reading["levels"])
+        conf.htf_rung = 0
         conf.htf_ocl_ts = ts
-        # The daily pattern's nearest level becomes the LTF key level; the
-        # CISD level is the fallback so the 15m always has a level to mitigate.
-        conf.ltf_zone = reading["levels"][0]
+        conf.htf_zone = conf.htf_ladder[0]
+        conf.ltf_zone = conf.htf_zone
         conf.state = _ConfState.AWAIT_LTF
         _conformation_log(self, _ConfState.AWAIT_LTF, ts,
-                          f"daily {reading['setup_mode']} formed; LTF key "
-                          "level armed",
-                          level=round(conf.ltf_zone, 2),
-                          cisd=round(conf.cisd_level, 2))
+                          f"daily {reading['setup_mode']} formed; daily ladder "
+                          "armed",
+                          ladder=[round(v, 2) for v in conf.htf_ladder],
+                          rung=0, cisd=round(conf.cisd_level, 2))
         return True
+
+    # ---- the daily ladder itself ----------------------------------------- #
+    if conf.state == _ConfState.AWAIT_LTF:
+        if conf.htf_zone is None:
+            return True                     # already armed, waiting on 15m
+        # A CLOSE below the daily rung's level steps down one rung. The chain
+        # then needs a NEW CISD (handled by the invalidation block above),
+        # which is what returns it to AWAIT_CISD_TOUCH.
+        if bar["close"] < conf.htf_zone:
+            conf.htf_rung += 1
+            nxt = (conf.htf_ladder[conf.htf_rung]
+                   if conf.htf_rung < len(conf.htf_ladder) else None)
+            _conformation_log(self, "HTF_RUNG_DEAD", ts,
+                              "daily closed below the daily rung level; "
+                              + (f"stepping down to {nxt:.2f}" if nxt is not None
+                                 else "daily ladder exhausted - waiting for a "
+                                      "new daily OCL"),
+                              broken=round(conf.htf_zone, 2),
+                              close=round(bar["close"], 2),
+                              rung=conf.htf_rung)
+            conf.htf_zone = nxt
+            conf.ltf_zone = nxt
+            if nxt is None:
+                # Daily ladder finished: go back to the CISD gate and wait for
+                # a fresh daily pattern rather than reusing this one.
+                conf.state = _ConfState.AWAIT_CISD_TOUCH
+                conf.cisd_touched_ts = None
+                conf.htf_ocl_ts = None
+            return False
     return conf.state == _ConfState.AWAIT_LTF
 
 
@@ -3540,6 +3642,12 @@ def _conformation_detect(self: "OCLKeylevelSignal"):
         time.sleep(self.poll_seconds)
         return None
 
+    # Terminal stop: a MONTHLY close below the bottom MHTF rung ends the whole
+    # chain. Nothing else (daily closes, wicks, failed daily attempts) does.
+    if _conformation_mhtf_broken(self, mhtf_rows, mhtf_ts):
+        time.sleep(self.poll_seconds)
+        return None
+
     ready = _conformation_step(self, htf_rows, ts)
     if not ready:
         time.sleep(self.poll_seconds)
@@ -3632,6 +3740,8 @@ def _conformation_evaluate_bars(self: "OCLKeylevelSignal", ltf_bars: Any,
         if self._conf.state == _ConfState.IDLE:
             continue
         try:
+            if _conformation_mhtf_broken(self, m_win, m_ts):
+                continue
             _conformation_step(self, h_win, str(h_win[-1].get("timestamp")))
         except Exception as exc:                               # noqa: BLE001
             rejections.append({"ts": ts, "reason": f"step error: {exc}"})

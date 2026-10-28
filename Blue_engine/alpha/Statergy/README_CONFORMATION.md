@@ -55,9 +55,31 @@ Operationally, on the HTF (daily):
 | `SELL_FAILURE_TOP` | aggressive (broken C3 open) → conservative (C2 open) |
 | `SELL_FAILURE_BOTTOM` | single level (lowest swing open) |
 
-Conformation always runs at the **current rung**. A daily **close below the
+Conformation always runs at the **current MHTF rung**. A daily **close below the
 swing low** kills that rung and the chain waits for the next rung below,
 restarting the whole sequence there.
+
+### The daily ladder is walked too
+
+The daily OCL pattern has its **own** ladder, treated identically:
+
+1. the daily pattern arms `htf_ladder[0]`;
+2. a **daily close below that rung's level** steps down to `htf_ladder[1]`;
+3. when the daily ladder is exhausted the chain returns to the CISD gate and
+   waits for a **new CISD** — it never reuses the old one.
+
+### The monthly stop is terminal
+
+Writing `M = min(mhtf_ladder)` (the bottom MHTF rung):
+
+- **a MONTHLY close below `M`** ends the chain (`MHTF_DEAD`). No new CISD is
+  hunted until a fresh MHTF pattern forms.
+- A **daily** close below `M`, a wick through it, or any number of failed daily
+  attempts do **not** end the chain — only a monthly close does.
+
+State transitions now logged: `RUNG_DEAD` (MHTF rung), `HTF_RUNG_DEAD` (daily
+rung), `MHTF_DEAD` (terminal), `DAILY_RUNG_DEAD` (swing low broken after the
+daily gate → new CISD required).
 
 A monthly `SELL_FAILURE_TOP` is **not** a blocker: it flips the bias to bullish
 once the sell fails, exactly as the LTF blueprint does, and the retracement is
