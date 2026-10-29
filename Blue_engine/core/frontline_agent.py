@@ -36,7 +36,10 @@ from .llm import AgenticLLM, ChatMessage, LLMClient
 
 logger = logging.getLogger(__name__)
 
-_MAX_INPUT_CHARS = 6000
+#: Hard ceiling on advisory input. Lowered 6000 -> 3000 (2026-10-29): every
+#: engine call paid for the full text, up to 8 times per run. The governor
+#: compacts further to fit ``max_prompt_tokens`` and marks what it cut.
+_MAX_INPUT_CHARS = 3000
 _MAX_RESPONSE_BYTES = 64 * 1024
 _TICKER = re.compile(r"^[A-Z0-9&._-]{1,20}$")
 _SECRET_TOKEN = re.compile(r"\b(?:sk-or-v1-|sk-proj-|sk-)[A-Za-z0-9_-]{20,}\b")
@@ -583,6 +586,7 @@ class FrontlineAgent:
         proposed = outcome["advice"]
         advice = _escalate(engine, proposed, baseline)
         outcome["advice"] = advice
+        outcome.setdefault("usage", {})
         # Compare against the PRE-clamp value. AUDIT (2026-10-26): this compared
         # the result against ``outcome["advice"]`` AFTER assigning it - i.e. an
         # object against itself - so the clamp was applied but never reported,
@@ -616,6 +620,7 @@ class FrontlineAgent:
             "model_digest": result.model_digest,
             "latency_ms": result.latency_ms,
             "attempts": result.attempts,
+            "usage": result.usage,
         }
 
     def _advise_agentic(self, engine: str, messages: List[ChatMessage],

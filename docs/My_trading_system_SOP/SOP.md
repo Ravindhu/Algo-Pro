@@ -1059,3 +1059,59 @@ named it, so every dependency refresh failed silently into a warning.
 
 Verified: `pip install --dry-run --no-index -r requirements.txt` resolves
 clean against the current `.venv` (python 3.13.15).
+
+## 16. Token optimization — dev-side and runtime (2026-10-29)
+
+Two separate budgets. Fixing one does not fix the other.
+
+### 16a. Dev-side (IDE / CodeGPT / OpenRouter billing)
+
+Rules live in `rules/token-optimization.md` and are enforced by convention:
+no whole-file reprints, line-range reads, surgical edits, ≤5-word comments,
+max 3 mock rows, no filler prose.
+
+Editor scoping in `.vscode/settings.json`: `search.exclude`,
+`files.watcherExclude`, `python.analysis.exclude` now skip `.venv`, `data/`,
+`db/`, `log/`, `logs/`, `_restored/`, `patches/`, `Temp/`, node_modules,
+build outputs. Fewer indexed bytes per request = smaller retrieved context.
+
+### 16b. Runtime (frontline agent → Ollama / OpenRouter)
+
+New module: `Blue_engine/core/llm/tokens.py` (`TokenGovernor`, `PromptCache`,
+`TokenMeter`, `cap_messages`, `compact_text`). Wired into
+`LLMClient.from_config`; every `complete()` goes through it.
+
+| Control | Default | Effect |
+|---|---|---|
+| Prompt cap | 3072 tokens (600 output) | system messages never dropped; user text cut with a visible `[... elided N chars ...]` marker |
+| Response cache | 900 s TTL, 256 LRU entries | identical prompt+model+chain+session → same stored answer, zero new call |
+| Input ceiling | `_MAX_INPUT_CHARS` 6000 → 3000 | each engine call cost less; up to 8 calls per run |
+| Metering | always on | `client.status()["tokens"]` → calls, hits, tokens saved, compactions, per-backend split |
+
+Config block (`engines.llm.tokens`) — all keys optional, governance is ON by
+default and disabled only explicitly:
+
+```json
+"tokens": {"enabled": true, "max_prompt_tokens": 3072,
+           "max_tokens_out": 600, "cache_ttl_seconds": 900,
+           "cache_entries": 256}
+```
+
+### Verify
+
+```powershell
+cd C:\Users\Admin\CodeGPT\my-trading-system
+.\.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_llm_token_governor.py -q
+.\.venv\Scripts\python.exe -c "from blue_engine.core.frontline_agent import FrontlineAgent;print(FrontlineAgent({'enabled':True}).client.status()['tokens'])"
+```
+
+### Rules that must not change
+
+1. Governance may only **shrink** prompts and **skip duplicate** calls. It may
+   never drop a system message, widen a schema, or cache a failed call.
+2. Token estimates are for budgeting only — never a trading input.
+3. Frontline only. `risk`, `execution`, `slice`, `pov` must not import
+   `core/llm/*`.
+4. Cache correctness depends on `temperature=0`. Raising temperature for the
+   agent invalidates the cache reasoning; set `tokens.cache_ttl_seconds: 0` if
+   you do.

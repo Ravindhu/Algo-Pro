@@ -34,6 +34,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .protocol import ChatMessage, ChatResult, LLMBackend
+from .tokens import TokenGovernor
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,8 @@ class LLMClient:
         #: Set by risk/cost-sensitive callers (e.g. one pipeline run) so all
         #: advice within it shares ONE agentic call budget.
         self.session_id: Optional[str] = None
+        #: Optional token governor; ``None`` means ungoverned (tests, one-offs).
+        self.governor: Optional[Any] = None
 
     def begin_session(self, session_id: Optional[str] = None) -> str:
         """Open a shared agentic budget for this run."""
@@ -113,7 +116,14 @@ class LLMClient:
                 timeout=timeout))
         if not chain:
             chain.append(DisabledBackend("all backends disabled in config"))
-        return cls(chain)
+        client = cls(chain)
+        # Token governance (compaction + cache + metering) is ON by default and
+        # opt-out only: an agent that advises 8 engines per run should never pay
+        # twice for the same prompt. Config: ``engines.llm.tokens`` block.
+        token_cfg = dict(cfg.get("tokens") or {})
+        if token_cfg.get("enabled", True):
+            client.governor = TokenGovernor.from_config(client, token_cfg)
+        return client
 
     def complete(self, messages: Sequence[ChatMessage], *,
                  model: Optional[str] = None, temperature: float = 0.0,
@@ -124,6 +134,10 @@ class LLMClient:
         A backend that is not ``available()`` (e.g. OpenRouter after a 429) is
         skipped and recorded, so the report shows why it was not used.
         """
+        if self.governor is not None:
+            return self.governor.complete(
+                messages, model=model, temperature=temperature,
+                max_tokens=max_tokens, timeout=timeout, json_schema=json_schema)
         attempts: List[Dict[str, str]] = []
         for backend in self.backends:
             if not backend.available():
@@ -142,10 +156,13 @@ class LLMClient:
         return ChatResult(ok=False, attempts=attempts)
 
     def status(self) -> Dict[str, Any]:
-        return {
+        out = {
             "chain": [b.name for b in self.backends],
             "backends": [b.status() for b in self.backends],
         }
+        if self.governor is not None:
+            out["tokens"] = self.governor.status()
+        return out
 
 
 class AgenticLLM:

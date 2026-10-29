@@ -18,6 +18,14 @@ left untouched.
 """
 from .protocol import ChatMessage, ChatResult, LLMBackend
 from .router import AgenticLLM, LLMClient, ToolFunc
+from .tokens import (
+    TokenGovernor,
+    TokenMeter,
+    cap_messages,
+    compact_text,
+    estimate_tokens,
+    governor_for,
+)
 
 __all__ = [
     "ChatMessage",
@@ -26,4 +34,10 @@ __all__ = [
     "LLMClient",
     "AgenticLLM",
     "ToolFunc",
+    "TokenGovernor",
+    "TokenMeter",
+    "cap_messages",
+    "compact_text",
+    "estimate_tokens",
+    "governor_for",
 ]
