@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -200,12 +201,18 @@ def run_with_config(
 
     # Feature X - subscribe to the broker's market-data WebSocket so the
     # POV slicer reads live volume (not the volume=0 REST fallback).
+    # AUDIT (2026-10-29, P0-5): the subscription must cover THIS run's symbol.
+    # It used to stream a hardcoded INFY/TCS/RELIANCE list and fall back to
+    # INFY's token, so any other symbol sliced on volume=0.
     from blue_engine.core.volume_cache import subscribe as subscribe_volume_cache
-    vc_ok = subscribe_volume_cache(client=client)
+    run_symbol = (cfg.get("symbol", ""), cfg.get("exchange", ""))
+    vc_ok = subscribe_volume_cache(client=client, symbols=[run_symbol])
     if vc_ok:
-        print("[runner] volume-cache WebSocket: active")
+        print(f"[runner] volume-cache WebSocket: active for "
+              f"{run_symbol[0]}/{run_symbol[1]}")
     else:
-        print("[runner] volume-cache WebSocket: degraded (volume will be 0)")
+        print("[runner] volume-cache WebSocket: degraded (volume will be 0); "
+              "POV will not slice on live volume")
 
     # Feature 5 - probe the symbol master for SME/PCAS classification
     # so the auction guards and the runner log both agree.
@@ -476,7 +483,66 @@ def run_with_config(
         print(f"[runner] live monitor halted new execution: "
               f"{monitor_guard.halt_reason}")
         return 4
-    return 0
+
+    # ---- Broker-side protection (audit 2026-10-29, P0-2) ------------------
+    # Without this the process returned 0 immediately after the entry and no
+    # component watched the filled position. The exit engine places an SL-M
+    # under the registry's level and keeps reconciling until the configured
+    # window ends; a CRITICAL report trips the durable kill switch so no
+    # later run can add to an unprotected book.
+    exit_rc = _run_exit_engine(
+        client, raw, int(summary.get("filled") or 0) if isinstance(
+            summary, dict) else 0)
+    return 4 if exit_rc else 0
+
+
+def _run_exit_engine(client, raw: Dict[str, Any], filled: int) -> bool:
+    """Protect the filled position. Returns True on a CRITICAL failure."""
+    cfg = raw.get("exit_engine")
+    if cfg is None:
+        print("[runner] exit engine: not configured; a filled position is "
+              "UNPROTECTED (add an 'exit_engine' block)")
+        return False
+    if not isinstance(cfg, dict):
+        print("[runner] ERROR: exit_engine must be an object")
+        return True
+    from blue_engine.core import protective_orders
+    from blue_engine.core.exit_engine import ExitConfig, ExitEngine, protecting
+    from blue_engine.portfolio.optim_policy import peek_kill_switch, trip_kill_switch
+
+    config = ExitConfig.from_dict(cfg)
+    if not config.enabled or filled <= 0:
+        print("[runner] exit engine: disabled or nothing filled; skipped")
+        return False
+    engine = ExitEngine(
+        client, config, registry=protective_orders,
+        kill_check=lambda: bool(peek_kill_switch().get("tripped")),
+        log=print)
+    max_cycles = cfg.get("max_cycles")
+    hold = cfg.get("supervise_seconds")
+    if hold is not None:
+        deadline_cycles = max(
+            1, int(float(hold) / max(1.0, config.check_interval_seconds)))
+        max_cycles = deadline_cycles if max_cycles is None else min(
+            int(max_cycles), deadline_cycles)
+    stop_event = threading.Event()
+    report = engine.run_forever(stop_event=stop_event,
+                                max_cycles=max_cycles)
+    print(f"[runner] exit engine: checked={report.get('checked')} "
+          f"protected={len(report.get('protected') or [])} "
+          f"placed={len(report.get('placed') or [])} "
+          f"critical={report.get('critical')}")
+    for warning in report.get("warnings") or []:
+        print(f"[runner] exit engine warning: {warning}")
+    for error in report.get("errors") or []:
+        print(f"[runner] exit engine ERROR: {error}")
+    if report.get("critical") or not protecting(report):
+        reason = "; ".join(report.get("errors") or []) or "positions unverified"
+        trip_kill_switch(f"exit engine: {reason}")
+        print("[runner] CRITICAL: protection could not be established; "
+              "kill switch tripped")
+        return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:

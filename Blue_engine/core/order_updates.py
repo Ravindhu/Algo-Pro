@@ -396,7 +396,7 @@ def subscribe_to_order_updates(
         bus was available AND the SDK has no ``order_update_stream``
         method. Never raises.
     """
-    global _SUBSCRIBED
+    global _SUBSCRIBED  # assigned in the SDK path below
     handler = callback or _on_update
 
     # Path 1: the OpenAlgo platform's in-process bus. Most reliable
@@ -415,47 +415,65 @@ def subscribe_to_order_updates(
                 )
         return True
 
-    # Path 2: SDK fallback. The SDK's ``order_update_stream()``
-    # returns an iterator of event dicts. We spawn a daemon thread
-    # that consumes the iterator until the SDK closes it.
+    # Path 2: the SDK client's callback subscription.
+    #
+    # AUDIT (2026-10-29): the previous code probed ``order_update_stream()`` /
+    # ``orderupdates()``, which the installed SDK does not have. The guarded
+    # return False looked like a clean degradation, so a live run logged
+    # "degraded" and then relied on placeorder ACKs alone - the ledger never
+    # learned about a fill. openalgo/feed.py exposes the real API:
+    # ``client.subscribe_orders(on_order_update=callable) -> bool``, which
+    # pushes the dict documented in its docstring (the same shape
+    # ``parse_order_update`` now understands).
     if client is None:
         logger.warning(
             "blue_engine.order_updates: no event bus and no SDK client; "
             "order updates will NOT be tracked via WebSocket."
         )
         return False
-    method = getattr(client, "order_update_stream", None) or getattr(
-        client, "orderupdates", None
-    )
-    if method is None:
-        logger.warning(
-            "blue_engine.order_updates: SDK has no order_update_stream; "
-            "ledger will rely on placeorder acks only."
-        )
-        return False
 
-    def _consume() -> None:
+    def _dispatch(event: Any) -> None:
+        """Run the handler; never let a handler error kill the feed."""
         try:
-            for event in method():
-                try:
-                    handler(event)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning(
-                        "blue_engine.order_updates: handler raised: %s", exc
-                    )
+            handler(event)
         except Exception as exc:  # pragma: no cover - defensive
-            logger.error(
-                "blue_engine.order_updates: SDK stream terminated: %s", exc
-            )
+            logger.warning("blue_engine.order_updates: handler raised: %s", exc)
 
-    thread = threading.Thread(
-        target=_consume, name=f"pov-order-updates-{name}", daemon=True
+    subscribe = getattr(client, "subscribe_orders", None)
+    if callable(subscribe):
+        with _SUBSCRIPTION_LOCK:
+            if _SUBSCRIBED:
+                return True
+            try:
+                accepted = bool(subscribe(on_order_update=_dispatch))
+            except TypeError:
+                # Older signatures take no keyword.
+                try:
+                    accepted = bool(subscribe(_dispatch))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "blue_engine.order_updates: subscribe_orders failed: %s", exc)
+                    accepted = False
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "blue_engine.order_updates: subscribe_orders failed: %s", exc)
+                accepted = False
+            _SUBSCRIBED = accepted
+        if accepted:
+            logger.info(
+                "blue_engine.order_updates: SDK order-update subscription active")
+        else:
+            logger.warning(
+                "blue_engine.order_updates: SDK rejected the order-update "
+                "subscription (socket not connected/authenticated); fills "
+                "will not advance until it is re-established")
+        return accepted
+
+    logger.warning(
+        "blue_engine.order_updates: SDK client has no subscribe_orders(); "
+        "ledger will rely on placeorder acks and REST orderbook polling."
     )
-    thread.start()
-    logger.info(
-        "blue_engine.order_updates: SDK WebSocket consumer thread started"
-    )
-    return True
+    return False
 
 
 __all__ = [

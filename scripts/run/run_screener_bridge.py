@@ -87,6 +87,10 @@ def main() -> int:
                     help="JSON dict merged into every POV slicer config")
     ap.add_argument("--risk-config", default=None,
                     help="JSON dict of risk-gate overrides")
+    ap.add_argument("--exit-config", default=None,
+                    help="JSON dict for the exit engine (broker SL-M). "
+                         "Omit ONLY for paper runs: a filled position is "
+                         "otherwise left unprotected")
     ap.add_argument("--no-wait-for-exit", action="store_true",
                     help="stop supervising after a filled entry")
     ap.add_argument("--report", type=Path,
@@ -124,6 +128,7 @@ def main() -> int:
         strategy_params=_json(args.strategy_params),
         pov_params=_json(args.pov_params),
         risk_config=_json(args.risk_config),
+        exit_config=_json(args.exit_config),
         max_active_symbols=args.max_active,
         max_concurrent_executions=args.max_concurrent,
         poll_seconds=args.poll_seconds,
@@ -137,11 +142,20 @@ def main() -> int:
     signal.signal(signal.SIGINT, _on_term)
     signal.signal(signal.SIGTERM, _on_term)
 
+    if args.exit_config is None:
+        print("WARNING: no --exit-config: filled positions will NOT get a "
+              "broker-side stop. Use this for paper runs only.")
     try:
         bridge.start()
     finally:
         bridge.stop()
         bridge.save_report(args.report)
+    # A CRITICAL protection failure must be visible to the scheduler/supervisor
+    # that launched this run, not just buried in the report file.
+    if getattr(bridge, "_protection_failed", False):
+        print("CRITICAL: at least one filled position could not be protected; "
+              "see the report for the broker errors")
+        return 4
     return 0
 
 

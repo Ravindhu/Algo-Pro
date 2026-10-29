@@ -28,6 +28,17 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 | 4 | Tests green | `.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_economic_to_pov_audit.py` | `15 passed` |
 | 5 | OpenAlgo mode | check `[runner] OpenAlgo mode =` on start | `analyze` for paper |
 | 6 | Risk caps set | `.venv\Scripts\python.exe Temp\Staging Workspace\verify_risk_wiring.py` | `100 INFY @1480 live approved: True` and every `_MONEY_CAPS` row `active=True` |
+| 7 | Exit engine configured | `python -c "import json;print('exit_engine' in json.load(open('Blue_engine/input/master.json')))"` | `True` — a filled position is otherwise **unprotected** |
+
+> **Exit engine (2026-10-29).** `core/exit_engine.py` places a broker **SL-M**
+> for every open position after the slicer finishes, verifies it on the
+> orderbook, reconciles every `check_interval_seconds` for `supervise_seconds`,
+> and cancels orphaned stops. A **CRITICAL** report (unreadable positionbook,
+> failed placement, marketable stop, no level) trips the durable kill switch —
+> the run then exits `4` and no later run can add to an unprotected book.
+> It refuses to guess: market flattening needs `allow_market_exit`, and a stop
+> is never placed on the wrong side of the market. The screener bridge needs
+> `--exit-config`; without it every fill logs **UNPROTECTED** and the run exits `4`.
 
 > **Risk block (2026-10-29).** `Blue_engine/input/master.json` now carries a
 > `risk` block: `max_order_quantity`, `max_order_notional`, `max_daily_loss`,

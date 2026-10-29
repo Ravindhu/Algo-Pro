@@ -145,6 +145,7 @@ class ScreenerBridge:
                  poll_seconds: float = 5.0,
                  risk_config: Optional[Dict[str, Any]] = None,
                  wait_for_exit: bool = True,
+                 exit_config: Optional[Dict[str, Any]] = None,
                  log=None):
         self.exchange = exchange.upper()
         self.symbols: List[Tuple[str, str]] = normalize_symbols(
@@ -152,6 +153,8 @@ class ScreenerBridge:
         self.strategy_params = dict(strategy_params or {})
         self.pov_params = dict(pov_params or {})
         self.risk_config = dict(risk_config or {})
+        self.exit_config = (None if exit_config is None else dict(exit_config))
+        self._protection_failed = False
         self.wait_for_exit = bool(wait_for_exit)
         self.max_active_symbols = max_active_symbols
         self._exec_lock = threading.Semaphore(
@@ -410,12 +413,45 @@ class ScreenerBridge:
                     self._open_positions.pop(pos_key, None)
             elif filled > 0:
                 self._open_positions[pos_key] = min(quantity, filled)
+                # Audit 2026-10-29 (P0-2): POVSlicer only RECORDS stop/target
+                # in core/protective_orders; it never places or watches a
+                # broker order. A non-OCL entry therefore stayed unprotected
+                # for the whole supervision window. Protect the fill now.
+                self._protect_after_fill(symbol, exchange)
             self._record(symbol, exchange, intent, summary,
                          "closed" if is_exit else "executed")
             self.log(f"[EXEC] {symbol}/{exchange} summary: "
                      f"filled={(summary or {}).get('filled')} "
                      f"orders={(summary or {}).get('child_orders')}")
             return summary
+
+    # ------------------------------------------------------------------ #
+    def _protect_after_fill(self, symbol: str, exchange: str) -> None:
+        """Place a broker SL-M for a freshly filled position, once.
+
+        ``exit_config=None`` disables the engine and logs LOUDLY, because an
+        uncontrolled risk profile is a capital-safety event, not a default.
+        """
+        if self.exit_config is None:
+            self.log(f"[EXIT] {symbol}/{exchange} filled but exit engine is "
+                     "not configured - position is UNPROTECTED")
+            return
+        from blue_engine.core import protective_orders
+        from blue_engine.core.exit_engine import ExitConfig, ExitEngine
+
+        engine = ExitEngine(
+            self.client, ExitConfig.from_dict(self.exit_config),
+            registry=protective_orders,
+            kill_check=self.kill_tripped, log=self.log)
+        report = engine.run_cycle()
+        self.log(f"[EXIT] {symbol}/{exchange} protected="
+                 f"{len(report.get('protected') or [])}/{report.get('checked')} "
+                 f"placed={len(report.get('placed') or [])} "
+                 f"critical={report.get('critical')}")
+        for error in report.get("errors") or []:
+            self.log(f"[EXIT] {symbol}/{exchange} ERROR: {error}")
+        if report.get("critical"):
+            self._protection_failed = True
 
     # ------------------------------------------------------------------ #
     def _record(self, symbol: str, exchange: str, intent: Dict[str, Any],

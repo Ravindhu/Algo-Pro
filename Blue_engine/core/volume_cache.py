@@ -16,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import websocket
 
@@ -324,13 +324,60 @@ def _sdk_fallback(client, symbol, exchange):
 
 # Public API
 _SUBSCRIBED = False
+#: Symbols the current subscription was built from (diagnostics + reuse).
+_SUBSCRIBE_SYMBOLS: List[Any] = []
 
-def subscribe(client=None):
-    """Start the background mstock WebSocket thread. Idempotent.
+def _resolve_run_symbols(symbols) -> Dict[str, str]:
+    """Map ``"SYMBOL_EXCHANGE" -> broker token`` for the symbols we must stream.
+
+    Pure lookups against the platform token DB; an unresolvable symbol is
+    omitted (logged), never replaced by a default token.
+    """
+    resolved: Dict[str, str] = {}
+    if not symbols:
+        return resolved
+    try:
+        from database.token_db import token_db  # type: ignore
+    except Exception as exc:
+        logger.warning("volume_cache: token DB unavailable (%s)", exc)
+        return resolved
+    for item in symbols:
+        if isinstance(item, (tuple, list)) and len(item) >= 2:
+            symbol, exchange = str(item[0]).strip(), str(item[1]).strip().upper()
+        else:
+            symbol, exchange = str(item).strip(), "NSE"
+        if not symbol:
+            continue
+        try:
+            token = token_db.get(symbol, exchange)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("volume_cache: %s/%s lookup failed: %s",
+                         symbol, exchange, exc)
+            continue
+        if token:
+            resolved[f"{symbol}_{exchange}"] = str(token)
+        else:
+            logger.warning("volume_cache: no broker token for %s/%s",
+                           symbol, exchange)
+    return resolved
+
+
+def subscribe(client=None, symbols=None):
+    """Start the background broker WebSocket thread. Idempotent.
+
+    ``symbols`` is the run's symbol list (``"INFY"`` or ``("INFY", "NSE")``).
+    Only those tokens are streamed: the cache must never claim to know a
+    symbol the engine was not asked to trade.
     Returns: True = WS active, False = REST fallback.
     """
-    global _SUBSCRIBED, _WS_THREAD, _WS_RUNNING
-    if _SUBSCRIBED: return True
+    global _SUBSCRIBED, _WS_THREAD, _WS_RUNNING, _SUBSCRIBE_SYMBOLS
+    if _SUBSCRIBED:
+        if symbols:
+            # A second run in this process may need a different symbol set;
+            # remember it for diagnostics without re-opening the socket.
+            _SUBSCRIBE_SYMBOLS = list(symbols)
+        return _WS_RUNNING
+    _SUBSCRIBE_SYMBOLS = list(symbols or [])
     with _WS_LOCK:
         if _SUBSCRIBED: return True
         try:
@@ -341,17 +388,20 @@ def subscribe(client=None):
             logger.warning("volume_cache: cannot read platform auth DB (%s); degrading to REST fallback", exc)
             auth_token = None
         if auth_token and api_key:
-            _resolved = {}
-            try:
-                from database.token_db import token_db
-                for sym, ex in [("INFY", "NSE"), ("TCS", "NSE"), ("RELIANCE", "NSE")]:
-                    try:
-                        t = token_db.get(sym, ex)
-                        if t: _resolved[sym + "_" + ex] = str(t)
-                    except Exception: pass
-            except Exception as exc:
-                logger.debug("token DB scan skipped: %s", exc)
-            _resolved.setdefault("INFY_NSE", "1594")
+            # AUDIT (2026-10-29, P0-5): this used to subscribe a hardcoded
+            # INFY/TCS/RELIANCE list and then fall back to the token "1594"
+            # (INFY on NSE). Any other symbol therefore streamed nothing, the
+            # cache missed, and the POV loop sliced on the REST fallback with
+            # volume=0 - i.e. it never sliced at all while reporting success.
+            # The subscription is now driven by the caller's run config, and a
+            # symbol that cannot be resolved is NOT guessed.
+            _resolved = _resolve_run_symbols(list(symbols or []))
+            if not _resolved:
+                logger.warning(
+                    "volume_cache: no symbol could be resolved to a broker "
+                    "token; live volume will come from the REST fallback")
+                _SUBSCRIBED = True
+                return False
             _WS_RUNNING = True
             _WS_THREAD = threading.Thread(target=_ws_connect_and_subscribe,
                 args=(auth_token, api_key, _resolved),
