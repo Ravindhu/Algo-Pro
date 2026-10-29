@@ -1,6 +1,6 @@
 # My Trading System — Standard Operating Procedure
 
-**Last updated:** 2026-10-27
+**Last updated:** 2026-10-29
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
 **Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
@@ -27,6 +27,16 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 | 3 | Macro sources alive | `.venv\Scripts\python.exe Temp\Audit\snapshot_provenance.py` | ≥ 3 live, `ok=True` |
 | 4 | Tests green | `.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_economic_to_pov_audit.py` | `15 passed` |
 | 5 | OpenAlgo mode | check `[runner] OpenAlgo mode =` on start | `analyze` for paper |
+| 6 | Risk caps set | `.venv\Scripts\python.exe Temp\Staging Workspace\verify_risk_wiring.py` | `100 INFY @1480 live approved: True` and every `_MONEY_CAPS` row `active=True` |
+
+> **Risk block (2026-10-29).** `Blue_engine/input/master.json` now carries a
+> `risk` block: `max_order_quantity`, `max_order_notional`, `max_daily_loss`,
+> `max_open_exposure`, `require_live_ack: true`, `blocked`. A **missing key is
+> not a default** — it means that cap is not enforced, and `require_live_ack`
+> then rejects the whole live run and names the missing cap. `day_pnl` and
+> `open_exposure` come from the live broker `positionbook`
+> (`core/risk_context.py`) unless set explicitly in the block. The `/risk`
+> dashboard page shows each cap as ACTIVE/OFF and never writes a limit.
 
 > **Read the macro table, not just the `ok`.** `stale=False` is currently
 > unreliable for monthly series (audit F-08). Check `employment`'s `as_of` by eye.

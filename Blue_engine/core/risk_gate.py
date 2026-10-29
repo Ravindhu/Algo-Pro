@@ -196,16 +196,21 @@ class RiskGate:
                 "notional": notional,
             }
 
-            # 0. Live acknowledgement: no monetary limit at all is not
-            #    "unlimited permission", it is "unverified risk".
-            if live and self.require_live_ack and not any(
-                    v is not None for v in (self.max_order_quantity,
-                                            self.max_order_notional,
-                                            self.max_daily_loss,
-                                            self.max_open_exposure)):
+            # 0. Live acknowledgement. A live intent is not "permission to
+            #    trade": the MONEY caps (notional / daily loss / exposure)
+            #    are what bound a run's economic loss. `max_order_quantity` is
+            #    deliberately NOT accepted as the acknowledgement, because a
+            #    share count alone says nothing about rupee risk (100 shares of
+            #    a Rs 50 stock and of a Rs 50,000 stock pass it identically).
+            monetary_gaps = [name for name, value in (
+                ("max_order_notional", self.max_order_notional),
+                ("max_daily_loss", self.max_daily_loss),
+                ("max_open_exposure", self.max_open_exposure),
+            ) if value is None]
+            if live and self.require_live_ack and monetary_gaps:
                 breaches.append(
-                    "live run with no monetary risk limit configured "
-                    "(require_live_ack)")
+                    "live run without a monetary risk limit (require_live_ack): "
+                    "missing " + ", ".join(monetary_gaps))
 
             # 1. Master kill-switch.
             if self.blocked:

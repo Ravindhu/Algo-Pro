@@ -181,6 +181,69 @@ class ScreenerBridge:
         self._log(msg)
 
     # ------------------------------------------------------------------ #
+    def _live_mode(self) -> bool:
+        """True unless OpenAlgo is verifiably in analyze (paper) mode.
+
+        Mirrors ``core.runner``: an unreadable mode is treated as LIVE so the
+        risk acknowledgement fails closed instead of assuming orders are
+        harmless.
+        """
+        from blue_engine.core.mode import read_mode
+        try:
+            return str(read_mode(self.client)).strip().lower() != "analyze"
+        except Exception as exc:  # noqa: BLE001 - unverifiable -> live
+            self.log(f"[RISK] mode unreadable ({exc!r}); treating run as LIVE")
+            return True
+
+    def _risk_view(self) -> Dict[str, Any]:
+        """Risk config with the live caps resolved from the broker.
+
+        The runner feeds ``day_pnl``/``open_exposure`` from
+        ``core.risk_context``. The bridge used to pass neither, so a
+        configured ``max_daily_loss`` could never be evaluated and would either
+        block every entry (fail-closed) or, if absent, protect nothing. Here the
+        broker positionbook is the default source and an explicit override in
+        the risk block still wins, exactly like the runner.
+        """
+        from blue_engine.core.risk_context import fetch_risk_context
+
+        cfg = json.loads(json.dumps(self.risk_config))  # defensive deep copy
+        risk_block = cfg.get("risk") if isinstance(cfg.get("risk"), dict) else cfg
+        if not isinstance(risk_block, dict):
+            risk_block = {}
+            cfg = {"risk": risk_block}
+        context: Dict[str, Any] = {}
+        if (risk_block.get("max_daily_loss") is not None
+                or risk_block.get("max_open_exposure") is not None):
+            try:
+                context = fetch_risk_context(self.client, cfg)
+            except Exception as exc:  # noqa: BLE001 - the gate fails closed
+                self.log(f"[RISK] risk context unavailable: {exc!r}")
+                context = {}
+            for warning in context.get("warnings") or []:
+                self.log(f"[RISK] {warning}")
+        return {"config": cfg, "context": context}
+
+    def _arrival_price(self, symbol: str, exchange: str) -> Optional[float]:
+        """Quote price for the monetary caps (None when unavailable)."""
+        try:
+            quote = self.client.quotes(symbol=symbol, exchange=exchange)
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"[RISK] {symbol}/{exchange} quote failed: {exc!r}")
+            return None
+        data = quote.get("data") if isinstance(quote, dict) else None
+        if not isinstance(data, dict) or quote.get("status") != "success":
+            return None
+        for key in ("ltp", "last_price", "lastPrice", "lp", "close"):
+            try:
+                price = float(data.get(key))
+            except (TypeError, ValueError):
+                continue
+            if price > 0 and price == price and price != float("inf"):
+                return price
+        return None
+
+    # ------------------------------------------------------------------ #
     def disable_symbol(self, symbol: str, reason: str) -> None:
         self._disabled[symbol] = reason
         worker = self._active.pop(symbol, None)
@@ -277,11 +340,29 @@ class ScreenerBridge:
             from blue_engine.core.risk_gate import check_intent as risk_check
             from blue_engine.pov.slicers.pov import POVSlicer
 
+            # Money caps need a real price; an exit reuses the entry policy.
+            price = intent.get("price")
+            if price is None:
+                price = self._arrival_price(symbol, exchange)
+            risk_view = self._risk_view()
+            risk_block = risk_view["config"].get("risk") or risk_view["config"]
+            needs_price = (risk_block.get("max_order_notional") is not None
+                           or risk_block.get("max_open_exposure") is not None)
+            if needs_price and price is None:
+                self.log(f"[EXEC] {symbol}/{exchange} BLOCKED: no finite "
+                         "positive quote for the monetary risk caps")
+                self._record(symbol, exchange, intent, None, "risk_gate_block")
+                return None
             decision = risk_check(
                 {"action": intent.get("action", "BUY"),
                  "quantity": quantity,
-                 "price": intent.get("price")},
-                config=self.risk_config)
+                 "price": price},
+                config=risk_view["config"],
+                day_pnl=risk_view["context"].get("day_pnl"),
+                open_exposure=risk_view["context"].get("open_exposure"),
+                require_intent_price=needs_price,
+                reduces_exposure=is_exit,
+                live=self._live_mode())
             if decision is not None and not decision.approved:
                 self.log(f"[EXEC] {symbol}/{exchange} BLOCKED by risk gate: "
                          f"{decision.reason}")
@@ -290,6 +371,8 @@ class ScreenerBridge:
 
             # ---- POV slicer ----
             pov_cfg = dict(self.pov_params)
+            if price is not None:
+                pov_cfg.setdefault("limit_price", price)
             pov_cfg.setdefault("symbol", symbol)
             pov_cfg.setdefault("exchange", exchange)
             pov_cfg.setdefault("total_quantity", quantity)

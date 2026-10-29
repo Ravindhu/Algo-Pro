@@ -112,6 +112,49 @@ def _matrix_rows(cfg: dict) -> list:
         True,
         "pause feed after N misses",
     )
+    rows.extend(_capital_guard_rows(cfg))
+    return rows
+
+
+#: The money caps the runner enforces BEFORE any child order
+#: (blue_engine/core/risk_gate.py). Absence of a key = that cap is NOT
+#: enforced, which the matrix must show as OFF rather than hide.
+_MONEY_CAPS = (
+    ("max_order_quantity", "Max order quantity", "shares"),
+    ("max_order_notional", "Max order notional", "INR"),
+    ("max_daily_loss", "Max daily loss", "INR"),
+    ("max_open_exposure", "Max open exposure", "INR"),
+)
+
+
+def _capital_guard_rows(cfg: dict) -> list:
+    """Risk-gate caps as matrix rows (read-only; never writes a limit)."""
+    block = cfg.get("risk") if isinstance(cfg.get("risk"), dict) else {}
+    rows = []
+    for key, label, unit in _MONEY_CAPS:
+        value = block.get(key)
+        configured = value is not None
+        rows.append({
+            "guard": label,
+            "threshold": f"{_data.fmt(value)} {unit}" if configured else "not set",
+            "active": configured,
+            "note": "pre-trade cap" if configured else "UNLIMITED - not enforced",
+        })
+    rows.append({
+        "guard": "Kill switch (risk.blocked)",
+        "threshold": "BLOCKED" if block.get("blocked") else "open",
+        "active": bool(block.get("blocked")),
+        "note": ("all orders rejected" if block.get("blocked")
+                 else "orders permitted"),
+    })
+    rows.append({
+        "guard": "Live acknowledgement",
+        "threshold": str(bool(block.get("require_live_ack"))),
+        "active": bool(block.get("require_live_ack")),
+        "note": ("a live run without money caps is rejected"
+                 if block.get("require_live_ack")
+                 else "live run may run uncapped"),
+    })
     return rows
 
 

@@ -112,3 +112,76 @@ def test_exit_tracking_is_keyed_per_symbol_and_exchange(monkeypatch):
         "action": "SELL", "quantity": 5,
         "_meta": {"position_exit": True}}) is None
     assert bridge._open_positions == {"INFY|NSE": 5}
+
+
+# --------------------------------------------------------------------------- #
+# Risk wiring (audit 2026-10-29): the bridge must feed the gate the same
+# live context the runner does, and must fail closed when it cannot.
+# --------------------------------------------------------------------------- #
+def _bridge_no_price(monkeypatch, risk_config):
+    bridge = _bridge(monkeypatch, risk_config)
+    monkeypatch.setattr(ScreenerBridge, "_arrival_price",
+                        lambda self, symbol, exchange: None)
+    return bridge
+
+
+def test_entry_without_a_quote_is_blocked_when_money_caps_are_set(monkeypatch):
+    # max_order_notional cannot be evaluated without a price -> fail closed.
+    bridge = _bridge_no_price(monkeypatch, {"max_order_notional": 250000.0,
+                                    "max_daily_loss": 10000.0,
+                                    "max_open_exposure": 500000.0})
+    result = bridge.execute_intent("INFY", "NSE", {
+        "action": "BUY", "quantity": 10, "stop_loss": 95.0, "target": 115.0,
+        "_meta": {}})
+    assert result is None
+    assert StubSlicer.calls == []
+    assert bridge._executed[-1]["status"] == "risk_gate_block"
+
+
+def test_quote_is_used_when_the_intent_has_no_price(monkeypatch):
+    bridge = _bridge(monkeypatch, {"max_order_quantity": 20})
+    monkeypatch.setattr(ScreenerBridge, "_arrival_price",
+                        lambda self, symbol, exchange: 100.0)
+    result = bridge.execute_intent("INFY", "NSE", {
+        "action": "BUY", "quantity": 10, "_meta": {}})
+    assert result["filled"] == 10
+
+
+def test_daily_loss_comes_from_the_broker_not_from_config(monkeypatch):
+    bridge = _bridge(monkeypatch, {
+        "max_daily_loss": 1000.0, "max_order_quantity": 20})
+    monkeypatch.setattr(
+        ScreenerBridge, "_risk_view",
+        lambda self: {"config": self.risk_config,
+                      "context": {"day_pnl": -5000.0, "open_exposure": 0.0}})
+    result = bridge.execute_intent("INFY", "NSE", {
+        "action": "BUY", "quantity": 10, "price": 100.0, "_meta": {}})
+    assert result is None, "a breached daily loss must block the entry"
+    assert bridge._executed[-1]["status"] == "risk_gate_block"
+    assert StubSlicer.calls == []
+
+
+def test_an_exit_is_allowed_while_the_daily_loss_is_breached(monkeypatch):
+    bridge = _bridge(monkeypatch, {
+        "max_daily_loss": 1000.0, "max_order_quantity": 20})
+    bridge._open_positions["INFY|NSE"] = 10
+    monkeypatch.setattr(
+        ScreenerBridge, "_risk_view",
+        lambda self: {"config": self.risk_config,
+                      "context": {"day_pnl": -5000.0, "open_exposure": 0.0}})
+    result = bridge.execute_intent("INFY", "NSE", {
+        "action": "SELL", "quantity": 10, "price": 100.0,
+        "_meta": {"position_exit": True}})
+    assert result is not None, "risk must never trap an open position"
+
+
+def test_unreadable_mode_is_treated_as_live(monkeypatch):
+    import blue_engine.core.mode as mode_module
+    bridge = _bridge(monkeypatch)
+
+    def _boom(_client):
+        raise RuntimeError("no such method")
+    monkeypatch.setattr(mode_module, "read_mode", _boom)
+    assert bridge._live_mode() is True
+    monkeypatch.setattr(mode_module, "read_mode", lambda _c: "analyze")
+    assert bridge._live_mode() is False
