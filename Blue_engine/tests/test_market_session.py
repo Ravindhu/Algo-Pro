@@ -174,3 +174,80 @@ def test_client_without_a_key_fails_at_construction(monkeypatch, tmp_path):
     monkeypatch.setattr(client_mod, "resolve_api_key", lambda: None, raising=False)
     with pytest.raises(RuntimeError, match="no OpenAlgo API key"):
         client_mod.init_client()
+
+
+# --------------------------------------------------------------------------- #
+# Interval vocabulary (LIVE-12)
+# --------------------------------------------------------------------------- #
+def test_valid_intervals_pass_through():
+    from blue_engine.core.client import VALID_INTERVALS, normalize_interval
+    for value in VALID_INTERVALS:
+        assert normalize_interval(value) == value
+
+
+def test_legacy_minute_spellings_are_translated():
+    from blue_engine.core.client import normalize_interval
+    assert normalize_interval("15minute") == "15m"
+    assert normalize_interval("5minute") == "5m"
+    assert normalize_interval("1minute") == "1m"
+    assert normalize_interval("60minute") == "1h"
+
+
+def test_day_week_month_spellings():
+    from blue_engine.core.client import normalize_interval
+    assert normalize_interval("1day") == "D"
+    assert normalize_interval("daily") == "D"
+    assert normalize_interval("1d") == "D"
+    assert normalize_interval("weekly") == "W"
+    assert normalize_interval("monthly") == "M"
+
+
+def test_unknown_interval_is_not_silently_substituted():
+    # Changing the timeframe without telling anyone would change the strategy.
+    from blue_engine.core.client import normalize_interval
+    assert normalize_interval("7m") == "7m"
+    assert normalize_interval("weird") == "weird"
+
+
+def test_none_defaults_to_five_minute():
+    from blue_engine.core.client import normalize_interval
+    assert normalize_interval(None) == "5m"
+
+
+def test_master_config_uses_api_valid_intervals():
+    import json
+    from pathlib import Path
+    from blue_engine.core.client import VALID_INTERVALS
+
+    path = Path(__file__).resolve().parents[1] / "input" / "master.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    ocl = raw.get("ocl_keylevel", {})
+    for key in ("htf_interval", "ltf_interval"):
+        if key in ocl:
+            assert ocl[key] in VALID_INTERVALS, (
+                f"master.json {key}={ocl[key]!r} is not accepted by the API")
+
+
+def test_strategy_defaults_and_choices_are_api_valid():
+    from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
+    from blue_engine.core.client import VALID_INTERVALS
+
+    space = OCLKeylevelSignal.params_space
+    for key in ("htf_interval", "ltf_interval"):
+        spec = space[key]
+        assert spec["default"] in VALID_INTERVALS
+        for choice in spec["choices"]:
+            assert choice in VALID_INTERVALS, f"{key} choice {choice!r} is invalid"
+
+
+def test_signal_normalizes_a_legacy_config_value():
+    from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
+
+    class _C:
+        pass
+
+    sig = OCLKeylevelSignal(_C(), {"symbol": "INFY", "exchange": "NSE",
+                                   "htf_interval": "15minute",
+                                   "ltf_interval": "5minute"})
+    assert sig.htf_interval == "15m"
+    assert sig.ltf_interval == "5m"

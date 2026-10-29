@@ -194,8 +194,10 @@ class OCLKeylevelSignal(BaseSignal):
     #   - choices:  list of legal values (cat only)
     #   - note:     one-line human description for the header table
     params_space = {
-        "htf_interval":     {"kind": "cat",   "default": "15minute",
-                              "choices": ["5minute", "15minute", "60minute"],
+        # AUDIT (2026-10-29, LIVE-12): choices must be API-valid tokens
+        # ("5m", "15m", "1h"); "15minute" is rejected with HTTP 400.
+        "htf_interval":     {"kind": "cat",   "default": "15m",
+                              "choices": ["5m", "15m", "1h"],
                               "note": "higher timeframe to scan"},
         "htf_candles":      {"kind": "int",   "default": 5,
                               "low": 3, "high": 10,
@@ -209,8 +211,8 @@ class OCLKeylevelSignal(BaseSignal):
         "trade_direction":  {"kind": "cat",   "default": "AUTO",
                               "choices": ["AUTO", "BUY", "SELL"],
                               "note": "BUY/SELL/AUTO from pattern"},
-        "ltf_interval":     {"kind": "cat",   "default": "5minute",
-                              "choices": ["1minute", "5minute", "15minute"],
+        "ltf_interval":     {"kind": "cat",   "default": "5m",
+                              "choices": ["1m", "5m", "15m"],
                               "note": "lower timeframe to monitor"},
         "ltf_touch_buffer": {"kind": "float", "default": 0.05,
                               "low": 0.0, "high": 0.50,
@@ -372,7 +374,11 @@ class OCLKeylevelSignal(BaseSignal):
         super().__init__(client, config)
 
         # [HTF SETTINGS] Higher Timeframe Configuration
-        self.htf_interval = config.get("htf_interval", "15minute")
+        # AUDIT (2026-10-29, LIVE-12): the API accepts "15m", not "15minute";
+        # an un-normalised value made every history() call fail with HTTP 400
+        # and the signal simply waited forever. Normalised at this boundary.
+        from blue_engine.core.client import normalize_interval
+        self.htf_interval = normalize_interval(config.get("htf_interval", "15m"))
         self.htf_candles = int(config.get("htf_candles", 5))
 
         # [PATTERN SETTINGS] RRG-only pattern. min_body_pct concept is
@@ -458,7 +464,8 @@ class OCLKeylevelSignal(BaseSignal):
         self._oc_bottom_used = False    # already escalated to BOTTOM
 
         # [LTF SETTINGS] Lower Timeframe Monitoring
-        self.ltf_interval = config.get("ltf_interval", "5minute")
+        from blue_engine.core.client import normalize_interval as _norm_iv
+        self.ltf_interval = _norm_iv(config.get("ltf_interval", "5m"))
         self.ltf_touch_buffer = float(config.get("ltf_touch_buffer", 0.05))
 
         # [TRADE SETTINGS] Execution Parameters

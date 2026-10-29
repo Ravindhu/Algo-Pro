@@ -339,8 +339,11 @@ class LiveDashboard:
             from datetime import datetime, timedelta
             end = datetime.now().strftime("%Y-%m-%d")
             start = (datetime.now() - timedelta(days=self.config.lookback_days)).strftime("%Y-%m-%d")
+            # AUDIT (2026-10-29, LIVE-12): "15minute" is rejected by the API
+            # (HTTP 400); the vocabulary is "15m". This call silently returned
+            # nothing, so the terminal chart stayed empty.
             response = self.history_fn(
-                symbol=symbol, exchange=exchange, interval="15minute",
+                symbol=symbol, exchange=exchange, interval="15m",
                 start_date=start, end_date=end,
             )
             if not isinstance(response, dict) or response.get("status") != "success":

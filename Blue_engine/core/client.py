@@ -171,3 +171,46 @@ def init_client(api_key: str | None = None,
         host=host or os.getenv("HOST_SERVER", "http://127.0.0.1:5000"),
         ws_url=ws_url or os.getenv("WEBSOCKET_URL", "ws://127.0.0.1:8765"),
     )
+
+
+#: The ONLY intervals the OpenAlgo history API accepts. Confirmed live against
+#: the running server, which answers HTTP 400 with this exact list otherwise:
+#: "Must be one of: 1s, 5s, 10s, 15s, 30s, 45s, 1m, 2m, 3m, 5m, 10m, 15m, 20m,
+#: 30m, 1h, 2h, 3h, 4h, D, W, M, Q, Y."
+VALID_INTERVALS = frozenset({
+    "1s", "5s", "10s", "15s", "30s", "45s",
+    "1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m",
+    "1h", "2h", "3h", "4h",
+    "D", "W", "M", "Q", "Y",
+})
+
+#: Legacy/verbose spellings seen in older configs and the docs. AUDIT
+#: (2026-10-29, LIVE-12): ``master.json`` shipped ``"15minute"``/``"5minute"``,
+#: which the API rejects with 400, so the OCL strategy could never load a
+#: candle and simply waited forever.
+_INTERVAL_ALIASES = {
+    "1minute": "1m", "2minute": "2m", "3minute": "3m", "5minute": "5m",
+    "10minute": "10m", "15minute": "15m", "20minute": "20m",
+    "30minute": "30m", "60minute": "1h", "1hour": "1h",
+    "2hour": "2h", "3hour": "3h", "4hour": "4h",
+    "1day": "D", "day": "D", "daily": "D", "1d": "D",
+    "1week": "W", "week": "W", "weekly": "W", "1w": "W",
+    "1month": "M", "month": "M", "monthly": "M", "1mo": "M",
+    "quarter": "Q", "yearly": "Y", "1year": "Y",
+}
+
+
+def normalize_interval(value: object) -> str:
+    """Map a config interval to the API's vocabulary.
+
+    Valid values pass through unchanged; known legacy spellings are translated;
+    anything else is returned as-is so the API's own error names it, rather
+    than silently substituting a different timeframe (which would change the
+    strategy's behaviour without the operator knowing).
+    """
+    if value is None:
+        return "5m"
+    text = str(value).strip()
+    if text in VALID_INTERVALS:
+        return text
+    return _INTERVAL_ALIASES.get(text.lower(), text)
