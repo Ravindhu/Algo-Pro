@@ -246,6 +246,195 @@ class OpenRouterBackend(_HttpBackend):
                           usage=usage, latency_ms=latency)
 
 
+class AnthropicBackend(_HttpBackend):
+    """Anthropic Claude via the Messages API. Optional FIRST backend.
+
+    Chain position (configured, not hard-coded by this class):
+
+        anthropic -> ollama -> openrouter -> disabled
+
+    The user requirement is: try the subscription-backed Claude key first, and
+    *automatically* fall back to local Ollama when there is no subscription, no
+    key, no credit, or the API is unreachable. That fallback is not special
+    code - the router already skips any backend whose :meth:`available` is
+    False and records the reason. This class only has to be honest about
+    availability and about which failures are permanent.
+
+    WIRE FORMAT DIFFERS FROM OPENAI (verified against
+    https://docs.anthropic.com/en/api/messages, 2026-10-29):
+        * ``system`` is a TOP-LEVEL string, not a message with role=system;
+        * ``max_tokens`` is REQUIRED;
+        * auth is the ``x-api-key`` header plus ``anthropic-version``;
+        * the answer is ``content: [{type: "text", text: ...}, ...]``.
+
+    FAILURES THAT RETIRE THE BACKEND FOR THE UTC DAY (no point retrying):
+        * 401 - invalid/revoked key
+        * 402/403 - no credit or no access to the model
+        * 429 - rate or usage cap reached
+    Usage-limit errors from a free/zero-credit key arrive as ``invalid_request``
+    text rather than a status code, so 400 bodies are inspected for it.
+    """
+
+    name = "anthropic"
+    endpoint = "https://api.anthropic.com/v1/messages"
+    api_version = "2023-06-01"
+
+    _PERMANENT_CODES = frozenset({401, 402, 403, 429})
+    _BILLING_HINTS = ("credit", "billing", "quota", "usage limit",
+                      "insufficient", "not subscribed", "subscription")
+
+    def __init__(self, api_key: Optional[str] = None,
+                 model: Optional[str] = None, timeout: float = 20.0):
+        super().__init__(timeout)
+        self.api_key = api_key
+        self.model = model or os.getenv(
+            "ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
+        self._exhausted_on: Optional[str] = None
+
+    # -- availability -----------------------------------------------------
+    def available(self) -> bool:
+        return bool(self.api_key) and not self.exhausted
+
+    @property
+    def exhausted(self) -> bool:
+        """True once a billing/auth limit was seen today (UTC)."""
+        return self._exhausted_on == time.strftime("%Y-%m-%d", time.gmtime())
+
+    def mark_exhausted(self, reason: str = "limit") -> None:
+        self._exhausted_on = time.strftime("%Y-%m-%d", time.gmtime())
+        logger.info("anthropic retired for the UTC day (%s)", reason)
+
+    def status(self) -> Dict[str, Any]:
+        return {"backend": self.name, "model": self.model,
+                "configured": bool(self.api_key),
+                "exhausted_today": self.exhausted}
+
+    # -- request shaping --------------------------------------------------
+    @staticmethod
+    def split_system(messages: Sequence[ChatMessage]) -> tuple:
+        """Move system turns out of the message list (Anthropic wants a field)."""
+        system_parts: List[str] = []
+        chat: List[Dict[str, str]] = []
+        for message in messages:
+            role = getattr(message, "role", "user")
+            content = str(getattr(message, "content", "") or "")
+            if role == "system":
+                system_parts.append(content)
+                continue
+            chat.append({"role": "assistant" if role == "assistant" else "user",
+                         "content": content})
+        if not chat:
+            chat = [{"role": "user", "content": ""}]
+        return "\n\n".join(p for p in system_parts if p), chat
+
+    def _post_with_status(self, url: str, payload: Dict[str, Any],
+                          headers: Dict[str, str],
+                          timeout: Optional[float] = None) -> tuple:
+        """Like ``_post`` but keeps the HTTP code so callers can classify it."""
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json", **headers})
+        try:
+            with urllib.request.urlopen(
+                    request, timeout=timeout or self.timeout) as response:
+                raw = response.read(_MAX_RESPONSE_BYTES + 1)
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read(2000).decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001 - a body read must never raise
+                detail = ""
+            reason = {429: "rate_limited"}.get(exc.code, f"http_{exc.code}")
+            return None, reason, exc.code, detail
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return None, f"unreachable:{type(exc).__name__}", 0, ""
+        if len(raw) > _MAX_RESPONSE_BYTES:
+            return None, "response_too_large", 0, ""
+        try:
+            return json.loads(raw.decode("utf-8")), "", 200, ""
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None, "bad_json", 0, ""
+
+    # -- completion -------------------------------------------------------
+    def complete(self, messages: Sequence[ChatMessage], *,
+                 model: Optional[str] = None, temperature: float = 0.0,
+                 max_tokens: int = 600, timeout: Optional[float] = None,
+                 json_schema: Optional[Dict[str, Any]] = None) -> ChatResult:
+        started = time.monotonic()
+        resolved = model or self.model
+        if not self.api_key:
+            return ChatResult(ok=False, backend=self.name, model=resolved,
+                              attempts=[{"backend": self.name,
+                                         "reason": "no_api_key"}])
+        if self.exhausted:
+            return ChatResult(ok=False, backend=self.name, model=resolved,
+                              attempts=[{"backend": self.name,
+                                         "reason": "daily_quota_exhausted"}])
+
+        system_text, chat = self.split_system(messages)
+        payload: Dict[str, Any] = {
+            "model": resolved,
+            "max_tokens": max(1, int(max_tokens)),  # required by the API
+            "temperature": max(0.0, float(temperature)),
+            "messages": chat,
+        }
+        if system_text:
+            payload["system"] = system_text
+        # NOTE: the Messages API has no response_format. Structured output is
+        # carried by the system instruction and enforced by the caller's
+        # schema validator, exactly as for Ollama.
+
+        raw, reason, code, detail = self._post_with_status(
+            self.endpoint, payload,
+            headers={"x-api-key": self.api_key,
+                     "anthropic-version": self.api_version},
+            timeout=timeout)
+        latency = int((time.monotonic() - started) * 1000)
+
+        if raw is None:
+            lowered = (detail or "").lower()
+            billing = any(hint in lowered for hint in self._BILLING_HINTS)
+            if code in self._PERMANENT_CODES or (code in (400, 404) and billing):
+                self.mark_exhausted(reason)
+                reason = (reason if code == 429
+                          else ("billing_required" if billing else reason))
+            return ChatResult(ok=False, backend=self.name, model=resolved,
+                              attempts=[{"backend": self.name, "reason": reason}],
+                              latency_ms=latency)
+
+        text = _extract_anthropic_text(raw)
+        if text is None:
+            return ChatResult(ok=False, backend=self.name, model=resolved,
+                              attempts=[{"backend": self.name,
+                                         "reason": "unexpected_shape"}],
+                              latency_ms=latency)
+        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+        # Normalise to the OpenAI names the token meter already reads.
+        usage = {**(usage or {})}
+        if "input_tokens" in usage:
+            usage.setdefault("prompt_tokens", usage["input_tokens"])
+        if "output_tokens" in usage:
+            usage.setdefault("completion_tokens", usage["output_tokens"])
+        return ChatResult(ok=True, text=text, backend=self.name,
+                          model=resolved, model_digest=str(
+                              raw.get("model") or resolved),
+                          usage=usage, latency_ms=latency)
+
+
+def _extract_anthropic_text(raw: Any) -> Optional[str]:
+    """Join the text blocks of a Messages API response. Never raises."""
+    if not isinstance(raw, dict):
+        return None
+    blocks = raw.get("content")
+    if not isinstance(blocks, list):
+        return None
+    parts = [b.get("text") for b in blocks
+             if isinstance(b, dict) and b.get("type") == "text"]
+    texts = [p for p in parts if isinstance(p, str)]
+    return "".join(texts) if texts else None
+
+
 class DisabledBackend(_HttpBackend):
     """Terminal sink: records *why* nothing was available. Never makes a call."""
 
@@ -266,4 +455,5 @@ class DisabledBackend(_HttpBackend):
                           attempts=[{"backend": self.name, "reason": self.reason}])
 
 
-__all__ = ["OllamaBackend", "OpenRouterBackend", "DisabledBackend"]
+__all__ = ["AnthropicBackend", "OllamaBackend", "OpenRouterBackend",
+           "DisabledBackend"]

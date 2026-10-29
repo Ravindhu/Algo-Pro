@@ -545,6 +545,22 @@ class MacroPipeline:
                     f"{published.get('reason')}")
         except Exception as exc:  # noqa: BLE001 - never break a run for a view
             report["warnings"].append(f"shift publish skipped: {exc!r}")
+        # LLM token/cost telemetry for this run. Pure read of the governor's
+        # counters - the numbers were already collected during the calls, so
+        # this adds no compute. Best-effort, exactly like the shift handoff.
+        try:
+            from ..dashboard.state import publish_token_usage
+
+            tokens = self.frontline_agent.client.status().get("tokens")
+            if isinstance(tokens, dict):
+                report["llm_tokens"] = tokens
+                published = publish_token_usage(tokens)
+                if not published.get("ok"):
+                    report["warnings"].append(
+                        f"token usage not published to the dashboard: "
+                        f"{published.get('reason')}")
+        except Exception as exc:  # noqa: BLE001 - never break a run for a view
+            report["warnings"].append(f"token publish skipped: {exc!r}")
         return report
 
 

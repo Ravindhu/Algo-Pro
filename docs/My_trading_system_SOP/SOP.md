@@ -1115,3 +1115,56 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 4. Cache correctness depends on `temperature=0`. Raising temperature for the
    agent invalidates the cache reasoning; set `tokens.cache_ttl_seconds: 0` if
    you do.
+
+## 17. Anthropic-first agent chain + LLM cost panel (2026-10-29)
+
+### 17a. Backend order (first agent)
+
+    anthropic -> ollama -> openrouter -> disabled
+
+1. **Anthropic is tried first** when `ANTHROPIC_API_KEY` (or `llm.anthropic.api_key`)
+   is present. Default model `claude-3-5-haiku-latest`; override with
+   `llm.anthropic.model` or `ANTHROPIC_MODEL`.
+2. **Automatic Ollama fallback.** No key, no subscription, no credit, a revoked
+   key, a 429, or an unreachable API → the router skips Anthropic and the next
+   backend answers *on the same call*. No retry loop, no raised exception.
+3. **Retirement rules.** 401 / 402 / 403 / 429, and a 400 whose body mentions
+   credit / billing / quota / subscription, retire Anthropic for the rest of the
+   UTC day. A network failure does **not** retire it.
+4. **No cross-provider key leaks.** The secret lookup is name-scoped; an
+   OpenRouter key is never passed to Anthropic.
+
+Wire format differs from OpenAI and is handled in `AnthropicBackend`:
+`system` is a top-level string, `max_tokens` is mandatory, auth is `x-api-key`
+plus `anthropic-version`, and the text is joined from `content[].text`.
+The Messages API has **no** `response_format`; structured output therefore
+relies on the system instruction plus the caller's schema validator, exactly
+as with Ollama.
+
+Verification:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from blue_engine.core.frontline_agent import FrontlineAgent;print(FrontlineAgent({'enabled':True}).client.status()['chain'])"
+```
+
+Expect `['anthropic','ollama']` with a key, `['ollama']` without.
+
+### 17b. LLM cost / cache panel
+
+Page **Agent Line** (`/agent-line`) now carries a read-only *LLM cost / cache*
+panel: calls, cache hits with hit-rate, prompt tokens saved, tokens spent, plus
+one row per backend (position in chain, model, `ready` / `no credential` /
+`retired today`).
+
+Data path: `TokenGovernor.status()` → `pipeline` publishes
+`dashboard.state.publish_token_usage` → `data/last_token_usage.json` →
+`read_token_usage` → panel. Same atomic write and same honesty rule as the
+shift ledger: **no run ⇒ "not measured"**, never a fabricated zero.
+
+### Rules that must not change
+
+1. The panel and the handoff are read-only. Neither can place, size or cancel
+   an order, and neither touches the broker.
+2. A failed token publish adds a `report["warnings"]` entry; it never fails a run.
+3. Anthropic answers are cached only while the whole chain is intact — a
+   fallback Ollama answer is never stored under the full-chain cache key.

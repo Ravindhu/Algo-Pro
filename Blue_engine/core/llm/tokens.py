@@ -362,7 +362,15 @@ class TokenGovernor:
             max_tokens=out_tokens, timeout=timeout, json_schema=json_schema)
         self.meter.record_call(getattr(result, "backend", "") or "",
                                prompt_tokens, getattr(result, "usage", None))
-        if allowed and getattr(result, "ok", False) and getattr(result, "text", ""):
+        # The cache key includes the chain, not the backend that answered. If
+        # Anthropic is retired mid-session and Ollama answers the SAME prompt,
+        # storing it under the existing key would later serve the cheaper model's
+        # text back to a run that expects the subscribed one. Store only when the
+        # full chain was actually intact.
+        chain_intact = all(getattr(b, "available", lambda: True)()
+                           for b in getattr(self.client, "backends", []) or [])
+        if allowed and chain_intact and getattr(result, "ok", False) \
+                and getattr(result, "text", ""):
             self.cache.put(key, CacheEntry(
                 text=result.text, backend=result.backend, model=result.model,
                 model_digest=result.model_digest,
@@ -376,6 +384,10 @@ class TokenGovernor:
         return result
 
     # -- introspection ----------------------------------------------------
+    def snapshot(self) -> Dict[str, Any]:
+        """Read-only view for the dashboard. Never touches the network."""
+        return self.status()
+
     def status(self) -> Dict[str, Any]:
         return {"enabled": self.enabled,
                 "max_prompt_tokens": self.max_prompt_tokens,

@@ -86,23 +86,43 @@ class LLMClient:
 
         Config shape (all keys optional)::
 
-            {"ollama":   {"enabled": true, "host": "...", "model": "qwen3:8b",
+            {"anthropic": {"enabled": true, "model": "claude-3-5-haiku-latest"},
+             "ollama":   {"enabled": true, "host": "...", "model": "qwen3:8b",
                           "digest": "sha256:..."},
              "openrouter": {"enabled": true, "model": "...:free"},
+             "tokens":   {"enabled": true},
              "timeout_seconds": 20}
+
+        PRIMARY ORDER (2026-10-29): Anthropic -> Ollama -> OpenRouter -> Disabled.
+        The paid subscription-backed key is tried first; when there is no key,
+        no credit or no active subscription the router skips it and the next
+        backend answers - i.e. Ollama is the automatic local fallback. A retired
+        Anthropic backend (billing/auth/429) stays retired for the UTC day.
 
         Kept free of hard imports of ``secrets`` so tests can inject one.
         """
-        from .backends import DisabledBackend, OllamaBackend, OpenRouterBackend
+        from .backends import (AnthropicBackend, DisabledBackend, OllamaBackend,
+                               OpenRouterBackend)
 
         cfg = dict(config or {})
-        # Accept both the new ``llm`` block and the legacy ``agent`` block.
+        an_cfg = dict(cfg.get("anthropic") or {})
         ollama_cfg = dict(cfg.get("ollama") or {})
         or_cfg = dict(cfg.get("openrouter") or {})
         timeout = float(cfg.get("timeout_seconds", 20))
         get_secret = secrets or _default_secret
 
         chain: List[LLMBackend] = []
+        # Another provider's key must never be handed to Anthropic: the secret
+        # lookup is name-scoped, so a missing ANTHROPIC_API_KEY disables it.
+        anthropic_key = an_cfg.get("api_key") or get_secret("ANTHROPIC_API_KEY")
+        if an_cfg.get("enabled", True) and anthropic_key:
+            chain.append(AnthropicBackend(
+                api_key=anthropic_key,
+                model=an_cfg.get("model") or get_secret("ANTHROPIC_MODEL"),
+                timeout=float(an_cfg.get("timeout_seconds", timeout))))
+        # No else-branch: an absent key means the backend is simply not in the
+        # chain. ``LLMClient.complete`` already records "unavailable" for any
+        # backend it cannot reach, and the dashboard reads chain membership.
         if ollama_cfg.get("enabled", True):
             chain.append(OllamaBackend(
                 host=ollama_cfg.get("host") or get_secret("OLLAMA_HOST"),

@@ -7,8 +7,9 @@ Public surface::
     client = LLMClient.from_config({"ollama": {"enabled": True}})
     result = client.complete([ChatMessage("user", "...")])
 
-Backend order is Ollama (primary, unlimited) -> OpenRouter (overflow, free
-models with a hard daily budget) -> Disabled (deterministic fallback).
+Backend order is Anthropic (subscription key, tried first) -> Ollama (local,
+automatic fallback, unlimited) -> OpenRouter (overflow, free models with a hard
+daily budget) -> Disabled (deterministic fallback).
 
 This package REPLACES the transport inside ``core/frontline_agent.py``. The
 other legacy call sites (``economics/nlp/llm_scorer``, ``sectors``,
@@ -16,6 +17,7 @@ other legacy call sites (``economics/nlp/llm_scorer``, ``sectors``,
 migrate onto this router, one at a time, with their prompts and validators
 left untouched.
 """
+from .backends import AnthropicBackend, DisabledBackend, OllamaBackend, OpenRouterBackend
 from .protocol import ChatMessage, ChatResult, LLMBackend
 from .router import AgenticLLM, LLMClient, ToolFunc
 from .tokens import (
@@ -34,6 +36,10 @@ __all__ = [
     "LLMClient",
     "AgenticLLM",
     "ToolFunc",
+    "AnthropicBackend",
+    "OllamaBackend",
+    "OpenRouterBackend",
+    "DisabledBackend",
     "TokenGovernor",
     "TokenMeter",
     "cap_messages",

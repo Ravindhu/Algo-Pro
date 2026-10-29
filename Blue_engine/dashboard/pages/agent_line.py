@@ -127,6 +127,65 @@ def _request_rows(shift: dict) -> list:
 
 
 # --------------------------------------------------------------------------- #
+# LLM cost / cache panel (2026-10-29)
+#
+# The token governor (``core/llm/tokens.py``) meters every frontline call. The
+# pipeline publishes that snapshot once per run via ``dashboard.state``; this
+# panel is a pure rendering of it. No run => the panel says "not measured"
+# rather than drawing zeros, which would read as "free".
+# --------------------------------------------------------------------------- #
+def _token_snapshot() -> dict:
+    try:
+        from blue_engine.dashboard import state as _state
+
+        return _state.read_token_usage()
+    except Exception:  # noqa: BLE001 - the page must render even if it moves
+        return {}
+
+
+def _llm_rows(snapshot: dict) -> list:
+    """Backend -> position/configured/exhausted, from the same snapshot."""
+    rows = []
+    chain = snapshot.get("chain") or []
+    for backend in snapshot.get("backends") or []:
+        name = backend.get("backend", "?")
+        configured = backend.get("configured")
+        if configured is None:
+            configured = bool(backend.get("host"))
+        status = "retired today" if backend.get("exhausted_today") else (
+            "ready" if configured else "no credential")
+        rows.append({
+            "backend": name,
+            "position": str(chain.index(name) + 1) if name in chain else "-",
+            "model": backend.get("model") or "-",
+            "status": status,
+        })
+    return rows
+
+
+def _token_kpis(snapshot: dict) -> list:
+    meter = snapshot.get("meter") or {}
+    cache = snapshot.get("cache") or {}
+    calls = int(meter.get("calls") or 0)
+    hits = int(meter.get("cache_hits") or 0)
+    saved = int(meter.get("prompt_tokens_saved") or 0)
+    spend = int(meter.get("prompt_tokens_estimated") or 0) + int(
+        meter.get("completion_tokens_reported") or 0)
+    return [
+        KpiCard("LLM calls", calls, icon="mdi:api",
+                note="live backend calls this run"),
+        KpiCard("Cache hits", hits, icon="mdi:database-check-outline",
+                colour=_AI_GREEN if hits else None,
+                note=f"{cache.get('hit_rate', 0.0):.0%} hit rate"),
+        KpiCard("Tokens saved", f"{saved:,}", icon="mdi:leaf",
+                colour=_AI_GREEN if saved else None,
+                note="prompt tokens not sent"),
+        KpiCard("Tokens spent", f"{spend:,}", icon="mdi:counter",
+                note="estimated prompt + reported completion"),
+    ]
+
+
+# --------------------------------------------------------------------------- #
 # Body
 # --------------------------------------------------------------------------- #
 def body():
@@ -213,6 +272,39 @@ def body():
                 {"key": "material", "label": "Missing material", "mono": True},
             ], _request_rows(shift), empty="Nothing missing."),
             icon="mdi:clipboard-list-outline"))
+
+    # --- LLM cost / cache ------------------------------------------------ #
+    tokens = _token_snapshot()
+    measured = bool(tokens.get("meter"))
+    backend_rows = _llm_rows(tokens)
+
+    children.append(Panel(
+        "LLM cost / cache" + ("" if measured else " (not measured)"),
+        html.Div([
+            KpiRow(_token_kpis(tokens)) if measured else html.Div(
+                "No token snapshot from a run yet. The next pipeline run "
+                "publishes one.",
+                style={"color": _AI_GREY, "fontSize": "12px"}),
+            DataTable([
+                {"key": "position", "label": "#", "mono": True},
+                {"key": "backend", "label": "Backend", "bold": True},
+                {"key": "model", "label": "Model", "mono": True},
+                {"key": "status", "label": "State"},
+            ], backend_rows,
+                empty="No backend chain reported.",
+                highlight_on_hover=False),
+            html.Div(
+                "Governor: prompt capped to "
+                f"{tokens.get('max_prompt_tokens', '-')} tokens, output "
+                f"{tokens.get('max_tokens_out', '-')}, cache TTL "
+                f"{int((tokens.get('cache') or {}).get('ttl_seconds') or 0)}s. "
+                "First backend is Anthropic when a key exists; if the "
+                "subscription is missing, retired or unreachable the chain "
+                "falls through to local Ollama automatically.",
+                style={"color": _AI_GREY, "fontSize": "12px",
+                       "marginTop": 8}),
+        ]),
+        icon="mdi:cash-multiple"))
 
     children.append(Panel(
         "Contract",
