@@ -66,6 +66,19 @@ def load_raw_config(path: str) -> Dict[str, Any]:
         return json.load(fh)
 
 
+def _is_paper_mode(cfg: Dict[str, Any]) -> bool:
+    """True only when OpenAlgo is verifiably in analyze mode.
+
+    Unreadable mode is NOT paper: the session guard must fail closed.
+    """
+    try:
+        client = init_client(api_key=cfg.get("api_key"), host=cfg.get("host"),
+                             ws_url=cfg.get("ws_url"))
+        return str(read_mode(client)).strip().lower() == "analyze"
+    except Exception:
+        return False
+
+
 def _build_signal(name: str, params: Dict[str, Any], client):
     """Instantiate a signal class by its short name."""
     SignalCls = signals.get(name)
@@ -178,6 +191,29 @@ def run_with_config(
     if active_slicer is not None:
         enabled_names.append(active_slicer[0])
     print(f"[runner] enabled strategies: {enabled_names or '<none>'}")
+
+    # ---- Market session guard (audit 2026-10-29, LIVE-11) -----------------
+    # There was no weekday/session check anywhere: a manual intent placed on a
+    # Sunday or after 15:30 went to the broker and was simply rejected, and a
+    # run started before 09:15 polled a closed book. This refuses NEW exposure
+    # outside the session. It never blocks an exit (the exit engine is a
+    # separate path), and analyze mode is exempt so paper runs work any time.
+    from blue_engine.core.time_utils import market_session_state
+    session_cfg = raw.get("market_session") or {}
+    if not isinstance(session_cfg, dict):
+        print("[runner] ERROR: market_session must be an object")
+        return 2
+    session = market_session_state(
+        entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))
+    if session_cfg.get("enforce", True):
+        print(f"[runner] market session: {session['state']} - {session['reason']}")
+        if session["state"] != "open" and not _is_paper_mode(cfg):
+            print(f"[runner] REFUSED: no new entries while the market is "
+                  f"{session['state']} ({session['reason']}). Live trading "
+                  f"happens only inside the continuous session.")
+            return 6
+    else:
+        print("[runner] market session: NOT enforced (market_session.enforce=false)")
 
     # Initialise the OpenAlgo SDK client
     client = init_client(

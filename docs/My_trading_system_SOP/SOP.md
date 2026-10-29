@@ -28,6 +28,8 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 | 4 | Tests green | `.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_economic_to_pov_audit.py` | `15 passed` |
 | 5 | OpenAlgo mode | check `[runner] OpenAlgo mode =` on start | `analyze` for paper |
 | 6 | Risk caps set | `.venv\Scripts\python.exe Temp\Staging Workspace\verify_risk_wiring.py` | `100 INFY @1480 live approved: True` and every `_MONEY_CAPS` row `active=True` |
+| 6b | Broker session valid | supervisor gate `broker_session`, or check `authenticated` in the journal | live login at `/broker`; OpenAlgo expires the session daily |
+| 6c | Inside the session | supervisor gate `market_hours` `ok` | weekdays 09:15–15:30 IST, entries only until `14:45` |
 | 7a | **Start under the supervisor** | `.venv\Scripts\python.exe scripts\run\run_supervised.py` | gates pass, engine starts; a blocked gate exits `4` and writes `data/supervisor_journal.jsonl` |
 | 7 | Exit engine configured | `python -c "import json;print('exit_engine' in json.load(open('Blue_engine/input/master.json')))"` | `True` — a filled position is otherwise **unprotected** |
 
@@ -51,6 +53,18 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 > `data/supervisor_journal.jsonl` and the `/risk` page shows the state; an
 > absent journal reads **unknown**, never "running". `start_all.py --engine`
 > starts it (off by default; the platform alone is the safe default).
+>
+> **Session + key (2026-10-29, rev 3).** Two blockers fixed here:
+> 1. Nothing loaded the repository-root `.env`, so `OPENALGO_API_KEY` resolved
+>    to None and the client was built unauthenticated — the run died at its
+>    first broker call. `core/client.py` now loads `.env` (process env still
+>    wins) and `init_client()` **raises at construction** when no key exists.
+> 2. There was no weekday/session guard. The runner now refuses NEW exposure
+>    outside 09:15–15:30 IST (exit code `6`) and the supervisor parks with a
+>    `market_hours` gate; an `entry_cutoff` (default 14:45) stops new entries
+>    before the close. Paper/analyze runs are exempt. Exchange holidays go in
+>    `Blue_engine/input/market_holidays.json` (absent = weekday check only, and
+>    the reason string says so rather than implying a verified holiday).
 
 > **Risk block (2026-10-29).** `Blue_engine/input/master.json` now carries a
 > `risk` block: `max_order_quantity`, `max_order_notional`, `max_daily_loss`,

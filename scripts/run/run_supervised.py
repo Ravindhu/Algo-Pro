@@ -87,8 +87,18 @@ def main(argv: list[str] | None = None) -> int:
         journal_path=str(args.journal),
     )
     tags = ["POV-EXIT", str(raw.get("strategy_label") or "POV")]
+    # Paper (analyze) runs are exempt from the market-hours gate; a live run is
+    # not. Unreadable mode counts as LIVE, so the gate fails closed.
+    try:
+        from blue_engine.core.mode import read_mode
+        paper = str(read_mode(client)).strip().lower() == "analyze"
+    except Exception:  # noqa: BLE001
+        paper = False
+    session_cfg = raw.get("market_session") if isinstance(
+        raw.get("market_session"), dict) else {}
     gates = [] if args.no_preflight else build_default_gates(
-        client, host, symbol, exchange, strategy_tags=tags)
+        client, host, symbol, exchange, strategy_tags=tags, paper=paper,
+        entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))
 
     supervisor = Supervisor(cfg, gates=gates)
     if args.once:

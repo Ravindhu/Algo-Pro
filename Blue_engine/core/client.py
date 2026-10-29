@@ -29,6 +29,44 @@ from openalgo import api
 
 logger = logging.getLogger(__name__)
 
+#: Repository root (…/my-trading-system): where the operator's .env lives.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DOTENV_LOADED = False
+
+
+def load_env_file(path: str | None = None) -> bool:
+    """Load the repository-root ``.env`` into ``os.environ`` (without override).
+
+    AUDIT (2026-10-29, LIVE-10): nothing in the Blue_engine runtime ever called
+    ``load_dotenv``. The operator's ``OPENALGO_API_KEY`` lived only in the
+    root ``.env``, so ``resolve_api_key()`` returned ``None``, the SDK client
+    was built with ``api_key=None`` and every live call would have failed with
+    an authentication error *after* the process had already started. Loading it
+    here - once, before any client is built - makes the documented setup
+    (README/SOP: "set OPENALGO_API_KEY in the repository-root .env") true.
+
+    Existing process variables always win: an explicit shell export must never
+    be silently replaced by a stale file value.
+
+    Returns True when a file was found and parsed.
+    """
+    global _DOTENV_LOADED
+    target = path or os.path.join(_REPO_ROOT, ".env")
+    if not os.path.isfile(target):
+        return False
+    try:
+        from dotenv import load_dotenv
+    except Exception:  # pragma: no cover - dotenv is a project dependency
+        logger.warning("python-dotenv is not installed; %s was not loaded", target)
+        return False
+    try:
+        loaded = bool(load_dotenv(target, override=False))
+        _DOTENV_LOADED = _DOTENV_LOADED or loaded
+        return loaded
+    except Exception as exc:  # noqa: BLE001 - never break client init
+        logger.warning("could not load %s: %s", target, exc)
+        return False
+
 
 def resolve_api_key() -> str | None:
     """Resolve the OpenAlgo API key without a hard dependency on OpenAlgo internals.
@@ -43,6 +81,11 @@ def resolve_api_key() -> str | None:
     (e.g. on a research-only box) -- callers then surface the SDK's own error.
     """
     env_key = os.getenv("OPENALGO_API_KEY")
+    if not env_key and not _DOTENV_LOADED:
+        # The operator's documented location for the key. Without this the
+        # client is built with api_key=None and fails only at the first call.
+        load_env_file()
+        env_key = os.getenv("OPENALGO_API_KEY")
     if env_key:
         return env_key
 
@@ -112,8 +155,19 @@ def init_client(api_key: str | None = None,
         placeorder, placesmartorder, quotes, history, modifyorder, cancelorder,
         orderbook, tradebook, positionbook, analyzerstatus, etc.
     """
+    # Load the operator's .env before reading host/ws_url, so a deployment that
+    # only configures the file (not the shell) works as documented.
+    if not _DOTENV_LOADED:
+        load_env_file()
+    key = api_key or os.getenv("OPENALGO_API_KEY") or resolve_api_key()
+    if not key:
+        # Fail at construction, not at the first order: a client with no key is
+        # an authentication failure waiting to happen mid-execution.
+        raise RuntimeError(
+            "no OpenAlgo API key: set OPENALGO_API_KEY in the repository-root "
+            ".env (or pass api_key) before starting the engine")
     return api(
-        api_key=api_key or resolve_api_key(),
+        api_key=key,
         host=host or os.getenv("HOST_SERVER", "http://127.0.0.1:5000"),
         ws_url=ws_url or os.getenv("WEBSOCKET_URL", "ws://127.0.0.1:8765"),
     )

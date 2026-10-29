@@ -2,6 +2,7 @@
   "_comment": "Master JSON config for blue_engine. Edit the 'strategies' block to enable/disable each strategy. Each enabled strategy must have its own config block at the top level (with the same name).",
   "_comment_auth": "Leave api_key/host/ws_url null to use environment variables OPENALGO_API_KEY, HOST_SERVER, WEBSOCKET_URL (recommended).",
   "_comment_risk": "[RISK GATE] Pre-trade caps enforced by core/risk_gate.py before any child order. Absence of a key = that cap is NOT enforced, so every monetary cap below is set explicitly. max_daily_loss / max_open_exposure come from the LIVE broker positionbook (core/risk_context.py) unless overridden here. require_live_ack=true REJECTS a live run when no monetary cap is configured (an unverified risk profile is not 'permission to trade'). Keep blocked=true until you intend to trade.",
+  "_comment_market_session": "[MARKET SESSION] The continuous NSE/BSE session is 09:15-15:30 IST, weekdays. The runner refuses NEW exposure outside it and the supervisor parks instead of starting (paper/analyze runs are exempt). entry_cutoff stops new entries before the close so an exit has time to work. Exchange holidays: put NSE's published list in Blue_engine/input/market_holidays.json as [\"2026-10-31\"]. Set enforce=false ONLY to deliberately trade an out-of-hours session.",
   "_comment_exit_engine": "[EXIT ENGINE] Broker-side protection for filled positions (core/exit_engine.py). After the slicer finishes, a working SL-M is placed for every open position, verified against the orderbook, and reconciled every check_interval_seconds for supervise_seconds. stop level = the protective registry's level, else default_stop_pct of the broker price. Market flattening (allow_market_exit) and flattening unregistered positions (flatten_unprotected) are OFF by default on purpose. Remove this block and a filled position is UNPROTECTED.",
   "_comment_keylevel": "Keylevel signal. Only used when 'keylevel' is true above. Polls LTP and fires the trade when the trigger is crossed.",
   "_comment_ocl_keylevel": "OCL Keylevel signal. Only used when 'ocl_keylevel' is true above. Scans HTF for Red-Red-Green (or Green-Red-Red) candle pattern, calculates the Touch Trigger Level from candle bodies, monitors LTF for price touch, then fires POV.",
@@ -11,6 +12,10 @@
   "api_key": null,
   "exchange": "NSE",
   "host": null,
+  "market_session": {
+    "enforce": true,
+    "entry_cutoff": "14:45"
+  },
   "exit_engine": {
     "enabled": true,
     "strategy_tag": "POV-EXIT",

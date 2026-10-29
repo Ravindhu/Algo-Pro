@@ -260,9 +260,11 @@ def test_quote_gate_needs_a_positive_price():
 def test_default_gate_chain_stops_at_the_first_failure():
     client = StubBroker(pos_ok=False)
     gates = build_default_gates(client, "http://127.0.0.1:1", "INFY", "NSE")
-    # Pin the network gate so the test never depends on a closed port timing
-    # out; the ordering under test is "first failure ends the chain".
+    # Pin the network and auth gates so the test never depends on a closed port
+    # or a live broker; the ordering under test is "first failure ends the
+    # chain". Chain: kill_switch, openalgo, broker_session, positionbook, ...
     gates[1] = lambda: GateResult("openalgo", True, "stubbed up")
+    gates[2] = lambda: GateResult("broker_session", True, "stubbed auth")
     sup = Supervisor(SupervisorConfig(command=["engine"], preflight_on_start=True),
                      runner=lambda cmd: 0, gates=gates, log=lambda _m: None,
                      clock=Clock(), sleep=lambda _s: None)
@@ -271,8 +273,8 @@ def test_default_gate_chain_stops_at_the_first_failure():
     # openalgo is stubbed up, so the chain stops at the unreadable positionbook
     # and never reaches the orderbook/quote gates after it.
     assert out["first_failure"]["gate"] == "positionbook"
-    assert [g["gate"] for g in out["gates"]] == ["kill_switch", "openalgo",
-                                                  "positionbook"]
+    assert [g["gate"] for g in out["gates"]] == [
+        "kill_switch", "openalgo", "broker_session", "positionbook"]
 
 
 def test_kill_switch_gate_reads_the_durable_store(monkeypatch):

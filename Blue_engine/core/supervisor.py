@@ -511,14 +511,61 @@ def quote_gate(client, symbol: str, exchange: str) -> GateResult:
     return GateResult("quote", False, "no finite positive price")
 
 
+def broker_session_gate(client) -> GateResult:
+    """Gate: the broker session must still be valid.
+
+    OpenAlgo keeps the broker session; when it expires, ``positionbook`` still
+    answers but every order is rejected. Checking the analyzer status exercises
+    the same authenticated path cheaply, so an expired login is caught before
+    an order rather than after.
+    """
+    try:
+        resp = client.analyzerstatus()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("broker_session", False, f"analyzerstatus raised: {exc!r}")
+    if not (isinstance(resp, dict) and resp.get("status") == "success"):
+        return GateResult("broker_session", False,
+                          f"not authenticated: {str(resp)[:140]}")
+    return GateResult("broker_session", True, "authenticated")
+
+
+def market_hours_gate(symbol: str = "", allow_outside: bool = False,
+                      entry_cutoff: str = "14:45",
+                      now: Optional[Any] = None) -> GateResult:
+    """Gate: start the engine only inside the continuous trading session.
+
+    A live engine launched at 22:00 or on a Sunday cannot trade - the broker
+    rejects every order and the run burns its restart budget proving it. The
+    supervisor parks instead, and an operator starts it at the open.
+    """
+    from blue_engine.core.time_utils import market_session_state
+    if allow_outside:
+        return GateResult("market_hours", True, "override: enforcement disabled")
+    state = market_session_state(now=now, entry_cutoff=entry_cutoff)
+    if state["open"]:
+        return GateResult("market_hours", True, state["reason"])
+    return GateResult("market_hours", False, f"{state['state']}: {state['reason']}")
+
+
 def build_default_gates(client, host: str, symbol: str, exchange: str,
-                        strategy_tags: Optional[List[str]] = None
+                        strategy_tags: Optional[List[str]] = None,
+                        *, paper: bool = False,
+                        entry_cutoff: str = "14:45"
                         ) -> List[Callable[[], GateResult]]:
-    """The six gates, in order. Gate 6 (previous CRITICAL) is the kill switch."""
-    return [
+    """The gate chain, in order. Stops at the first failure.
+
+    Order matters: the cheapest and most fatal checks first. ``paper`` runs
+    (analyze mode) are exempt from the market-hours gate because the sandbox
+    accepts orders at any time; a live run is not.
+    """
+    gates: List[Callable[[], GateResult]] = [
         kill_switch_gate,
         lambda: openalgo_reachable_gate(host),
+        lambda: broker_session_gate(client),
         lambda: positionbook_gate(client),
         lambda: working_orders_gate(client, strategy_tags),
         lambda: quote_gate(client, symbol, exchange),
     ]
+    if not paper:
+        gates.append(lambda: market_hours_gate(symbol, entry_cutoff=entry_cutoff))
+    return gates
