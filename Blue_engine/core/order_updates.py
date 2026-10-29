@@ -38,6 +38,27 @@ Design rules
 * Any SDK error is logged and swallowed - the durable ledger
   still has the claim record, so a missed event does not lose
   the child's lifecycle.
+
+Payload contract (audited 2026-10-29)
+-------------------------------------
+``parse_order_update`` is the ONE place that knows the event shape, and both
+sources feed it:
+
+* the OpenAlgo event bus / websocket_proxy relay / postback blueprint publish
+  ``{"type": "order_update", "orderid", "order_status", "filled_quantity",
+  "pending_quantity", "average_price", ...}`` with ``order_status`` in
+  OpenAlgo's lowercase vocabulary (``open`` | ``complete`` | ``rejected`` |
+  ``cancelled`` | ``trigger pending``);
+* the SDK WebSocket delivers ``{"type": "order_update", ...}`` with the same
+  snake_case names;
+* some broker/webhook payloads use camelCase (``orderId``, ``orderStatus``,
+  ``filledQty``), which the same extractor accepts.
+
+``filled_quantity`` is CUMULATIVE. The ledger only ever raises a child's
+filled count (``max``), so a replayed, out-of-order or downgraded event cannot
+rewind it. Before this contract was enforced, a live parent never registered a
+fill ("Opened"/"rejected by broker" were unrecognised), the slicer never saw
+``filled_qty`` advance, and it kept placing children until its duration ran out.
 """
 from __future__ import annotations
 import logging
@@ -45,13 +66,24 @@ import threading
 from typing import Any, Callable, Optional
 logger = logging.getLogger(__name__)
 
-# Status normalisation. The broker uses several synonyms ("complete",
-# "completed", "traded", "executed", "filled"); we collapse them to
-# the canonical ledger vocabulary.
+# Status normalisation. The vocabulary is OpenAlgo's own (lowercase, see
+# openalgo/events/order_events.py and the broker order adapters:
+# "open" | "complete" | "rejected" | "cancelled" | "trigger pending").
+# Every entry below is an observed spelling from at least one of those
+# sources; underscore/space variants are normalised by the fallback below.
 _FILLED_STATUSES = {"complete", "completed", "filled", "executed", "traded"}
 _CANCELLED_STATUSES = {"cancelled", "canceled"}
-_REJECTED_STATUSES = {"rejected", "rejected_by_broker", "error"}
-_OPEN_STATUSES = {"open", "pending", "trigger pending", "accepted", "open pending", "openpending"}
+_REJECTED_STATUSES = {
+    "rejected", "rejected by broker", "rejected by exchange", "rejected by rms",
+    "reject", "error",
+}
+_OPEN_STATUSES = {
+    "open", "opened", "pending", "trigger pending", "accepted", "open pending",
+    "openpending", "put order req received", "validation pending",
+    "modify validation pending", "modify pending", "cancel pending",
+    "amo req received", "after market order req received", "modified",
+    "update",
+}
 
 _SUBSCRIPTION_LOCK = threading.Lock()
 _SUBSCRIBED = False
@@ -79,10 +111,141 @@ def normalize_status(raw: Any) -> str:
         return "rejected"
     if text in _OPEN_STATUSES:
         return "open"
+    # Fallback on the underscores the SDK/broker layers sometimes emit
+    # ("trigger_pending", "rejected_by_broker", "open_pending").
+    alt = text.replace("_", " ")
+    if alt != text:
+        return normalize_status(alt)
     # Be conservative: anything we don't recognise stays "open" so
     # the ledger never accidentally releases a reservation on an
     # unrecognised terminal state.
     return "open"
+
+
+# ---------------------------------------------------------------------------
+# Event field extraction
+# ---------------------------------------------------------------------------
+#: Field names seen for each logical value. The OpenAlgo event bus dataclass,
+#: event-bus dicts published onto the event bus, the websocket_proxy relay
+#: (subscribers/wsproxy_subscriber.py) and ``client.get_orders()`` all use the
+#: snake_case names; older/broker payloads use the camelCase and short forms.
+_ORDER_ID_KEYS = ("orderid", "order_id", "orderId")
+_STATUS_KEYS = ("order_status", "status", "orderStatus")
+_FILLED_KEYS = ("filled_quantity", "filledqty", "filled_qty", "filledQty",
+                "filled")
+_AVG_PRICE_KEYS = ("average_price", "avg_price", "avgprice", "avgprc",
+                   "fill_price", "fillprice")
+#: Fallback ONLY for an event that is already a fill. An order's own LIMIT
+#: price is not its fill price, so an ACK never borrows it.
+_PRICE_FALLBACK_KEYS = ("price",)
+_ACTION_KEYS = ("action", "side", "transaction_type")
+_PENDING_KEYS = ("pending_quantity", "pendingqty", "pending_qty")
+
+
+class _Missing:
+    """Sentinel for "field absent" (distinct from a 0 value)."""
+
+
+_MISSING = _Missing()
+
+
+def _field(event: Any, keys) -> Any:
+    """First present value of ``keys`` on a dict or an object, else sentinel."""
+    for key in keys:
+        if isinstance(event, dict):
+            if key in event and event[key] is not None:
+                return event[key]
+        else:
+            value = getattr(event, key, None)
+            if value is not None:
+                return value
+    return _MISSING
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    """Parse a broker quantity or return None. Never raises."""
+    if value is _MISSING or value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    """Parse a broker price or return None. Never raises."""
+    if value is _MISSING or value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def _filled_from_pending(event: Any) -> int:
+    """Derive a cumulative fill from an order that reports only quantity.
+
+    Several OpenAlgo paths publish ``quantity`` and ``pending_quantity`` but
+    no ``filled_quantity`` (an ACK before the first fill, and some broker
+    adapters). ``quantity - pending`` is then the cumulative fill, and it is
+    accepted ONLY when both numbers are present, non-negative and ordered; a
+    feed that omits the order quantity cannot prove a fill, so it returns 0
+    and the ledger keeps the maximum it already has.
+    """
+    quantity = _int_or_none(_field(event, ("quantity", "qty")))
+    pending = _int_or_none(_field(event, _PENDING_KEYS))
+    if quantity is None or pending is None:
+        return 0
+    if quantity < 0 or pending < 0 or pending > quantity:
+        return 0
+    return quantity - pending
+
+
+def parse_order_update(event: Any) -> Optional[tuple]:
+    """Extract ``(order_id, status, filled_qty, fill_price, side)``.
+
+    This is the SINGLE place that knows the broker/OpenAlgo order-update
+    shape. It accepts:
+
+    * a dict published on the event bus or relayed over the WebSocket
+      (``websocket_proxy/subscribers`` payload: ``orderid``, ``order_status``,
+      ``filled_quantity``, ``pending_quantity``, ``average_price``), and
+    * the ``OrderUpdateEvent`` dataclass / any object with the same names.
+
+    Returns ``None`` when the event carries no order id (heartbeats, acks),
+    so callers can ``if parsed is None: return`` without inspecting it.
+
+    ``filled_qty`` is the CUMULATIVE filled quantity, never a delta: the
+    ledger keeps the max it has seen, so a replayed or out-of-order event
+    cannot double-count. Missing quantities parse to ``0`` and a missing
+    price parses to ``None``, never to ``0.0`` (a zero price would poison the
+    slippage window).
+    """
+    order_id = _field(event, _ORDER_ID_KEYS)
+    if order_id is _MISSING or not order_id:
+        return None
+    status = normalize_status(_field(event, _STATUS_KEYS))
+    filled = _int_or_none(_field(event, _FILLED_KEYS))
+    if filled is None:
+        filled = _filled_from_pending(event)
+    fill_price = _float_or_none(_field(event, _AVG_PRICE_KEYS))
+    # Feeds that send 0 (or "") for average_price before the first fill.
+    if fill_price is not None and fill_price <= 0:
+        fill_price = None
+    if fill_price is None and status == "filled":
+        # An ACK that is still working carries the LIMIT price, not a fill;
+        # only a fill may fall back to it (and only as a slippage estimate).
+        fill_price = _float_or_none(_field(event, _PRICE_FALLBACK_KEYS))
+    side_value = _field(event, _ACTION_KEYS)
+    side = str(side_value).upper() if side_value is not _MISSING and side_value else "BUY"
+    return (str(order_id), status, max(0, int(filled)), fill_price, side)
 
 
 # ---------------------------------------------------------------------------
@@ -105,32 +268,10 @@ def _on_update(event: Any) -> None:
     )
 
     order_id = None
-    if isinstance(event, dict):
-        order_id = event.get("orderid") or event.get("order_id")
-    else:
-        order_id = getattr(event, "orderid", None) or getattr(event, "order_id", None)
-    if not order_id:
+    parsed = parse_order_update(event)
+    if parsed is None:
         return
-    if isinstance(event, dict):
-        status = normalize_status(event.get("status") or event.get("order_status"))
-        filled_qty = int(event.get("filled_quantity") or event.get("filled_qty") or 0)
-        fill_price = (
-            event.get("average_price")
-            or event.get("avg_price")
-            or event.get("fill_price")
-            or event.get("price")
-        )
-        side = (event.get("action") or event.get("side") or "BUY")
-    else:
-        status = normalize_status(getattr(event, "order_status", None))
-        filled_qty = int(getattr(event, "filled_quantity", 0) or 0)
-        fill_price = (
-            getattr(event, "average_price", None)
-            or getattr(event, "avg_price", None)
-            or getattr(event, "fill_price", None)
-            or getattr(event, "price", None)
-        )
-        side = getattr(event, "action", None) or getattr(event, "side", None) or "BUY"
+    order_id, status, filled_qty, fill_price, side = parsed
     try:
         ledger.record_fill(str(order_id), filled_qty, status)
     except Exception as exc:  # pragma: no cover - defensive
@@ -319,5 +460,6 @@ def subscribe_to_order_updates(
 
 __all__ = [
         "normalize_status",
+        "parse_order_update",
         "subscribe_to_order_updates",
     ]
