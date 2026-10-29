@@ -28,6 +28,7 @@ An LLM can inform a *parameter*, but the deterministic rails (``_validate`` in
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import time
@@ -48,6 +49,11 @@ ToolFunc = Callable[[Dict[str, Any]], Any]
 #: shared counter the per-call limit (6) would multiply by the engine count.
 #: The caller opens a session, and every ``advise()`` inside it draws from the
 #: same budget. Entries are dropped by ``end_session``.
+#: True while the outer ``complete()`` is inside the token governor, so the
+#: governor's call back into this same client bypasses it (no re-entry).
+_GOVERNING: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "blue_engine_governing", default=False)
+
 _CALL_BUDGET: Dict[str, int] = {}
 
 
@@ -176,10 +182,20 @@ class LLMClient:
         A backend that is not ``available()`` (e.g. OpenRouter after a 429) is
         skipped and recorded, so the report shows why it was not used.
         """
-        if self.governor is not None:
-            return self.governor.complete(
-                messages, model=model, temperature=temperature,
-                max_tokens=max_tokens, timeout=timeout, json_schema=json_schema)
+        # Per-call re-entry guard. The governor wraps THIS client and calls
+        # back into ``client.complete``; routing that inner call through the
+        # same governor recursed forever (RecursionError, paper-shift pipeline).
+        # Only the outermost call is governed.
+        if (self.governor is not None and self.governor is not self
+                and not _GOVERNING.get()):
+            _GOVERNING.set(True)
+            try:
+                return self.governor.complete(
+                    messages, model=model, temperature=temperature,
+                    max_tokens=max_tokens, timeout=timeout,
+                    json_schema=json_schema)
+            finally:
+                _GOVERNING.set(False)
         attempts: List[Dict[str, str]] = []
         for backend in self.backends:
             if not backend.available():

@@ -351,6 +351,12 @@ def run_with_config(
     requires_order_price = (
         gate.max_order_notional is not None
         or gate.max_open_exposure is not None)
+    # A live run (OpenAlgo not in analyze mode) is flagged so the gate can
+    # refuse an unconfigured/unlimited risk profile when require_live_ack is set.
+    # read_mode() returns "live" | "analyze" | "unknown". "unknown" is treated
+    # as live on purpose: an unverifiable mode must fail closed, never assume
+    # that orders are harmless.
+    is_live = str(mode).strip().lower() != "analyze"
 
     def _valid_price(value: Any) -> Optional[float]:
         if isinstance(value, bool):
@@ -388,6 +394,7 @@ def run_with_config(
             open_exposure=child_context.get("open_exposure"),
             require_intent_price=requires_order_price,
             reduces_exposure=phase == "exiting",
+            live=is_live,
         )
         if not child_decision.approved:
             print(f"[runner] RISK GATE rejected child: {child_decision.reason}")
@@ -446,6 +453,7 @@ def run_with_config(
         open_exposure=rc.get("open_exposure"),
         require_intent_price=requires_order_price,
         reduces_exposure=intent_reduces,
+        live=is_live,
     )
     if not decision.approved:
         print(f"[runner] RISK GATE REJECTED intent: {decision.reason}")

@@ -115,6 +115,10 @@ class RiskGate:
             str(a).upper() for a in (self.config.get("allowed_actions") or ["BUY", "SELL"])
         ]
         self.blocked = bool(self.config.get("blocked", False))
+        #: When true, a LIVE run with NO monetary quantity/notional/exposure/
+        #: daily-loss limit is rejected (see ``check(live=...)``). Opt-in so
+        #: existing analyze-mode and test callers keep their behaviour.
+        self.require_live_ack = bool(self.config.get("require_live_ack", False))
 
     # ---- helpers ------------------------------------------------------- #
     def _reference_price(self, intent: Dict[str, Any]) -> Optional[float]:
@@ -138,7 +142,8 @@ class RiskGate:
               *, day_pnl: Optional[float] = None,
               open_exposure: Optional[float] = None,
               require_intent_price: bool = False,
-              reduces_exposure: bool = False) -> RiskDecision:
+              reduces_exposure: bool = False,
+              live: bool = False) -> RiskDecision:
         """Evaluate ``intent`` and return a :class:`RiskDecision`.
 
         Args:
@@ -150,6 +155,14 @@ class RiskGate:
             open_exposure: absolute current open notional. Used by the
                 ``max_open_exposure`` check. Falls back to the config value.
                 ``None`` rejects when that limit is configured.
+            require_intent_price: reject unless a finite positive price exists
+                (monetary limits cannot be evaluated without one).
+            reduces_exposure: this order lowers exposure, so the daily-loss
+                and exposure caps are evaluated as a reduction.
+            live: the caller believes this intent reaches real capital. When
+                ``require_live_ack`` is configured, a live intent with no
+                monetary limit at all is rejected instead of silently
+                running unlimited.
 
         Returns:
             RiskDecision. Never raises.
@@ -182,6 +195,17 @@ class RiskGate:
                 "quantity": quantity,
                 "notional": notional,
             }
+
+            # 0. Live acknowledgement: no monetary limit at all is not
+            #    "unlimited permission", it is "unverified risk".
+            if live and self.require_live_ack and not any(
+                    v is not None for v in (self.max_order_quantity,
+                                            self.max_order_notional,
+                                            self.max_daily_loss,
+                                            self.max_open_exposure)):
+                breaches.append(
+                    "live run with no monetary risk limit configured "
+                    "(require_live_ack)")
 
             # 1. Master kill-switch.
             if self.blocked:

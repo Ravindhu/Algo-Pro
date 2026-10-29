@@ -284,6 +284,18 @@ class TokenGovernor:
     method, so this wraps ``LLMClient`` without importing it.
     """
 
+    def __getattr__(self, name: str) -> Any:
+        """Refuse a self-referential wrap instead of recursing at call time.
+
+        ``governor_for()`` returns a governor unchanged, so a caller that then
+        does ``client.governor = wrapped`` on the SAME object makes
+        ``complete() -> governor.complete() -> client.complete()`` an infinite
+        chain (observed as ``RecursionError`` in the paper-shift pipeline).
+        """
+        if name == "client":
+            raise AttributeError(name)
+        raise AttributeError(name)
+
     def __init__(self, client: Any, *,
                  max_prompt_tokens: int = 3072,
                  max_tokens_out: int = 600,
@@ -291,6 +303,8 @@ class TokenGovernor:
                  cache_entries: int = 256,
                  enabled: bool = True,
                  monotonic: Any = time.time):
+        if client is self:
+            raise ValueError("TokenGovernor cannot wrap itself")
         self.client = client
         self.max_prompt_tokens = max(512, int(max_prompt_tokens))
         self.max_tokens_out = max(64, int(max_tokens_out))
@@ -321,7 +335,8 @@ class TokenGovernor:
                  max_tokens: Optional[int] = None,
                  timeout: Optional[float] = None,
                  json_schema: Optional[Dict[str, Any]] = None,
-                 use_cache: Optional[bool] = None) -> Any:
+                 use_cache: Optional[bool] = None,
+                 _hops: int = 0) -> Any:
         """Governed completion. Returns the backend's ``ChatResult`` unchanged.
 
         A cache hit returns exactly the text a live call produced, with
@@ -357,9 +372,22 @@ class TokenGovernor:
                            "prompt_tokens_estimated": prompt_tokens},
                     latency_ms=0)
 
-        result = self.client.complete(
-            prepared, model=model, temperature=temperature,
-            max_tokens=out_tokens, timeout=timeout, json_schema=json_schema)
+        # Hop guard: two governed clients that reference each other would
+        # otherwise recurse until the interpreter's stack limit.
+        if _hops >= 2:
+            return ChatResult(ok=False, attempts=[
+                {"backend": "governor",
+                 "reason": "governor chain loop detected"}])
+        if isinstance(self.client, TokenGovernor):
+            result = self.client.complete(
+                prepared, model=model, temperature=temperature,
+                max_tokens=out_tokens, timeout=timeout,
+                json_schema=json_schema, _hops=_hops + 1)
+        else:
+            result = self.client.complete(
+                prepared, model=model, temperature=temperature,
+                max_tokens=out_tokens, timeout=timeout,
+                json_schema=json_schema)
         self.meter.record_call(getattr(result, "backend", "") or "",
                                prompt_tokens, getattr(result, "usage", None))
         # The cache key includes the chain, not the backend that answered. If
