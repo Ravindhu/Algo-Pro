@@ -9,13 +9,16 @@ prompt string, cache and JSON validator:
     economics/nlp/llm_scorer.py      OpenAI + Ollama (env-var mismatch)
     sectors/sector_engine.py         OpenRouter -> Ollama
     portfolio/views/llm_note.py      OpenAI / Ollama
-    portfolio/views/nlp_views.py     local lexical
+    portfolio/views/nlp_views.py     local lexical (no LLM: always lexical)
 
 They disagreed about which endpoint, which model, and how to read credentials.
 A backend swap therefore changed behaviour silently. This package replaces the
 *transport* only - one protocol, one failover chain, one cache key - and leaves
 each caller's prompt and schema-validation exactly where it is (those are the
 safety layer, not plumbing).
+
+As of 2026-10-29 all four LLM sites are migrated onto the chain; the fourth
+(``nlp_views``) is deliberately lexical and has no transport to migrate.
 
 DESIGN RULES
 ------------

@@ -16,22 +16,33 @@ demands:
 
 The lexical fallback in :mod:`.sentiment` is always available; this layer is an
 *enhancement*, so its absence never blocks the pipeline.
+
+TRANSPORT (2026-10-29)
+----------------------
+This module no longer owns HTTP. It builds a :class:`LLMClient` over the shared
+backend chain, so it inherits the same order and the same quota rules as the
+frontline agent (Anthropic -> Ollama -> OpenRouter). The previous version
+*preferred* Ollama whenever ``OLLAMA_HOST`` was set, which is backwards for a
+paid desk; the chain resolves it once, in one place.
+
+Deliberately unchanged: the on-disk content-hash cache, the strict schema, and
+the ``method`` vocabulary of the return value. Callers depend on all three.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
-from ...providers.secrets import get_secret, has_secret, redact
-
-try:  # optional dependency
-    import requests  # type: ignore
-    _HAS_REQUESTS = True
-except Exception:  # noqa: BLE001
-    requests = None  # type: ignore
-    _HAS_REQUESTS = False
+from ...core.llm.backends import OllamaBackend, OpenRouterBackend
+from ...core.llm.protocol import ChatMessage
+from ...core.llm.router import LLMClient
+# AUDIT 2026-10-29: this was ``...providers.secrets`` -> blue_engine.providers,
+# which does not exist (secrets lives under economics/). Importing this module
+# therefore raised ModuleNotFoundError; the economic engine imports it lazily,
+# so the failure only appeared on the first call.
+from ..providers.secrets import get_secret, has_secret, redact
 
 # Default cache: <repo>/data/llm_cache/  (keyed by sha256 of the prompt text).
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -40,15 +51,52 @@ DEFAULT_CACHE_DIR = _REPO_ROOT / "data" / "llm_cache"
 SCHEMA_KEYS = ("hawkish", "inflation_focus", "growth_focus", "guidance",
                "confidence")
 
+# AUDIT 2026-10-29: the JSON exemplar's literal braces are doubled (``{{"``)
+# because this string is consumed by ``str.format``. With single braces the
+# ``.score()`` call raised KeyError('"hawkish"') on EVERY document, so the LLM
+# scorer never actually ran - the module only ever returned the lexical
+# fallback. Keep them doubled if you edit the exemplar.
 _PROMPT_TEMPLATE = (
     "You are a macro analyst. Read the central-bank text and return ONLY a "
     "JSON object with exactly these keys: "
-    '{"hawkish": float in [-1,1], "inflation_focus": float in [0,1], '
+    '{{"hawkish": float in [-1,1], "inflation_focus": float in [0,1], '
     '"growth_focus": float in [0,1], "guidance": one of '
-    '["hawkish","neutral","dovish"], "confidence": float in [0,1]}. '
+    '["hawkish","neutral","dovish"], "confidence": float in [0,1]}}. '
     "hawkish > 0 means more hawkish (rate-tightening bias). No prose, JSON "
     "only.\n\nTEXT:\n{text}"
 )
+
+
+class _ProbeOpenRouter(OpenRouterBackend):
+    """OpenRouter chain member that sends every request through a probe.
+
+    Kept so a caller injecting ``http_post`` observes the identical
+    request/response shape it did before the transport migration.
+    """
+
+    def __init__(self, http_post: Callable[..., Any], model: str, timeout: float):
+        super().__init__(api_key="probe", model=model, timeout=timeout)
+        self._probe = http_post
+
+    def available(self) -> bool:
+        return True  # the probe decides; it is the test/caller's transport
+
+    def _post(self, url: str, payload: Dict[str, Any],
+              headers: Optional[Dict[str, str]] = None,
+              timeout: Optional[float] = None) -> Tuple[Any, str]:
+        try:
+            raw = self._probe(url, json=payload, headers=headers or {},
+                              timeout=timeout or self.timeout)
+        except Exception:  # noqa: BLE001 - probes fail like transports do
+            return None, "probe_failed"
+        if hasattr(raw, "json"):
+            try:
+                raw = raw.json()
+            except Exception:  # noqa: BLE001
+                return None, "bad_json"
+        if not isinstance(raw, dict):
+            return None, "bad_json"
+        return raw, ""
 
 
 def _cache_file(text: str, cache_dir: Path) -> Path:
@@ -89,7 +137,8 @@ class LLMScorer:
     def __init__(self, config: Optional[Dict[str, Any]] = None,
                  log: Optional[Callable[[str], None]] = None,
                  http_post: Optional[Callable[..., Any]] = None,
-                 cache_dir: Optional[Path] = None):
+                 cache_dir: Optional[Path] = None,
+                 client: Optional[LLMClient] = None):
         self.config = dict(config or {})
         self._log_fn = log
         self._http_post = http_post
@@ -99,6 +148,7 @@ class LLMScorer:
         self.ollama_host = get_secret("OLLAMA_HOST")
         self.model = self.config.get("model", "gpt-4o-mini")
         self.timeout = float(self.config.get("timeout", 30.0))
+        self.client = client or self._build_client()
 
     def log(self, msg: str) -> None:
         if self._log_fn:
@@ -106,42 +156,43 @@ class LLMScorer:
 
     # ---- availability --------------------------------------------------- #
     def enabled(self) -> bool:
-        return bool(self.api_key or self.ollama_host)
+        return any(b.available() for b in self.client.backends)
 
     def status(self) -> Dict[str, Any]:
         return {
             "enabled": self.enabled(),
-            "requests": _HAS_REQUESTS,
             "openai_key": redact("OPENAI_API_KEY", self.api_key)
             if self.api_key else "<unset>",
             "ollama_host": self.ollama_host or "<unset>",
             "model": self.model,
+            "chain": self.client.status(),
         }
 
-    # ---- endpoint ------------------------------------------------------- #
-    def _endpoint(self) -> Optional[str]:
-        if self.ollama_host:
-            host = self.ollama_host.rstrip("/")
-            return f"{host}/v1/chat/completions"
-        if self.api_key:
-            base = self.config.get("base_url", "https://api.openai.com/v1")
-            return f"{base.rstrip('/')}/chat/completions"
-        return None
+    # ---- transport ------------------------------------------------------ #
+    def _build_client(self) -> LLMClient:
+        """Ollama -> OpenRouter over the shared chain.
 
-    def _post(self, url: str, payload: Dict[str, Any],
-              headers: Dict[str, str]) -> Optional[Any]:
-        poster = self._http_post
-        if poster is None:
-            if not _HAS_REQUESTS:
-                return None
-            poster = requests.post  # type: ignore[union-attr]
-        try:
-            resp = poster(url, json=payload, headers=headers,
-                          timeout=self.timeout)
-            return resp.json() if hasattr(resp, "json") else resp
-        except Exception as exc:  # noqa: BLE001
-            self.log(f"request failed: {exc!r}")
-            return None
+        ``http_post`` compatibility: a caller that injects a transport probe
+        gets an OpenRouter-only chain routed through it, so existing probes keep
+        observing the same request/response shape.
+        """
+        if self._http_post is not None:
+            backends: Sequence[Any] = [
+                _ProbeOpenRouter(self._http_post, self.model, self.timeout)]
+        elif self.ollama_host:
+            backends = [
+                OllamaBackend(
+                    host=self.ollama_host,
+                    model=str(self.config.get("ollama_model") or "llama3.1"),
+                    timeout=self.timeout),
+                OpenRouterBackend(
+                    api_key=get_secret("OPENROUTER_API_KEY"),
+                    model=str(self.config.get("openrouter_model") or self.model),
+                    timeout=self.timeout),
+            ]
+        else:
+            backends = []
+        return LLMClient.for_named_site(backends, self.config)
 
     # ---- scoring -------------------------------------------------------- #
     def score(self, text: str, *, use_cache: bool = True) -> Dict[str, Any]:
@@ -157,7 +208,7 @@ class LLMScorer:
             return {"method": "empty"}
         if not self.enabled():
             return {"method": "disabled",
-                    "reason": "no OPENAI_API_KEY or OLLAMA_HOST"}
+                    "reason": "no LLM backend configured"}
 
         path = _cache_file(text, self.cache_dir)
         if use_cache and path.is_file():
@@ -171,30 +222,17 @@ class LLMScorer:
             except Exception:  # noqa: BLE001
                 pass
 
-        url = self._endpoint()
-        if url is None:
-            return {"method": "disabled"}
-        headers = {"Content-Type": "application/json"}
-        if self.api_key and not self.ollama_host:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-
-        payload = {
-            "model": self.model,
-            "temperature": 0.0,               # deterministic scoring
-            "messages": [
-                {"role": "user",
-                 "content": _PROMPT_TEMPLATE.format(text=text[:6000])},
-            ],
-        }
-        raw = self._post(url, payload, headers)
-        if raw is None:
-            return {"method": "error", "error": "no response"}
-
-        content = None
-        try:
-            content = raw["choices"][0]["message"]["content"]
-        except Exception:  # noqa: BLE001
-            return {"method": "error", "error": "unexpected response shape"}
+        result = self.client.complete(
+            [ChatMessage("user",
+                         _PROMPT_TEMPLATE.format(text=text[:6000]))],
+            temperature=0.0,                  # deterministic scoring
+            max_tokens=600, timeout=self.timeout,
+            json_schema={"type": "object"})
+        if not result.ok:
+            self.log(f"chain failed: {result.method}")
+            return {"method": "error", "error": "no response",
+                    "attempts": result.attempts}
+        content = result.text
 
         # The model must return JSON; strip accidental code fences defensively.
         content = str(content).strip().removeprefix("```json").removeprefix(
@@ -220,7 +258,9 @@ class LLMScorer:
 
 
 def available() -> bool:
-    return _HAS_REQUESTS or has_secret("OPENAI_API_KEY")
+    """True when any configured backend could answer, or a cloud key exists."""
+    return bool(has_secret("OPENAI_API_KEY") or has_secret("OPENROUTER_API_KEY")
+                or has_secret("ANTHROPIC_API_KEY") or has_secret("OLLAMA_HOST"))
 
 
 __all__ = ["LLMScorer", "available", "SCHEMA_KEYS"]

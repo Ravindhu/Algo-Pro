@@ -21,6 +21,14 @@ Security (from AGENTS.md)
 
 This mirrors ``economics/nlp/llm_scorer.py`` deliberately: one credential path, one
 caching story, one JSON-only prompt contract across the codebase.
+
+TRANSPORT (2026-10-29)
+----------------------
+The hand-rolled OpenAI SDK / ``/api/generate`` pair is gone. Calls now go
+through the shared :class:`LLMClient` chain (Ollama -> OpenRouter -> Disabled),
+so this module obeys the same quota and failover rules as the frontline agent
+and no longer needs the ``openai`` package. The on-disk hash cache, the JSON
+array parsing and the templated fallback note are unchanged.
 """
 from __future__ import annotations
 
@@ -32,6 +40,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from .base import make_view
+from ...core.llm.backends import OllamaBackend, OpenRouterBackend
+from ...core.llm.protocol import ChatMessage
+from ...core.llm.router import LLMClient
 from ...core.results import clamp, safe_float
 
 logger = logging.getLogger(__name__)
@@ -83,18 +94,14 @@ def _secret(name: str) -> Optional[str]:
 
 def available() -> Dict[str, Any]:
     """Report which LLM backends are usable (never reads the key value aloud)."""
-    out = {"openai": False, "ollama": False, "method": "disabled"}
-    if _secret("OPENAI_API_KEY"):
-        try:
-            import openai  # noqa: F401
-            out["openai"] = True
-            out["method"] = "openai"
-        except Exception:  # noqa: BLE001
-            out["openai_key"] = True  # key present but SDK missing
-    if os.getenv("OLLAMA_HOST"):
+    out = {"ollama": False, "openrouter": False, "method": "disabled"}
+    if _secret("OLLAMA_HOST"):
         out["ollama"] = True
+        out["method"] = "ollama"
+    if _secret("OPENROUTER_API_KEY") or _secret("OPENAI_API_KEY"):
+        out["openrouter"] = True
         if out["method"] == "disabled":
-            out["method"] = "ollama"
+            out["method"] = "openrouter"
     return out
 
 
@@ -129,44 +136,39 @@ def _write_cache(path: Path, payload: Any) -> None:
 # LLM call (JSON only)
 # --------------------------------------------------------------------------- #
 
+def _client(timeout: float = 30.0) -> LLMClient:
+    """Ollama -> OpenRouter over the shared chain. No key => no backends."""
+    chain = []
+    if _secret("OLLAMA_HOST"):
+        chain.append(OllamaBackend(
+            host=_secret("OLLAMA_HOST"),
+            model=os.getenv("OLLAMA_MODEL", "llama3.1"), timeout=timeout))
+    key = _secret("OPENROUTER_API_KEY") or _secret("OPENAI_API_KEY")
+    if key:
+        chain.append(OpenRouterBackend(
+            api_key=key,
+            model=os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-7b-instruct:free"),
+            timeout=timeout))
+    return LLMClient.for_named_site(chain)
+
+
 def _call_llm(prompt: str, *, system: str = "You reply with JSON only.",
               timeout: float = 30.0) -> Dict[str, Any]:
     """Call the configured LLM. Returns ``{"ok", "text", "method", "warnings"}``."""
-    avail = available()
-    if avail["method"] == "openai":
-        try:
-            import openai
-            key = _secret("OPENAI_API_KEY")
-            client = openai.OpenAI(api_key=key)
-            model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-            resp = client.chat.completions.create(
-                model=model, timeout=timeout,
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": prompt}],
-                temperature=0.2)
-            return {"ok": True, "text": resp.choices[0].message.content,
-                    "method": "openai", "warnings": []}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "text": "", "method": "openai",
-                    "warnings": [f"openai call failed: {exc!r}"]}
-    if avail["method"] == "ollama":
-        try:
-            import urllib.request
-            host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-            model = os.getenv("OLLAMA_MODEL", "llama3.1")
-            payload = json.dumps({"model": model, "prompt": prompt,
-                                  "stream": False}).encode()
-            req = urllib.request.Request(f"{host}/api/generate", data=payload,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                body = json.loads(r.read().decode())
-            return {"ok": True, "text": body.get("response", ""),
-                    "method": "ollama", "warnings": []}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "text": "", "method": "ollama",
-                    "warnings": [f"ollama call failed: {exc!r}"]}
-    return {"ok": False, "text": "", "method": "disabled",
-            "warnings": ["no LLM backend configured (OPENAI_API_KEY or OLLAMA_HOST)"]}
+    client = _client(timeout)
+    if not any(b.available() for b in client.backends):
+        return {"ok": False, "text": "", "method": "disabled",
+                "warnings": ["no LLM backend configured (OLLAMA_HOST or "
+                             "OPENROUTER_API_KEY)"]}
+    result = client.complete(
+        [ChatMessage("system", system), ChatMessage("user", prompt)],
+        temperature=0.2, max_tokens=600, timeout=timeout,
+        json_schema={"type": "object"})
+    if not result.ok:
+        return {"ok": False, "text": "", "method": result.backend or "disabled",
+                "warnings": [f"llm chain failed: {result.method}"]}
+    return {"ok": True, "text": result.text, "method": result.backend,
+            "warnings": [], "model_digest": result.model_digest}
 
 
 def _parse_json_array(text: str) -> Optional[List[Any]]:

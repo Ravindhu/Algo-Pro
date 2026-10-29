@@ -1168,3 +1168,54 @@ shift ledger: **no run ⇒ "not measured"**, never a fabricated zero.
 2. A failed token publish adds a `report["warnings"]` entry; it never fails a run.
 3. Anthropic answers are cached only while the whole chain is intact — a
    fallback Ollama answer is never stored under the full-chain cache key.
+
+## 18. LLM transport migration — complete (2026-10-29)
+
+Every LLM caller in the engine now shares one transport. No module owns HTTP
+any more.
+
+| Site | Before | Now |
+|---|---|---|
+| `core/frontline_agent` | chain + governor | unchanged (reference implementation) |
+| `sectors/sector_engine` (`SectorAdvisor`) | OpenRouter + native Ollama `/api/chat` | `LLMClient` over two members |
+| `economics/nlp/llm_scorer` | OpenAI + Ollama `/v1/chat/completions`, preferred Ollama | `LLMClient` (Ollama → OpenRouter) |
+| `portfolio/views/llm_note` | `openai` SDK + native `/api/generate` | `LLMClient` (Ollama → OpenRouter) |
+
+**What is deliberately unchanged** — do not "clean these up":
+1. The on-disk content-hash caches (`data/llm_cache`, `data/portfolio_llm`).
+2. Every prompt string and every JSON schema validator.
+3. The `method` vocabulary in each return value (`llm`/`cached`/`disabled`/
+   `invalid_response`/`error`/`template`/`safety_fallback`).
+4. `SectorAdvisor`'s 4-second deadline, 32 KB body cap, credential gate and
+   cloud-first/local-second order.
+5. The `http_post` probe injection in `LLMScorer` (routes through a probe
+   backend, same request/response shape).
+
+`LLMClient.for_named_site(...)` is the constructor these sites use: it gives
+them the failover chain with the **in-memory governor cache off** (they already
+have a disk cache; two caches would only add ambiguity). Opt in with
+`{"tokens": {"enabled": true}}` in their config.
+
+### Two latent bugs fixed on the way
+
+1. **`llm_scorer` could not be imported.** It used `...providers.secrets`
+   (`blue_engine.providers`, which does not exist). The economic engine imports
+   it lazily, so the failure appeared only on first use. Now `..providers.secrets`.
+2. **`llm_scorer.score()` always raised KeyError.** `_PROMPT_TEMPLATE` held
+   literal JSON braces and was passed through `str.format`, so
+   `KeyError('"hawkish"')` fired before any request was sent — the scorer had
+   silently never run. Braces are now doubled.
+
+### Behaviour changes to know about
+
+- `llm_scorer` no longer *prefers* Ollama when `OLLAMA_HOST` is set; it follows
+  the chain (Ollama first, only because it has no quota to spend).
+- Ollama is reached through its OpenAI-compatible `/v1/chat/completions`
+  instead of the native `/api/chat` / `/api/generate`. Same model, same JSON;
+  `test_sector_engine.py` asserts the new URL.
+
+### Verify
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_llm_site_migration.py -q
+```

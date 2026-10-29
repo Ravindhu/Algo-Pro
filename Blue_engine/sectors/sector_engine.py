@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..core.base import BaseEngine, EngineResult, EngineStage
+from ..core.llm.backends import OllamaBackend, OpenRouterBackend
+from ..core.llm.protocol import ChatMessage
+from ..core.llm.router import LLMClient
 from ..economics.providers.secrets import get_secret
 
 logger = logging.getLogger(__name__)
@@ -177,7 +180,16 @@ def _persist_run(sequence: int, limits_path: Path, snapshot_path: Path,
 
 
 class SectorAdvisor:
-    """OpenRouter-first structured advisor with a local Ollama fallback."""
+    """OpenRouter-first structured advisor with a local Ollama fallback.
+
+    TRANSPORT (2026-10-29): the advisor no longer hand-writes HTTP. It builds a
+    two-member :class:`LLMClient` chain and calls it, so the 4-second deadline,
+    the 32 KB body cap and the fail-closed validation are unchanged while the
+    transport (and its quota handling) is shared with the rest of the engine.
+    ``_openrouter`` / ``_ollama`` remain the per-backend entry points that
+    ``advise`` walks in order, which keeps the failover order explicit and
+    auditable at the call site.
+    """
 
     openrouter_endpoint = "https://openrouter.ai/api/v1/chat/completions"
     timeout_seconds = 4.0
@@ -255,75 +267,49 @@ class SectorAdvisor:
             "warning": "OpenRouter and Ollama did not return valid sector advice",
         }
 
-    def _openrouter(self, prompt: str, key: str) -> Optional[Any]:
-        payload = {
-            "model": self.model,
-            "temperature": 0,
-            "max_tokens": 600,
-            "messages": [
-                {"role": "system", "content": SECTOR_AGENT_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-        }
-        body = json.dumps(payload).encode("utf-8")
-        if len(body) > _MAX_BODY_BYTES:
+    # ---- transport ------------------------------------------------------ #
+    def _ask(self, prompt: str, backend: Any, model: str) -> Optional[Any]:
+        """One structured JSON answer from ``backend``. ``None`` on any failure.
+
+        The 32 KB request cap is enforced here, exactly as before the migration:
+        an oversized sector matrix is skipped rather than shipped.
+        """
+        if len(json.dumps({"m": model, "p": prompt}).encode("utf-8")) \
+                > _MAX_BODY_BYTES:
+            logger.warning("sector advisor prompt exceeds the body cap")
             return None
-        request = urllib.request.Request(
-            self.openrouter_endpoint,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://openalgo.in/",
-                "X-Title": "Blue Engine Sector Advisor",
-            },
-            method="POST",
-        )
+        client = LLMClient.for_named_site([backend])
+        result = client.complete(
+            [ChatMessage("system", SECTOR_AGENT_PROMPT),
+             ChatMessage("user", prompt)],
+            model=model, temperature=0, max_tokens=600,
+            timeout=self.timeout_seconds,
+            json_schema={"type": "object"})
+        if not result.ok:
+            logger.warning("sector %s advisor failed (%s)", backend.name,
+                           result.method)
+            return None
+        text = result.text.strip()
+        for fence in ("```json", "```"):
+            if text.startswith(fence):
+                text = text[len(fence):]
+        if text.endswith("```"):
+            text = text[:-3]
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                raw = response.read(_MAX_BODY_BYTES + 1)
-            if len(raw) > _MAX_BODY_BYTES:
-                return None
-            body = json.loads(raw.decode("utf-8"))
-            content = body["choices"][0]["message"]["content"]
-            return json.loads(content) if isinstance(content, str) else None
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError,
-                KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            logger.warning("sector OpenRouter advisor failed (%s)", type(exc).__name__)
+            parsed = json.loads(text.strip())
+        except (ValueError, TypeError):
             return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _openrouter(self, prompt: str, key: str) -> Optional[Any]:
+        return self._ask(prompt, OpenRouterBackend(
+            api_key=key, model=self.model,
+            timeout=self.timeout_seconds), self.model)
 
     def _ollama(self, prompt: str) -> Optional[Any]:
-        payload = {
-            "model": self.ollama_model,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0, "num_predict": 600},
-            "messages": [
-                {"role": "system", "content": SECTOR_AGENT_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-        }
-        body = json.dumps(payload).encode("utf-8")
-        if len(body) > _MAX_BODY_BYTES:
-            return None
-        request = urllib.request.Request(
-            f"{self.ollama_host}/api/chat",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                raw = response.read(_MAX_BODY_BYTES + 1)
-            if len(raw) > _MAX_BODY_BYTES:
-                return None
-            body = json.loads(raw.decode("utf-8"))
-            content = body["message"]["content"]
-            return json.loads(content) if isinstance(content, str) else None
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError,
-                KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            logger.warning("sector Ollama advisor failed (%s)", type(exc).__name__)
-            return None
+        return self._ask(prompt, OllamaBackend(
+            host=self.ollama_host, model=self.ollama_model,
+            timeout=self.timeout_seconds), self.ollama_model)
 
 
 class SectorEngine(BaseEngine):

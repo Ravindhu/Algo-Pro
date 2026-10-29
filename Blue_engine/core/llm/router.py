@@ -79,6 +79,28 @@ class LLMClient:
         return _CALL_BUDGET.get(self.session_id, 0) if self.session_id else 0
 
     @classmethod
+    def for_named_site(cls, backends: Sequence[LLMBackend],
+                       config: Optional[Dict[str, Any]] = None
+                       ) -> "LLMClient":
+        """A client over an explicit chain, with governance **off** by default.
+
+        Used by the migrated call sites (``economics/nlp/llm_scorer``,
+        ``portfolio/views/llm_note``, ``sectors/sector_engine``). Those modules
+        already own a durable, content-addressed DISK cache; layering the
+        in-memory governor cache on top would add a second, differently-keyed
+        cache with no benefit and a real risk of confusing provenance. They get
+        the failover chain and nothing else, unless their config explicitly
+        opts in::
+
+            {"tokens": {"enabled": true, ...}}
+        """
+        client = cls(list(backends))
+        token_cfg = dict((config or {}).get("tokens") or {})
+        if token_cfg.get("enabled", False):
+            client.governor = TokenGovernor.from_config(client, token_cfg)
+        return client
+
+    @classmethod
     def from_config(cls, config: Optional[Dict[str, Any]] = None,
                     secrets: Optional[Callable[[str], Optional[str]]] = None
                     ) -> "LLMClient":

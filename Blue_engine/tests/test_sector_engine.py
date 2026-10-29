@@ -280,7 +280,7 @@ def test_sector_advisor_falls_back_to_ollama_with_four_second_timeouts(monkeypat
             assert request.get_header("Authorization") == "Bearer test-sector-key"
             raise urllib.error.URLError("synthetic cloud outage")
         return _Response({
-            "message": {"content": json.dumps(_valid_advice())},
+            "choices": [{"message": {"content": json.dumps(_valid_advice())}}],
         })
 
     monkeypatch.setattr(sector_engine_module.urllib.request, "urlopen", _urlopen)
@@ -297,9 +297,13 @@ def test_sector_advisor_falls_back_to_ollama_with_four_second_timeouts(monkeypat
 
     assert result["method"] == "ollama"
     assert result["advice"] == _valid_advice()
+    # 2026-10-29: Ollama is reached through the shared backend (its
+    # OpenAI-compatible /v1/chat/completions path), not the native /api/chat,
+    # so one code path serves every provider. The 4s deadline is unchanged and
+    # the order is still cloud-first, local-second.
     assert seen == [
         (SectorAdvisor.openrouter_endpoint, 4.0),
-        ("http://127.0.0.1:11434/api/chat", 4.0),
+        ("http://127.0.0.1:11434/v1/chat/completions", 4.0),
     ]
 
 
