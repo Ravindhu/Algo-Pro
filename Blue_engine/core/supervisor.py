@@ -411,6 +411,38 @@ def kill_switch_gate() -> GateResult:
     return GateResult("kill_switch", True, "clear")
 
 
+#: Fragments the OpenAlgo API uses for an expired/invalid broker session.
+#: AUDIT (2026-10-29, LIVE-13): the gate used to report a bare "quote: 401",
+#: which reads as a code fault. In practice it ALWAYS means the broker login
+#: expired (the token is per-day and dies at the rollover), and the fix is an
+#: operator action, not a restart.
+_AUTH_FAILURE_MARKERS = (
+    "401", "unauthori", "authentication", "invalid api key", "apikey",
+    "session expired", "token expired", "not logged in", "no valid auth",
+    "login",
+)
+
+#: Where the operator performs the login.
+LOGIN_HINT = "log in to the broker at http://127.0.0.1:5000/broker and re-run"
+
+
+def looks_like_auth_failure(resp: Any) -> bool:
+    """True when a broker response is an authentication/session failure.
+
+    Only inspects the message/status text, never the data, so a legitimate
+    empty result is not misread as an auth problem.
+    """
+    if isinstance(resp, dict):
+        if str(resp.get("status")).lower() == "success":
+            return False
+        text = " ".join(str(resp.get(k) or "") for k in
+                        ("message", "error", "status", "code"))
+    else:
+        text = str(resp)
+    low = text.lower()
+    return any(marker in low for marker in _AUTH_FAILURE_MARKERS)
+
+
 def openalgo_reachable_gate(host: str) -> GateResult:
     """Gate 2: the OpenAlgo HTTP endpoint must answer."""
     import urllib.error
@@ -511,22 +543,45 @@ def quote_gate(client, symbol: str, exchange: str) -> GateResult:
     return GateResult("quote", False, "no finite positive price")
 
 
-def broker_session_gate(client) -> GateResult:
-    """Gate: the broker session must still be valid.
+def broker_session_gate(client, symbol: str = "", exchange: str = "NSE"
+                        ) -> GateResult:
+    """Gate: the broker session must still be valid for MARKET DATA.
 
-    OpenAlgo keeps the broker session; when it expires, ``positionbook`` still
-    answers but every order is rejected. Checking the analyzer status exercises
-    the same authenticated path cheaply, so an expired login is caught before
-    an order rather than after.
+    ``analyzerstatus`` only proves the OpenAlgo API key is good - it keeps
+    answering (mode ``analyze``) long after the broker token has expired.
+    AUDIT (2026-10-29, LIVE-13): that is exactly why a paper run passed this
+    gate and then failed at ``quotes`` with 401. OpenAlgo's analyze mode
+    simulates ORDERS and ACCOUNT but never PRICES
+    (``services/quotes_service.py`` calls the real broker unconditionally), so
+    a live quote is the only honest test that market data is reachable.
+
+    The probe is one quote for the traded symbol: cheap, read-only, and the
+    exact call the strategy will depend on.
     """
-    try:
-        resp = client.analyzerstatus()
-    except Exception as exc:  # noqa: BLE001
-        return GateResult("broker_session", False, f"analyzerstatus raised: {exc!r}")
-    if not (isinstance(resp, dict) and resp.get("status") == "success"):
+    if not symbol:
+        try:
+            resp = client.analyzerstatus()
+        except Exception as exc:  # noqa: BLE001
+            return GateResult("broker_session", False,
+                              f"analyzerstatus raised: {exc!r}")
+        if isinstance(resp, dict) and resp.get("status") == "success":
+            return GateResult("broker_session", True, "authenticated (api key)")
         return GateResult("broker_session", False,
                           f"not authenticated: {str(resp)[:140]}")
-    return GateResult("broker_session", True, "authenticated")
+    try:
+        resp = client.quotes(symbol=symbol, exchange=exchange)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("broker_session", False, f"quotes raised: {exc!r}")
+    if isinstance(resp, dict) and resp.get("status") == "success":
+        return GateResult("broker_session", True, "market data reachable")
+    if looks_like_auth_failure(resp):
+        return GateResult(
+            "broker_session", False,
+            f"BROKER SESSION EXPIRED - {LOGIN_HINT}. "
+            f"(OpenAlgo simulates orders in analyze mode but prices still come "
+            f"from the broker.) broker said: {str(resp)[:100]}")
+    return GateResult("broker_session", False,
+                      f"market data unavailable: {str(resp)[:140]}")
 
 
 def market_hours_gate(symbol: str = "", allow_outside: bool = False,
@@ -561,7 +616,7 @@ def build_default_gates(client, host: str, symbol: str, exchange: str,
     gates: List[Callable[[], GateResult]] = [
         kill_switch_gate,
         lambda: openalgo_reachable_gate(host),
-        lambda: broker_session_gate(client),
+        lambda: broker_session_gate(client, symbol, exchange),
         lambda: positionbook_gate(client),
         lambda: working_orders_gate(client, strategy_tags),
         lambda: quote_gate(client, symbol, exchange),

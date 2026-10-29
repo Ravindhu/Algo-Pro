@@ -331,3 +331,87 @@ def test_status_never_raises_on_a_directory_path(tmp_path):
     from blue_engine.core.supervisor import read_status
     status = read_status(str(tmp_path))
     assert status["available"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Broker-session diagnosis (LIVE-13)
+#
+# The gate used to report a bare "quote: 401". That reads as a code fault, but
+# it always means the per-day broker login expired. A paper run passed the old
+# analyzerstatus check and then died at quotes - measured 2026-10-29.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("resp", [
+    {"status": "error", "message": "401"},
+    {"status": "error", "message": "401 Unauthorized"},
+    {"status": "error", "message": "Unauthorized access"},
+    {"status": "error", "message": "Invalid API key"},
+    {"status": "error", "message": "Session expired"},
+    {"status": "error", "message": "Token expired, please login"},
+    {"status": "error", "message": "No valid auth token found"},
+])
+def test_auth_failures_are_recognised(resp):
+    from blue_engine.core.supervisor import looks_like_auth_failure
+    assert looks_like_auth_failure(resp) is True
+
+
+@pytest.mark.parametrize("resp", [
+    {"status": "success", "data": {"ltp": 1480.0}},
+    {"status": "success", "data": []},
+    {"status": "error", "message": "symbol not found"},
+    {"status": "error", "message": "insufficient funds"},
+    None,
+])
+def test_non_auth_responses_are_not_misread(resp):
+    from blue_engine.core.supervisor import looks_like_auth_failure
+    assert looks_like_auth_failure(resp) is False
+
+
+def test_expired_session_gate_names_the_cause_and_the_fix():
+    from blue_engine.core.supervisor import LOGIN_HINT, broker_session_gate
+
+    class Stale:
+        def quotes(self, *, symbol, exchange):
+            return {"status": "error", "message": "401 Unauthorized"}
+
+    result = broker_session_gate(Stale(), "INFY", "NSE")
+    assert result.ok is False
+    assert "SESSION EXPIRED" in result.detail
+    assert LOGIN_HINT in result.detail
+    # It must explain WHY analyze mode did not save us.
+    assert "analyze" in result.detail.lower()
+
+
+def test_session_gate_passes_on_a_real_quote():
+    from blue_engine.core.supervisor import broker_session_gate
+
+    class Live:
+        def quotes(self, *, symbol, exchange):
+            return {"status": "success", "data": {"ltp": 1480.0}}
+
+    assert broker_session_gate(Live(), "INFY", "NSE").ok is True
+
+
+def test_session_gate_reports_a_non_auth_data_problem_plainly():
+    from blue_engine.core.supervisor import broker_session_gate
+
+    class Broken:
+        def quotes(self, *, symbol, exchange):
+            return {"status": "error", "message": "symbol not found"}
+
+    result = broker_session_gate(Broken(), "INFY", "NSE")
+    assert result.ok is False
+    assert "SESSION EXPIRED" not in result.detail
+    assert "market data unavailable" in result.detail
+
+
+def test_session_gate_falls_back_to_analyzerstatus_without_a_symbol():
+    from blue_engine.core.supervisor import broker_session_gate
+
+    class NoQuote:
+        def analyzerstatus(self):
+            return {"status": "success", "data": {"mode": "analyze"}}
+
+        def quotes(self, **_kw):
+            raise AssertionError("must not call quotes without a symbol")
+
+    assert broker_session_gate(NoQuote()).ok is True
