@@ -1,6 +1,6 @@
 # My Trading System — Standard Operating Procedure
 
-**Last updated:** 2026-10-29
+**Last updated:** 2026-10-29 (rev 2 - supervisor)
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
 **Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
@@ -28,6 +28,7 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 | 4 | Tests green | `.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_economic_to_pov_audit.py` | `15 passed` |
 | 5 | OpenAlgo mode | check `[runner] OpenAlgo mode =` on start | `analyze` for paper |
 | 6 | Risk caps set | `.venv\Scripts\python.exe Temp\Staging Workspace\verify_risk_wiring.py` | `100 INFY @1480 live approved: True` and every `_MONEY_CAPS` row `active=True` |
+| 7a | **Start under the supervisor** | `.venv\Scripts\python.exe scripts\run\run_supervised.py` | gates pass, engine starts; a blocked gate exits `4` and writes `data/supervisor_journal.jsonl` |
 | 7 | Exit engine configured | `python -c "import json;print('exit_engine' in json.load(open('Blue_engine/input/master.json')))"` | `True` — a filled position is otherwise **unprotected** |
 
 > **Exit engine (2026-10-29).** `core/exit_engine.py` places a broker **SL-M**
@@ -39,6 +40,17 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 > It refuses to guess: market flattening needs `allow_market_exit`, and a stop
 > is never placed on the wrong side of the market. The screener bridge needs
 > `--exit-config`; without it every fill logs **UNPROTECTED** and the run exits `4`.
+
+> **Supervisor (2026-10-29).** `core/supervisor.py` + `scripts/run/run_supervised.py`
+> run the engine as a supervised child. Before **every** start it passes six
+> gates: kill switch clear, OpenAlgo reachable, positionbook verifiable, no
+> unreconciled working orders for `POV-EXIT`, a sane quote, and (by rule) no
+> restart after a safety exit. Exit `4` is **never** retried - a human reviews.
+> Exit `5` (order feed down) is retried with exponential backoff, capped at
+> `max_restarts` per `restart_window_seconds`. Every event goes to
+> `data/supervisor_journal.jsonl` and the `/risk` page shows the state; an
+> absent journal reads **unknown**, never "running". `start_all.py --engine`
+> starts it (off by default; the platform alone is the safe default).
 
 > **Risk block (2026-10-29).** `Blue_engine/input/master.json` now carries a
 > `risk` block: `max_order_quantity`, `max_order_notional`, `max_daily_loss`,

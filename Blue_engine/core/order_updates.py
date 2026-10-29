@@ -62,6 +62,7 @@ fill ("Opened"/"rejected by broker" were unrecognised), the slicer never saw
 """
 from __future__ import annotations
 import logging
+import os
 import threading
 from typing import Any, Callable, Optional
 logger = logging.getLogger(__name__)
@@ -438,6 +439,15 @@ def subscribe_to_order_updates(
             handler(event)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("blue_engine.order_updates: handler raised: %s", exc)
+
+    # AUDIT (2026-10-29, LIVE-9): the SDK feed authenticates with the SAME key
+    # the client was constructed with (feed.py sends ``self.api_key``). The
+    # runner resolves that key from the OpenAlgo DB when OPENALGO_API_KEY is
+    # unset, but this module assumed the env var; the two could then be
+    # different accounts, which would silently stream another user's orders.
+    key = getattr(client, "api_key", None)
+    if key and not os.getenv("OPENALGO_API_KEY"):
+        os.environ["OPENALGO_API_KEY"] = str(key)
 
     subscribe = getattr(client, "subscribe_orders", None)
     if callable(subscribe):

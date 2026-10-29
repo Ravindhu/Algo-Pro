@@ -456,6 +456,24 @@ def start_dash() -> bool:
     return proc is not None
 
 
+def start_engine() -> bool:
+    """Start the trading engine under the supervisor (audit P0-7).
+
+    OFF BY DEFAULT. Starting the engine is a trading decision, not a
+    convenience: this launcher only guarantees the platform underneath it.
+    Pass --engine to opt in; the supervisor then applies its restart gates
+    (kill switch, OpenAlgo, positionbook, working orders, quote) before every
+    start and refuses to retry a safety stop.
+    """
+    py = venv_python()
+    if py is None:
+        fail("no project venv found")
+        return False
+    proc = spawn("engine", [str(py), str(ROOT / "scripts" / "run" /
+                                      "run_supervised.py")], cwd=ROOT)
+    return proc is not None
+
+
 # --------------------------------------------------------------------------- #
 # PID bookkeeping (so --stop can find what we started)
 # --------------------------------------------------------------------------- #
@@ -509,6 +527,9 @@ def parse_args() -> argparse.Namespace:
                    help="Kill port holders without asking")
     p.add_argument("--stop", action="store_true", help="Stop the whole stack")
     p.add_argument("--no-dash", action="store_true", help="Skip Dash")
+    p.add_argument("--engine", action="store_true",
+                   help="Also start the trading engine under the supervisor "
+                        "(never auto-resumed after a safety stop)")
     return p.parse_args()
 
 
@@ -570,6 +591,12 @@ def start_stack(args: argparse.Namespace) -> int:
         say("  skipped (--no-dash)")
     elif not start_dash():
         failures.append("dash")
+
+    step("7", "Trading engine" + ("" if args.engine else " (skipped - pass --engine)"))
+    if not args.engine:
+        say("  the platform is up but NO engine is trading (safe default)")
+    elif not start_engine():
+        failures.append("engine")
 
     _record_port_owners(pids)
 

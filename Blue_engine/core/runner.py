@@ -197,7 +197,18 @@ def run_with_config(
     if subscribed:
         print("[runner] order-update WebSocket subscription: active")
     else:
-        print("[runner] order-update WebSocket subscription: degraded")
+        print("[runner] order-update WebSocket subscription: DEGRADED")
+
+    # AUDIT (2026-10-29, LIVE-8): a live parent whose fills are never reported
+    # cannot know what it owns. Without the push feed the ledger stays at 0, the
+    # POV loop re-slices to its duration limit, and a later stop is sized from a
+    # quantity that was never verified. Live means: a verified feed OR refuse.
+    mode_for_feed = str(mode).strip().lower()
+    if not subscribed and mode_for_feed != "analyze":
+        print("[runner] ERROR: order-update feed unavailable in LIVE mode. "
+              "The engine cannot verify fills, so it will not place an order. "
+              "Check OPENALGO_API_KEY / the websocket_url in the OpenAlgo UI.")
+        return 5
 
     # Feature X - subscribe to the broker's market-data WebSocket so the
     # POV slicer reads live volume (not the volume=0 REST fallback).

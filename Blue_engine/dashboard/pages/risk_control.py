@@ -127,6 +127,26 @@ _MONEY_CAPS = (
 )
 
 
+def _supervisor_rows() -> list:
+    """Supervisor health as matrix rows (read-only, from its journal).
+
+    ``read_status`` returns ``unknown`` when there is no journal, so an
+    unsupervised engine can never look healthy by omission.
+    """
+    from blue_engine.core.supervisor import read_status
+
+    status = read_status()
+    healthy = status.get("state") in ("RUNNING", "STOPPED", "IDLE")
+    return [{
+        "guard": "Supervisor",
+        "threshold": str(status.get("state") or "unknown"),
+        "active": healthy,
+        "note": (status.get("halt_reason")
+                 or f"restarts={status.get('restarts', 0)}; "
+                    f"last event {status.get('last_event_at') or '-'}"),
+    }]
+
+
 def _capital_guard_rows(cfg: dict) -> list:
     """Risk-gate caps as matrix rows (read-only; never writes a limit)."""
     block = cfg.get("risk") if isinstance(cfg.get("risk"), dict) else {}
@@ -155,6 +175,7 @@ def _capital_guard_rows(cfg: dict) -> list:
                  if block.get("require_live_ack")
                  else "live run may run uncapped"),
     })
+    rows.extend(_supervisor_rows())
     return rows
 
 
