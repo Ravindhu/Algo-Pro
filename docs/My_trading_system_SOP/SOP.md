@@ -30,6 +30,7 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 | 6 | Risk caps set | `.venv\Scripts\python.exe Temp\Staging Workspace\verify_risk_wiring.py` | `100 INFY @1480 live approved: True` and every `_MONEY_CAPS` row `active=True` |
 | 6b | Broker session valid | supervisor gate `broker_session`, or check `authenticated` in the journal | live login at `/broker`; OpenAlgo expires the session daily |
 | 6c | Inside the session | supervisor gate `market_hours` `ok` | weekdays 09:15–15:30 IST, entries only until `14:45` |
+| 6d | **Paper trade (no broker needed)** | `.venv\Scripts\python.exe -m blue_engine.core.runner Blue_engine/input/master.json --paper` | full path runs; report ends `===== PAPER SESSION REPORT =====` |
 | 7a | **Start under the supervisor** | `.venv\Scripts\python.exe scripts\run\run_supervised.py` | gates pass, engine starts; a blocked gate exits `4` and writes `data/supervisor_journal.jsonl` |
 | 7 | Exit engine configured | `python -c "import json;print('exit_engine' in json.load(open('Blue_engine/input/master.json')))"` | `True` — a filled position is otherwise **unprotected** |
 
@@ -53,6 +54,21 @@ cd C:\Users\Admin\CodeGPT\my-trading-system
 > `data/supervisor_journal.jsonl` and the `/risk` page shows the state; an
 > absent journal reads **unknown**, never "running". `start_all.py --engine`
 > starts it (off by default; the platform alone is the safe default).
+>
+> **Paper trade (2026-10-29, rev 4).** `--paper` swaps the broker for
+> `core/paper_broker.PaperBroker`: the FULL path (signal -> risk gate -> POV
+> -> ledger -> exit engine) runs, but every order is recorded, never sent.
+> Real quotes are used when a login exists; otherwise a **deterministic
+> synthetic tape** is used and the report says `synthetic`. Paper is exempt
+> from the session gate and from the live fill-feed check (fills are
+> synchronous). It proves the PLUMBING, never strategy performance.
+>
+> **Auto-tune (2026-10-29).** `core/auto_tune.AutoTuner` closes the feedback
+> loop: a triggered `ReoptimizationSignal` now re-runs the batch optimizer and
+> promotes approved parameters. See `auto_tune.mode`:
+> `shadow` (default) computes and reports only; `apply` writes the config after
+> a quarantine, a type check against the existing keys, and an atomic swap.
+> It never un-halts trading - re-arming stays an operator action.
 >
 > **Session + key (2026-10-29, rev 3).** Two blockers fixed here:
 > 1. Nothing loaded the repository-root `.env`, so `OPENALGO_API_KEY` resolved

@@ -100,6 +100,29 @@ class LiveMonitorGuard:
         if signal.triggered:
             reason = "; ".join(signal.reasons)
             self._latch("monitor_trigger", reason)
+            self._notify_tuner(signal.reasons)
+
+    def _notify_tuner(self, reasons: Any) -> None:
+        """Hand the degraded-performance event to the auto-tuner.
+
+        AUDIT (2026-10-29): ``_on_signal`` used to do exactly one thing -
+        trip the kill switch. Nothing re-optimized, so the loop stopped
+        trading but never improved. The tuner is optional and must never
+        break the safety path, so every failure here is contained.
+        """
+        tuner = getattr(self, "auto_tuner", None)
+        if tuner is None:
+            return
+        try:
+            result = tuner.on_signal(
+                reasons, symbol=getattr(self, "symbol", ""),
+                strategy=getattr(self, "strategy", ""),
+                config_path=getattr(self, "config_path", None))
+            logger.info("auto-tune after monitor trip: approved=%s promoted=%s",
+                        getattr(result, "approved", None),
+                        getattr(result, "promoted", None))
+        except Exception as exc:  # noqa: BLE001 - safety path must not fail
+            logger.error("auto-tune failed after monitor trip: %s", exc)
 
     def _latch(self, kind: str, reason: str) -> None:
         if self._halt_kind is None:

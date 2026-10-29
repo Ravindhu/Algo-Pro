@@ -39,9 +39,12 @@ DEFAULT_CONFIG = _ROOT / "Blue_engine" / "input" / "master.json"
 DEFAULT_JOURNAL = _ROOT / "data" / "supervisor_journal.jsonl"
 
 
-def _engine_command(config_path: Path) -> list:
+def _engine_command(config_path: Path, paper: bool = False) -> list:
     """The exact command the supervisor will run, using the current python."""
-    return [sys.executable, "-m", "blue_engine.core.runner", str(config_path)]
+    cmd = [sys.executable, "-m", "blue_engine.core.runner", str(config_path)]
+    if paper:
+        cmd.append("--paper")
+    return cmd
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,6 +56,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="JSONL event journal (default: data/supervisor_journal.jsonl)")
     ap.add_argument("--once", action="store_true",
                     help="run the engine once; no restart on failure")
+    ap.add_argument("--paper", action="store_true",
+                    help="PAPER TRADE: run the full live path (signal, risk, "
+                         "POV, ledger, exit engine) against a recording broker. "
+                         "No order ever reaches the broker.")
     ap.add_argument("--max-restarts", type=int, default=5)
     ap.add_argument("--restart-window", type=float, default=3600.0,
                     help="seconds over which max-restarts is counted")
@@ -78,8 +85,12 @@ def main(argv: list[str] | None = None) -> int:
     client = init_client(api_key=raw.get("api_key"), host=raw.get("host"),
                          ws_url=raw.get("ws_url"))
 
+    if args.paper:
+        print("PAPER MODE: the supervisor's broker gates are relaxed because no "
+              "real order will be sent; the session-clock gate still applies.")
+
     cfg = SupervisorConfig(
-        command=_engine_command(args.config),
+        command=_engine_command(args.config, paper=args.paper),
         restart_delay_seconds=args.restart_delay,
         max_restarts=args.max_restarts,
         restart_window_seconds=args.restart_window,
@@ -96,9 +107,18 @@ def main(argv: list[str] | None = None) -> int:
         paper = False
     session_cfg = raw.get("market_session") if isinstance(
         raw.get("market_session"), dict) else {}
-    gates = [] if args.no_preflight else build_default_gates(
-        client, host, symbol, exchange, strategy_tags=tags, paper=paper,
-        entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))
+    if args.paper:
+        # Paper validates the plumbing, so a missing broker login must not stop
+        # it; the market-hours gate still applies (a closed market proves
+        # nothing about a strategy).
+        from blue_engine.core.supervisor import market_hours_gate
+        gates = [] if args.no_preflight else [
+            lambda: market_hours_gate(
+                symbol, entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))]
+    else:
+        gates = [] if args.no_preflight else build_default_gates(
+            client, host, symbol, exchange, strategy_tags=tags, paper=paper,
+            entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))
 
     supervisor = Supervisor(cfg, gates=gates)
     if args.once:

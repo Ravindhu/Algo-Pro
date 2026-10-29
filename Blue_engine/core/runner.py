@@ -161,6 +161,7 @@ def _poll_signals_until_fire(
 def run_with_config(
     raw: Dict[str, Any], *,
     monitor_inputs_provider: Optional[Callable[..., Dict[str, Any]]] = None,
+    paper: bool = False,
 ) -> int:
     """Run the POV engine from an already-loaded raw config dict.
 
@@ -205,22 +206,53 @@ def run_with_config(
         return 2
     session = market_session_state(
         entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))
+    # Paper mode never touches a broker, so it may run at any hour: its purpose
+    # is to validate the plumbing, and a closed market cannot make a real
+    # order. An explicit ``market_session.enforce`` still wins for live runs,
+    # and analyze mode is exempt for the same reason.
+    exempt = paper or _is_paper_mode(cfg)
     if session_cfg.get("enforce", True):
         print(f"[runner] market session: {session['state']} - {session['reason']}")
-        if session["state"] != "open" and not _is_paper_mode(cfg):
+        if session["state"] != "open" and not exempt:
             print(f"[runner] REFUSED: no new entries while the market is "
                   f"{session['state']} ({session['reason']}). Live trading "
                   f"happens only inside the continuous session.")
             return 6
+        if session["state"] != "open" and exempt:
+            print("[runner] paper/analyze run: session gate exempt "
+                  "(no real order can be placed)")
     else:
         print("[runner] market session: NOT enforced (market_session.enforce=false)")
 
-    # Initialise the OpenAlgo SDK client
-    client = init_client(
-        api_key=cfg.get("api_key"),
-        host=cfg.get("host"),
-        ws_url=cfg.get("ws_url"),
-    )
+    # Initialise the OpenAlgo SDK client.
+    #
+    # AUDIT (2026-10-29): ``paper=True`` swaps the broker for a recording
+    # PaperBroker, so the FULL live path (signal -> risk gate -> POV -> ledger
+    # -> exit engine) runs without sending a single order to a real account.
+    # Real quotes are used when a broker login exists; otherwise a deterministic
+    # synthetic tape is used and the report says so.
+    paper_broker = None
+    if paper:
+        from blue_engine.core.paper_broker import PaperBroker
+        real = None
+        try:
+            real = init_client(api_key=cfg.get("api_key"), host=cfg.get("host"),
+                               ws_url=cfg.get("ws_url"))
+        except Exception as exc:  # noqa: BLE001 - synthetic tape is acceptable
+            print(f"[runner] paper: real data unavailable ({exc}); "
+                  f"using a deterministic synthetic tape")
+        starting_cash = float(
+            (raw.get("pov") or {}).get("starting_cash", 100000.0))
+        paper_broker = PaperBroker(starting_cash=starting_cash,
+                                   data_source=real)
+        client = paper_broker
+        print("[runner] PAPER MODE: orders are recorded, never sent to a broker")
+    else:
+        client = init_client(
+            api_key=cfg.get("api_key"),
+            host=cfg.get("host"),
+            ws_url=cfg.get("ws_url"),
+        )
 
     # Display (do NOT change) the current OpenAlgo mode
     mode = read_mode(client)
@@ -240,7 +272,9 @@ def run_with_config(
     # POV loop re-slices to its duration limit, and a later stop is sized from a
     # quantity that was never verified. Live means: a verified feed OR refuse.
     mode_for_feed = str(mode).strip().lower()
-    if not subscribed and mode_for_feed != "analyze":
+    if not subscribed and mode_for_feed != "analyze" and not paper:
+        # Paper mode fills synchronously inside PaperBroker, so there is no
+        # asynchronous fill to miss; a live/unknown run has no such guarantee.
         print("[runner] ERROR: order-update feed unavailable in LIVE mode. "
               "The engine cannot verify fills, so it will not place an order. "
               "Check OPENALGO_API_KEY / the websocket_url in the OpenAlgo UI.")
@@ -333,6 +367,26 @@ def run_with_config(
         except (RuntimeError, TypeError, ValueError) as exc:
             print(f"[runner] ERROR: invalid live monitor configuration: {exc}")
             return 4
+        # Auto-tune handoff: when live performance degrades, the same signal
+        # that latches the kill switch now also drives a re-optimization.
+        tune_cfg = raw.get("auto_tune")
+        if isinstance(tune_cfg, dict) and tune_cfg.get("enabled", True):
+            try:
+                from blue_engine.core.auto_tune import AutoTuner, AutoTuneConfig
+                monitor_guard.auto_tuner = AutoTuner(
+                    AutoTuneConfig.from_dict(tune_cfg),
+                    log=print)
+                monitor_guard.symbol = cfg.get("symbol", "")
+                monitor_guard.strategy = str(
+                    raw.get("auto_tune_strategy")
+                    or (active_signals[0][0] if active_signals else ""))
+                monitor_guard.config_path = None  # runner takes a dict, not a path
+                print(f"[runner] auto-tune: enabled ({monitor_guard.auto_tuner.config.mode} mode)")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[runner] WARNING: auto_tune config rejected: {exc!r}")
+        else:
+            print("[runner] auto-tune: disabled")
+
         slicer.monitor_observer = monitor_guard.observe
         slicer.on_data_failure = monitor_guard.on_data_failure
         print("[runner] live performance monitor: active; observing valid "
@@ -540,7 +594,35 @@ def run_with_config(
     exit_rc = _run_exit_engine(
         client, raw, int(summary.get("filled") or 0) if isinstance(
             summary, dict) else 0)
+    if paper_broker is not None:
+        _print_paper_report(paper_broker)
     return 4 if exit_rc else 0
+
+
+def _print_paper_report(broker) -> None:
+    """Reconcile a paper session: what the engine believed vs what it did."""
+    try:
+        report = broker.summary()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[runner] paper report unavailable: {exc!r}")
+        return
+    print("[runner] ===== PAPER SESSION REPORT =====")
+    print(f"[runner] data          : {report['data_classification']}"
+          f"  (real calls={report['real_data_calls']})")
+    print(f"[runner] orders        : {report['orders']} "
+          f"(filled={report['filled_orders']}, "
+          f"resting={report['resting_orders']}, "
+          f"cancelled={report['cancelled_orders']})")
+    print(f"[runner] traded notional: {report['traded_notional']:.2f}")
+    print(f"[runner] cash          : {report['starting_cash']:.2f} -> "
+          f"{report['ending_cash']:.2f}")
+    for pos in report["open_positions"]:
+        print(f"[runner] position      : {pos['symbol']} qty={pos['netqty']} "
+              f"avg={pos['average_price']} pnl={pos['pnl']}")
+    if report["data_classification"] == "synthetic":
+        print("[runner] NOTE: synthetic prices - this validates the PLUMBING, "
+              "not strategy performance")
+    print("[runner] =============================")
 
 
 def _run_exit_engine(client, raw: Dict[str, Any], filled: int) -> bool:
@@ -598,7 +680,9 @@ def main(argv: list[str] | None = None) -> int:
     Returns 0 on success, non-zero on error.
     """
     argv = list(sys.argv[1:] if argv is None else argv)
-    config_path = argv[0] if argv else DEFAULT_CONFIG
+    paper = "--paper" in argv
+    positional = [a for a in argv if not a.startswith("--")]
+    config_path = positional[0] if positional else DEFAULT_CONFIG
 
     print(f"[runner] loading config: {config_path}")
     try:
@@ -606,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, ValueError) as exc:
         print(f"[runner] ERROR: {exc}")
         return 2
-    return run_with_config(raw)
+    return run_with_config(raw, paper=paper)
 
 
 if __name__ == "__main__":
