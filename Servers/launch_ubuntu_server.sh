@@ -356,8 +356,8 @@ cat <<SUMMARY
   DONE  -  ${APP_NAME}
 ===============================================================
 
-  Dashboard   : http://${REMOTE_IP:-<ip>}:${DASH_PORT}   (or /pov-dash/ via nginx)
-  OpenAlgo    : http://${REMOTE_IP:-<ip>}:${OPENALGO_PORT}
+  Dashboard   : https://<your-domain>/pov-dash/   (localhost-only on :${DASH_PORT})
+  OpenAlgo    : https://<your-domain>/             (localhost-only on :${OPENALGO_PORT})
   RDP         : ${REMOTE_IP:-<ip>}:${RDP_PORT}  -> XFCE desktop
   Pre-open    : weekdays ${PREOPEN_TIME} IST  (systemd timer, smoke-gated)
   Logs        : journalctl -u pov-preopen  |  ${INSTALL_ROOT}/log/preopen/

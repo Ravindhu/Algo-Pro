@@ -379,10 +379,19 @@ if [[ "$DO_FIREWALL" -eq 1 ]]; then
       fi
     fi
 
-    # 80/443 stay closed until TLS exists. nginx listens on 80 for the ACME
-    # challenge, so certbot needs it - open it when you run certbot:
-    #   sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
-    note "nginx 80/443 NOT opened - do it with certbot (see DEPLOY_UBUNTU.md S10)"
+    # nginx serves the UI over HTTPS (443) and uses 80 for the certificate
+    # challenge and the HTTP->HTTPS redirect. Open them only when the nginx
+    # site is linked: the installer unlinks it when certificate issuance fails,
+    # so a failed TLS setup leaves 80/443 closed.
+    if [[ -e /etc/nginx/sites-enabled/my-trading-system ]]; then
+      if ufw allow 80/tcp >/dev/null 2>&1 && ufw allow 443/tcp >/dev/null 2>&1; then
+        ok "80/tcp and 443/tcp allowed (nginx HTTPS)"
+      else
+        warn "could not open 80/443 - nginx HTTPS will not be reachable"
+      fi
+    else
+      note "nginx site not linked - 80/443 stay closed (DEPLOY_UBUNTU.md S10)"
+    fi
 
     ufw --force enable >/dev/null 2>&1 \
       && ok "ufw enabled" \

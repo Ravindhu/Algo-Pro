@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # install_ubuntu.sh â€” Install my-trading-system on a fresh Ubuntu VPS
 # =============================================================================
@@ -35,8 +35,15 @@
 #
 # USAGE
 #   scp this file plus your state to the VPS, then:
-#     sudo bash install_ubuntu.sh --domain trade.example.com
+#     sudo bash install_ubuntu.sh --domain trade.example.com --email you@example.com
 #     sudo bash install_ubuntu.sh --domain trade.example.com --no-nginx
+#     sudo bash install_ubuntu.sh --allow-plain-http        # LAN-only lab, no TLS
+#
+# TLS IS THE DEFAULT. The UI and API carry broker logins and order controls,
+# so nginx serves them over HTTPS (Let's Encrypt) and redirects HTTP to it.
+# The installer refuses to serve over plain HTTP unless --allow-plain-http is
+# given explicitly. If the certificate cannot be issued, the site is removed
+# from nginx rather than left reachable over plain HTTP.
 #
 # WHAT IT DOES NOT DO
 #   * It does not touch archives/, and it never patches app.py.
@@ -61,6 +68,8 @@ DEPLOY_ENV=""
 MTS_API_KEY=""
 RUN_SMOKE=1
 START_ENGINE=0
+EMAIL=""                 # Let's Encrypt contact, required for TLS
+ALLOW_PLAIN_HTTP=0       # explicit opt-out: serve the UI over plain HTTP
 
 # ------------------------------------------------------------------ output
 C_RESET=$'\033[0m'; C_OK=$'\033[32m'; C_ERR=$'\033[31m'
@@ -97,6 +106,8 @@ if [[ -f "$DEPLOY_ENV" ]]; then
       MTS_DASH_PORT)        [[ -n "$_v" ]] && DASH_PORT="$_v" ;;
       MTS_WS_PORT)          [[ -n "$_v" ]] && WS_PORT="$_v" ;;
       MTS_OPENALGO_REPO)    [[ -n "$_v" ]] && OPENALGO_REPO="$_v" ;;
+      MTS_EMAIL)            [[ -n "$_v" ]] && EMAIL="$_v" ;;
+      MTS_ALLOW_PLAIN_HTTP) [[ "$_v" == "1" ]] && ALLOW_PLAIN_HTTP=1 ;;
       MTS_START_ENGINE)     [[ "$_v" == "1" ]] && START_ENGINE=1 ;;
       MTS_SETUP_NGINX)      [[ "$_v" == "0" ]] && SETUP_NGINX=0 ;;
       MTS_RUN_SMOKE)        [[ "$_v" == "0" ]] && RUN_SMOKE=0 ;;
@@ -108,6 +119,8 @@ fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain)       DOMAIN="${2:-}"; shift 2 ;;
+    --email)        EMAIL="${2:-}"; shift 2 ;;
+    --allow-plain-http) ALLOW_PLAIN_HTTP=1; shift ;;
     --user)         SERVICE_USER="${2:-}"; shift 2 ;;
     --root)         INSTALL_ROOT="${2:-}"; shift 2 ;;
     --api-key)      MTS_API_KEY="${2:-}"; shift 2 ;;
@@ -122,6 +135,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ $EUID -eq 0 ]] || die "run with sudo"
+
+# Preflight: refuse to expose the trading UI over plain HTTP by accident.
+if [[ "$SETUP_NGINX" -eq 1 && "$ALLOW_PLAIN_HTTP" -eq 0 ]]; then
+  [[ -n "$DOMAIN" && -n "$EMAIL" ]] || die "refusing to serve the trading UI over plain HTTP. Pass --domain <name> --email <you@example.com> for TLS, --allow-plain-http for a LAN-only lab, or --no-nginx if you terminate TLS yourself."
+fi
+if [[ "$ALLOW_PLAIN_HTTP" -eq 1 ]]; then
+  warn "plain HTTP explicitly allowed - do NOT expose this host to the internet"
+fi
 
 step "Preflight"
 [[ -f /etc/os-release ]] || die "cannot detect OS"
@@ -146,6 +167,11 @@ apt-get install -y -qq \
   "${PY_VER}" "${PY_VER}-venv" "${PY_VER}-dev" python3-pip \
   sqlite3 rsync nginx >/dev/null
 ok "base packages installed"
+
+if [[ "$SETUP_NGINX" -eq 1 && -n "$DOMAIN" && -n "$EMAIL" ]]; then
+  apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+  ok "certbot installed (TLS)"
+fi
 
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --create-home --shell /bin/bash "$SERVICE_USER"
@@ -453,12 +479,38 @@ NGINX
   if nginx -t >/dev/null 2>&1; then
     systemctl reload nginx
     ok "nginx configured (site: ${APP_NAME})"
+    if [[ -n "$DOMAIN" && -n "$EMAIL" ]]; then
+      step "Obtaining TLS certificate (Let's Encrypt)"
+      CERT_LOG="/var/log/${APP_NAME}-certbot.log"
+      if certbot --nginx --non-interactive --agree-tos -m "$EMAIL" \
+           -d "$DOMAIN" --redirect >"$CERT_LOG" 2>&1; then
+        ok "HTTPS enabled for ${DOMAIN} (HTTP redirects to HTTPS)"
+        TLS_OK=1
+      else
+        # Fail closed: do not leave the trading UI reachable over plain HTTP.
+        rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
+        systemctl reload nginx || true
+        warn "certificate issuance FAILED - site removed from nginx, nothing served over plain HTTP"
+        warn "check DNS points ${DOMAIN} at this server; log: ${CERT_LOG}"
+        warn "after fixing DNS, re-run this installer or: sudo certbot --nginx -d ${DOMAIN}"
+        TLS_OK=0
+      fi
+    fi
   else
     warn "nginx -t failed - config left in place but NOT reloaded"
     nginx -t || true
   fi
 else
   warn "--no-nginx: skipping reverse proxy setup"
+fi
+
+# Where the operator should point a browser (used in the summary below).
+if [[ "$SETUP_NGINX" -eq 1 && -n "$DOMAIN" && -n "$EMAIL" && "${TLS_OK:-0}" -eq 1 ]]; then
+  UI_URL="https://${DOMAIN}"
+elif [[ -n "$DOMAIN" ]]; then
+  UI_URL="http://${DOMAIN}"
+else
+  UI_URL="http://<server-ip>"
 fi
 
 # ------------------------------------------------------------------ verify
@@ -546,15 +598,13 @@ cat <<SUMMARY
 
   Next steps
     1. Open the UI and log in to your broker:
-         ${DOMAIN:+http://}${DOMAIN:-http://<server-ip>}
+         ${UI_URL}
     2. Confirm the platform is in ANALYZER (paper) mode.
-    3. Put TLS in front of it:
-         sudo certbot --nginx -d ${DOMAIN:-<your-domain>}
-    4. Re-verify any time:
+    3. Re-verify any time:
          sudo -u ${SERVICE_USER} ${OA_VENV}/bin/python ${INSTALL_ROOT}/scripts/smoke_test.py
 
   SECURITY
-    * Put TLS in front of this (certbot --nginx -d ${DOMAIN:-<your-domain>}).
+    * TLS: $( [[ "${TLS_OK:-0}" -eq 1 ]] && echo "enabled (Let's Encrypt)" || echo "NOT enabled - do not expose this host" )
     * The API key belongs in _restored/.env ONLY - never in a source file.
     * Consider fail2ban; the UI is internet-facing.
 

@@ -31,7 +31,7 @@ cd my-trading-system
 # 2. Create the deploy config from the template
 cp Servers/deploy.env.example Servers/deploy.env
 chmod 600 Servers/deploy.env
-nano Servers/deploy.env         # set MTS_DOMAIN and MTS_API_KEY
+nano Servers/deploy.env         # set MTS_DOMAIN, MTS_EMAIL and MTS_API_KEY
 ```
 
 `Servers/deploy.env` is gitignored. It holds your API key, so it must never be
@@ -85,6 +85,8 @@ decrypts, and runs the smoke gate.
 | `--start-engine` | Also start `pov-runner` + `pov-dash` (default: left stopped) |
 | `--api-key KEY` | Override `MTS_API_KEY` (prefer the file) |
 | `--domain NAME` | Override `MTS_DOMAIN` |
+| `--email ADDR` | Override `MTS_EMAIL` (Let's Encrypt contact) |
+| `--allow-plain-http` | Serve the UI over HTTP. LAN-only labs; never on the internet |
 | `--no-smoke` | Skip the acceptance gate (not recommended) |
 | `--no-nginx` | Skip the reverse proxy |
 
@@ -219,7 +221,7 @@ sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
 
 ## 6. Broker login & first run
 
-1. Open `http://trade.example.com` and log in to the OpenAlgo UI.
+1. Open `https://trade.example.com` and log in to the OpenAlgo UI.
 2. Complete broker authentication (mstock or whichever broker).
 3. **Confirm the platform is in ANALYZER (paper) mode.** Go live deliberately.
 4. Start the engine only when ready:
@@ -298,8 +300,11 @@ to a git remote.
 
 ## 10. Security
 
-- **TLS is not optional.** This UI is internet-facing and can place live orders:
-  `sudo certbot --nginx -d trade.example.com`
+- **HTTPS is the default.** The installer obtains a Let's Encrypt certificate
+  for `MTS_DOMAIN` and redirects HTTP to HTTPS. It refuses to serve the UI over
+  plain HTTP unless you pass `--allow-plain-http`. If issuance fails, the site
+  is removed from nginx so nothing is exposed over HTTP. Logs:
+  `/var/log/my-trading-system-certbot.log`.
 - **The API key lives only in `_restored/.env`.** Never in a source file, never in
   a container image, never in this repo.
 - Consider `fail2ban` on nginx; rate limiting is already configured.
@@ -373,12 +378,12 @@ Username: algo       (or your sudo user)
 For a Linux-side SFTP GUI: `sudo apt-get install -y filezilla`. For scripts,
 the shipped `rsync`/`scp` are already enough.
 
-nginx 80/443 are deliberately **not** opened by the script. Open them when TLS
-exists:
+nginx needs 80/tcp (certificate challenge and redirect) and 443/tcp (HTTPS).
+The provisioning script opens these for you when it sets the firewall. If you
+configure ufw yourself, open both:
 
 ```bash
 sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
-sudo certbot --nginx -d trade.example.com
 ```
 
 ## 14. Pre-open automation (`scripts/ops/preopen_launch.sh`)
