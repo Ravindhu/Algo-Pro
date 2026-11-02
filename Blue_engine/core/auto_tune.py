@@ -61,7 +61,24 @@ __all__ = [
     "AutoTuner",
     "TuneResult",
     "approval_ok",
+    "is_risk_key",
 ]
+
+#: Name fragments that mark a key as a risk bound (audit 2026-11-03, fix 4).
+#: Matching is by substring and is deliberately broad: over-blocking only stops
+#: a promotion, which a human can still apply. The optimizer may never move
+#: these keys, in either direction.
+RISK_KEY_FRAGMENTS = (
+    "max_", "risk", "kill", "circuit", "blocked", "require_", "allow",
+    "daily_loss", "drawdown", "exposure", "live", "dry_run",
+    "stop_loss", "stoploss", "trailing",
+)
+
+
+def is_risk_key(key: Any) -> bool:
+    """True when ``key`` bounds risk and so is outside auto-tune's reach."""
+    name = str(key).lower()
+    return any(fragment in name for fragment in RISK_KEY_FRAGMENTS)
 
 
 def _now() -> str:
@@ -386,6 +403,14 @@ class AutoTuner:
         if strategy not in raw or not isinstance(raw[strategy], dict):
             return False, f"live config has no '{strategy}' block"
 
+        # Risk bounds are never tuned: loosening one would let a re-optimized
+        # strategy trade bigger after a loss. The whole promotion is refused,
+        # so no partial update is written.
+        risk_keys = sorted(str(k) for k in parameters if is_risk_key(k))
+        if risk_keys:
+            return False, ("auto-tune may not change risk keys: "
+                           + ", ".join(risk_keys))
+
         # Quarantine: build the candidate and prove the REAL parser accepts it
         # before anything on disk changes.
         candidate = json.loads(json.dumps(raw))
@@ -425,6 +450,7 @@ class AutoTuner:
             elif isinstance(existing, str) and not isinstance(value, str):
                 return False, f"'{key}' must be text, got {value!r}"
 
+        tmp: Optional[str] = None
         try:
             fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -432,7 +458,14 @@ class AutoTuner:
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp, path)
+            tmp = None
         except Exception as exc:  # noqa: BLE001
+            # Remove the orphaned temp file so failed writes leave no debris.
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
             return False, f"atomic write failed: {exc!r}"
         self._log(f"promoted {len(parameters)} parameter(s) into {path.name}")
         return True, ""
