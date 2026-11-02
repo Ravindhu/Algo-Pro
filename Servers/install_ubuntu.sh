@@ -219,7 +219,7 @@ else
   if [[ -n "$MTS_API_KEY" ]]; then
     ENVF="$INSTALL_ROOT/_restored/.env"
     if grep -q '^OPENALGO_API_KEY=' "$ENVF" 2>/dev/null; then
-      CURRENT=$(grep '^OPENALGO_API_KEY=' "$ENVF" | head -1 | cut -d= -f2- | tr -d '"'"'"''\r')
+      CURRENT=$(grep '^OPENALGO_API_KEY=' "$ENVF" | head -1 | cut -d= -f2- | tr -d "\"'\r")
       if [[ "$CURRENT" == "$MTS_API_KEY" ]]; then
         ok "API key already matches _restored/.env (unchanged)"
       else
