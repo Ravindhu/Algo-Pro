@@ -133,7 +133,7 @@ def test_slice_falls_back_to_budget_then_applies_tilt():
     }}
     result = engine.run({"dry_run": False, "client": object(),
                          "portfolio": portfolio,
-                         "symbol": "INFY", "exchange": "NSE",
+                         "symbol": "INFY", "exchange": "NSE", "ltp": 1000.0,
                          "action": "BUY", "quantity": 1000})
     sliced = result.data["slice"]
     assert sliced["status"] == "executed", sliced
@@ -152,7 +152,7 @@ def test_slice_refuses_a_symbol_with_no_price_to_size_the_budget():
     portfolio = {"data": {"target_weights": {"INFY": 0.0, "TCS": 0.2},
                           "capital": 1_000_000.0, "price": 1000.0}}
     result = engine.run({"client": object(), "portfolio": portfolio,
-                         "symbol": "INFY", "exchange": "NSE",
+                         "symbol": "INFY", "exchange": "NSE", "ltp": 1000.0,
                          "action": "BUY", "quantity": 100})
     assert result.data["slice"]["status"] == "skipped", result.data["slice"]
     assert result.data["slice"]["reason"] in (
@@ -166,7 +166,7 @@ def test_slice_caps_at_sleeve_allocation_when_names_match():
                           "capital": 1_000_000.0, "price": 1000.0}}
     result = engine.run({"dry_run": False, "client": object(),
                          "portfolio": portfolio,
-                         "symbol": "INFY", "exchange": "NSE",
+                         "symbol": "INFY", "exchange": "NSE", "ltp": 1000.0,
                          "action": "BUY", "quantity": 5000})
     assert result.data["slice"]["summary"]["target"] == 300  # 0.30 x 1e6 / 1000
 

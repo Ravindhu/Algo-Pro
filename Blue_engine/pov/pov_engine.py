@@ -80,6 +80,10 @@ def _economic_execution_guard(portfolio: Dict[str, Any],
     }
 
 
+# Sentinel: weights exist but sizing cannot be verified. Never trade uncapped.
+_CAP_UNVERIFIED = -1
+
+
 class PovEngine(BaseEngine):
     """Delegate slicing to POVSlicer and report execution cost."""
 
@@ -101,23 +105,43 @@ class PovEngine(BaseEngine):
         return {k: v for k, v in self.config.items() if k not in ("engine",)}
 
     @staticmethod
-    def _sleeve_quantity_cap(portfolio: Dict[str, Any],
-                             symbol: str) -> Optional[int]:
+    def _order_price(context: Dict[str, Any], portfolio: Dict[str, Any],
+                     symbol: str) -> Optional[float]:
+        """Positive LTP of the EXECUTED symbol, or None.
+
+        Audit 2026-11-03: a price is used only when its source names the same
+        symbol. A book-level price belongs to whatever the book was priced on.
+        """
+        want = str(symbol).upper()
+        sources: List[Dict[str, Any]] = []
+        if isinstance(context, dict) and str(context.get("symbol") or "").upper() == want:
+            sources.append(context)
+        if isinstance(portfolio, dict) and str(portfolio.get("symbol") or "").upper() == want:
+            sources.append(portfolio)
+        for source in sources:
+            for key in ("ltp", "last_price", "price"):
+                price = safe_float(source.get(key))
+                if price is not None and price > 0:
+                    return price
+        return None
+
+    @staticmethod
+    def _sleeve_quantity_cap(portfolio: Dict[str, Any], symbol: str,
+                             price: Optional[float]) -> Optional[int]:
         """Quantity implied by the portfolio weight for ``symbol``.
 
-        Returns None when the portfolio block carries no usable capital/price,
-        in which case no cap is applied (identical to the previous behaviour).
-        A symbol that is absent from ``target_weights`` yields 0, i.e. an
+        Returns None when no weights are supplied (no sizing requested).
+        Returns ``_CAP_UNVERIFIED`` when weights exist but the capital or the
+        symbol's own price cannot be verified: the caller must refuse, never
+        trade uncapped. A symbol absent from ``target_weights`` yields 0, an
         explicit refusal to trade a name the portfolio does not hold.
         """
         weights = portfolio.get("target_weights") if isinstance(portfolio, dict) else None
         if not isinstance(weights, dict) or not weights:
             return None
         capital = safe_float(portfolio.get("capital"))
-        price = safe_float(portfolio.get("price")) or safe_float(
-            portfolio.get("ltp")) or safe_float(portfolio.get("last_price"))
         if capital is None or capital <= 0 or price is None or price <= 0:
-            return None
+            return _CAP_UNVERIFIED
         weight = safe_float(weights.get(symbol))
         if weight is None:
             weight = safe_float(weights.get(str(symbol).upper()))
@@ -133,16 +157,15 @@ class PovEngine(BaseEngine):
         return int((max(0.0, weight) * capital) // price)
 
     @staticmethod
-    def _budget_quantity_cap(portfolio: Dict[str, Any]) -> Optional[int]:
+    def _budget_quantity_cap(portfolio: Dict[str, Any],
+                             price: Optional[float]) -> Optional[int]:
         """Shares buyable with the book's CASH BUDGET (1 - cash_weight).
 
         Used only when the portfolio's sleeve names cannot be mapped onto the
         execution symbol. It never grants more than the book's documented
-        investable budget.
+        investable budget. ``price`` is the verified LTP of the symbol.
         """
         capital = safe_float(portfolio.get("capital"))
-        price = safe_float(portfolio.get("price")) or safe_float(
-            portfolio.get("ltp")) or safe_float(portfolio.get("last_price"))
         if capital is None or capital <= 0 or price is None or price <= 0:
             return None
         cash_weight = safe_float(portfolio.get("cash_weight"))
@@ -222,9 +245,17 @@ class PovEngine(BaseEngine):
         #   3. empty allocation      -> refuse (fail closed)
         # Audit (2026-10-22): case 2 used to return "skip", making the whole
         # Economic -> POV money-path non-functional for stock execution.
-        weight_cap = self._sleeve_quantity_cap(portfolio, symbol)
+        order_price = self._order_price(context, portfolio, symbol)
+        weight_cap = self._sleeve_quantity_cap(portfolio, symbol, order_price)
+        if weight_cap == _CAP_UNVERIFIED:
+            warnings.append(
+                f"POV not executed: sizing needs a verified price and capital "
+                f"for {symbol} (fail-closed)")
+            return {"status": "skipped",
+                    "reason": "sizing_unverified",
+                    "symbol": symbol}, warnings
         if weight_cap == 0:
-            budget = self._budget_quantity_cap(portfolio)
+            budget = self._budget_quantity_cap(portfolio, order_price)
             if budget is not None and budget > 0:
                 warnings.append(
                     f"portfolio sleeves {sorted(portfolio.get('target_weights'))} "
