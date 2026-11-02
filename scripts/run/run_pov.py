@@ -214,6 +214,14 @@ if _api:
 
 
 def main():
+    # Live runs must go through the supervisor (six pre-start gates and
+    # restart rules). This launcher calls the runner directly, so refuse.
+    print("run_pov.py refused: this launcher bypasses the supervisor.",
+          file=sys.stderr)
+    print("Start the engine with: python scripts/run/run_supervised.py "
+          "[--config <file>] [--paper]", file=sys.stderr)
+    return 2
+
     from blue_engine.core.runner import run_with_config
     print("=" * 68)
     print("POV ENGINE  --  single-file launcher")
