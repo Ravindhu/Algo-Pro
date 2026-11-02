@@ -152,7 +152,7 @@ case "${ID:-}" in
   ubuntu|debian) ok "OS: ${PRETTY_NAME:-$ID}" ;;
   *) warn "untested OS '${ID:-unknown}' - continuing" ;;
 esac
-if [[ -d "$INSTALL_ROOT" ]] && [[ -n "$(ls -A "$INSTALL_ROOT" 2>/dev/null || true)" ]]; then
+if [[ -d "$INSTALL_ROOT" ]] && [[ ! -d "$INSTALL_ROOT/.git" ]] && [[ -n "$(ls -A "$INSTALL_ROOT" 2>/dev/null || true)" ]]; then
   die "$INSTALL_ROOT already exists and is not empty. Move it aside first."
 fi
 command -v systemctl >/dev/null || die "systemd not found"
@@ -314,8 +314,8 @@ fi
 
 # ------------------------------------------------------------------ engine
 step "Installing blue_engine (editable, SDK-only)"
-if [[ -f "$INSTALL_ROOT/blue_engine/pyproject.toml" ]]; then
-  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/blue_engine[dashboard]"
+if [[ -f "$INSTALL_ROOT/Blue_engine/pyproject.toml" ]]; then
+  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/Blue_engine[dashboard]"
   ok "blue_engine installed editable with [dashboard] extras"
 
   # The engine must not import from the OpenAlgo tree. Assert that here so a
@@ -328,8 +328,8 @@ print('LEDGER_AVAILABLE=%s' % L._LEDGER_AVAILABLE)
 " 2>&1 | tail -1)
   ok "engine import probe: $ENGINE_CHECK  (LEDGER_AVAILABLE=False is correct: in-memory authoritative)"
 else
-  warn "blue_engine/pyproject.toml not found - skipping engine install"
-  warn "rsync your blue_engine/ here, then re-run this script"
+  warn "Blue_engine/pyproject.toml not found - skipping engine install"
+  warn "clone the repo into $INSTALL_ROOT (install.sh does this), then re-run"
 fi
 
 # ------------------------------------------------------------------ systemd
