@@ -36,8 +36,13 @@ def _bridge(monkeypatch, risk_config=None):
     StubSlicer.calls.clear()
     protective_orders._LEVELS.clear()
     monkeypatch.setattr(protective_orders, "_persist", lambda: None)
+    # These tests exercise protective-order plumbing, not the live money-cap
+    # policy (covered in test_risk_gate and test_safety_fixes). Opt out of the
+    # live acknowledgement explicitly so the fixtures stay focused.
+    cfg = dict(risk_config or {})
+    cfg.setdefault("require_live_ack", False)
     return ScreenerBridge(
-        symbols=["INFY"], risk_config=risk_config,
+        symbols=["INFY"], risk_config=cfg,
         pov_params={"duration": 1, "interval": 1})
 
 

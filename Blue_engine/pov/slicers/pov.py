@@ -2,7 +2,7 @@
 from __future__ import annotations
 import time, uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from blue_engine.core.auction_windows import is_within_auction_window
 from blue_engine.core.band import BandConfig, compute_target_pov_rate
 from blue_engine.core.benchmark import ArrivalPriceWindow, SlippageAccumulator
@@ -256,6 +256,8 @@ class POVSlicer(BaseSlicer):
         target_qty = self.quantity
         filled_qty = 0
         child_count = 0
+        #: order_id -> placement time, for orders THIS run placed only.
+        own_oids: Dict[str, datetime] = {}
         child_log: List[Dict[str, Any]] = []
         phase = "accumulating"
         #: Tracks the phase the PEG engine last saw, so a flip into the exit
@@ -591,7 +593,9 @@ class POVSlicer(BaseSlicer):
                     exchange=self.exchange, strategy_label=self.strategy_label,
                     limit_expiry_pct=self.limit_expiry_pct,
                     execution_id=execution_id,
-                    allowed_strategy_labels=self.allowed_strategy_labels)
+                    allowed_strategy_labels=self.allowed_strategy_labels,
+                    own_oids=own_oids,
+                    min_age_sec=self.limit_expiry_pct / 100.0 * poll_sec)
             price_type = self.order_mode
             # MUST be initialised before the branches below: MARKET runs never
             # enter the PEG/LIMIT arms, and reading an unassigned name here
@@ -624,7 +628,8 @@ class POVSlicer(BaseSlicer):
                                 strategy_label=self.strategy_label,
                                 limit_expiry_pct=self.limit_expiry_pct,
                                 execution_id=execution_id,
-                                allowed_strategy_labels=self.allowed_strategy_labels)
+                                allowed_strategy_labels=self.allowed_strategy_labels,
+                                own_oids=own_oids, min_age_sec=0.0)
                             peg_open_child = False
                         place_price = decision.price
                         price_type = "LIMIT"   # PEG always works as LIMIT
@@ -682,6 +687,7 @@ class POVSlicer(BaseSlicer):
                           f"@ {place_price or 'MARKET'}")
                 try:
                     arrival_window.clear()
+                    attempt_ts = datetime.now()
                     resp = self.client.placeorder(
                         strategy=self.strategy_label, symbol=self.symbol,
                         action=self.order_action, exchange=self.exchange,
@@ -689,12 +695,29 @@ class POVSlicer(BaseSlicer):
                                 else self.order_mode), product=self.product,
                         quantity=slice_qty, price=place_price)
                 except Exception as exc:
-                    self.log(f"placeorder raised {exc!r}")
-                    time.sleep(poll_sec); now_ts = datetime.now().timestamp(); continue
+                    # A timeout can hide an order the broker accepted. Check the
+                    # broker before any retry, or the retry doubles the exposure.
+                    self.log(f"placeorder raised {exc!r}; reconciling with broker")
+                    state, found_oid = self._reconcile_failed_placement(
+                        client=self.client, symbol=self.symbol, exchange=self.exchange,
+                        strategy_label=self.strategy_label, action=self.order_action,
+                        quantity=slice_qty, known_oids=set(own_oids))
+                    if state == "placed":
+                        self.log(f"reconcile: order {found_oid} found at broker; not retrying")
+                        resp = {"status": "success", "order_id": found_oid,
+                                "data": {"order_id": found_oid}}
+                    elif state == "absent":
+                        time.sleep(poll_sec); now_ts = datetime.now().timestamp(); continue
+                    else:
+                        self.log("reconcile: broker state unknown; halting execution")
+                        summary_reason = "placement_unreconciled"
+                        break
                 self._record_child(execution_id, resp, slice_qty, ltp, mode)
                 if isinstance(resp, dict) and resp.get("status") == "success":
                     oid = resp.get("order_id") or (resp.get("data") or {}).get("order_id")
                     child_count += 1; _LAST_ORDER_AT[execution_id] = datetime.now()
+                    if oid:
+                        own_oids[str(oid)] = datetime.now()
                     # Record the execution's realised slippage against the
                     # arrival VWAP of the slice just placed (see Phase 2 above).
                     try:
@@ -774,11 +797,53 @@ class POVSlicer(BaseSlicer):
         """
         return bool(self.config.get("assume_fill_on_ack", False))
 
+    def _reconcile_failed_placement(
+        self, *, client: Any, symbol: str, exchange: str, strategy_label: str,
+        action: str, quantity: int, known_oids: set) -> Tuple[str, Optional[str]]:
+        """After a ``placeorder`` exception, check the broker before any retry.
+
+        Returns ``("placed", oid)`` when a matching order exists that this run
+        has not recorded, ``("absent", None)`` when none exists so a retry is
+        safe, or ``("unknown", None)`` when the orderbook cannot be read, in
+        which case the caller must halt rather than retry.
+        """
+        try:
+            ob = client.orderbook()
+        except Exception as exc:  # noqa: BLE001 - reconciliation must not raise
+            self.log(f"reconcile: orderbook read failed: {exc!r}")
+            return "unknown", None
+        if not isinstance(ob, dict) or ob.get("status") != "success":
+            return "unknown", None
+        rows = ob.get("data", [])
+        if isinstance(rows, dict):
+            rows = rows.get("orders", []) or []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            oid = row.get("orderid")
+            if not oid or str(oid) in known_oids:
+                continue
+            if (row.get("symbol") == symbol and row.get("exchange") == exchange
+                    and row.get("strategy") == strategy_label
+                    and str(row.get("action", "")).upper() == action.upper()
+                    and _safe_float(row.get("quantity"), -1.0) == float(quantity)):
+                return "placed", str(oid)
+        return "absent", None
+
     def _cancel_stale_limits(
         self, *, client: Any, symbol: str, exchange: str,
         strategy_label: str, limit_expiry_pct: float,
         execution_id: Optional[str] = None,
-        allowed_strategy_labels: Optional[set] = None) -> None:
+        allowed_strategy_labels: Optional[set] = None,
+        own_oids: Optional[Dict[str, datetime]] = None,
+        min_age_sec: float = 0.0) -> None:
+        """Cancel this run's resting LIMIT children older than ``min_age_sec``.
+
+        Only orders in ``own_oids`` are eligible, so a shared orderbook's other
+        orders are never touched. With no ``own_oids`` nothing is cancelled.
+        """
+        if own_oids is None:
+            return
         try: ob = client.orderbook()
         except Exception as exc:
             self.log(f"orderbook read failed: {exc}"); return
@@ -802,7 +867,9 @@ class POVSlicer(BaseSlicer):
                     and pt == "limit"
                     and os_ in ("open", "trigger pending", "pending")):
                 oid = row.get("orderid")
-                if not oid: continue
+                if not oid or str(oid) not in own_oids: continue
+                age = (datetime.now() - own_oids[str(oid)]).total_seconds()
+                if age < min_age_sec: continue
                 cresp = client.cancelorder(order_id=oid, strategy=strategy_label)
                 if isinstance(cresp, dict) and cresp.get("status") == "success":
                     self.log(f"cancelled stale LIMIT child {oid}")

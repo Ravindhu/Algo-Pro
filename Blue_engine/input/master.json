@@ -30,7 +30,7 @@
   },
   "risk": {
     "require_live_ack": true,
-    "blocked": false,
+    "blocked": true,
     "allowed_actions": ["BUY", "SELL"],
     "max_order_quantity": 500,
     "max_order_notional": 250000.0,

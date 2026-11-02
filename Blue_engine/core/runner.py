@@ -465,6 +465,14 @@ def run_with_config(
     # as live on purpose: an unverifiable mode must fail closed, never assume
     # that orders are harmless.
     is_live = str(mode).strip().lower() != "analyze"
+    if is_live:
+        # Fail closed: a live run must not start unless halts are durable.
+        try:
+            from blue_engine.core import kill_switch_store as _kss
+            _kss.require_durable()
+        except Exception as exc:  # noqa: BLE001 - refuse, never trade blind
+            print(f"[runner] CRITICAL: {exc}; refusing live run")
+            return 2
 
     def _valid_price(value: Any) -> Optional[float]:
         if isinstance(value, bool):

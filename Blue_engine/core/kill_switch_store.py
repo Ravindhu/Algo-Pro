@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "default_db_path", "load_state", "save_state", "clear_state",
-    "store_available", "close_store",
+    "store_available", "require_durable", "close_store",
 ]
 
 _LOCK = threading.Lock()
@@ -103,7 +103,7 @@ def _get_conn() -> Optional[sqlite3.Connection]:
             return _CONN
         except Exception as exc:  # noqa: BLE001 - fail-soft by contract
             _DEGRADED = True
-            logger.error("kill_switch_store: init failed, degrading to "
+            logger.critical("kill_switch_store: init failed, degrading to "
                          "in-memory-only: %s", exc)
             return None
 
@@ -113,13 +113,24 @@ def _degrade(exc: Exception) -> None:
     global _DEGRADED
     if not _DEGRADED:
         _DEGRADED = True
-        logger.error("kill_switch_store: degrading to in-memory-only after "
+        logger.critical("kill_switch_store: degrading to in-memory-only after "
                      "sqlite error: %s", exc)
 
 
 def store_available() -> bool:
     """True when the store has not degraded (best-effort health probe)."""
     return not _DEGRADED and _get_conn() is not None
+
+
+def require_durable() -> None:
+    """Raise unless halts can survive a restart. Call before any live trading.
+
+    A degraded store means a trip is kept in memory only, so a restart would
+    silently re-arm trading. Live runs must refuse to start in that state.
+    """
+    if not store_available():
+        raise RuntimeError(
+            "kill-switch store unavailable: halts would not survive a restart")
 
 
 def close_store() -> None:
