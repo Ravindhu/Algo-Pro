@@ -75,7 +75,6 @@ LOG_DIR = ROOT / "Temp" / "run"
 PID_FILE = LOG_DIR / "start_all.pids.json"
 
 OPENALGO_PORT = int(os.getenv("OPENALGO_PORT", "5000"))
-DASH_PORT = int(os.getenv("DASH_PORT", "8050"))
 WS_PORT = int(os.getenv("WEBSOCKET_PORT", "8765"))
 
 VENV_PY_CANDIDATES = [
@@ -186,7 +185,7 @@ def kill_tree(pid: int) -> bool:
 
 def free_ports(force: bool) -> bool:
     """Free every port we need. Returns False if one could not be freed."""
-    busy = {p: port_owners(p) for p in (OPENALGO_PORT, DASH_PORT, WS_PORT)}
+    busy = {p: port_owners(p) for p in (OPENALGO_PORT, WS_PORT)}
     busy = {p: pids for p, pids in busy.items() if port_in_use(p) or pids}
     if not busy:
         ok("ports 5000 / 8050 / 8765 are free")
@@ -207,7 +206,7 @@ def free_ports(force: bool) -> bool:
             kill_tree(pid)
 
     time.sleep(1.5)
-    still = [p for p in (OPENALGO_PORT, DASH_PORT, WS_PORT) if port_in_use(p)]
+    still = [p for p in (OPENALGO_PORT, WS_PORT) if port_in_use(p)]
     if still:
         fail(f"still in use after kill: {still}")
         return False
@@ -446,16 +445,6 @@ def start_websocket() -> bool:
     return False
 
 
-def start_dash() -> bool:
-    py = venv_python()
-    if py is None:
-        fail("no project venv found")
-        return False
-    proc = spawn("dash", [str(py), str(ROOT / "Blue_engine" / "dashboard" /
-                                     "run_server.py")], cwd=ROOT)
-    return proc is not None
-
-
 def start_engine() -> bool:
     """Start the trading engine under the supervisor (audit P0-7).
 
@@ -496,7 +485,7 @@ def stop_all() -> int:
         if kill_tree(pid):
             ok(f"stopped {name} (pid {pid})")
             stopped += 1
-    for port in (OPENALGO_PORT, DASH_PORT, WS_PORT):
+    for port in (OPENALGO_PORT, WS_PORT):
         for pid in port_owners(port):
             if kill_tree(pid):
                 ok(f"stopped pid {pid} holding {port}")
@@ -526,7 +515,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force", action="store_true",
                    help="Kill port holders without asking")
     p.add_argument("--stop", action="store_true", help="Stop the whole stack")
-    p.add_argument("--no-dash", action="store_true", help="Skip Dash")
     p.add_argument("--engine", action="store_true",
                    help="Also start the trading engine under the supervisor "
                         "(never auto-resumed after a safety stop)")
@@ -586,13 +574,7 @@ def start_stack(args: argparse.Namespace) -> int:
     if not start_websocket():
         failures.append("websocket")
 
-    step("6", "Dash terminal")
-    if args.no_dash:
-        say("  skipped (--no-dash)")
-    elif not start_dash():
-        failures.append("dash")
-
-    step("7", "Trading engine" + ("" if args.engine else " (skipped - pass --engine)"))
+    step("6", "Trading engine" + ("" if args.engine else " (skipped - pass --engine)"))
     if not args.engine:
         say("  the platform is up but NO engine is trading (safe default)")
     elif not start_engine():
@@ -615,20 +597,10 @@ def start_stack(args: argparse.Namespace) -> int:
     if "websocket" not in failures:
         if not port_in_use(WS_PORT):
             failures.append("websocket")
-    if "dash" not in failures and not args.no_dash:
-        # Dash imports the whole engine graph; 240s is generous on purpose.
-        if not http_ready(f"http://127.0.0.1:{DASH_PORT}/", timeout=240):
-            fail("dash did not answer within 240s "
-                 f"(see Temp/run/dash.log)")
-            failures.append("dash")
-        else:
-            ok("dash answered")
-
     _record_port_owners(pids)
 
     step("RESULT", "stack status")
     say(f"  OpenAlgo  : http://127.0.0.1:{OPENALGO_PORT}")
-    say(f"  Dash      : http://127.0.0.1:{DASH_PORT}")
     say(f"  WebSocket : ws://127.0.0.1:{WS_PORT}")
     say(f"  logs      : {LOG_DIR}")
     say("  stop with : python scripts\\ops\\start_all.py --stop")
@@ -647,7 +619,7 @@ def _record_port_owners(pids: Dict[str, int]) -> None:
     ``--stop``. The listener on each port is the real service process.
     """
     for name, port in (("openalgo", OPENALGO_PORT),
-                       ("websocket", WS_PORT), ("dash", DASH_PORT)):
+                       ("websocket", WS_PORT)):
         owners = port_owners(port)
         if owners:
             pids[name] = owners[0]

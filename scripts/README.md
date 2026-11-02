@@ -51,7 +51,6 @@ should import/reference the folder path directly.
 | `verify/verify_strategy_api.py` | Strategy / portfolio subsystem endpoints. |
 | `verify/verify_live_stack.py` | **The one that matters.** End-to-end check that the live macro providers actually resolve and the values are plausible. Supersedes the older per-provider verifiers. |
 | `verify/check_dbs.py` | `PRAGMA integrity_check` across all five SQLite databases. |
-| `verify/check_dash_datamode.py` | Asserts the mode banner, `body[data-mode]` and the rendered CSS palette all agree on every Dash route. |
 | `verify/smoke_test.py` | Broad smoke test of the engine package. |
 
 ## Test — offline, no network

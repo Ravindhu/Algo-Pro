@@ -110,7 +110,7 @@ class InfrastructureEngine(BaseEngine):
         imports_ok = True
         import_error = None
         try:
-            importlib.import_module("blue_engine.dashboard.dash_app")
+            importlib.import_module("blue_engine.dashboard.cli")
         except Exception as exc:  # noqa: BLE001
             imports_ok = False
             import_error = repr(exc)
