@@ -144,6 +144,7 @@ class RiskGate:
               open_exposure: Optional[float] = None,
               require_intent_price: bool = False,
               reduces_exposure: bool = False,
+              position_quantity: Optional[int] = None,
               live: bool = False) -> RiskDecision:
         """Evaluate ``intent`` and return a :class:`RiskDecision`.
 
@@ -160,6 +161,10 @@ class RiskGate:
                 (monetary limits cannot be evaluated without one).
             reduces_exposure: this order lowers exposure, so the daily-loss
                 and exposure caps are evaluated as a reduction.
+            position_quantity: absolute size of the open position being
+                reduced. When the order is no larger than it, the order is
+                REDUCE-ONLY: every cap is skipped so an exit can always go
+                out. A larger order would open new risk and gets full checks.
             live: the caller believes this intent reaches real capital. When
                 ``require_live_ack`` is configured, a live intent with no
                 monetary limit at all is rejected instead of silently
@@ -197,6 +202,20 @@ class RiskGate:
                 "notional": notional,
             }
 
+            # Reduce-only: an order that closes part of a KNOWN position
+            # cannot add risk, so it skips caps that would otherwise trap a
+            # stop-loss (stale P&L, unknown price, kill switch, size cap).
+            held = _safe_int(position_quantity)
+            reduce_only = bool(reduces_exposure and held is not None
+                               and 0 < quantity <= abs(held))
+            if reduces_exposure and held is not None and quantity > abs(held):
+                breaches.append(
+                    f"reduce order {quantity} exceeds open position {abs(held)}; "
+                    "the excess would open new risk")
+            # Caps on UNKNOWN inputs are skipped for any reduction: a missing
+            # quote or P&L feed must not block the order that cuts risk.
+            unknown_ok = reduces_exposure
+
             # 0. Live acknowledgement. A live intent is not "permission to
             #    trade": the MONEY caps (notional / daily loss / exposure)
             #    are what bound a run's economic loss. `max_order_quantity` is
@@ -208,13 +227,13 @@ class RiskGate:
                 ("max_daily_loss", self.max_daily_loss),
                 ("max_open_exposure", self.max_open_exposure),
             ) if value is None]
-            if live and self.require_live_ack and monetary_gaps:
+            if live and self.require_live_ack and monetary_gaps and not reduce_only:
                 breaches.append(
                     "live run without a monetary risk limit (require_live_ack): "
                     "missing " + ", ".join(monetary_gaps))
 
             # 1. Master kill-switch.
-            if self.blocked:
+            if self.blocked and not reduce_only:
                 breaches.append("risk gate is in 'blocked' state (kill-switch on)")
 
             # 2. Action must be permitted.
@@ -226,29 +245,31 @@ class RiskGate:
                     f"quantity {quantity} must be a positive integer")
 
             # 3. Size cap.
-            if (self.max_order_quantity is not None
+            if (not reduce_only and self.max_order_quantity is not None
                     and quantity > self.max_order_quantity):
                 breaches.append(
                     f"quantity {quantity} > max_order_quantity {self.max_order_quantity}")
 
             # 4. Configured monetary limits cannot be evaluated without price.
-            if self.max_order_notional is not None:
+            if self.max_order_notional is not None and not reduce_only:
                 if notional is None:
-                    breaches.append(
-                        "cannot evaluate max_order_notional without a "
-                        "finite positive order price")
+                    if not unknown_ok:
+                        breaches.append(
+                            "cannot evaluate max_order_notional without a "
+                            "finite positive order price")
                 elif notional > self.max_order_notional:
                     breaches.append(
                         f"notional {notional:.2f} > max_order_notional "
                         f"{self.max_order_notional:.2f}")
 
             # 5. Daily-loss cap. day_pnl is signed; a loss is negative.
-            if self.max_daily_loss is not None:
+            if self.max_daily_loss is not None and not reduce_only:
                 pnl = _safe_float(day_pnl)
                 if pnl is None:
-                    breaches.append(
-                        "cannot evaluate max_daily_loss without a verified "
-                        "daily P&L value")
+                    if not unknown_ok:
+                        breaches.append(
+                            "cannot evaluate max_daily_loss without a verified "
+                            "daily P&L value")
                 elif pnl <= -abs(self.max_daily_loss) and not reduces_exposure:
                     breaches.append(
                         f"day_pnl {pnl:.2f} <= -max_daily_loss "
@@ -258,15 +279,12 @@ class RiskGate:
             exposure = _safe_float(open_exposure)
             if exposure is None:
                 exposure = _safe_float(self.config.get("open_exposure"))
-            if self.max_open_exposure is not None:
-                if exposure is None:
-                    breaches.append(
-                        "cannot evaluate max_open_exposure without verified "
-                        "current exposure")
-                elif notional is None:
-                    breaches.append(
-                        "cannot evaluate max_open_exposure without a finite "
-                        "positive order price")
+            if self.max_open_exposure is not None and not reduce_only:
+                if exposure is None or notional is None:
+                    if not unknown_ok:
+                        breaches.append(
+                            "cannot evaluate max_open_exposure without verified "
+                            "current exposure and a finite positive order price")
                 else:
                     current_exposure = abs(exposure)
                     projected = (max(0.0, current_exposure - abs(notional))

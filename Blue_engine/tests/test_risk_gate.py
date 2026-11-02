@@ -58,3 +58,74 @@ def test_live_ack_still_rejects_a_partial_profile():
                           day_pnl=0.0, open_exposure=0.0, live=True)
     assert decision.approved is False
     assert "max_open_exposure" in decision.reason
+
+
+# --------------------------------------------------------------------------- #
+# Reduce-only exits (audit 2026-11-03, fix 1): a stop-loss must not be trapped
+# by a stale P&L feed, an unknown price, the kill switch, or a size cap.
+# --------------------------------------------------------------------------- #
+_CAPPED = dict(max_order_quantity=100, max_order_notional=50000.0,
+               max_daily_loss=10000.0, max_open_exposure=200000.0)
+
+
+def test_exit_is_allowed_when_daily_pnl_is_unverifiable():
+    gate = _ack_gate(**_CAPPED)
+    decision = gate.check({"action": "SELL", "quantity": 50, "price": 100.0},
+                          day_pnl=None, open_exposure=None, reduces_exposure=True,
+                          position_quantity=50, live=True)
+    assert decision.approved is True, decision.reason
+
+
+def test_exit_is_allowed_after_the_daily_loss_cap_is_hit():
+    gate = _ack_gate(**_CAPPED)
+    decision = gate.check({"action": "SELL", "quantity": 50, "price": 100.0},
+                          day_pnl=-20000.0, open_exposure=150000.0,
+                          reduces_exposure=True, position_quantity=50, live=True)
+    assert decision.approved is True, decision.reason
+
+
+def test_exit_is_allowed_when_the_gate_is_blocked():
+    gate = _ack_gate(blocked=True, **_CAPPED)
+    decision = gate.check({"action": "SELL", "quantity": 50, "price": 100.0},
+                          day_pnl=0.0, open_exposure=0.0,
+                          reduces_exposure=True, position_quantity=50, live=True)
+    assert decision.approved is True, decision.reason
+
+
+def test_exit_larger_than_the_position_is_rejected_as_a_flip():
+    # The excess would open a fresh short, so it must pass full checks.
+    gate = _ack_gate(**_CAPPED)
+    decision = gate.check({"action": "SELL", "quantity": 80, "price": 100.0},
+                          day_pnl=0.0, open_exposure=0.0,
+                          reduces_exposure=True, position_quantity=50, live=True)
+    assert decision.approved is False
+    assert "exceeds open position" in decision.reason
+
+
+def test_entry_still_rejected_when_daily_pnl_is_unverifiable():
+    gate = _ack_gate(**_CAPPED)
+    decision = gate.check({"action": "BUY", "quantity": 10, "price": 100.0},
+                          day_pnl=None, open_exposure=0.0, live=True)
+    assert decision.approved is False
+    assert "max_daily_loss" in decision.reason
+
+
+def test_entry_still_rejected_when_the_gate_is_blocked():
+    gate = _ack_gate(blocked=True, **_CAPPED)
+    decision = gate.check({"action": "BUY", "quantity": 10, "price": 100.0},
+                          day_pnl=0.0, open_exposure=0.0, live=True)
+    assert decision.approved is False
+    assert "blocked" in decision.reason
+
+
+def test_unsized_exit_keeps_the_legacy_caps_but_not_unknown_inputs():
+    # No position_quantity: the gate cannot prove reduce-only, so the size cap
+    # still applies, but a missing quote must not block the exit.
+    gate = _ack_gate(**_CAPPED)
+    oversized = gate.check({"action": "SELL", "quantity": 500, "price": 100.0},
+                           day_pnl=None, open_exposure=None, reduces_exposure=True)
+    assert oversized.approved is False
+    assert "max_order_quantity" in oversized.reason
+    unpriced = gate.check({"action": "SELL", "quantity": 50},
+                          day_pnl=None, open_exposure=None, reduces_exposure=True)
+    assert unpriced.approved is True, unpriced.reason

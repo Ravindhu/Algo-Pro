@@ -510,6 +510,7 @@ def run_with_config(
             open_exposure=child_context.get("open_exposure"),
             require_intent_price=requires_order_price,
             reduces_exposure=phase == "exiting",
+            position_quantity=abs(held),
             live=is_live,
         )
         if not child_decision.approved:
@@ -569,6 +570,7 @@ def run_with_config(
         open_exposure=rc.get("open_exposure"),
         require_intent_price=requires_order_price,
         reduces_exposure=intent_reduces,
+        position_quantity=abs(held),
         live=is_live,
     )
     if not decision.approved:
