@@ -93,7 +93,12 @@ class KillSwitchPersistenceTest(unittest.TestCase):
 
     # -- 4. fail-soft on a broken store --------------------------------- #
     def test_broken_store_degrades_never_raises(self):
-        os.environ["BLUE_KILL_SWITCH_DB_PATH"] = "Z:\\no\\such\\dir\\x.db"
+        # A path whose parent is a regular FILE can never be created, on any
+        # OS (a Windows drive path is just a relative file name on Linux).
+        blocker = os.path.join(self._tmpdir.name, "not_a_dir")
+        open(blocker, "w").close()
+        os.environ["BLUE_KILL_SWITCH_DB_PATH"] = os.path.join(
+            blocker, "x.db")
         ks_store.close_store()
         ks_store._DEGRADED = False
         op._PROCESS_KILL_SWITCH = None
@@ -102,6 +107,39 @@ class KillSwitchPersistenceTest(unittest.TestCase):
         out = op.decide(_INPUTS, drawdown=0.20)
         self.assertFalse(out["trade"])
         self.assertFalse(ks_store.store_available())
+
+
+    # -- 4. unreadable store FAILS CLOSED (regression) ------------------- #
+    def test_unreadable_store_after_trip_fails_closed_on_restart(self):
+        """A persisted trip followed by a corrupted DB must NOT re-arm trading.
+
+        Before the fix, load_state() returned "not tripped" on any read error,
+        so a fresh process came up with a clear switch and traded.
+        """
+        op.decide(_INPUTS, drawdown=0.20)          # persists the trip
+        ks_store.close_store()
+        ks_store._DEGRADED = False
+        db = os.environ["BLUE_KILL_SWITCH_DB_PATH"]
+        with open(db, "wb") as fh:                 # corrupt the database
+            fh.write(b"not a sqlite database" * 200)
+        for suffix in ("-wal", "-shm"):
+            if os.path.exists(db + suffix):
+                os.remove(db + suffix)
+
+        op._PROCESS_KILL_SWITCH = None             # "restart"
+        state = ks_store.load_state()
+        self.assertTrue(state["tripped"])
+        self.assertTrue(state.get("unreadable"))
+        out = op.decide(_INPUTS, drawdown=0.0)     # recovered inputs
+        self.assertFalse(out["trade"])
+
+    def test_reset_refused_when_clear_cannot_be_persisted(self):
+        op.decide(_INPUTS, drawdown=0.20)          # tripped + persisted
+        ks_store.close_store()
+        ks_store._DEGRADED = True                  # store now unwritable
+        res = op.reset_kill_switch(confirm="operator")
+        self.assertFalse(res["ok"])
+        self.assertTrue(op._PROCESS_KILL_SWITCH.tripped)
 
 
 def _run_all() -> int:

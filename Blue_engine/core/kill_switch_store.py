@@ -58,6 +58,7 @@ __all__ = [
 _LOCK = threading.Lock()
 _CONN: Optional[sqlite3.Connection] = None
 _DEGRADED = False
+_DEGRADE_DETAIL: str = ""
 
 
 def default_db_path() -> Path:
@@ -102,19 +103,33 @@ def _get_conn() -> Optional[sqlite3.Connection]:
             logger.info("kill_switch_store: durable state at %s", path)
             return _CONN
         except Exception as exc:  # noqa: BLE001 - fail-soft by contract
-            _DEGRADED = True
-            logger.critical("kill_switch_store: init failed, degrading to "
-                         "in-memory-only: %s", exc)
+            _degrade(exc, phase="init")
             return None
 
 
-def _degrade(exc: Exception) -> None:
+def _degrade(exc: Exception, phase: str = "sqlite") -> None:
     """Disable the store for the rest of the process after a failure."""
-    global _DEGRADED
+    global _DEGRADED, _DEGRADE_DETAIL
     if not _DEGRADED:
         _DEGRADED = True
+        _DEGRADE_DETAIL = f"{phase}: {exc}"
         logger.critical("kill_switch_store: degrading to in-memory-only after "
-                     "sqlite error: %s", exc)
+                     "%s error: %s", phase, exc)
+
+
+def _unreadable_state() -> dict:
+    """The state returned when the store cannot be read.
+
+    FAIL-CLOSED: an unreadable store means the persisted halt status is
+    UNKNOWN, so it is reported as tripped. Reporting "clear" here would let a
+    restart re-arm trading after a disk fault (the exact failure this module
+    exists to prevent).
+    """
+    return {"tripped": True,
+            "reason": ("kill-switch state unreadable (fail-closed): "
+                       f"{_DEGRADE_DETAIL or 'store unavailable'}"),
+            "trigger_value": None,
+            "unreadable": True}
 
 
 def store_available() -> bool:
@@ -164,7 +179,7 @@ def _write(tripped: bool, reason: Optional[str],
             conn.commit()
         return True
     except Exception as exc:  # noqa: BLE001 - fail-soft by contract
-        _degrade(exc)
+        _degrade(exc, phase="write")
         return False
 
 
@@ -184,12 +199,15 @@ def load_state() -> dict:
 
     Returns:
         ``{"tripped": bool, "reason": str|None, "trigger_value": float|None}``
-        All-false/None defaults when nothing is persisted or the store is
-        degraded. Never raises.
+        * A readable store with no row (fresh install) -> not tripped.
+        * A readable store with a row -> the persisted state.
+        * An UNREADABLE store -> tripped, with ``"unreadable": True``
+          (fail-closed; see :func:`_unreadable_state`).
+        Never raises.
     """
     conn = _get_conn()
     if conn is None:
-        return {"tripped": False, "reason": None, "trigger_value": None}
+        return _unreadable_state()
     try:
         with _LOCK:
             cur = conn.execute(
@@ -201,5 +219,5 @@ def load_state() -> dict:
         return {"tripped": bool(row[0]), "reason": row[1],
                 "trigger_value": row[2]}
     except Exception as exc:  # noqa: BLE001 - fail-soft by contract
-        _degrade(exc)
-        return {"tripped": False, "reason": None, "trigger_value": None}
+        _degrade(exc, phase="read")
+        return _unreadable_state()

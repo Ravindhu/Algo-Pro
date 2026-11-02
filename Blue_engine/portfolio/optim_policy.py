@@ -167,14 +167,22 @@ class KillSwitch:
         if not confirm:
             return {"ok": False, "tripped": self.tripped,
                     "warnings": ["reset requires a non-empty 'confirm' token"]}
+        # FAIL-CLOSED: only clear the halt once the clear is durably written.
+        # If the store cannot be written, a restart would silently re-arm
+        # trading, so the switch stays tripped and the reset is refused.
+        try:
+            cleared = bool(_ks_store.clear_state())
+        except Exception as exc:  # noqa: BLE001 - defensive
+            logger.error("kill-switch clear persist failed: %s", exc)
+            cleared = False
+        if not cleared:
+            return {"ok": False, "tripped": self.tripped,
+                    "warnings": ["reset refused: cleared state could not be "
+                                 "durably persisted; halt remains in force"]}
         self._logmsg(f"reset by '{confirm}' (was: {self.reason})")
         self.tripped = False
         self.reason = None
         self.trigger_value = None
-        try:
-            _ks_store.clear_state()
-        except Exception as exc:  # noqa: BLE001 - defensive
-            logger.warning("kill-switch clear persist failed: %s", exc)
         return {"ok": True, "tripped": False}
 
 
@@ -269,6 +277,13 @@ def _process_kill_switch(limits: Optional[Dict[str, Any]] = None) -> KillSwitch:
             persisted = _ks_store.load_state()
         except Exception:  # noqa: BLE001 - store is fail-soft already
             persisted = {"tripped": False}
+        if persisted.get("unreadable"):
+            # Fail-closed: the store could not be read, so the halt status is
+            # unknown. Start halted; the operator must restore the store first.
+            logger.critical(
+                "[kill-switch] persisted state UNREADABLE at %s (%s); "
+                "starting HALTED (fail-closed)",
+                _ks_store.default_db_path(), persisted.get("reason"))
         if persisted.get("tripped"):
             _PROCESS_KILL_SWITCH.tripped = True
             _PROCESS_KILL_SWITCH.reason = (
