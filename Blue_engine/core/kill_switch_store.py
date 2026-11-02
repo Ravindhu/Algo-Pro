@@ -44,9 +44,10 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 from ..runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
@@ -160,14 +161,41 @@ def close_store() -> None:
             _CONN = None
 
 
+#: Attempts for a transient sqlite error (e.g. "database is locked") before the
+#: store degrades. Corruption is not retried. It degrades at once.
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_S = 0.05
+
+
+def _with_retry(op: Callable[[], Any], phase: str) -> Any:
+    """Run ``op``, retrying only transient ``OperationalError``s with backoff.
+
+    Audit 2026-11-03 (fix 5): one locked-database hiccup used to disable the
+    store for the whole process. A retry clears a transient lock. Any other
+    error, and a lock that survives every attempt, still raises to the caller.
+    """
+    last: Optional[sqlite3.OperationalError] = None
+    for attempt in range(_RETRY_ATTEMPTS):
+        try:
+            return op()
+        except sqlite3.OperationalError as exc:
+            last = exc
+            logger.warning("kill_switch_store: transient %s error (attempt "
+                           "%d/%d): %s", phase, attempt + 1, _RETRY_ATTEMPTS, exc)
+            time.sleep(_RETRY_BACKOFF_S * (2 ** attempt))
+    assert last is not None
+    raise last
+
+
 def _write(tripped: bool, reason: Optional[str],
            trigger_value: Optional[float]) -> bool:
     """Upsert the singleton state row. Internal, fail-soft."""
     conn = _get_conn()
     if conn is None:
         return False
-    try:
-        now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+
+    def _do_write() -> None:
         with _LOCK:
             conn.execute(
                 "INSERT INTO killswitch (id, tripped, reason, trigger_value,"
@@ -177,6 +205,9 @@ def _write(tripped: bool, reason: Optional[str],
                 " updated_at=excluded.updated_at",
                 (1 if tripped else 0, reason, trigger_value, now))
             conn.commit()
+
+    try:
+        _with_retry(_do_write, phase="write")
         return True
     except Exception as exc:  # noqa: BLE001 - fail-soft by contract
         _degrade(exc, phase="write")
@@ -208,12 +239,15 @@ def load_state() -> dict:
     conn = _get_conn()
     if conn is None:
         return _unreadable_state()
-    try:
+    def _do_read() -> Any:
         with _LOCK:
             cur = conn.execute(
                 "SELECT tripped, reason, trigger_value FROM killswitch "
                 "WHERE id = 1")
-            row = cur.fetchone()
+            return cur.fetchone()
+
+    try:
+        row = _with_retry(_do_read, phase="read")
         if not row:
             return {"tripped": False, "reason": None, "trigger_value": None}
         return {"tripped": bool(row[0]), "reason": row[1],
