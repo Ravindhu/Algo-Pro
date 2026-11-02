@@ -282,15 +282,18 @@ new file mode 100644
 index 000000000..e197d02e0
 --- /dev/null
 +++ b/blueprints/ocl_screener.py
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,13 @@
 +"""OCL keylevel screener blueprint stub."""
 +
 +from flask import Blueprint
++
++from utils.session import check_session_validity
 +
 +ocl_screener_bp = Blueprint("ocl_screener", __name__)
 +
 +
 +@ocl_screener_bp.route("/ocl-screener")
++@check_session_validity
 +def index():
 +    return {"status": "ok", "message": "OCL keylevel screener (stub)"}
 diff --git a/blueprints/pov_terminal.py b/blueprints/pov_terminal.py
