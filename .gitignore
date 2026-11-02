@@ -161,7 +161,8 @@ move_log.txt
 Temp/
 
 # -----------------------------------------------------------------------------
-# EXCEPTIONS — things that look ignored but must be tracked
+# ALLOW-LIST — negations below re-include files the rules above would hide.
+# (Servers/deploy.env is an IGNORE rule on purpose: it holds the API key.)
 # -----------------------------------------------------------------------------
 !.env.example
 !Blue_engine/input/master.json

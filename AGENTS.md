@@ -37,7 +37,6 @@ Use this directory as a temporary workspace only.
 C:\Users\Admin\CodeGPT\my-trading-system\Temp
 
 
-keep credential open 
 Before committing code, review the Temp directory and move any required permanent files to the appropriate project location.
 
 ## Project Discovery
@@ -100,7 +99,10 @@ The Python engine should contain the core:
 * Analytics
 * Performance measurement
 
-### 2. Dash / Plotly Trading Dashboard
+### 2. Trading Dashboard
+
+> Updated 2026-11-03: the repo moved from Dash to FastAPI (commit 6033bd4).
+> The text below is the original brief; read the code for the current stack.
 
 Build a professional, institutional-style trading dashboard using Dash and Plotly.
 
