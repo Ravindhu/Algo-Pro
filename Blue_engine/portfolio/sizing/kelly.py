@@ -9,6 +9,11 @@ real books (it maximises growth assuming you know ``p`` exactly), so desks use
 Discrete form:  ``f* = p - (1-p)/b``  where ``b`` = win/loss payoff ratio.
 Continuous form: ``f* = (mu - rf) / sigma^2`` (the growth-optimal leverage).
 
+Honest note (audit 2026-11-03): ``kelly_cap`` does NOT size from ``f*``.
+``f*`` is computed and reported for information only. The gross cap is a
+linear heuristic: ``baseline + (p - 0.5) * 2 * fraction``, clipped to
+``[min_gross, max_gross]``. Treat it as a regime tilt, not a Kelly bet.
+
 For the regime overlay we map ``P(risk-on)`` to an exposure cap:
     edge = P(win) - P(loss)  -> f* -> gross multiplier.
 """
@@ -29,7 +34,7 @@ def kelly_fraction(p: float, b: float = 1.0) -> Optional[float]:
 
     ``p`` = probability of a win, ``b`` = win/loss payoff ratio (1.0 = even).
     Returns 0 when there is no positive edge (never a negative = never short the
-    game outright from this formula).
+    game outright from this formula). Returns None for invalid input.
     """
     p = safe_float(p)
     b = safe_float(b)
@@ -40,7 +45,11 @@ def kelly_fraction(p: float, b: float = 1.0) -> Optional[float]:
 
 
 def kelly_leverage(mu: float, rf: float, sigma: float) -> Optional[float]:
-    """Continuous Kelly leverage ``(mu - rf) / sigma^2`` (clipped to [0, cap])."""
+    """Continuous Kelly leverage ``(mu - rf) / sigma^2``.
+
+    NOT clipped: the result can be negative or above any cap. Callers must
+    apply their own limits before sizing (audit 2026-11-03).
+    """
     m = safe_float(mu)
     r = safe_float(rf) or 0.0
     s = safe_float(sigma)

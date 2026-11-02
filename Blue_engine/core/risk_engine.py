@@ -141,7 +141,6 @@ class RiskEngine(BaseEngine):
         veto = bool(breaches)
         rationale = ("; ".join(breaches) if veto else
                      "No supplied risk trigger detected; this is not a connectivity health check.")
-        rationale = " ".join(rationale.split()[:15])
         self.log(f"veto={veto} breaches={len(breaches)}")
         return EngineResult(
             engine=self.name,
