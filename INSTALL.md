@@ -22,17 +22,22 @@ Fill in `.env` with your keys before you connect a broker.
 
 Run as root on a fresh Ubuntu or Debian server with systemd:
 
+Pin the install to a reviewed tag or commit SHA. The script refuses to run
+without `MTS_REF` (audit 2026-11-03: it runs code as root):
+
 ```bash
-sudo bash install.sh --domain trade.example.com --email you@example.com
+MTS_REF=<reviewed-tag-or-sha> sudo -E bash install.sh --domain trade.example.com --email you@example.com
 ```
 
 No domain yet on a private LAN? Use `--allow-plain-http`. Do not expose that
 host to the internet. To keep options in a file, copy
 `Servers/deploy.env.example` to `Servers/deploy.env`, edit it, and run
-`sudo bash install.sh` with no arguments.
+`MTS_REF=<reviewed-tag-or-sha> sudo -E bash install.sh` with no arguments.
 
 `install.sh` clones the repo to `/opt/my-trading-system` (set `MTS_ROOT` to change
-it), then runs `Servers/install_ubuntu.sh`, which does the real work.
+it) at the `MTS_REF` you set, then runs `Servers/install_ubuntu.sh`, which does
+the real work. `MTS_ALLOW_UNPINNED=1` installs the moving default branch; use it
+only on throwaway lab hosts.
 
 After install, put your broker state in `/opt/my-trading-system/_restored/`
 (`.env` and `db/` together). Then open the UI and log in to your broker.
