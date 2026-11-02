@@ -78,7 +78,7 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
  .neuin{overflow-x:auto;overflow-y:hidden}
  .neuin canvas{width:780px;height:100%}
 }
-</style></head><body>
+</style></head><body data-v="ov">
 
 <div class="top">
  <span class="logo">ALGO PRO // NSE·BSE</span>
@@ -126,7 +126,7 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
 
  <section class="pn c4" data-v="scr"><h3>Screener <span>MTF ≥3/4 · 1h aligned · vol ≥1.2x</span></h3><div class="bd">
   <div class="hint" id="scrsum"></div>
-  <div class="scroll"><table><thead><tr><th class="l">Symbol</th><th>LTP ₹</th><th>Chg%</th><th>Vol</th><th>5m</th><th>15m</th><th>1h</th><th>1D</th><th>Screen</th></tr></thead><tbody id="scr"></tbody></table></div>
+  <div class="scroll"><table><thead><tr><th class="l">Symbol</th><th>LTP ₹</th><th>Chg%</th></tr></thead><tbody id="scr"></tbody></table></div>
  </div></section>
 
  <section class="pn c8" data-v="neu"><h3>Neural shell <span>sources → screener → alpha → strategy → risk gate → execution → OpenAlgo bridge → broker / exchange</span></h3><div class="bd">
@@ -155,7 +155,7 @@ const START=1000000,RR=2,RISK=.005,MAXO=3,MAXEXP=.015,DAYLIM=.02,DDLIM=.06,HIST=
 const TOP=[.12,.5];
 
 /* ---------- IST market clock (NSE cash: 09:15-15:30 IST, Mon-Fri; holidays not modelled) ---------- */
-function ist(){const f=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',weekday:'short',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});const p=Object.fromEntries(f.formatToParts(new Date()).map(x=>[x.type,x.value]));return{wd:p.weekday,mins:(+p.hour)*60+(+p.minute),t:p.hour+':'+p.minute+':'+p.second}}
+function ist(){const f=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});const p=Object.fromEntries(f.formatToParts(new Date()).map(x=>[x.type,x.value]));return{date:p.year+'-'+p.month+'-'+p.day,wd:p.weekday,mins:(+p.hour)*60+(+p.minute),t:p.hour+':'+p.minute+':'+p.second}}
 const mktOpen=()=>{const i=ist();return !['Sat','Sun'].includes(i.wd)&&i.mins>=555&&i.mins<930};
 
 /* ---------- universe (NIFTY 50 sample, approximate prices) ---------- */
@@ -166,7 +166,7 @@ const SYM=[
 SYM.forEach(s=>{for(let i=0;i<HIST;i++){s.px=Math.round((s.px+(Math.random()-.5)*s.px*.0012)/TICK)*TICK;s.hist.push(s.px)}s.open=s.px});
 const AC=[{n:'Live A',s:.5},{n:'Live B',s:.3},{n:'Paper',s:.2}].map(a=>({...a,pnl:0}));
 
-let running=false,killed=false,tick=0,bal=START,peak=START,mdd=0,dayStart=START,eqh=[START],ddh=[0],open=[],trades=[],orders=[],rets=[],seq=0,wins=0,loss=0,gw=0,gl=0,costTot=0,grossTot=0,cool=0,streak=0,scrPass=0,scrTotal=0,lats=[],slips=[],fills=0,rejects=0,sigCount=0,NP=[];
+let running=false,killed=false,tick=0,bal=START,peak=START,mdd=0,dayStart=START,eqh=[START],ddh=[0],open=[],trades=[],orders=[],rets=[],seq=0,wins=0,loss=0,gw=0,gl=0,costTot=0,grossTot=0,cool=0,streak=0,scrPass=0,scrTotal=0,lats=[],slips=[],fills=0,rejects=0,sigCount=0,NP=[],dayKey='',dailyStop=false;
 
 /* ---------- screener ---------- */
 function trend(s,n){const h=s.hist,L=h.length,last=h[L-1];let sum=0,c=0;for(let k=1;k<=10;k++){const i=L-1-k*n;if(i<0)break;sum+=h[i];c++}if(!c)return 0;const band=s.px*.0004*Math.sqrt(n),d=last-sum/c;return d>band?1:d<-band?-1:0}
@@ -188,8 +188,8 @@ function setT(id,t,c){const e=$(id);e.textContent=t;e.className=c||''}
 function row(l,v,c){const w=el('div','gl');w.append(el('span','',l),el('b',c||'',v));return w}
 function bar(l,r,t){const cls=r>.7?'r':r>.4?'a':'g';const w=el('div','gl');w.append(el('span','',l),el('b',cls,t));const b=el('div','bar'),i=el('i',cls);i.style.width=Math.min(100,Math.max(0,r*100))+'%';b.append(i);const wrap=el('div');wrap.append(w,b);return wrap}
 function uiControls(){
- const st=$('state');st.textContent=killed?'KILLED':running?'RUNNING':'STOPPED';st.className='chip '+(killed?'bad':running?'on':'warn');
- $('bstart').disabled=running||killed;$('bstop').disabled=!running;$('bkill').disabled=killed;$('breset').hidden=!killed;
+ const st=$('state');st.textContent=killed?'KILLED':dailyStop?'DAILY STOP':running?'RUNNING':'STOPPED';st.className='chip '+(killed||dailyStop?'bad':running?'on':'warn');
+ $('bstart').disabled=running||killed||dailyStop;$('bstop').disabled=!running;$('bkill').disabled=killed;$('breset').hidden=!killed;
  const mo=mktOpen(),mc=$('mkt');mc.textContent=mo?'NSE OPEN · closes 15:30 IST':'NSE CLOSED · opens 09:15 IST';mc.className='chip '+(mo?'on':'warn');
 }
 
@@ -201,7 +201,7 @@ function signal(){
  if(open.length>=MAXO){logm(`Skipped ${s.n}: max open positions (${MAXO})`,'d');return}
  const eq=equity(),risk=eq*RISK,expo=open.reduce((a,t)=>a+t.risk,0);
  if(expo+risk>eq*MAXEXP){logm('Skipped: open-risk cap 1.5% would be exceeded','d');return}
- if(eq-dayStart<-DAYLIM*dayStart){logm('Skipped: daily loss limit reached','a');return}
+ if(dailyStop)return;
  const slPer=Math.round(s.px*rnd(.006,.012)/TICK)*TICK,qty=Math.floor(risk/slPer);
  if(qty<1){logm(`Skipped ${s.n}: risk budget too small for 1 share`,'d');return}
  sigCount++;
@@ -246,6 +246,7 @@ function kill(why){
 const demo=$('demo');
 function step(){
  tick++;if(cool>0)cool--;
+ const ik=ist();if(ik.date!==dayKey){dayKey=ik.date;dayStart=equity();dailyStop=false;logm('New IST day '+ik.date+': today P&L and loss limit reset','d')}
  SYM.forEach(s=>{s.px=Math.round((s.px+(Math.random()-.5)*s.px*.0012+Math.sin(tick/50)*s.px*.00005)/TICK)*TICK;s.vr=Math.min(3,Math.max(.5,s.vr+(Math.random()-.5)*.1))});
  if(tick%8===0)SYM.forEach(s=>{s.hist.push(s.px);if(s.hist.length>HIST)s.hist.shift()});
  open=open.filter(t=>{
@@ -259,7 +260,7 @@ function step(){
  let eq=equity();eqh.push(eq);if(eqh.length>HIST)eqh.shift();
  peak=Math.max(peak,eq);const dd0=(peak-eq)/peak;
  if(!killed&&dd0>DDLIM){kill('Drawdown 6% reached: auto kill switch, open positions closed');eq=equity()}
- if(running&&eq-dayStart<-DAYLIM*dayStart){running=false;logm('Daily loss limit (2%) hit: trading stopped for the day','r')}
+ if(!dailyStop&&eq-dayStart<-DAYLIM*dayStart){dailyStop=true;running=false;logm('Daily loss limit (2%) hit: no new entries until the next IST day','r')}
  const dd=(peak-eq)/peak;ddh.push(dd);if(ddh.length>HIST)ddh.shift();mdd=Math.max(mdd,dd);
  ui(eq,dd);uiControls();
 }
@@ -284,7 +285,7 @@ function ui(eq,dd){
 function panels(eq,dd,expo,day,n){
  const dl=Math.max(0,-day)/dayStart,ddu=dd/DDLIM,exu=expo/eq/MAXEXP,mo=mktOpen();
  $('risk').replaceChildren(
-  row('Trading state',killed?'KILLED':running?'RUNNING':'STOPPED',killed?'r':running?'g':'a'),
+  row('Trading state',killed?'KILLED':dailyStop?'DAILY STOP':running?'RUNNING':'STOPPED',killed||dailyStop?'r':running?'g':'a'),
   row('Kill switch',killed?'ON':'OFF',killed?'r':'g'),
   row('Market',mo?'OPEN · 09:15–15:30 IST':demo.checked?'IGNORED (demo)':'CLOSED · no entries',mo?'g':demo.checked?'a':'r'),
   bar('Open risk '+open.length+'/'+MAXO,exu,(expo/eq*100).toFixed(2)+'% · cap 1.50%'),
@@ -299,13 +300,9 @@ function panels(eq,dd,expo,day,n){
   const sc=screen(s);if(sc.pass)pass++;
   const tr=el('tr'),nm=el('td','l',s.n),chg=(s.px/s.open-1)*100;
   nm.style.color=sc.pass?'#2ee6a6':'#c3d8e8';nm.title=s.sec;
-  const cell=d=>el('td',d>0?'g':d<0?'r':'d',d>0?'▲':d<0?'▼':'■');
-  const scr=sc.pass?(sc.dir>0?'LONG ':'SHORT ')+sc.agree+'/4':sc.busy?'in trade':sc.agree+'/4';
-  tr.append(nm,el('td','',px2(s.px)),el('td',sgn(chg),(chg>=0?'+':'')+chg.toFixed(2)),el('td',s.vr>=VOLMIN?'g':'d',s.vr.toFixed(1)+'x'),
-   ...sc.dirs.map(cell),el('td',sc.pass?'g':'d',scr));
+  tr.append(nm,el('td','',px2(s.px)),el('td',sgn(chg),(chg>=0?'+':'')+chg.toFixed(2)));
   return tr;
  });
- 
 scrPass=pass;scrTotal=SYM.length;
  $('scr').replaceChildren(...rows);
  $('scrsum').textContent=`${pass} of ${SYM.length} stocks pass the screener · refreshed every 0.7s · simulated prices`;
