@@ -100,15 +100,15 @@ def test_fmt_handles_none_bool_float_and_long_text():
 
 # ------------------------------------------------------------ static assets
 def test_static_assets_exist():
-    for name in ("index.html", "app.js", "style.css", "neural_shell.svg"):
+    for name in ("index.html", "app.js", "flow.js", "style.css", "neural_shell.svg"):
         assert (STATIC / name).is_file(), name
 
 
-def test_index_wires_the_nav_dialog_and_shell_image():
+def test_index_wires_the_nav_dialog_and_shell_scripts():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert 'id="nav"' in html
+    assert 'id="nav"' in html and 'id="view"' in html
     assert 'id="popup"' in html and "<dialog" in html
-    assert "/static/neural_shell.svg" in html
+    assert "/static/flow.js" in html
     assert "/static/app.js" in html
 
 

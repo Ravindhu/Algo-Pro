@@ -322,3 +322,25 @@ def build_section(key: str) -> Optional[Dict[str, Any]]:
     """Build one section's popup payload, or ``None`` for an unknown key."""
     builder = _BUILDERS.get(key)
     return builder() if builder is not None else None
+
+
+# ---------------------------------------------------------------- cache
+#: Section payloads are cached briefly so one page refresh does not re-read
+#: every source. The TTL keeps the dashboard close to live.
+CACHE_TTL_SEC = 5.0
+_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def cached_section(key: str) -> Dict[str, Any]:
+    """Return a section payload, reusing a result from the last few seconds."""
+    import time as _time
+    now = _time.monotonic()
+    hit = _CACHE.get(key)
+    if hit is not None and now - hit[0] < CACHE_TTL_SEC:
+        return hit[1]
+    payload = build_section(key)
+    if payload is None:
+        payload = {"key": key, "title": key, "status": "error", "summary": [],
+                   "tables": [], "notes": [], "error": "unknown section"}
+    _CACHE[key] = (now, payload)
+    return payload

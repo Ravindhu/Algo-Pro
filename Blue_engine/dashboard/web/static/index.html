@@ -8,26 +8,16 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <span class="dot" aria-hidden="true"></span>
-      <strong>POV Terminal</strong>
-      <span class="badge">READ-ONLY</span>
-    </div>
-    <nav id="nav" class="nav" aria-label="Dashboard sections">
-      <span class="muted">Loading sections…</span>
-    </nav>
+    <a class="brand" href="#/"><span class="dot" aria-hidden="true"></span><strong>POV Terminal</strong></a>
+    <span class="badge">READ-ONLY</span>
+    <span class="chip" id="chip-mode">mode: …</span>
+    <nav id="nav" class="nav" aria-label="Dashboard sections"></nav>
   </header>
 
-  <main>
-    <section class="hero">
-      <h1>Trading system · full flow</h1>
-      <p class="muted">Market data and macro sources feed the frontline engines, then alpha models,
-        execution, the risk gate, the OpenAlgo bridge, and finally broker and exchange.
-        Select any header button for live details.</p>
-      <img class="shell" src="/static/neural_shell.svg" alt="Neural shell diagram of the full trading flow">
-    </section>
-    <p id="banner" class="banner" hidden></p>
+  <main id="view" class="view">
+    <p class="muted">Loading…</p>
   </main>
+  <p id="banner" class="banner" hidden></p>
 
   <dialog id="popup" aria-labelledby="popup-title">
     <header class="popup-head">
@@ -41,6 +31,7 @@
     <div id="popup-body" class="popup-body"></div>
   </dialog>
 
+  <script src="/static/flow.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
