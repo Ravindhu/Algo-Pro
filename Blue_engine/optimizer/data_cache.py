@@ -730,7 +730,9 @@ def list_strategies_for_ui() -> List[Dict[str, str]]:
             }
             out.append(entry)
     except Exception as exc:  # noqa: BLE001
-        logger.info("list_strategies_for_ui failed: %r", exc)
+        # WARNING + traceback: a broken import silently empties the dropdown.
+        logger.warning("list_strategies_for_ui failed; dropdown may be empty: %r",
+                       exc, exc_info=True)
     return sorted(out, key=lambda d: d["name"])
 
 
