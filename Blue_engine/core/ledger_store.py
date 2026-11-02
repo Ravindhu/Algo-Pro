@@ -45,6 +45,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+from ..runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +77,7 @@ def default_db_path() -> Path:
     override = os.getenv("BLUE_LEDGER_DB_PATH")
     if override:
         return Path(override)
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / "data" / "ledger_store.db"
+    return runtime_data_root() / "ledger_store.db"
 
 
 def _get_conn() -> Optional[sqlite3.Connection]:

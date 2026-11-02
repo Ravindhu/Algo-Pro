@@ -95,7 +95,11 @@ class LedgerStoreTest(unittest.TestCase):
     # -- 4. fail-soft on a broken store --------------------------------- #
     def test_broken_store_degrades_never_raises(self):
         # Point the store at an impossible path, then force re-init.
-        os.environ["BLUE_LEDGER_DB_PATH"] = "Z:\\no\\such\\dir\\x.db"
+        # A path whose parent is a regular FILE can never be created, on any
+        # OS (a Windows drive path is just a relative file name on Linux).
+        blocker = os.path.join(self._tmpdir.name, "not_a_dir")
+        open(blocker, "w").close()
+        os.environ["BLUE_LEDGER_DB_PATH"] = os.path.join(blocker, "x.db")
         ledger_store.close_store()
         ledger_store._DEGRADED = False
         ledger._IN_MEMORY_EXECUTIONS.clear()

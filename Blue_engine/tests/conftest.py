@@ -17,6 +17,24 @@ import os
 import platform
 
 # ---------------------------------------------------------------------------
+# Runtime state isolation.
+#
+# sqlite stores, JSON state and caches must never be written into the real
+# working tree (data/). Several modules resolve their default paths at IMPORT
+# time, so the override is set here, before any blue_engine module is loaded.
+# The directory is removed when the test session exits.
+# ---------------------------------------------------------------------------
+import atexit as _atexit
+import shutil as _shutil
+import tempfile as _tempfile
+
+_RUNTIME_DATA_TMP = _tempfile.mkdtemp(prefix="blue-test-data-")
+os.environ["BLUE_RUNTIME_DATA_ROOT"] = _RUNTIME_DATA_TMP
+os.environ.setdefault("BLUE_ML_DATA_ROOT",
+                      os.path.join(_RUNTIME_DATA_TMP, "ml"))
+_atexit.register(_shutil.rmtree, _RUNTIME_DATA_TMP, ignore_errors=True)
+
+# ---------------------------------------------------------------------------
 # Windows platform-probe guard (suite-wide).
 #
 # The autouse fixture below imports ``blue_engine`` -> openalgo -> pandas.

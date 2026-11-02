@@ -45,12 +45,13 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from ...runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
 # <repo>/data/price_cache/prices.db
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_DB = _REPO_ROOT / "data" / "price_cache" / "prices.db"
+DEFAULT_DB = runtime_data_root() / "price_cache" / "prices.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS ohlcv (

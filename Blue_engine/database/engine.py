@@ -49,6 +49,7 @@ import logging
 import math
 import os
 import re
+from ..runtime_paths import runtime_data_root
 import sqlite3
 import tempfile
 import threading
@@ -158,8 +159,7 @@ class DatabaseEngine:
         self.client = client
         self.price_cache = price_cache or PriceCache()
         self.payload_path = (Path(payload_path) if payload_path else
-                             Path(__file__).resolve().parents[2] / "data"
-                             / "current_cycle_payload.json")
+                             runtime_data_root() / "current_cycle_payload.json")
         self.lag_fallback = lag_fallback
         self.source_timezone = source_timezone
         self.sqlite_timeout_seconds = max(0.01, float(sqlite_timeout_seconds))

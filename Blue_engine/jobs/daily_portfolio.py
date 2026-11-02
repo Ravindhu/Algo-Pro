@@ -45,12 +45,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..core.results import safe_float
+from ..runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
 # <repo>/data/job_status/
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-STATUS_DIR = _REPO_ROOT / "data" / "job_status"
+STATUS_DIR = runtime_data_root() / "job_status"
 STATUS_FILE = STATUS_DIR / "daily_portfolio.json"
 
 #: NSE cash session close (IST). The job waits until after this.

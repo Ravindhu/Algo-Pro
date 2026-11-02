@@ -25,10 +25,11 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from ..runtime_paths import runtime_data_root
 
 _LOCK = threading.Lock()
 _LEVELS: Dict[str, Dict[str, Any]] = {}
-_DEFAULT_PATH = Path(__file__).resolve().parents[2] / "data" / "protective_orders.json"
+_DEFAULT_PATH = runtime_data_root() / "protective_orders.json"
 
 
 def register(execution_id: str, *, symbol: str, exchange: str,

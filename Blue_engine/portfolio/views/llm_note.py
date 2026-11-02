@@ -44,6 +44,7 @@ from ...core.llm.backends import OllamaBackend, OpenRouterBackend
 from ...core.llm.protocol import ChatMessage
 from ...core.llm.router import LLMClient
 from ...core.results import clamp, safe_float
+from ...runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ __all__ = ["extract_views", "write_pm_note", "available", "cache_path",
 
 # Blue_engine/portfolio/views/llm_note.py -> repo root is 4 parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CACHE_DIR = _REPO_ROOT / "data" / "portfolio_llm"
+DEFAULT_CACHE_DIR = runtime_data_root() / "portfolio_llm"
 
 # NOTE: the JSON exemplar's literal braces are doubled (``{{``/``}}``) because
 # this string is consumed by ``str.format`` below; a single brace would make

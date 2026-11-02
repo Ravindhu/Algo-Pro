@@ -61,6 +61,7 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
+from ..runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +141,8 @@ class SkillWriter:
     def __init__(self, sandbox: Optional[Any] = None, *,
                  audit: bool = True,
                  protected_names: Optional[Iterable[str]] = None) -> None:
-        root = Path(sandbox) if sandbox is not None else (_repo_root()
-                                                          / DEFAULT_SANDBOX_RELATIVE)
+        root = Path(sandbox) if sandbox is not None else (
+            runtime_data_root() / "agent_stage")
         # Resolve once: ``..`` in the sandbox itself must not leak the check.
         self.sandbox: Path = root.resolve()
         self.audit_enabled: bool = bool(audit)
