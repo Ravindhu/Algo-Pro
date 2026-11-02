@@ -307,7 +307,11 @@ def main() -> int:
             openalgo_app.app,
             host=host,
             port=port,
-            debug=True,                    # local dev server; loopback-only
+            # The Werkzeug debugger allows arbitrary code execution from the
+            # browser. Off by default. Opt in with OPENALGO_DEBUG=1, and only
+            # on loopback without --allow-external.
+            debug=(os.getenv("OPENALGO_DEBUG", "0") == "1"
+                   and host in LOOPBACK_HOSTS and not args.allow_external),
             use_reloader=False,            # a reloader would double-start the WS proxy
             allow_unsafe_werkzeug=True,    # required: no eventlet in a bare venv
         )
