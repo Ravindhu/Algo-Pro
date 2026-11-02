@@ -37,7 +37,7 @@ screener = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "python-dotenv>=1.0",
-    "pypdf>=5.0",
+    "pypdf>=6.20.1",   # floor = the pinned, latest release; 5.x is not allowed
 ]
 # OPTIONAL yfinance fallback for the screener's valuation layer. Used only to
 # fill inputs screener.in does not publish (cash, DILUTED shares, minority
