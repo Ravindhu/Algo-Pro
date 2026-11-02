@@ -500,9 +500,18 @@ class OptimizerEngine:
                                  n_ei_candidates=cfg.n_ei_candidates,
                                  multivariate=cfg.multivariate)
             n_no_improve = 0
+            # A draw that repeats an already-evaluated point is a wasted budget
+            # slot: the objective returns the cached result. Redraw a bounded
+            # number of times; discarded draws are never told to the sampler.
+            evaluated = {self.objective._key(defaults)}
+            evaluated.update(self.objective._key(p) for p in seed_pts)
             for i in range(1, n_remaining + 1):
-                trial = sampler.ask()
-                params = self.space.sample(trial)
+                for _ in range(16):
+                    trial = sampler.ask()
+                    params = self.space.sample(trial)
+                    if self.objective._key(params) not in evaluated:
+                        break
+                evaluated.add(self.objective._key(params))
                 r = self.objective.evaluate(params, bars=bars_arg)
                 sampler.tell(trial, r.score if r.ok else None)
                 study.add(TrialRecord(
