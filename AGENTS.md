@@ -4,6 +4,10 @@
 
 Do NOT create or update `agent_learings.ps1` (or any other agent-learning script) under any circumstances. This practice has been retired by the user.
 
+Open question for the owner (audit 2026-11-03): the runtime modules
+`Blue_engine/core/agent_memory.py`, `self_correction.py` and `skill_writer.py`
+still exist with tests. Confirm whether they stay in the product or are retired.
+
 
 # User Setup
 
@@ -12,17 +16,15 @@ You act as  an combination of quant analyst, insitutional quant trader,coding en
 Build a world-class, fully automated algorithmic trading system for the Indian market.Always thing about advance implimentation of "My trading system" to make profitable and  maximum Sharpe ratio. The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
 
 
-Always focus implementation on `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\`.
+Always focus implementation on `Blue_engine/`.
 
-Git Path
-git enviroment is 
-'c:\Program Files/Git/cmd\'
+Git: must be on PATH. Local Windows installs may keep it under Program Files; this file does not pin a location.
 
 Always Update the standard operating processor of mytrading system every day dependensies,installation, and the backtesting environment,sop,server installation, clearly
-C:\Users\Admin\CodeGPT\my-trading-system\docs\My trading system SOP
+docs/My trading system SOP
 
 After every successful git commit, append a dated work-log entry to:
-`C:\Users\Admin\CodeGPT\my-trading-system\Temp\Daily work log\`
+`Temp/Daily work log/`
 
 
 
@@ -31,13 +33,13 @@ After every successful git commit, append a dated work-log entry to:
 
 ## Temporary / Staging Workspace
 
- C:\Users\Admin\CodeGPT\my-trading-system\Temp\Staging Workspace as the temporary/staging workspace for research, advance features,Moudles,optimized backtesting with statergy development,experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work,Dashboard image,terminal page:
+ Temp/Staging Workspace as the temporary/staging workspace for research, advance features,Moudles,optimized backtesting with statergy development,experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work,Dashboard image,terminal page:
 
 Use this directory as a temporary workspace only.
-C:\Users\Admin\CodeGPT\my-trading-system\Temp
+Temp
 
 
-keep credential open 
+Secrets stay in local `.env` files and are never committed. Use `.env.example` as the template.
 Before committing code, review the Temp directory and move any required permanent files to the appropriate project location.
 
 ## Project Discovery
@@ -100,11 +102,11 @@ The Python engine should contain the core:
 * Analytics
 * Performance measurement
 
-### 2. Dash / Plotly Trading Dashboard
+### 2. Trading Dashboard
 
-Build a professional, institutional-style trading dashboard using Dash and Plotly.
+Dash was removed from master (commit 42d20bb). Do not reintroduce it without a recorded decision here. Check `dashboard/` and `Blue_engine/dashboard/` before choosing a framework. Build a professional, institutional-style trading dashboard.
 
-The dashboard (Dash martine component DCM)should operate as an integrated algo-trading terminal with all important functions available in one place.
+The dashboard should operate as an integrated algo-trading terminal with all important functions available in one place.
 
 Include:
 
@@ -151,7 +153,7 @@ The system should be designed so that brokers can be added, removed, replaced, o
 ## OpenAlgo Project Path
 
 Current OpenAlgo project path:
-C:\Users\Admin\CodeGPT\my-trading-system\openalgo
+openalgo.UPSTREAM_PIN (pins the OpenAlgo upstream version)
 
 
 This architecture must be:
@@ -613,7 +615,7 @@ You are an optimized, token-conscious engineering agent for my algorithmic tradi
 - Only output the exact lines, functions, or UI layout blocks that are being changed or added.
 - Treat unchanged blocks with clear structural context comments: # ... [rest of existing logic remains unchanged] ...
 - Eliminate all verbose inline script documentation. Keep code comments strictly under 5 words.
-- Maximize reuse of layout architectures inside Plotly Dash configurations.
+- Maximize reuse of dashboard layout components.
 
 # 3. SCHEMA & DATA MOCKING PRINCIPLES
 - If generating mock data pipelines or layout testing arrays, limit the arrays to a maximum of 2 or 3 items. 
@@ -639,7 +641,7 @@ You must strictly protect my OpenRouter billing budget and local Ollama memory l
 - Cache-Optimized Layouts: Group static styling variables together to maximize OpenRouter prompt cache hits.
 
 # PART 2: RUNTIME BLUEPRINT RULES (Slashes Algo Execution Costs)
-When generating or refactoring code for my trading bot and Dash dashboard, the script you output must strictly enforce these runtime optimizations:
+When generating or refactoring code for my trading bot and dashboard, the script you output must strictly enforce these runtime optimizations:
 
 ## 1. Dashboard Render Throttling
 - Never set a dcc.Interval rate below 500ms for live screen renders. 
