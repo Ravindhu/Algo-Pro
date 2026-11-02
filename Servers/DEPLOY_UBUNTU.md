@@ -83,7 +83,6 @@ decrypts, and runs the smoke gate.
 | Flag | Effect |
 |---|---|
 | `--start-engine` | Also start `pov-runner` + `pov-dash` (default: left stopped) |
-| `--api-key KEY` | Override `MTS_API_KEY` (prefer the file) |
 | `--domain NAME` | Override `MTS_DOMAIN` |
 | `--email ADDR` | Override `MTS_EMAIL` (Let's Encrypt contact) |
 | `--allow-plain-http` | Serve the UI over HTTP. LAN-only labs; never on the internet |

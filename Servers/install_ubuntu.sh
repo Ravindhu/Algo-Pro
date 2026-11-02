@@ -70,6 +70,8 @@ RUN_SMOKE=1
 START_ENGINE=0
 EMAIL=""                 # Let's Encrypt contact, required for TLS
 ALLOW_PLAIN_HTTP=0       # explicit opt-out: serve the UI over plain HTTP
+DASH_USER=""             # basic-auth login for the public dashboard and /ws
+DASH_PASS=""             # set both in deploy.env; without them neither is exposed
 
 # ------------------------------------------------------------------ output
 C_RESET=$'\033[0m'; C_OK=$'\033[32m'; C_ERR=$'\033[31m'
@@ -107,6 +109,8 @@ if [[ -f "$DEPLOY_ENV" ]]; then
       MTS_WS_PORT)          [[ -n "$_v" ]] && WS_PORT="$_v" ;;
       MTS_OPENALGO_REPO)    [[ -n "$_v" ]] && OPENALGO_REPO="$_v" ;;
       MTS_EMAIL)            [[ -n "$_v" ]] && EMAIL="$_v" ;;
+      MTS_DASH_USER)        [[ -n "$_v" ]] && DASH_USER="$_v" ;;
+      MTS_DASH_PASSWORD)    [[ -n "$_v" ]] && DASH_PASS="$_v" ;;
       MTS_ALLOW_PLAIN_HTTP) [[ "$_v" == "1" ]] && ALLOW_PLAIN_HTTP=1 ;;
       MTS_START_ENGINE)     [[ "$_v" == "1" ]] && START_ENGINE=1 ;;
       MTS_SETUP_NGINX)      [[ "$_v" == "0" ]] && SETUP_NGINX=0 ;;
@@ -123,7 +127,7 @@ while [[ $# -gt 0 ]]; do
     --allow-plain-http) ALLOW_PLAIN_HTTP=1; shift ;;
     --user)         SERVICE_USER="${2:-}"; shift 2 ;;
     --root)         INSTALL_ROOT="${2:-}"; shift 2 ;;
-    --api-key)      MTS_API_KEY="${2:-}"; shift 2 ;;
+    --api-key)      die "--api-key is removed: a key on the command line lands in shell history and ps output. Set MTS_API_KEY in Servers/deploy.env instead." ;;
     --no-nginx)     SETUP_NGINX=0; shift ;;
     --start-engine) START_ENGINE=1; shift ;;
     --no-smoke)     RUN_SMOKE=0; shift ;;
@@ -235,34 +239,31 @@ else
   chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_ROOT/_restored"
 
   # ---- API key ---------------------------------------------------------------
-  # If MTS_API_KEY was supplied (via deploy.env or --api-key), reconcile it with
+  # If MTS_API_KEY was supplied (via deploy.env), reconcile it with
   # _restored/.env. The key is written to the FILE, never passed on a command
   # line, so it does not end up in shell history or in `ps` output.
   #
-  # If _restored/.env already carries an OPENALGO_API_KEY, that value wins	unless
-  # MTS_API_KEY differs - in which case we update it and say so, because a
-  # mismatch between the .env key and the engine's key is a silent auth failure.
+  # The key is restricted to a safe character set. It is written with a plain
+  # grep/printf rewrite, not sed: sed treats & | and \ in its replacement as
+  # special, so a key containing them would silently corrupt the .env.
   if [[ -n "$MTS_API_KEY" ]]; then
     ENVF="$INSTALL_ROOT/_restored/.env"
-    if grep -q '^OPENALGO_API_KEY=' "$ENVF" 2>/dev/null; then
-      CURRENT=$(grep '^OPENALGO_API_KEY=' "$ENVF" | head -1 | cut -d= -f2- | tr -d "\"'\r")
-      if [[ "$CURRENT" == "$MTS_API_KEY" ]]; then
-        ok "API key already matches _restored/.env (unchanged)"
-      else
-        sed -i "s|^OPENALGO_API_KEY=.*|OPENALGO_API_KEY='${MTS_API_KEY}'|" "$ENVF"
-        ok "API key updated in _restored/.env (replace_in_file)"
-      fi
+    [[ "$MTS_API_KEY" =~ ^[A-Za-z0-9._-]+$ ]] \
+      || die "MTS_API_KEY has characters outside [A-Za-z0-9._-]; check deploy.env"
+    CURRENT=$(grep '^OPENALGO_API_KEY=' "$ENVF" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'\r" || true)
+    if [[ "$CURRENT" == "$MTS_API_KEY" ]]; then
+      ok "API key already matches _restored/.env (unchanged)"
     else
-      printf "\n# Set by install_ubuntu.sh from deploy.env\nOPENALGO_API_KEY='%s'\n" \
-        "$MTS_API_KEY" >> "$ENVF"
+      # Drop any old key line, then append the new one.
+      grep -v '^OPENALGO_API_KEY=' "$ENVF" > "$ENVF.tmp" 2>/dev/null || true
+      printf "OPENALGO_API_KEY='%s'\n" "$MTS_API_KEY" >> "$ENVF.tmp"
+      mv "$ENVF.tmp" "$ENVF"
       ok "API key written to _restored/.env"
     fi
     # The engine reads this; also export it for the smoke test below.
-    if grep -q '^HOST_SERVER=' "$ENVF" 2>/dev/null; then
-      sed -i "s|^HOST_SERVER=.*|HOST_SERVER='${OPENALGO_URL}'|" "$ENVF"
-    else
-      printf "HOST_SERVER='%s'\n" "$OPENALGO_URL" >> "$ENVF"
-    fi
+    grep -v '^HOST_SERVER=' "$ENVF" > "$ENVF.tmp" 2>/dev/null || true
+    printf "HOST_SERVER='%s'\n" "$OPENALGO_URL" >> "$ENVF.tmp"
+    mv "$ENVF.tmp" "$ENVF"
     ok "HOST_SERVER set to ${OPENALGO_URL} in _restored/.env"
     chmod 600 "$ENVF"
     chown "$SERVICE_USER:$SERVICE_USER" "$ENVF"
@@ -274,9 +275,18 @@ else
 
   # Bridge state into the clone the same way start_openalgo.py does. OpenAlgo
   # reads .env and db/ from its OWN root, so they must be materialised there.
-  for item in .env db keys download; do
+  #
+  # .env is config and is always refreshed from _restored/ (the source of
+  # truth). db/, keys/ and download/ hold LIVE state: broker tokens are
+  # refreshed inside openalgo/db after each login. They are copied only when
+  # missing (cp -n), so a re-run never rolls broker tokens back to an old
+  # snapshot (audit 2026-11-03).
+  if [[ -e "$INSTALL_ROOT/_restored/.env" ]]; then
+    cp "$INSTALL_ROOT/_restored/.env" "$INSTALL_ROOT/openalgo/.env"
+  fi
+  for item in db keys download; do
     [[ -e "$INSTALL_ROOT/_restored/$item" ]] || continue
-    cp -r "$INSTALL_ROOT/_restored/$item" "$INSTALL_ROOT/openalgo/" 2>/dev/null || true
+    cp -rn "$INSTALL_ROOT/_restored/$item" "$INSTALL_ROOT/openalgo/" 2>/dev/null || true
   done
   chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_ROOT/openalgo"
   ok "bridged _restored/* into openalgo/"
@@ -392,6 +402,11 @@ Environment=OPENALGO_URL=${OPENALGO_URL}
 ExecStart=${OA_VENV}/bin/python ${INSTALL_ROOT}/scripts/run/run_supervised.py
 Restart=on-failure
 RestartSec=10
+# Exit codes from runner.py that mean "do not run again automatically":
+# 2 config, 3 build, 4 risk/kill-switch halt, 5 order feed down, 6 market
+# closed. Restarting on these would re-enter execution with a new intent
+# (audit 2026-11-03). A crash (signal, unhandled error) still restarts.
+RestartPreventExitStatus=2 3 4 5 6
 StandardOutput=append:${INSTALL_ROOT}/log/pov.out.log
 StandardError=append:${INSTALL_ROOT}/log/pov.err.log
 
@@ -431,6 +446,49 @@ ok "platform units enabled and started (engine left stopped on purpose)"
 # ------------------------------------------------------------------ nginx
 if [[ "$SETUP_NGINX" -eq 1 ]]; then
   step "Configuring nginx"
+
+  # ---- public dashboard and /ws: basic auth or not exposed (audit 2026-11-03)
+  # The POV dashboard and the broker tick feed must not be reachable from the
+  # internet without a login. Credentials come from deploy.env. With none set,
+  # these two routes are left out of nginx entirely, and the desk is reached
+  # over an SSH tunnel to 127.0.0.1 instead.
+  DASH_AUTH_FILE="$INSTALL_ROOT/_restored/dash.htpasswd"
+  if [[ -n "$DASH_USER" && -n "$DASH_PASS" ]]; then
+    [[ "$DASH_USER" =~ ^[A-Za-z0-9._-]+$ ]] || die "MTS_DASH_USER must be [A-Za-z0-9._-]"
+    printf '%s:%s\n' "$DASH_USER" "$(openssl passwd -apr1 "$DASH_PASS")" > "$DASH_AUTH_FILE"
+    chown root:www-data "$DASH_AUTH_FILE" 2>/dev/null || true
+    chmod 640 "$DASH_AUTH_FILE"
+    ok "dashboard basic-auth file written (user: $DASH_USER)"
+  fi
+  if [[ -s "$DASH_AUTH_FILE" ]]; then
+    DASH_LOCATIONS="$(cat <<LOCS
+    # Broker tick websocket proxy (basic auth)
+    location /ws {
+        auth_basic "Trading desk";
+        auth_basic_user_file ${DASH_AUTH_FILE};
+        proxy_pass http://127.0.0.1:${WS_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # POV dashboard, served directly (basic auth)
+    location /pov-dash/ {
+        auth_basic "Trading desk";
+        auth_basic_user_file ${DASH_AUTH_FILE};
+        proxy_pass http://127.0.0.1:${DASH_PORT}/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+LOCS
+)"
+  else
+    DASH_LOCATIONS="    # /ws and /pov-dash are NOT exposed: set MTS_DASH_USER and MTS_DASH_PASSWORD."
+    warn "no dashboard credentials set - /pov-dash and /ws are not published"
+  fi
+
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<NGINX
 server {
     listen 80;
@@ -457,23 +515,8 @@ server {
         proxy_read_timeout 3600s;
     }
 
-    # Broker tick websocket proxy
-    location /ws {
-        proxy_pass http://127.0.0.1:${WS_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-    }
-
-    # POV dashboard is served DIRECTLY. It is not embedded in the OpenAlgo UI,
-    # so there is no blueprint and no app.py wiring to maintain.
-    location /pov-dash/ {
-        proxy_pass http://127.0.0.1:${DASH_PORT}/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
+    # Broker tick websocket and POV dashboard: see DASH_LOCATIONS above.
+    ${DASH_LOCATIONS}
 }
 NGINX
   ln -sf "/etc/nginx/sites-available/${APP_NAME}" "/etc/nginx/sites-enabled/${APP_NAME}"
