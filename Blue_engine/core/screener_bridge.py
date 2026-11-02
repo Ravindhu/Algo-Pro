@@ -87,11 +87,17 @@ class SymbolWorker(threading.Thread):
     def run(self) -> None:
         self.bridge.log(f"[WORKER] {self.symbol}/{self.exchange} start "
                         f"(poll={self.poll_seconds}s)")
+        halt_logged = False
         while not self._stop_event.is_set():
+            # A halt no longer stops the worker: exits must still be able to
+            # run. execute_intent blocks new entries while the halt is set.
             if self.bridge.kill_tripped():
-                self.bridge.log(f"[WORKER] {self.key} kill switch "
-                                f"tripped -> stopping")
-                return
+                if not halt_logged:
+                    self.bridge.log(f"[WORKER] {self.key} kill switch tripped "
+                                    "-> new entries blocked, exits allowed")
+                    halt_logged = True
+            else:
+                halt_logged = False
             try:
                 intent = self.signal.detect()
             except Exception as exc:            # noqa: BLE001
@@ -310,11 +316,13 @@ class ScreenerBridge:
     def execute_intent(self, symbol: str, exchange: str,
                        intent: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Execute one fired intent through RiskGate + POV slicer."""
+        from blue_engine.core.risk_gate import halt_blocks_order
         pos_key = f"{symbol}|{exchange}"
-        if self.kill_tripped():
-            self.log(f"[EXEC] {symbol}/{exchange} BLOCKED: kill switch tripped")
-            return None
         is_exit = bool((intent.get("_meta") or {}).get("position_exit"))
+        if halt_blocks_order(self.kill_tripped(), is_exit):
+            self.log(f"[EXEC] {symbol}/{exchange} BLOCKED: kill switch tripped "
+                     "(new entry)")
+            return None
         if intent.get("action") != ("SELL" if is_exit else "BUY"):
             self.log(f"[EXEC] {symbol}/{exchange} skipped: unexpected action "
                      f"{intent.get('action')} (position_exit={is_exit})")

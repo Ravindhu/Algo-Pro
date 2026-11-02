@@ -54,7 +54,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["RiskDecision", "RiskGate", "check_intent"]
+__all__ = ["RiskDecision", "RiskGate", "check_intent", "halt_blocks_order"]
 
 
 @dataclass
@@ -323,3 +323,13 @@ def check_intent(intent: Dict[str, Any], config: Optional[Dict[str, Any]] = None
                  **kwargs: Any) -> RiskDecision:
     """Convenience wrapper: build a RiskGate and check the intent once."""
     return RiskGate(config).check(intent, **kwargs)
+
+
+def halt_blocks_order(halted: bool, reduces_exposure: bool) -> bool:
+    """Kill-switch policy for one order (audit 2026-11-03, fix: halt policy).
+
+    A halt stops NEW risk only. An exit (reduce-only order) still goes out, so
+    a halt never traps an open position. An order of unknown intent counts as
+    an entry, which keeps this fail closed.
+    """
+    return bool(halted) and not bool(reduces_exposure)

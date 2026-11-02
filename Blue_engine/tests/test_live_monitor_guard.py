@@ -113,9 +113,28 @@ def test_empty_successful_positionbook_is_a_verified_flat_book():
     assert not malformed["ok"]
 
 
-def test_persisted_kill_switch_blocks_even_a_verified_exit():
+def test_persisted_kill_switch_blocks_new_entries():
     optim_policy.trip_kill_switch("operator safety halt")
     guard = _guard()
+
+    assert guard.authorize_order(
+        phase="accumulating", quantity=25, action="BUY") is None
+
+
+def test_persisted_kill_switch_still_allows_a_verified_exit():
+    # Halt policy (audit 2026-11-03): a halt stops new risk, not the exit
+    # that reduces an open position. Verification still runs first.
+    optim_policy.trip_kill_switch("operator safety halt")
+    guard = _guard()
+
+    assert guard.authorize_order(
+        phase="exiting", quantity=10, action="SELL") == 10
+
+
+def test_persisted_kill_switch_exit_still_needs_verified_inputs():
+    optim_policy.trip_kill_switch("operator safety halt")
+    guard = _guard(provider=lambda **kwargs: (_ for _ in ()).throw(
+        RuntimeError("telemetry down")))
 
     assert guard.authorize_order(
         phase="exiting", quantity=10, action="SELL") is None

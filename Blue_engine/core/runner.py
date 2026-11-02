@@ -581,12 +581,15 @@ def run_with_config(
     # Re-check the durable kill switch at the moment of execution: the switch
     # was read before the (possibly long) signal wait, and an operator trip or
     # a breach from another process during that wait must stop this run.
+    # Halt policy: a halt stops new entries; a reduce-only exit still goes out.
     from blue_engine.portfolio.optim_policy import peek_kill_switch
-    if peek_kill_switch().get("tripped"):
+    from blue_engine.core.risk_gate import halt_blocks_order
+    if halt_blocks_order(bool(peek_kill_switch().get("tripped")), intent_reduces):
         print("[runner] ERROR: kill switch tripped during the run; "
-              "execution aborted")
+              "new entry stopped")
         return 4
-    slicer.kill_tripped = lambda: bool(peek_kill_switch().get("tripped"))
+    slicer.kill_tripped = lambda: halt_blocks_order(
+        bool(peek_kill_switch().get("tripped")), intent_reduces)
 
     summary = slicer.execute(intent)
     print(f"[runner] summary: {summary}")

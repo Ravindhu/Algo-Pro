@@ -129,3 +129,20 @@ def test_unsized_exit_keeps_the_legacy_caps_but_not_unknown_inputs():
     unpriced = gate.check({"action": "SELL", "quantity": 50},
                           day_pnl=None, open_exposure=None, reduces_exposure=True)
     assert unpriced.approved is True, unpriced.reason
+
+
+# --------------------------------------------------------------------------- #
+# Halt policy (audit 2026-11-03): a kill-switch halt stops new risk only.
+# --------------------------------------------------------------------------- #
+def test_halt_blocks_entries_but_not_exits():
+    from blue_engine.core.risk_gate import halt_blocks_order
+    assert halt_blocks_order(True, False) is True    # entry while halted
+    assert halt_blocks_order(True, True) is False    # exit while halted
+    assert halt_blocks_order(False, False) is False  # entry, no halt
+    assert halt_blocks_order(False, True) is False   # exit, no halt
+
+
+def test_unknown_intent_under_halt_is_treated_as_an_entry():
+    from blue_engine.core.risk_gate import halt_blocks_order
+    # reduces_exposure defaults to False, so an unclassified order is blocked.
+    assert halt_blocks_order(True, None) is True

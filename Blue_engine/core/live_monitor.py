@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 from blue_engine.backtest.loops import LiveMonitor, ReoptimizationSignal
 from blue_engine.core import kill_switch_store
+from blue_engine.core.risk_gate import halt_blocks_order
 from blue_engine.portfolio import optim_policy
 
 logger = logging.getLogger(__name__)
@@ -263,17 +264,24 @@ class LiveMonitorGuard:
         if switch["tripped"] and self._halt_kind is None:
             self._halt_kind = "persisted_kill_switch"
             self._halt_reason = str(switch.get("reason") or "persisted trip")
-        if self._halt_kind not in (None, "monitor_trigger"):
+        # Only the two halt kinds may reach the exit path. Other latched
+        # failures (verification, telemetry) stay hard stops.
+        if self._halt_kind not in (None, "monitor_trigger", "persisted_kill_switch"):
             logger.error("live child order blocked by %s: %s",
                          self._halt_kind, self._halt_reason)
             return None
+        if self._halt_kind == "persisted_kill_switch" and phase != "exiting":
+            logger.error("live entry blocked by persisted kill switch: %s",
+                         self._halt_reason)
+            return None
 
+        # Exits still need verified safety inputs before any order goes out.
         if not self._sample():
             return None
 
-        if self._halt_kind == "monitor_trigger":
-            if phase != "exiting":
-                logger.warning("live entry paused by monitor; action=%s",
-                               action.upper())
-                return 0
+        # Halt policy (shared with the runner): a halt pauses NEW risk only.
+        if halt_blocks_order(self._halt_kind is not None, phase == "exiting"):
+            logger.warning("live entry paused by %s; action=%s",
+                           self._halt_kind, action.upper())
+            return 0
         return quantity
