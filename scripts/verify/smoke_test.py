@@ -80,8 +80,7 @@ check("engine input/master.json parses (schema ok)", t_config_schema)
 
 # ---- 3. dashboard module imports ----
 def t_dashboard_import():
-    from blue_engine.dashboard.web import app as web_app
-    assert callable(web_app.create_app)
+    from blue_engine.dashboard import dash_app
 
 
 check("dashboard module imports", t_dashboard_import)

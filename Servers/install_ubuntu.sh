@@ -382,7 +382,7 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_ROOT}
 Environment=OPENALGO_URL=${OPENALGO_URL}
-ExecStart=${OA_VENV}/bin/python -m blue_engine.dashboard.web.run
+ExecStart=${OA_VENV}/bin/python -m blue_engine.dashboard.cli --host 127.0.0.1 --port ${DASH_PORT}
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${INSTALL_ROOT}/log/pov-dash.out.log

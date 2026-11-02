@@ -21,5 +21,5 @@ RUN pip install --no-cache-dir ".[dashboard]"
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 TZ=Asia/Kolkata
 
-# Default: run the FastAPI dashboard. Override with `command:` in compose for the runner.
-CMD ["python", "-m", "blue_engine.dashboard.web.run"]
+# Default: run the Dash terminal. Override with `command:` in compose for the runner.
+CMD ["python", "-m", "blue_engine.dashboard.dash_app"]

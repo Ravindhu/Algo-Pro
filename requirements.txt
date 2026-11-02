@@ -58,15 +58,17 @@ pydantic>=2.6,<3
 
 
 # -----------------------------------------------------------------------------
-# 2. WEB DASHBOARD - FastAPI  (pyproject extra: dashboard)
+# 2. DASH TERMINAL  (pyproject extra: dashboard)
 # -----------------------------------------------------------------------------
-# Served by FastAPI + uvicorn from dashboard/web/. Dash has been removed.
-# TODO: pin fastapi exactly from installed metadata on the host, as uvicorn is.
-fastapi>=0.115
-uvicorn==0.54.0
+# Dash 4.x is required by the DMC component set used in dashboard/ui/. Dash 2.x
+# cannot render those components - a 2.x pin is a hard break, not a preference.
 
-# Plotly charts (optimizer, tearsheets). Kaleido is NOT installed: no server-side
-# image export path is used.
+dash==4.4.1
+dash-mantine-components==2.8.0
+dash-iconify==0.1.2
+
+# Plotly 7.x pairs with Dash 4.x. Kaleido is NOT installed: no server-side
+# image export path is used (every chart is rendered in the browser).
 plotly==7.1.0
 
 # Rich renders the terminal dashboard (dashboard/render.py) - a hard import of

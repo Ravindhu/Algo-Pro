@@ -387,3 +387,32 @@ def test_sector_engine_rejects_mismatched_series(tmp_path):
 
     assert not result.ok
     assert "series lengths differ" in result.error
+
+
+def test_sector_dashboard_renders_empty_and_ranked_chart(tmp_path, monkeypatch):
+    import importlib
+    import sys
+
+    from blue_engine.dashboard.dash_app import create_app
+
+    if "pages.sectors" not in sys.modules:
+        create_app()
+    sectors = importlib.import_module("pages.sectors")
+
+    monkeypatch.setenv("SECTOR_SNAPSHOT_PATH", str(tmp_path / "missing.json"))
+    empty_snapshot, warning = sectors._read_snapshot()
+    assert empty_snapshot == {}
+    assert "No sector-engine snapshot" in warning
+    assert not sectors._sector_figure(empty_snapshot).data
+
+    populated = {
+        "sector_matrix": [
+            {"sector": "NIFTY IT", "relative_strength_score": 0.5,
+             "history": [1.0, 1.1, 1.2]},
+            {"sector": "NIFTY BANK", "relative_strength_score": -0.1,
+             "history": [1.0, 0.9, 0.8]},
+        ]
+    }
+    figure = sectors._sector_figure(populated)
+    assert len(figure.data) == 2
+    assert figure.data[0].name == "NIFTY IT"

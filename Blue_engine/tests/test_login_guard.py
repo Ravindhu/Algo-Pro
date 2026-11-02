@@ -144,6 +144,13 @@ def test_the_cli_script_calls_the_guard():
     assert "EXIT_COOLDOWN" in text
 
 
+def test_the_dashboard_button_is_gated():
+    text = (ROOT / "Blue_engine" / "dashboard" / "ui" / "service_control.py"
+            ).read_text(encoding="utf-8")
+    assert "login_guard" in text, (
+        "the LOGIN button must not be a path around the guard")
+
+
 def test_the_shipped_task_retries_once_not_three_times():
     """The shipped template must be IMPORTABLE and must not retry in a storm."""
     import xml.etree.ElementTree as ET

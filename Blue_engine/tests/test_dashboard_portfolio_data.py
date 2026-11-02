@@ -63,7 +63,7 @@ def test_portfolio_manager_is_cached_not_rebuilt():
     show a P&L that grows on every refresh, and every downstream metric
     (Sharpe, VaR, attribution) would inherit the error.
     """
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     # Force a fresh module state for the test, then assert identity across calls.
     _data._MANAGER = None
     first = _data.portfolio_manager()
@@ -78,7 +78,7 @@ def test_portfolio_manager_is_cached_not_rebuilt():
 
 
 def test_dashboard_manager_does_not_persist():
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     pm = _data.portfolio_manager()
     if pm is None:
         return                                   # environment without the engine
@@ -90,7 +90,7 @@ def test_dashboard_manager_does_not_persist():
 # 2. Every accessor degrades to a dict (never raises)
 # --------------------------------------------------------------------------- #
 def test_all_accessors_return_dicts_and_never_raise():
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     for name in ("equity_curve", "risk_report", "exposure_snapshot",
                  "attribution_snapshot", "policy_snapshot", "views_snapshot"):
         fn = getattr(_data, name)
@@ -100,7 +100,7 @@ def test_all_accessors_return_dicts_and_never_raise():
 
 def test_accessors_carry_ok_or_action_so_callers_can_judge():
     """A panel needs to know whether its data is real; a bare {} is unusable."""
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     _check("ok" in _data.equity_curve(), "equity_curve must report ok")
     _check("ok" in _data.risk_report(), "risk_report must report ok")
     _check("ok" in _data.exposure_snapshot(), "exposure must report ok")
@@ -121,7 +121,7 @@ def test_equity_curve_reads_the_seeded_nav_store(tmp_path):
     window and assert the full row count, then separately assert that a too-narrow
     window WARNS rather than silently under-reporting.
     """
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     n = _seed_curve(tmp_path, days=40)
 
     pm = _data.portfolio_manager()
@@ -160,7 +160,7 @@ def test_equity_curve_reads_the_seeded_nav_store(tmp_path):
 
 
 def test_risk_report_is_populated_from_a_real_curve(tmp_path):
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     _seed_curve(tmp_path, days=60)
     pm = _data.portfolio_manager()
     if pm is None:
@@ -185,7 +185,7 @@ def test_risk_report_is_populated_from_a_real_curve(tmp_path):
 # 4. The policy accessor must reflect the kill-switch
 # --------------------------------------------------------------------------- #
 def test_policy_snapshot_reports_a_valid_action():
-    from blue_engine.dashboard import data_layer as _data
+    from blue_engine.dashboard.pages import _data
     pol = _data.policy_snapshot()
     _check(pol.get("action") in ("OPTIMISE", "HALT", "EXIT_TO_CASH", "UNKNOWN"),
            f"unexpected action: {pol.get('action')}")
@@ -198,3 +198,108 @@ def test_policy_snapshot_reports_a_valid_action():
 # --------------------------------------------------------------------------- #
 # 5. The page builds and is read-only
 # --------------------------------------------------------------------------- #
+def test_page_registers_and_builds_with_the_app():
+    from blue_engine.dashboard.dash_app import create_app
+    import dash
+    app = create_app()
+    _check("analytics_portfolio" in dash.page_registry
+           or any(k.endswith("analytics_portfolio")
+                  for k in dash.page_registry),
+           f"the page should register: {sorted(dash.page_registry)}")
+    from blue_engine.dashboard.pages import analytics_portfolio as ap
+    panels = ap.body()
+    _check(isinstance(panels, list) and len(panels) >= 6,
+           f"expected at least 6 panels, got {len(panels)}")
+
+
+def test_page_imports_no_execution_or_sdk_modules():
+    """Structural proof the page cannot trade: no SDK, ledger or POV imports.
+
+    A UI that *can* place an order will eventually place one by accident.
+    """
+    path = (Path(_ROOT) / "dashboard" / "pages" / "analytics_portfolio.py")
+    src = path.read_text(encoding="utf-8")
+    # `blue_engine.dashboard.pages._data` is a legitimate read-only import, so the
+    # package name itself is allowed. What is banned is anything that can execute:
+    # the SDK, the order API, the ledger, or the pipeline.
+    for banned in ("openalgo", "placeorder", "core.ledger",
+                   "core.pipeline", "core.runner", "core.orchestrator"):
+        _check(banned not in src,
+               f"the dashboard page must not import/reference '{banned}'")
+
+
+def test_every_figure_builder_returns_a_figure_and_never_raises():
+    from blue_engine.dashboard.dash_app import create_app
+    create_app()
+    from blue_engine.dashboard.pages import analytics_portfolio as ap
+    builders = {
+        "equity": lambda: ap._equity_figure({}),
+        "underwater": lambda: ap._underwater_figure({}, {}),
+        "sectors": lambda: ap._sector_figure({}),
+        "buckets": lambda: ap._bucket_figure({}),
+    }
+    for name, fn in builders.items():
+        fig = fn()
+        _check(hasattr(fig, "data"), f"{name} must return a Plotly figure")
+    # Degenerate input must produce an ANNOTATED empty state, not a blank frame.
+    for name, fn in builders.items():
+        fig = fn()
+        if len(fig.data) == 0:
+            _check(len(fig.layout.annotations) >= 1,
+                   f"{name} returned a blank frame; it must explain itself")
+
+
+def test_tables_render_annotated_empty_states():
+    from blue_engine.dashboard.dash_app import create_app
+    create_app()
+    from blue_engine.dashboard.pages import analytics_portfolio as ap
+    from dash import html
+
+    y = ap._attribution_table({})
+    _check(isinstance(y, html.Div), "an empty attribution must explain itself")
+    s = ap._stress_table({})
+    _check(isinstance(s, html.Div), "an empty stress table must explain itself")
+    v = ap._views_table({})
+    _check(isinstance(v, html.Div), "an empty views table must explain itself")
+
+
+def test_reconciliation_note_flags_an_out_of_balance_attribution():
+    """A non-reconciling table must be called out LOUDLY on the page."""
+    from blue_engine.dashboard.dash_app import create_app
+    create_app()
+    from blue_engine.dashboard.pages import analytics_portfolio as ap
+
+    bad = {"reconciliation": {"by_sleeve": {"ok": False, "residual": -12.5}}}
+    note = ap._reconciliation_note(bad)
+    _check(note is not None, "an out-of-balance table must raise a visible note")
+    good = {"reconciliation": {"by_sleeve": {"ok": True, "residual": 0.0}}}
+    _check(ap._reconciliation_note(good) is None,
+           "a balanced table should not raise a note")
+
+
+# --------------------------------------------------------------------------- #
+# Runner (works without pytest)
+# --------------------------------------------------------------------------- #
+def _run_all() -> int:
+    import tempfile
+    tests = [(n, f) for n, f in sorted(globals().items())
+             if n.startswith("test_") and callable(f)]
+    passed = failed = 0
+    for name, fn in tests:
+        try:
+            if fn.__code__.co_argcount:        # needs the tmp_path fixture
+                with tempfile.TemporaryDirectory() as d:
+                    fn(Path(d))
+            else:
+                fn()
+            print(f"PASS {name}")
+            passed += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAIL {name}: {exc!r}")
+            failed += 1
+    print(f"\n{passed} passed, {failed} failed, {len(tests)} total")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_all())
