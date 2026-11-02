@@ -26,6 +26,7 @@ Design rules (mirrored from blue_engine/core/client.py):
 """
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -109,6 +110,20 @@ def _safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
     if parsed is None:
         return default
     return int(parsed)
+
+
+def _to_tick(price: float, tick: float, *, direction: str) -> float:
+    """Snap ``price`` onto the tick grid, rounding INWARD for the order side.
+
+    ``direction="down"`` floors (BUY never moves toward the ask) and
+    ``"up"`` ceils (SELL never moves toward the bid). Plain nearest-tick
+    rounding can push a passive price onto or across the opposite quote.
+    """
+    if tick <= 0:
+        return price
+    steps = price / tick
+    n = math.floor(steps + 1e-9) if direction == "down" else math.ceil(steps - 1e-9)
+    return round(n * tick, 4)
 
 
 def _first_level(data: Any, key: str) -> Tuple[Optional[float], Optional[int]]:
@@ -377,16 +392,17 @@ class DepthPricingGuard(BaseGuard):
 
         if action_upper == "BUY":
             raw_price = top.best_bid + offset_ticks * tick
-            # Don't cross the spread: cap strictly below best ask.
-            # ``tick / 2`` keeps us one half-tick away from the ask.
-            max_price = top.best_ask - tick / 2
-            new_price = min(raw_price, max_price)
-            # Floor at the bid itself (never go below).
+            # Stay at least one full tick below the ask, then floor (never up).
+            new_price = min(raw_price, top.best_ask - tick)
+            new_price = max(new_price, top.best_bid)
+            new_price = _to_tick(new_price, tick, direction="down")
             new_price = max(new_price, top.best_bid)
         elif action_upper == "SELL":
             raw_price = top.best_ask - offset_ticks * tick
-            min_price = top.best_bid + tick / 2
-            new_price = max(raw_price, min_price)
+            # Stay at least one full tick above the bid, then ceil (never down).
+            new_price = max(raw_price, top.best_bid + tick)
+            new_price = min(new_price, top.best_ask)
+            new_price = _to_tick(new_price, tick, direction="up")
             new_price = min(new_price, top.best_ask)
         else:
             return GuardDecision(
@@ -395,10 +411,6 @@ class DepthPricingGuard(BaseGuard):
                     "skipped": f"unknown_action:{action_upper}",
                 }
             )
-
-        # Round to tick precision to avoid broker rejection.
-        if tick > 0:
-            new_price = round(round(new_price / tick) * tick, 4)
 
         return GuardDecision(
             new_price=new_price,
@@ -503,6 +515,14 @@ class CircuitGuard(BaseGuard):
             return GuardDecision(metadata={"guard": self.name, "enabled": False})
 
         if top.ltp is None or top.ltp <= 0:
+            # Fail closed: without an LTP the circuit distance is unknown,
+            # so pause the slice instead of trading blind near a circuit.
+            if cfg.get("circuit_fail_closed", True):
+                return GuardDecision(
+                    pause_reason="MARKET_DATA_UNAVAILABLE",
+                    metadata={"guard": self.name, "skipped": "no_ltp",
+                              "fail_closed": True},
+                )
             return GuardDecision(metadata={"guard": self.name, "skipped": "no_ltp"})
 
         buffer_pct = _safe_float(cfg.get("circuit_buffer_pct"), 0.5)

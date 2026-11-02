@@ -22,10 +22,17 @@ def test_live_ack_does_not_apply_outside_live():
     assert _ack_gate().check({"action": "BUY", "quantity": 10}, live=False).approved
 
 
-def test_live_ack_is_opt_in():
+def test_live_ack_is_required_by_default():
     from blue_engine.core.risk_gate import RiskGate
-    # Without the flag, an unconfigured gate stays permissive (backward compat).
-    assert RiskGate({}).check({"action": "BUY", "quantity": 10}, live=True).approved
+    # Audit 2026-11-02: an unconfigured live gate now fails closed.
+    assert not RiskGate({}).check({"action": "BUY", "quantity": 10}, live=True).approved
+
+
+def test_live_ack_can_be_disabled_explicitly():
+    from blue_engine.core.risk_gate import RiskGate
+    # Explicit opt-out keeps the old permissive behaviour for analyze-style runs.
+    assert RiskGate({"require_live_ack": False}).check(
+        {"action": "BUY", "quantity": 10}, live=True).approved
 
 
 def test_order_quantity_alone_does_not_satisfy_the_ack():

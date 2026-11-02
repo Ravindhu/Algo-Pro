@@ -115,10 +115,11 @@ class RiskGate:
             str(a).upper() for a in (self.config.get("allowed_actions") or ["BUY", "SELL"])
         ]
         self.blocked = bool(self.config.get("blocked", False))
-        #: When true, a LIVE run with NO monetary quantity/notional/exposure/
-        #: daily-loss limit is rejected (see ``check(live=...)``). Opt-in so
-        #: existing analyze-mode and test callers keep their behaviour.
-        self.require_live_ack = bool(self.config.get("require_live_ack", False))
+        #: When true, a LIVE run with NO monetary notional/exposure/daily-loss
+        #: limit is rejected (see ``check(live=...)``). Fail closed by default:
+        #: a live run with no monetary cap is rejected unless the operator
+        #: explicitly sets ``require_live_ack: false``. Analyze mode is unaffected.
+        self.require_live_ack = bool(self.config.get("require_live_ack", True))
 
     # ---- helpers ------------------------------------------------------- #
     def _reference_price(self, intent: Dict[str, Any]) -> Optional[float]:
