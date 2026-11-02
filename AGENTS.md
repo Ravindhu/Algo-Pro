@@ -582,6 +582,23 @@ No strategy improvement should compromise security, data integrity, execution sa
 
 restart after agent terminate automatically.
 
+## Safety Rules In Force (updated 2026-11-03)
+
+These rules describe the code on branch `fix/audit-2026-11-03`. Change them only with a reviewed commit that updates this section.
+
+* **Kill-switch halt.** A halt stops NEW risk only. Exit orders (reduce-only) still go out, after verified safety inputs pass. Shared policy: `core/risk_gate.py::halt_blocks_order`.
+* **No start during a halt.** A run never starts while the durable kill switch is tripped. An operator must review it and reset it first.
+* **Verification first.** Exits need verified positions and telemetry. If either cannot be verified, the order is refused.
+* **Risk gate, reduce-only.** An order no larger than a known open position skips the size, notional, daily-loss, exposure and blocked caps. Unknown P&L or price never blocks a reduction. An order larger than the position is a flip and gets full checks.
+* **Auto-tune cannot touch risk.** Promotion refuses any risk-bounding key, and then writes nothing. Risk-bounding keys match: `max_`, `risk`, `kill`, `circuit`, `blocked`, `require_`, `allow`, `daily_loss`, `drawdown`, `exposure`, `live`, `dry_run`, `stop_loss`, `stoploss`, `trailing`.
+* **POV sizing fails closed.** Sizing uses the executed symbol's own verified price. Weights with missing capital or price refuse the slice.
+* **Pinned install.** `install.sh` requires `MTS_REF` (a reviewed tag or commit SHA). `MTS_ALLOW_UNPINNED=1` is for throwaway lab hosts only.
+* **Secrets.** Never committed. Keep them in local `.env` files.
+
+Known gaps, not yet changed:
+* `core/exit_engine.py::run_cycle` returns before reconciling protective orders while the kill switch is tripped. Open positions are not checked during a halt. Decide whether protective-stop maintenance should run during a halt.
+* The screener exit path doesn't pass the broker position size, so it keeps the legacy caps.
+
 ## Agentic ai model
  ollama llm models.fall back is openrouter 
 
