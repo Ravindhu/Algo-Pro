@@ -588,23 +588,29 @@ def run_with_config(
 
     summary = slicer.execute(intent)
     print(f"[runner] summary: {summary}")
-    if monitor_guard is not None and monitor_guard.halted:
+    halted = monitor_guard is not None and monitor_guard.halted
+    if halted:
         print(f"[runner] live monitor halted new execution: "
               f"{monitor_guard.halt_reason}")
-        return 4
+    return _finish_execution(client, raw, summary, halted, paper_broker)
 
-    # ---- Broker-side protection (audit 2026-10-29, P0-2) ------------------
-    # Without this the process returned 0 immediately after the entry and no
-    # component watched the filled position. The exit engine places an SL-M
-    # under the registry's level and keeps reconciling until the configured
-    # window ends; a CRITICAL report trips the durable kill switch so no
-    # later run can add to an unprotected book.
-    exit_rc = _run_exit_engine(
-        client, raw, int(summary.get("filled") or 0) if isinstance(
-            summary, dict) else 0)
+
+def _finish_execution(client, raw: Dict[str, Any], summary: Any,
+                      halted: bool, paper_broker) -> int:
+    """Protect whatever filled, then report. Returns the runner exit code.
+
+    Runs even after a monitor halt (audit 2026-11-03): a halt stops NEW
+    entries, but quantity already filled must still get its stop. Returning
+    before this point left filled positions unprotected.
+    The exit engine places an SL-M under the registry's level and keeps
+    reconciling until the configured window ends; a CRITICAL report trips
+    the durable kill switch so no later run can add to an unprotected book.
+    """
+    filled = int(summary.get("filled") or 0) if isinstance(summary, dict) else 0
+    exit_rc = _run_exit_engine(client, raw, filled)
     if paper_broker is not None:
         _print_paper_report(paper_broker)
-    return 4 if exit_rc else 0
+    return 4 if (exit_rc or halted) else 0
 
 
 def _print_paper_report(broker) -> None:
