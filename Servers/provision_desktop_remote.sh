@@ -348,11 +348,25 @@ if [[ "$DO_FIREWALL" -eq 1 ]]; then
   fi
 
   if command -v ufw >/dev/null 2>&1; then
-    # Reset is intentional: a half-configured firewall from a previous run is
-    # worse than a known one. Rules below are re-applied immediately.
-    ufw --force reset >/dev/null 2>&1 || true
+    # NO firewall reset. `ufw --force reset` wipes every rule on the host,
+    # including rules an operator added by hand, so re-running this script
+    # could silently drop access to something else. Instead, only the ports
+    # this script manages are cleared and re-applied below.
     ufw default deny incoming  >/dev/null 2>&1 || fail "ufw default deny failed"
     ufw default allow outgoing >/dev/null 2>&1 || true
+
+    # Delete rules on one port, highest rule number first so numbering stays
+    # valid while deleting. This is how a revoked RDP CIDR stays revoked.
+    drop_port_rules() {
+        local port="$1" nums n
+        nums=$(ufw status numbered 2>/dev/null \
+               | grep -E "[[:space:]]${port}/tcp([[:space:]]|$)" \
+               | sed -E 's/^\[ *([0-9]+)\].*/\1/' | sort -rn)
+        for n in $nums; do
+          ufw --force delete "$n" >/dev/null 2>&1 || true
+        done
+    }
+    drop_port_rules "$RDP_PORT"
 
     # SSH FIRST, before enabling - enabling a deny-all without 22 is the classic
     # way to lock yourself out of a VPS.
@@ -383,6 +397,8 @@ if [[ "$DO_FIREWALL" -eq 1 ]]; then
     # challenge and the HTTP->HTTPS redirect. Open them only when the nginx
     # site is linked: the installer unlinks it when certificate issuance fails,
     # so a failed TLS setup leaves 80/443 closed.
+    drop_port_rules 80
+    drop_port_rules 443
     if [[ -e /etc/nginx/sites-enabled/my-trading-system ]]; then
       if ufw allow 80/tcp >/dev/null 2>&1 && ufw allow 443/tcp >/dev/null 2>&1; then
         ok "80/tcp and 443/tcp allowed (nginx HTTPS)"
