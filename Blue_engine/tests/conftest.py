@@ -29,7 +29,7 @@ import platform
 # This lives in conftest so it runs before ANY test module or fixture imports
 # blue_engine -- a per-file guard cannot help, because pytest imports conftest
 # (and its fixtures) first. Same reasoning as
-# ``Blue_engine/dashboard/run_server.py``.
+# ``Blue_engine/dashboard/web/run.py``.
 # ---------------------------------------------------------------------------
 if os.name == "nt":
     _ARCH = os.environ.get("PROCESSOR_ARCHITECTURE", "") or "AMD64"
@@ -74,7 +74,7 @@ def _clean_process_kill_switch():
     except ModuleNotFoundError as exc:
         # Optional SDK missing: there is no switch to isolate, so let
         # pure tests run. Any other missing module still fails loudly.
-        if exc.name not in ("openalgo", "dash", "dash_mantine_components", "rich"):
+        if exc.name not in ("openalgo", "rich"):
             raise
         yield
         return
@@ -118,7 +118,7 @@ collect_ignore_glob = ["../portfolio/tests/test_risk_models.py"]
 # with the reason, and listed in the terminal summary. Any other import error
 # still fails loudly, so real breakage is never hidden.
 # ---------------------------------------------------------------------------
-_OPTIONAL_DEPS = ("openalgo", "dash", "dash_mantine_components", "rich")
+_OPTIONAL_DEPS = ("openalgo", "rich")
 _SKIPPED_COLLECTION: list = []
 
 

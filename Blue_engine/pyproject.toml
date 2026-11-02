@@ -14,9 +14,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dashboard = [
-    "dash>=2.14",
-    "dash-mantine-components>=0.14",
-    "dash-iconify>=0.1",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
     "plotly>=5.18",
     "pandas>=2.0",
     "numpy>=1.26",
@@ -91,7 +90,7 @@ packages = [
     "blue_engine.portfolio.views",
     "blue_engine.infrastructure",
     "blue_engine.dashboard",
-    "blue_engine.dashboard.pages",
+    "blue_engine.dashboard.web",
     "blue_engine.input",
 ]
 
@@ -122,6 +121,7 @@ blue_engine = "."
 
 [tool.setuptools.package-data]
 "blue_engine.input" = ["*.json", "*.md"]
+"blue_engine.dashboard.web" = ["static/*"]
 
 # ---------------------------------------------------------------------------
 # pytest configuration

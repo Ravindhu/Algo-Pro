@@ -123,7 +123,7 @@ def _save_fake_artifact():
 # --------------------------------------------------------------------------- #
 def test_snapshot_with_no_artifacts_is_honest():
     def _run(_root):
-        from blue_engine.dashboard.pages import _data
+        from blue_engine.dashboard import data_layer as _data
 
         snap = _data.ml_training_snapshot()
         _check(snap["ok"] is False, "no artifacts must be ok=False")
@@ -142,7 +142,7 @@ def test_snapshot_with_no_artifacts_is_honest():
 # --------------------------------------------------------------------------- #
 def test_snapshot_passes_manifest_values_through_verbatim():
     def _run(_root):
-        from blue_engine.dashboard.pages import _data
+        from blue_engine.dashboard import data_layer as _data
 
         _save_fake_artifact()
         snap = _data.ml_training_snapshot()
@@ -174,7 +174,7 @@ def test_snapshot_passes_manifest_values_through_verbatim():
 def test_missing_metrics_stay_none_and_are_not_zeroed():
     """A None must survive as None, or the page would render 0.0 as a real score."""
     def _run(_root):
-        from blue_engine.dashboard.pages import _data
+        from blue_engine.dashboard import data_layer as _data
 
         _save_fake_artifact()
         # A fold that FAILED carries no metrics at all.
@@ -196,7 +196,7 @@ def test_missing_metrics_stay_none_and_are_not_zeroed():
 def test_deflation_trial_count_is_not_hidden():
     """The page must always expose n_trials — the number that makes p meaningful."""
     def _run(_root):
-        from blue_engine.dashboard.pages import _data
+        from blue_engine.dashboard import data_layer as _data
 
         _save_fake_artifact()
         snap = _data.ml_training_snapshot()
@@ -216,7 +216,7 @@ def test_deflation_trial_count_is_not_hidden():
 def test_registry_history_dedupes_to_latest_status():
     def _run(_root):
         from blue_engine.ml.registry import Registry
-        from blue_engine.dashboard.pages import _data
+        from blue_engine.dashboard import data_layer as _data
 
         addr = _save_fake_artifact()
         # A promotion appends a second index line for the same address.
@@ -239,7 +239,7 @@ def test_registry_history_dedupes_to_latest_status():
 # --------------------------------------------------------------------------- #
 def test_unreadable_artifact_is_reported():
     def _run(root):
-        from blue_engine.dashboard.pages import _data
+        from blue_engine.dashboard import data_layer as _data
 
         # An index line pointing at an address with no files on disk.
         art_dir = os.path.join(root, "ml_artifacts")
@@ -260,59 +260,3 @@ def test_unreadable_artifact_is_reported():
 # --------------------------------------------------------------------------- #
 # 5. the page is actually wired into the app
 # --------------------------------------------------------------------------- #
-def test_ml_page_is_registered_and_refreshable():
-    """Registration + refresh callback: a page missing either is broken."""
-    def _run(_root):
-        import dash
-        from blue_engine.dashboard.dash_app import create_app
-
-        app = create_app()
-        paths = {p["path"] for p in dash.page_registry.values()}
-        _check("/ml" in paths, f"/ml must be registered; pages: {sorted(paths)}")
-
-        # The Interval id must match the callback the app registered, or the
-        # page renders once and freezes forever after.
-        import blue_engine.dashboard.pages.ml_models as page
-        layout = page.layout()
-        interval_ids = [c.id for c in layout.children
-                        if isinstance(c, dcc_interval_type())]
-        _check(interval_ids, "the page must own a refresh Interval")
-        _check(interval_ids[0] == "ml-refresh",
-               f"Interval id must be 'ml-refresh', got {interval_ids}")
-        out_ids = [c.id for c in layout.children if getattr(c, "id", None)]
-        _check("ml-refresh-out" in out_ids,
-               f"the refreshable container must exist; got {out_ids}")
-
-        # And the render target must produce content without raising.
-        kids = page.body()
-        _check(isinstance(kids, list) and kids,
-               "body() must return renderable children")
-        return True
-
-    _check(_with_ml_env(_run), "page wiring check must succeed")
-
-
-def dcc_interval_type():
-    from dash import dcc
-    return dcc.Interval
-
-
-def test_ml_page_renders_without_artifacts():
-    """The empty state must render, not crash — a fresh install hits this."""
-    def _run(_root):
-        import blue_engine.dashboard.pages.ml_models as page
-
-        kids = page.body()
-        _check(isinstance(kids, list) and len(kids) >= 3,
-               "the empty state must still render a heading, KPIs and a hint")
-        return True
-
-    _check(_with_ml_env(_run), "empty-state render must succeed")
-
-
-if __name__ == "__main__":
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_"):
-            fn()
-            print(f"PASS {name}")
-    print("test_ml_dashboard: all passed")

@@ -100,11 +100,11 @@ The Python engine should contain the core:
 * Analytics
 * Performance measurement
 
-### 2. Dash / Plotly Trading Dashboard
+### 2. FastAPI Trading Dashboard
 
-Build a professional, institutional-style trading dashboard using Dash and Plotly.
+Build a professional, institutional-style trading dashboard using FastAPI (uvicorn) with Plotly charts. Dash has been removed.
 
-The dashboard (Dash martine component DCM)should operate as an integrated algo-trading terminal with all important functions available in one place.
+The dashboard (single-page app in `Blue_engine/dashboard/web/`) should operate as an integrated algo-trading terminal with all important functions available in one place.
 
 Include:
 

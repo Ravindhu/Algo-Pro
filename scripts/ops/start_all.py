@@ -451,8 +451,7 @@ def start_dash() -> bool:
     if py is None:
         fail("no project venv found")
         return False
-    proc = spawn("dash", [str(py), str(ROOT / "Blue_engine" / "dashboard" /
-                                     "run_server.py")], cwd=ROOT)
+    proc = spawn("dash", [str(py), "-m", "blue_engine.dashboard.web.run"], cwd=ROOT)
     return proc is not None
 
 
@@ -628,7 +627,7 @@ def start_stack(args: argparse.Namespace) -> int:
 
     step("RESULT", "stack status")
     say(f"  OpenAlgo  : http://127.0.0.1:{OPENALGO_PORT}")
-    say(f"  Dash      : http://127.0.0.1:{DASH_PORT}")
+    say(f"  Dashboard : http://127.0.0.1:{DASH_PORT}")
     say(f"  WebSocket : ws://127.0.0.1:{WS_PORT}")
     say(f"  logs      : {LOG_DIR}")
     say("  stop with : python scripts\\ops\\start_all.py --stop")

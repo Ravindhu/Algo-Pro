@@ -10,7 +10,7 @@ Four checks, each independently reported:
                   (``client.analyzerstatus()``). Read-only; never toggles mode.
   2. brokers    : broker session / funds / auth health via the SDK
                   (``client.funds()``, ``client.orderbook()``).
-  3. dashboard  : whether the Plotly dashboard process/port is up and the
+  3. dashboard  : whether the FastAPI dashboard process/port is up and the
                   dashboard module imports cleanly.
   4. servers    : host resource sanity - port availability for the platform
                   and dashboard, plus an optional disk/uptime probe.
@@ -56,7 +56,9 @@ class InfrastructureEngine(BaseEngine):
         self.openalgo_host: str = str(
             self.config.get("openalgo_host", "127.0.0.1"))
         self.openalgo_port: int = int(self.config.get("openalgo_port", 5000))
-        self.dash_port: int = int(self.config.get("dash_port", 8050))
+        #: Port of the FastAPI dashboard. ``dash_port`` is accepted as a legacy alias.
+        self.dashboard_port: int = int(
+            self.config.get("dashboard_port", self.config.get("dash_port", 8050)))
         self.ws_port: int = int(self.config.get("ws_port", 8765))
         #: When True, an unreachable dashboard is a hard failure. Default
         #: False: the dashboard is an operator convenience, not a trade gate.
@@ -106,11 +108,11 @@ class InfrastructureEngine(BaseEngine):
 
     # ---- 3. dashboard -------------------------------------------------- #
     def _check_dashboard(self) -> Dict[str, Any]:
-        port_open = _port_open("127.0.0.1", self.dash_port)
+        port_open = _port_open("127.0.0.1", self.dashboard_port)
         imports_ok = True
         import_error = None
         try:
-            importlib.import_module("blue_engine.dashboard.dash_app")
+            importlib.import_module("blue_engine.dashboard.web.app")
         except Exception as exc:  # noqa: BLE001
             imports_ok = False
             import_error = repr(exc)
@@ -119,7 +121,7 @@ class InfrastructureEngine(BaseEngine):
             "port_open": port_open,
             "imports_ok": imports_ok,
             "import_error": import_error,
-            "port": self.dash_port,
+            "port": self.dashboard_port,
         }
 
     # ---- 4. servers ---------------------------------------------------- #
