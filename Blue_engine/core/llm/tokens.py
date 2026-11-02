@@ -284,18 +284,6 @@ class TokenGovernor:
     method, so this wraps ``LLMClient`` without importing it.
     """
 
-    def __getattr__(self, name: str) -> Any:
-        """Refuse a self-referential wrap instead of recursing at call time.
-
-        ``governor_for()`` returns a governor unchanged, so a caller that then
-        does ``client.governor = wrapped`` on the SAME object makes
-        ``complete() -> governor.complete() -> client.complete()`` an infinite
-        chain (observed as ``RecursionError`` in the paper-shift pipeline).
-        """
-        if name == "client":
-            raise AttributeError(name)
-        raise AttributeError(name)
-
     def __init__(self, client: Any, *,
                  max_prompt_tokens: int = 3072,
                  max_tokens_out: int = 600,
@@ -424,8 +412,17 @@ class TokenGovernor:
                 "meter": self.meter.as_dict()}
 
     def __getattr__(self, name: str) -> Any:
-        """Proxy everything else (``backends``, ``status``, ...) to the client."""
-        return getattr(self.client, name)
+        """Proxy everything else (``backends``, ``status``, ...) to the client.
+
+        Guarded against recursion. ``__getattr__`` runs only when normal lookup
+        fails. If ``client`` is missing (during construction or unpickling) or
+        points back at this governor, proxying would recurse forever. That is
+        the ``RecursionError`` seen in the paper-shift pipeline.
+        """
+        client = self.__dict__.get("client")
+        if client is None or client is self:
+            raise AttributeError(name)
+        return getattr(client, name)
 
 
 def governor_for(client: Any, config: Optional[Dict[str, Any]]) -> TokenGovernor:

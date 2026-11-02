@@ -174,7 +174,6 @@ def _sdk_fallback(client, symbol, exchange):
     3. Zero-volume error response (last resort)
     """
     import os
-    from datetime import datetime, timedelta
     import importlib
 
     # ------------------------------------------------------------------

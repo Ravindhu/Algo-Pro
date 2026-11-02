@@ -50,7 +50,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import config, logger
 
-__all__ = ["TrialRecord", "Study", "StudyVerdict"]
+__all__ = ["TrialRecord", "Study"]
 
 
 @dataclass

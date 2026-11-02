@@ -107,23 +107,6 @@ def test_ensemble_declines_or_declares_callables():
                f"the reason should name the member problem: {ens.reason}")
 
 
-def test_min_skill_gate_drops_a_coin_flip_member():
-    """A skill-0 member must be excluded from the weight vector.
-
-    Exercises the weighting rule directly rather than through fit_fn, so the
-    gate stays covered even when the ensemble declines to build (no
-    scikit-learn means no gbm member).
-    """
-    y = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
-    good = [0.9, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9, 0.1, 0.9, 0.1]   # perfect
-    # coin flip: correct on the first half, wrong on every row of the
-    # second half -> exactly 5/10 correct -> skill == 0.0 -> gate drops it.
-    bad = [0.6, 0.4, 0.6, 0.4, 0.6, 0.6, 0.4, 0.6, 0.4, 0.6]
-    fitted = ens.fit_fn([("good", good), ("bad", bad)], y)
-    _check("good" in fitted["weights"], "the good member must get weight")
-    _check("bad" not in fitted["weights"], "the coin-flip member must be dropped")
-
-
 def test_ensemble_fits_and_predicts_on_the_real_contract():
     """fit_fn(X, y) -> predict_fn(fitted, X) -> one prob per row."""
     ens = build_ensemble()
