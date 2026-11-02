@@ -143,3 +143,10 @@ addopts = "-ra --strict-markers"
 filterwarnings = [
     "error::RuntimeWarning:blue_engine.*",
 ]
+
+[tool.bandit]
+# Run as: bandit -c pyproject.toml -r Blue_engine
+# Tests use bare asserts and fixtures on purpose (B101, B311 random seeds), so
+# they are excluded. Production code keeps every check. Do not add global
+# skips here: fix or annotate the individual finding instead.
+exclude_dirs = ["tests"]
