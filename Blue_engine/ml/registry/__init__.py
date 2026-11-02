@@ -22,8 +22,13 @@ cleanly in git, and the dashboard can tail it without a DB.
 
 SECURITY MODEL
 --------------
-The signature is an HMAC-SHA256 over the canonical manifest, keyed from
-``BLUE_ML_SIGNING_KEY`` (env). Without the env var the registry refuses to
+The signature (v2) is an HMAC-SHA256 over a canonical envelope of the
+manifest, the payload address (sha256 of ``model.json``) and the status,
+keyed from ``BLUE_ML_SIGNING_KEY`` (env). Load also re-hashes ``model.json``
+and checks it matches its folder address, so a swapped model, a relocated
+manifest or a relabelled status is refused. Legacy v1 artifacts (manifest-only
+signature) still load, with a warning; ``promote()`` re-signs them as v2.
+Without the env var the registry refuses to
 SIGN (nothing ships unsigned) but will still VERIFY pre-signed artifacts —
 so a read-only dashboard box needs no secret at all. The key is never
 written to disk, never logged, and never sent anywhere: credentials-safe by
@@ -92,7 +97,11 @@ def sign_manifest(manifest: Dict[str, Any]) -> str:
 
 
 def verify_manifest(manifest: Dict[str, Any], signature: str) -> bool:
-    """Constant-time signature check. No key -> not verified (read-only mode)."""
+    """Constant-time signature check. No key -> not verified (read-only mode).
+
+    LEGACY (sig_version 1): covers the manifest only. Kept so artifacts saved
+    before the v2 envelope still load; ``promote()`` re-signs them as v2.
+    """
     key = _signing_key()
     if not key:
         return False
@@ -100,6 +109,44 @@ def verify_manifest(manifest: Dict[str, Any], signature: str) -> bool:
         hmac.new(key, canonical_json(manifest).encode("utf-8"),
                  hashlib.sha256).hexdigest(),
         signature)
+
+
+SIG_VERSION = 2
+
+
+def _artifact_envelope(manifest: Dict[str, Any], address: str,
+                       status: str) -> Dict[str, Any]:
+    """Everything that makes an artifact THIS artifact, in one signed object.
+
+    The v1 signature covered only the manifest, so a model.json swapped on
+    disk, a folder renamed, or an unsigned ``status`` field could all be
+    changed without breaking it. v2 binds the payload address and the status.
+    """
+    return {"manifest": manifest, "payload_sha256": address, "status": status}
+
+
+def sign_artifact(manifest: Dict[str, Any], address: str, status: str) -> str:
+    """HMAC-SHA256 over the v2 envelope. Raises if no key is set."""
+    key = _signing_key()
+    if not key:
+        raise RuntimeError(
+            "BLUE_ML_SIGNING_KEY is not set: refusing to sign an artifact. "
+            "Set it (env only, never a file) and re-run.")
+    return hmac.new(key, canonical_json(
+        _artifact_envelope(manifest, address, status)).encode("utf-8"),
+        hashlib.sha256).hexdigest()
+
+
+def verify_artifact(manifest: Dict[str, Any], address: str, status: str,
+                    signature: str) -> bool:
+    """Constant-time check of the v2 envelope. No key -> not verified."""
+    key = _signing_key()
+    if not key:
+        return False
+    expected = hmac.new(key, canonical_json(
+        _artifact_envelope(manifest, address, status)).encode("utf-8"),
+        hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 class Registry:
@@ -124,11 +171,13 @@ class Registry:
         art_dir = os.path.join(self.root, address)
         os.makedirs(art_dir, exist_ok=True)
 
-        signature = sign_manifest(manifest)
+        status = manifest.get("status", STATUS_DRAFT)
+        signature = sign_artifact(manifest, address, status)
         record = {
             "address": address,
             "name": manifest.get("name", "model"),
-            "status": manifest.get("status", STATUS_DRAFT),
+            "status": status,
+            "sig_version": SIG_VERSION,
             "created_at": int(time.time()),
             "signature": signature,
             "manifest": manifest,
@@ -178,12 +227,31 @@ class Registry:
                 f"artifact {address[:12]} unreadable: {exc!r}") from exc
 
         sig = rec.get("manifest_signature", "")
-        if not verify_manifest(rec.get("manifest", {}), sig):
-            raise ModelNotValidatedError(
-                f"artifact {address[:12]}: manifest signature FAILED — "
-                f"do not trust this artifact; retrain or re-sign consciously")
-
+        manifest = rec.get("manifest", {})
         status = rec.get("status", STATUS_DRAFT)
+        if rec.get("sig_version", 1) >= SIG_VERSION:
+            signed_ok = verify_artifact(manifest, address, status, sig)
+        else:
+            signed_ok = verify_manifest(manifest, sig)
+        if not signed_ok:
+            raise ModelNotValidatedError(
+                f"artifact {address[:12]}: signature FAILED — "
+                f"do not trust this artifact; retrain or re-sign consciously")
+        # The folder name is the payload hash. Check the bytes on disk match
+        # it, and that the record claims this same address. Both checks hold
+        # for legacy artifacts too, so a swapped model.json is always caught.
+        if rec.get("address") != address:
+            raise ModelNotValidatedError(
+                f"artifact {address[:12]}: record names a different address "
+                f"- refusing to load")
+        if content_hash(payload) != address:
+            raise ModelNotValidatedError(
+                f"artifact {address[:12]}: model.json does not match its "
+                f"address (payload altered after signing) - refusing to load")
+        if rec.get("sig_version", 1) < SIG_VERSION:
+            logger.warning("registry: artifact %s uses legacy signature v1; "
+                           "promote() re-signs it with v2", address[:12])
+
         if require_status and status != require_status:
             raise ModelNotValidatedError(
                 f"artifact {address[:12]} status is '{status}', "
@@ -227,7 +295,9 @@ class Registry:
             return False
         rec["status"] = to
         rec["promoted_at"] = int(time.time())
-        rec["manifest_signature"] = sign_manifest(rec["manifest"])
+        rec["sig_version"] = SIG_VERSION
+        rec["manifest_signature"] = sign_artifact(
+            rec["manifest"], rec.get("address", address), to)
         try:
             with open(mpath, "w", encoding="utf-8") as fh:
                 json.dump(rec, fh, sort_keys=True, indent=1, default=repr)
