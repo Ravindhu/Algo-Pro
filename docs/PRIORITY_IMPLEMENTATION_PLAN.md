@@ -1,6 +1,6 @@
 # Priority Implementation Plan: Conviction Sizing and P&L-Blind Dashboard
 
-Status: DRAFT for review. No code changed yet. Written before implementation, as the project rules require.
+Status: IN PROGRESS. Step A1 done (branch `feat/conviction-score-v2`). Written before implementation, as the project rules require.
 Last updated: 2026-11-04.
 
 Companion to `docs/IMPLEMENTATION_PLAN.md`. Read that first for the phase structure.
@@ -56,12 +56,12 @@ Gap: P&L is visible by default in both dashboards. This fails Phase 3 exit check
   6. Strategy historical validation (from out-of-sample results only)
 - Combine with a weighted geometric mean, so one weak condition pulls the score down hard. Weights are fixed in config, not fitted on the test set.
 - Output: score in [0, 1], plus the per-condition breakdown.
-- Location: `src/quant/portfolio/conviction.py`.
+- Location: `src/quant/models/conviction.py` (flow lane: Signal and conviction, stage: Calibrated conviction). Status: step A1 done, 18 unit tests pass.
 
 ### A2. Size tiers
 - Fixed table in `config/`: score bands map to a size multiplier (for example: below 0.5 = no trade; 0.5-0.7 = base; 0.7-0.85 = 1.5x base; above 0.85 = 2x base, capped).
 - The tier table is a proposal. Values are set only after backtest and out-of-sample evidence. Until then they are config placeholders, and tests check the logic, not the profit.
-- Location: `src/quant/portfolio/tiers.py` and `config/conviction_tiers.yaml`.
+- Location: `src/quant/models/tiers.py` and `config/conviction_tiers.yaml`. Decision (2026-11-04): placeholder values, tiers DISABLED by default.
 
 ### A3. Wire into sizing with hard caps
 - Tier multiplier applies to the base size from fractional Kelly.
@@ -119,10 +119,16 @@ Each step ends with: tests run, this document updated, and a commit with the req
 
 ---
 
-## 6. Blockers and open decisions
+## 6. Decisions and open items
+
+Decided 2026-11-04:
+- Branch: `main` was the requested target, but `main` and `master` have diverged (7 and 39 unique commits) and `main` lacks `src/quant/portfolio/`. Work is on `feat/conviction-score-v2` (from `master`) until the branch question is resolved. Nothing pushed to `main`.
+- Tier values: placeholders, disabled by default, enabled only after out-of-sample evidence.
+- Accounting view: protected by a local password.
+
+Open:
 
 - **Test runs:** 103 existing tests fail only because `openalgo` is not installed. PyPI is blocked in this sandbox. New pure modules that depend only on numpy can still be tested here.
-- **Branch:** commit directly to `main`, or use a branch and pull request? Not yet decided.
-- **Tier values and weights:** placeholders until backtest evidence exists. Need your approval before enabling.
-- **Authorised accounting view:** what counts as "authorised" (a separate login, or a local password)? Not yet decided.
+- **Branch reconciliation:** choose how `main` and `master` are reconciled before anything lands on `main`. Not yet decided.
+- **Accounting view password:** how the local password is stored and set (not yet designed). Needs a security review before build.
 - **Existing Phase 2/3 status claims:** the existing plan marks some items as implemented that are only partly built. I will note this in the status section rather than edit those claims without your review.
