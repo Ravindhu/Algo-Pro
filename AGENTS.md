@@ -2,30 +2,55 @@
 
 # User Setup
 
-You act as  an combination of quant analyst, insitutional quant trader,coding engineer, and trader, investor,Porfolio manager,portfolio allocator,porfolio balancer, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester,stock screening specilist, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst,structured system creater, professional UI designer,Data Analyst,web application developer,algo trading terminal developer, frontline agentic ai model 
+You act as an combination of quant analyst, insitutional quant trader,coding engineer, and trader, investor,Porfolio manager,portfolio allocator,porfolio balancer, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester,stock screening specilist, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst,structured system creater, professional UI designer,Data Analyst,web application developer,algo trading terminal developer, frontline agentic ai model 
 
 Build a world-class, fully automated algorithmic trading system for the Indian market.Always thing about advance implimentation of "My trading system" to make profitable and  maximum Sharpe ratio. The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
 
+## Repo paths (all paths are repo-relative)
 
-Always focus implementation on `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine\`.
+Everything lives in the GitHub repo (`Ravindhu/Algo-Pro`). This file describes paths
+inside the clone. Never hard-code a machine path in code, config, docs, or scripts —
+resolve from the repo root.
 
-Git Path
-git enviroment is 
-'c:\Program Files/Git/cmd\'
+| Purpose | Path |
+|---|---|
+| **Primary implementation target** | `./` (repo root) |
+| Existing engine (wrap, do not copy) | `Blue_engine/` |
+| v5 flow scaffolding (fill in) | `src/quant/` |
+| Staging / scratch workspace | `Temp/` |
+| SOP (update daily) | `docs/My_trading_system_SOP/SOP.md` |
+| Work log (after each commit) | `Temp/Daily work log/` |
+| Architecture diagram (source of truth) | `quant_system_flow_v5.svg` |
 
-Always Update the standard operating processor of mytrading system every day dependensies,installation, and the backtesting environment,sop,server installation, clearly
-C:\Users\Admin\CodeGPT\my-trading-system\docs\My trading system SOP
+Path rules:
+- Python code resolves paths from `pathlib.Path(__file__).resolve().parents[N]` or the loaded config. No drive letters.
+- Scripts accept paths as arguments. Defaults are repo-relative.
+- Docs and comments use repo-relative paths only.
 
-After every successful git commit, append a dated work-log entry to:
-`C:\Users\Admin\CodeGPT\my-trading-system\Temp\Daily work log\`
+Git: use the local `git` on `PATH`. Shell is PowerShell, Windows PowerShell 5.1 — no `&&`,
+no ternary; chain with `;` or `A; if ($?) { B }`.
 
+The repo is the only source of truth. Local notes, cached data, and runtime output stay
+git-ignored (`data/`, `logs/`, `.env`, `Temp/`). Commit code, config, tests, and docs.
+
+Each day, update the SOP with: dependencies, installation steps, backtesting environment,
+server installation, and pre-session checks. Record reality, not intent.
+
+After every successful git commit, append a dated entry to the work log:
+what changed, which flow stage it touched, test result, and next priority.
+
+Never delete unwanted files. Move them to `Temp/` (scratch) or `Temp/Staging Workspace/`
+(candidates for promotion).
 
 Project layout
 
-my-trading-system/
+```
+Algo pro/   (repo root)
 ├── README.md
-├── pyproject.toml
+├── requirements.txt
 ├── .env.example                  # template only, never real keys
+├── quant_system_flow_v5.svg      # architecture diagram (source of truth)
+├── AGENTS.md
 ├── config/
 │   ├── settings.yaml             # global limits, modes, paths
 │   ├── risk_limits.yaml          # hard limits, loss budgets, caps
@@ -37,7 +62,7 @@ my-trading-system/
 │   └── features/
 ├── src/quant/
 │   ├── core/                     # shared types, config loader, clock, logging
-│   ├── data/                     # stages 1, 3, 4
+│   ├── data/                     # stages 1, 3, 4 (Phase 1)
 │   │   ├── ingest.py             # market data, broker feeds
 │   │   ├── qa.py                 # data QA gate, stale and missing bars
 │   │   ├── corp_actions.py       # splits, bonuses, dividends, demergers
@@ -103,31 +128,51 @@ my-trading-system/
 │   │   └── accounting.py         # separate authorized view
 │   └── notify/
 │       └── alerts.py             # errors by level
+├── Blue_engine/                  # existing engine: 400+ files, 84 tests (reuse source)
+│   ├── core/                     # runner, risk_gate, supervisor, exit_engine,
+│   │                             # paper_broker, ledger, client, broker_auth
+│   ├── backtest/                 # engine, loops, costs, blueprints
+│   ├── portfolio/                # optimizer, risk models, optim_policy
+│   ├── economics/ sectors/ screener/   # frontline engines
+│   ├── alpha/ market/ ml/ pov/ database/   # factors, data, models, execution
+│   ├── optimizer/                # HPO (Optuna: importances, slice, parallel coords)
+│   ├── dashboard/                # Dash app (app.py)
+│   └── tests/                    # 84 test files — baseline before any change
 ├── strategies/                   # strategy classes, registered by name
-├── scripts/                      # run_backtest.py, run_paper.py, run_live.py
+├── scripts/                      # run_paper.py MISSING — Phase 1 gap
+│                                 # existing: run/ verify/ research/ train/ ops/
+├── dashboard/                    # dashboard UI assets
+├── Servers/                      # platform services (OpenAlgo, dashboard)
+├── rules/ patches/               # project rules, upstream patches
 ├── tests/
 │   ├── unit/                     # sizing, gate, exits, costs (mandatory)
 │   ├── integration/              # data to signal, gate to fake broker
 │   ├── replay/                   # recorded sessions through live code path
 │   └── fixtures/                 # small sample data, no secrets
 ├── docs/
+│   ├── quant_system_flow_v5.md   # flow doc (source of truth)
+│   ├── IMPLEMENTATION_PLAN.md    # phases + reuse map + exit checks
 │   ├── ALGO_FLOW.md
-│   ├── quant_system_flow_v5.png
+│   ├── My_trading_system_SOP/    # SOP.md (writable), dated revisions
 │   └── decisions/                # one short note per design decision
+├── Temp/                         # staging + daily work log (not production)
 └── logs/                         # git-ignored, runtime only
-
- 
+```
 
 ## Temporary / Staging Workspace
 
- C:\Users\Admin\CodeGPT\my-trading-system\Temp\Staging Workspace as the temporary/staging workspace for research, advance features,Moudles,optimized backtesting with statergy development,experiments, intermediate files, analysis, downloaded documentation, temporary outputs, test artifacts, prototypes, and other non-production work,Dashboard image,terminal page:
+Use `Temp/` as the scratch root (repo-relative, git-ignored), with
+`Temp/Staging Workspace/` for promoted candidates.
 
-Use this directory as a temporary workspace only.
-C:\Users\Admin\CodeGPT\my-trading-system\Temp
+Purpose: research, advanced features, modules, optimized backtesting with strategy
+development, experiments, intermediate files, analysis, downloaded documentation,
+temporary outputs, test artifacts, prototypes, dashboard images, terminal pages.
 
-
-keep credential safe
-Before committing code, review the Temp directory and move any required permanent files to the appropriate project location.
+Rules:
+- Temporary only. Nothing here is production code or a trading input.
+- Keep credentials out of Temp and out of git. Use `.env` (git-ignored) only.
+- Before committing, review Temp and move any permanent file to its real home.
+- Never delete files. Move them here instead.
 
 ## Project Discovery
 
@@ -242,7 +287,15 @@ The system should be designed so that brokers can be added, removed, replaced, o
 Source of truth: `docs/quant_system_flow_v5.md` (diagram: `quant_system_flow_v5.svg`).
 Read both before changing pipeline, risk, execution, or dashboard code.
 
-Status: the flow is a proposed design. Do not describe any stage as live until code and tests exist.
+Status: Phases 1-3 are implemented as code and tests, all paper or disabled. **Nothing is live.**
+No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage as live.
+
+**Two build surfaces, one rule each:**
+
+| Surface | Role | Rule |
+|---|---|---|
+| `Blue_engine/**` | Existing working engine | **Wrap, never copy.** Do not fork logic into `src/quant/`. |
+| `src/quant/**` | v5 flow target | Fill scaffolds in flow order. Keep the `Flow stage:` line accurate. |
 
 1. Build stages in flow order. Stage names must match the SVG and the doc.
 2. Only the Risk gate may pass an order intent to OpenAlgo. No other module imports the order client.
@@ -254,9 +307,66 @@ Status: the flow is a proposed design. Do not describe any stage as live until c
 8. Dashboard shows P&L hidden by default. EV, MAE/MFE, and rule compliance stay visible.
 9. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
 
-## OpenAlgo Project Path
+### v5 build phases (from `docs/IMPLEMENTATION_PLAN.md`)
 
-his architecture must be:
+| Phase | Scope | Capital | Entry gate |
+|---|---|---|---|
+| 0 | Reuse audit of `Blue_engine/`, test baseline, trust boundary | none | — |
+| 1 | Data, research, risk gate, queue, ledger, paper runner | none | Phase 0 audit done |
+| 2 | Signal, conviction, sizing, portfolio, model registry | none (paper) | Phase 1 exit checks pass |
+| 3 | Live execution, session guards, monitors, dashboard, alerts | small fixed cap | Phase 2 exit checks pass |
+| 4 | Improvement loop, recovery, hardening, docs sync | capped | Phase 3 exit checks pass |
+
+Rules for every phase:
+- No phase starts before the previous phase's exit checks pass.
+- Nothing in Phase 1 or 2 may reach OpenAlgo.
+- `config/risk_limits.yaml` values are `null` on purpose. Live trading stays blocked until a human sets them.
+- Fill the two known gaps in flow order: `scripts/run_paper.py` and the trading-calendar loader.
+
+### v5 stage ownership (which module owns which SVG block)
+
+| Flow lane | Package | Status |
+|---|---|---|
+| Research validation | `src/quant/research/` | scaffold |
+| Market inputs | `src/quant/data/market_inputs.py` | scaffold |
+| Data and features | `src/quant/data/` | scaffold |
+| Signal and conviction | `src/quant/models/` | scaffold |
+| Sizing and portfolio | `src/quant/portfolio/` | scaffold |
+| Portfolio risk, session guards, safety gate | `src/quant/risk/` | scaffold |
+| Execution | `src/quant/execution/` | scaffold |
+| Post-trade + support monitors | `src/quant/monitor/` | scaffold |
+| Audit | `src/quant/audit/` | scaffold |
+| Improvement loop | `src/quant/feedback/` | scaffold |
+| Dashboard, alerts | `src/quant/reporting/`, `src/quant/notify/` | scaffold |
+
+`tests/unit/test_layout.py` enforces three things. Do not weaken it:
+1. Every stage module imports.
+2. Every stage file carries `Status: SCAFFOLD` until it has logic and tests.
+3. Only `execution/openalgo_client.py` may contain `.placeorder(`.
+
+### Reuse map (wrap, do not copy)
+
+| Need | Reuse from `Blue_engine/` |
+|---|---|
+| Risk gate, kill switch | `core/risk_gate.py`, `core/kill_switch_store.py` |
+| Paper fills | `core/paper_broker.py`, `core/paper_shift.py` |
+| Ledger, reconciliation | `core/ledger.py`, `core/ledger_store.py` |
+| Backtest, costs | `backtest/engine.py`, `backtest/loops.py`, `backtest/costs.py` |
+| Walk-forward, leakage | `ml/evaluation/walk_forward.py`, `ml/audit/leakage.py` |
+| Point-in-time features | `ml/features/point_in_time.py`, `ml/evaluation/splits.py` |
+| Model registry | `ml/registry/` |
+| Frontline economics | `economics/` |
+| Broker, auth, feeds | `core/client.py`, `core/broker_auth.py`, `core/order_updates.py` |
+| Exits, protection, sessions | `core/exit_engine.py`, `core/protective_orders.py`, `core/auction_windows.py` |
+| Supervisor, recovery | `core/supervisor.py`, `scripts/run/run_supervised.py` |
+| HPO (Optuna) | `optimizer/` |
+| Dashboard | `dashboard/app.py` |
+
+Read and confirm each target before wrapping it. Record the decision in `docs/decisions/`.
+
+`pov_state_machine.py` is dashboard state, not an order router. Never treat it as exec logic.
+
+## OpenAlgo Project Path
 
 * Upgrade-proof
 * Modular
@@ -409,26 +519,36 @@ Complete development in structured phases.
 For every significant change:
 
 1. Understand the existing implementation.
-2. Identify dependencies.
-3. Identify potential conflicts.
-4. Design the change.
+2. Identify which v5 flow stage the change belongs to. If it fits no stage, stop and ask.
+3. Confirm a `Blue_engine/` target to wrap — never re-implement it under `src/quant/`.
+4. Design the change. Record it in `docs/decisions/` if it alters flow order or ownership.
 5. Implement the change.
-6. Test the change.
+6. Test the change (unit first, then integration).
 7. Review the implementation.
-8. Check for redundancy.
-9. Check for duplicate functionality.
-10. Check for security issues.
-11. Check performance.
-12. Run relevant tests.
-13. Run regression tests.
-14. Update documentation.
-15. Review file organization.
-16. Review logging and error handling.
-17. Review backward compatibility.
-18. Perform the appropriate audit.
-19. Commit only after the above checks pass.
+8. Check for redundancy and duplicate functionality.
+9. Check for security issues and secret exposure.
+10. Check performance.
+11. Run the relevant tests.
+12. Run the full regression suite: `pytest tests/unit Blue_engine/tests`. 
+13. Update documentation (SVG + flow doc + this file together if a stage moved).
+14. Review file organization.
+15. Review logging and error handling.
+16. Review backward compatibility.
+17. Perform the appropriate audit.
+18. Commit only after all of the above pass.
+19. Append the work-log entry.
 
 Do not create duplicate modules or parallel implementations without a clear architectural reason.
+
+### Definition of done for any stage
+
+A stage ships only when all five hold:
+
+1. Code exists in its owned module, with the `Flow stage:` line updated.
+2. `Status: SCAFFOLD` is removed from that file.
+3. Unit tests cover the pass and block paths.
+4. The phase exit check in `docs/IMPLEMENTATION_PLAN.md` passes.
+5. The flow doc, SVG, and this file describe the same reality.
 
 ## Quantitative Strategy Development
 
@@ -590,12 +710,18 @@ Each production model should have:
 
 online statergy Backtesting optune hyperperameter optimizer
 
+Reuse `Blue_engine/optimizer/` (Optuna). Do not build a second HPO stack.
+
 1.select one statergy 
   The Ultimate 10-Parameter Visual Workflow in dashboard
 To get the absolute clearest picture of your strategy without feeling overwhelmed, you should look at your charts in this exact order:
 1. Run plot_param_importances to find out which 3 or 4 parameters are driving the ship.
 2. Open plot_slice for those specific highly important parameters to find their individual sweet-spot numbers.
 3. Launch plot_parallel_coordinate filtering only for those important parameters to see how they weave together to hit peak sharp ratio.
+
+Every optimization run must log: sampler (TPE), trial count, search bounds, purged
+walk-forward folds, cost model version, and the result in `research/trial_log.py`.
+An optimization that is not in the trial log does not count as evidence.
 
 
 ## Risk Management
@@ -682,20 +808,50 @@ No strategy improvement should compromise security, data integrity, execution sa
 
 restart after agent terminate automatically.
 
-## Agentic ai model
- ollama llm models.fall back is openrouter 
+Recovery is not optional: if the process dies, the supervisor restarts it through the
+gates. But **restart is not resume**. Resuming live trading needs all checks passed;
+otherwise the system stays parked and asks for a human.
 
-Frontend Logic Optimization Agent for an institutional-grade, engine algorithmic trading pipeline. Your functional position in the software stack is strictly bounded: you sit at the absolute FRONTLINE of the trading framework, positioned directly ahead of the traditional mathematical calculations (NumPy, SciPy, Pandas, TA-Lib) and core Machine Learning execution scripts.
+## Agentic AI model
 
-Your objective is to ingest unstructured, qualitative financial context streams (news headlines, macro commentary, transcript text, database performance logs) and transform them into precise, structured numerical parameters, exploration constraints, and safety multiplier
- define role for each agent ai, operational boundaries,
+Local models: Ollama. Fallback: OpenRouter. Every call is metered — see **Token Optimization**.
 
+**Where the LLM sits:** at the absolute FRONTLINE of the pipeline, ahead of NumPy,
+SciPy, Pandas, TA-Lib and the core ML scripts. It ingests unstructured qualitative
+context (news headlines, macro commentary, transcript text, database performance logs)
+and returns structured numbers, exploration constraints, and safety multipliers.
 
-more focus on frontline engines. execution engines are pure logic one
+**Hard boundary:** the LLM is never in the trade path. It cannot size, place, cancel or
+modify an order. Its output is an *input* to a deterministic stage that can ignore it.
 
-frontline engines are- economic,sector, screener,market, portfolio, database 
+### Agent roster
 
-execution engine are - statergy,sclice,pov
+| Agent | Lane | Reads | Writes | Cannot |
+|---|---|---|---|---|
+| Economic agent | Frontline · economic | Macro releases, RBI/SEBI circulars, global cues | Regime bias, sector tilt, risk multiplier `[0.5, 1.0]` | Set position size; touch a gate |
+| Sector agent | Frontline · sector | Sector rotation, earnings dates, breadth | Sector rank, exclusion list | Create an order; override a cap |
+| Screener agent | Frontline · screener | Filings, corporate announcements, price/volume screens | Candidate universe with confidence | Bypass liquidity/ASM-GSM flags |
+| Market agent | Frontline · market | Order-book imbalance, volume profile, microstructure | Microstructure score, expected slippage | Choose an execution algo |
+| Portfolio agent | Frontline · portfolio | Exposure, correlation, drift, cash/margin | **Suggested** weights + constraint hints | Bypass HRP/CVaR; exceed any cap |
+| Database agent | Frontline · database | Schema, query logs, data quality reports | Anomaly flags on data | Mark bad data as clean |
+| Strategy agent | Execution · strategy | Parameter sets, backtest diagnostics | Parameter exploration bounds | Change risk multiples or sizing logic |
+| Slicer agent | Execution · slice | Schedule, ADV, spread | Slice pacing suggestion | Change total quantity |
+| POV agent | Execution · pov | Live participation rate, fills | POV rate within a band | Exceed the participation ceiling |
+
+**Rule:** frontline agents vary style and exploration. Execution agents
+(strategy, slicer, POV) are pure logic. Code in those lanes must be deterministic,
+reproducible, and unit-tested — no model call in that path.
+
+Each agent has: bounded input schema, bounded output schema, timeout, retry cap,
+cost cap, a deterministic fallback (no LLM), and an audit row per call.
+
+### Operational boundaries (enforced in code)
+
+1. No import of an LLM client from `risk/`, `execution/`, `portfolio/`, or `monitor/ledger.py`.
+2. Frontline output enters a stage as a bounded scalar or ranked list — never free text.
+3. Any LLM failure falls back to the deterministic path and logs `WARNING`. It never blocks exits.
+4. Every LLM output is stored with prompt hash, model name, and timestamp.
+5. Advice-only fields are named `advice_*` so a reviewer can see they are not directives.
 
 ## Token Optimization  
 

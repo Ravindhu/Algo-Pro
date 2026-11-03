@@ -82,7 +82,8 @@ _venv_hold/
 # -----------------------------------------------------------------------------
 # RUNTIME STATE AND LOGS
 # -----------------------------------------------------------------------------
-data/
+# Local cache only. Anchored so source packages named data/ stay tracked.
+/data/
 log/
 logs/
 *.log
@@ -169,5 +170,3 @@ Temp/
 # Deployment config with the API key - the .example template IS tracked
 Servers/deploy.env
 
-# src/quant/data is source code; the data/ rules above are for runtime data
-!src/quant/data/

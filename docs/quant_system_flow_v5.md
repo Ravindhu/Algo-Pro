@@ -1,6 +1,6 @@
 # Quant System Flow v5 (Design)
 
-**Status: proposed design. Nothing in this flow is built yet.**
+**Status: Phases 1-3 implemented as code and tests. Paper only. Nothing is live.**
 Source diagram: `quant_system_flow_v5.svg` (repo root).
 
 Legend:
