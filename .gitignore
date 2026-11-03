@@ -82,7 +82,8 @@ _venv_hold/
 # -----------------------------------------------------------------------------
 # RUNTIME STATE AND LOGS
 # -----------------------------------------------------------------------------
-data/
+# Local cache only. Anchored so source packages named data/ stay tracked.
+/data/
 log/
 logs/
 *.log

@@ -128,7 +128,7 @@ Exit checks (all required before real capital):
 
 ## Open gaps and assumptions
 
-- Gaps: Paper trading stage and Trading calendar have no module yet (see `KNOWN_GAPS` in `tests/unit/test_layout.py`).
+- Gaps: Paper trading stage and Trading calendar have no module yet (see `KNOWN_GAPS` in `tests/unit/test_layout.py`). `src/quant/data/` is now scaffolded (Phase 1, modules only, no logic).
 - Risk limit values are unset in `config/risk_limits.yaml`. Live trading stays blocked until you set them.
 - Paper period length, parity tolerance and starting capital are not set here.
 - Blue_engine reuse targets are named by path only. Read and confirm each one before wrapping it.

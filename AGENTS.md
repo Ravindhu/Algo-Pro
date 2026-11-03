@@ -62,7 +62,7 @@ Algo pro/   (repo root)
 │   └── features/
 ├── src/quant/
 │   ├── core/                     # shared types, config loader, clock, logging
-│   ├── data/                     # NOT SCAFFOLDED YET — Phase 1 must create it
+│   ├── data/                     # stages 1, 3, 4 (Phase 1)
 │   │   ├── ingest.py             # market data, broker feeds
 │   │   ├── qa.py                 # data QA gate, stale and missing bars
 │   │   ├── corp_actions.py       # splits, bonuses, dividends, demergers
@@ -287,8 +287,8 @@ The system should be designed so that brokers can be added, removed, replaced, o
 Source of truth: `docs/quant_system_flow_v5.md` (diagram: `quant_system_flow_v5.svg`).
 Read both before changing pipeline, risk, execution, or dashboard code.
 
-Status: the flow is a proposed design. **All 57 files in `src/quant/` are scaffolds**
-(5 lines, `Status: SCAFFOLD`). Do not describe any stage as live until code and tests exist.
+Status: the flow is a proposed design. **All 64 files in `src/quant/` are scaffolds**
+(`Status: SCAFFOLD`, no logic). Do not describe any stage as live until code and tests exist.
 
 **Two build surfaces, one rule each:**
 
@@ -328,8 +328,8 @@ Rules for every phase:
 | Flow lane | Package | Status |
 |---|---|---|
 | Research validation | `src/quant/research/` | scaffold |
-| Market inputs | `src/quant/data/market_inputs.py` | **missing — Phase 1** |
-| Data and features | `src/quant/data/` | **missing — Phase 1** |
+| Market inputs | `src/quant/data/market_inputs.py` | scaffold |
+| Data and features | `src/quant/data/` | scaffold |
 | Signal and conviction | `src/quant/models/` | scaffold |
 | Sizing and portfolio | `src/quant/portfolio/` | scaffold |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` | scaffold |

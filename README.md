@@ -112,8 +112,8 @@ Algo Pro/
 | Flow lane | Package |
 |---|---|
 | Research validation | `src/quant/research/` |
-| Market inputs | `src/quant/data/market_inputs.py` — **not scaffolded yet** |
-| Data and features | `src/quant/data/` — **not scaffolded yet** (planned for Phase 1) |
+| Market inputs | `src/quant/data/market_inputs.py` |
+| Data and features | `src/quant/data/` |
 | Signal and conviction | `src/quant/models/` |
 | Sizing and portfolio | `src/quant/portfolio/` |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` |
