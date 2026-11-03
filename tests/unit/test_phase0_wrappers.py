@@ -1,0 +1,77 @@
+"""Phase 0: src/quant wrappers over Blue_engine.
+
+Each wrapper must (a) delegate to Blue_engine, and (b) keep the numbers it produced
+before the wrap. Golden values below were taken from the pre-wrap implementation
+(git history, commit 579c653, src/quant/research/costs.py).
+
+These tests need the OpenAlgo SDK, because importing Blue_engine's cost module loads
+blue_engine.core. Without the SDK they skip with the reason. Production requires the
+SDK (requirements.txt pins openalgo==2.0.3).
+"""
+import pytest
+
+from quant.core import blue_bridge
+from quant.core.blue_bridge import BlueEngineUnavailable
+
+
+def _blue_or_skip(name: str):
+    try:
+        return blue_bridge.load(name)
+    except BlueEngineUnavailable as exc:
+        pytest.skip(f"Blue_engine not importable here: {exc}")
+
+
+def test_bridge_loads_blue_cost_model():
+    module = _blue_or_skip("backtest.costs")
+    assert hasattr(module, "CostModel")
+
+
+def test_bridge_reports_missing_module_clearly():
+    _blue_or_skip("backtest.costs")  # ensures the package is loadable first
+    with pytest.raises(BlueEngineUnavailable):
+        blue_bridge.load("does_not_exist_module")
+
+
+# Golden values from the pre-wrap implementation, INR per fill.
+GOLDEN = [
+    (100_000, "BUY", "delivery", 92.5176),
+    (100_000, "SELL", "delivery", 177.51760000000002),
+    (100_000, "BUY", "intraday", 80.5176),
+    (100_000, "SELL", "intraday", 102.5176),
+    (1_000_000_000.0, "SELL", "delivery", 1_539_199.6),
+    (1_000, "BUY", "delivery", 1.0431759999999999),
+]
+
+
+@pytest.mark.parametrize("notional,side,product,expected", GOLDEN)
+def test_cost_numbers_unchanged_after_wrap(notional, side, product, expected):
+    _blue_or_skip("backtest.costs")
+    from quant.research.costs import CostModel
+
+    assert CostModel().trade_cost(notional, side, product) == pytest.approx(expected, abs=1e-6)
+
+
+def test_trade_cost_delegates_to_blue(monkeypatch):
+    """The wrapper must call Blue's total_bps. It must not compute the arithmetic itself."""
+    blue = _blue_or_skip("backtest.costs")
+    from quant.research import costs as wrapper
+
+    calls = []
+    real = blue.CostModel
+
+    class Spy(real):
+        def total_bps(self, **kwargs):
+            calls.append(kwargs)
+            return super().total_bps(**kwargs)
+
+    monkeypatch.setattr(wrapper, "_blue_cost_class", lambda: Spy)
+    wrapper.CostModel().trade_cost(100_000, "BUY", "delivery")
+    assert calls == [{"is_buy": True}]
+
+
+def test_negative_notional_still_rejected():
+    _blue_or_skip("backtest.costs")
+    from quant.research.costs import CostModel
+
+    with pytest.raises(ValueError):
+        CostModel().trade_cost(-1.0, "BUY")
