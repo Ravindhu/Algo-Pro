@@ -73,7 +73,8 @@ Verified = read both sides and compared logic. Declared = taken from the module 
 | `research/capacity.py` | `backtest/metrics.py` | Not yet read | PENDING | |
 | `risk/gate.py`, `risk/pretrade.py`, `risk/loss_breaker.py` | `core/risk_gate.py` | Partly. Blue has the monetary checks (qty, notional, daily loss, exposure) and fails closed. Blue treats a missing limit as "not set" (approve); this project rejects entries when a limit is null. Each src module also has checks Blue lacks | SPLIT: monetary arithmetic WRAP via `risk/blue_risk_gate.py`; null-limit policy, lot size, duplicate IDs, safe mode, price band, liquidity, strategy loss stay local | Done. Step 5. Verdicts identical on 3,456-case grid |
 | `risk/kill_switch.py` | `core/kill_switch_store.py` | Not yet read | PENDING | |
-| `execution/openalgo_client.py` | `core/client.py` | Not yet read. Must stay the only `.placeorder(` caller | PENDING, priority | |
+| `execution/openalgo_client.py` | `core/client.py` | Partly. Blue's client is SDK setup and key handling; its order path is SDK-based in other modules. src order path uses an injected transport (testable, one payload). Blue's `resolve_api_key` also decrypts DB keys | SPLIT: `.env` loader WRAP (`load_env_file`); transport order path KEEP; key discovery from DB NOT used | Done. Step 6 |
+| `execution/openalgo_client.py::PaperBroker` | `core/paper_broker.py` | Different surfaces. Blue's is an SDK-shaped simulator with synthetic prices and order book; src fills at reference price plus slippage | KEEP for Phase 1. Owner decision later: Phase 3 paper parity may use Blue's | Done. Step 6 |
 | `monitor/ledger.py` | `core/ledger_store.py` | Not yet read | PENDING | |
 | `monitor/tca.py` | `backtest/costs.py` | Not yet read | PENDING | |
 | Phase 2 and 3 modules (about 40 more) | see section 3 header list in `src/quant/*` | Not audited | PENDING | |
@@ -135,6 +136,10 @@ Each step is one commit. The step list is updated before each commit.
 ### Step 5 (risk gate, 2026-11-03)
 
 `risk/blue_risk_gate.py` is the only place src/quant calls Blue's RiskGate. `gate.py`, `pretrade.py` and `loss_breaker.py` keep only the null-limit policy. Blue's live acknowledgement is not used (no live mode yet). Exits never reach Blue.
+
+### Step 6 (OpenAlgo client, 2026-11-03)
+
+`OpenAlgoClient.api_key_from_env` now loads the repo-root `.env` through Blue's `load_env_file`. It reads only the environment and never calls Blue's `resolve_api_key`, which can decrypt keys from the OpenAlgo database. The order path stays the injected transport. Layout test still enforces that only `openalgo_client.py` may send orders.
 
 ## 7. Blue_engine findings (reported, NOT changed here)
 
