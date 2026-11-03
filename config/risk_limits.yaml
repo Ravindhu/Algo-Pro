@@ -1,0 +1,7 @@
+# Hard limits. Values intentionally empty until set by a human.
+# Mirrors RiskGate keys in Blue_engine/core/risk_gate.py.
+max_order_quantity: null
+max_order_notional: null
+max_daily_loss: null
+max_open_exposure: null
+blocked: false

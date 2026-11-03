@@ -1,0 +1,72 @@
+"""Layout check: scaffold modules import and are marked as scaffolds.
+
+Guards the rule that scaffold stubs carry no trade logic and are not wired
+into the live path. See docs/quant_system_flow_v5.md.
+"""
+from __future__ import annotations
+
+import importlib
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
+
+
+def _stage_files():
+    """Stage modules only: package __init__ files are excluded."""
+    return [p for p in (SRC / "quant").rglob("*.py") if p.name != "__init__.py"]
+
+
+def test_every_module_imports():
+    for path in (SRC / "quant").rglob("*.py"):
+        rel = path.relative_to(SRC).with_suffix("")
+        name = ".".join(rel.parts)
+        if name.endswith(".__init__"):
+            name = name[: -len(".__init__")]
+        importlib.import_module(name)
+
+
+def test_stage_modules_are_marked_scaffold():
+    for path in _stage_files():
+        assert "Status: SCAFFOLD" in path.read_text(), path
+
+
+def test_only_openalgo_client_names_the_order_client():
+    """The order client may be named only in execution/openalgo_client.py."""
+    for path in _stage_files():
+        if path.name == "openalgo_client.py":
+            continue
+        assert ".placeorder(" not in path.read_text(), path
+
+
+# SVG blocks with no module yet. Shrink this list as each gap gets a home.
+#   Paper trading stage: scripts/run_paper.py (named in AGENTS.md, not created yet)
+#   Trading calendar: data lives in config/calendar/, no loader placed yet
+KNOWN_GAPS = {"Paper trading stage", "Trading calendar"}
+
+
+def _svg_block_titles():
+    import xml.etree.ElementTree as ET
+
+    svg_ns = "{http://www.w3.org/2000/svg}"
+    tree = ET.parse(ROOT / "quant_system_flow_v5.svg")
+    # Font size 15 is used only for block titles in the SVG.
+    return {t.text for t in tree.iter(svg_ns + "text") if t.get("font-size") == "15" and t.text}
+
+
+def test_every_svg_block_is_mapped_to_a_module():
+    """Each SVG block title must appear in a stage file's Flow stage line, or be a known gap."""
+    titles = _svg_block_titles()
+    assert len(titles) == 77, len(titles)  # guards against the parser finding nothing
+    stage_lines = "\n".join(
+        line
+        for path in _stage_files()
+        for line in path.read_text().splitlines()
+        if line.startswith("Flow stage:")
+    )
+    missing = sorted(t for t in titles if t not in stage_lines and t not in KNOWN_GAPS)
+    assert not missing, missing
+    mapped_gaps = sorted(g for g in KNOWN_GAPS if g in stage_lines)
+    assert not mapped_gaps, f"remove from KNOWN_GAPS: {mapped_gaps}"
