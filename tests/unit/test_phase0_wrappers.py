@@ -75,3 +75,25 @@ def test_negative_notional_still_rejected():
 
     with pytest.raises(ValueError):
         CostModel().trade_cost(-1.0, "BUY")
+
+
+def test_walk_forward_delegates_and_keeps_purge_gap(monkeypatch):
+    """Folds come from Blue's splitter. Each train block stops `purge` rows before its test block."""
+    splits_mod = _blue_or_skip("ml.evaluation.splits")
+    from quant.research import walk_forward as wrapper
+
+    seen = {}
+    real = splits_mod.walk_forward
+
+    def spy(rows, **kwargs):
+        seen.update(kwargs)
+        return real(rows, **kwargs)
+
+    monkeypatch.setattr(splits_mod, "walk_forward", spy)
+    folds = list(wrapper.purged_walk_forward(103, n_splits=3, purge=4, min_train=5))
+    assert seen["horizon"] == 4 and seen["embargo"] == 0 and seen["min_train"] == 5
+    assert folds, "expected at least one fold"
+    for train, test in folds:
+        assert train.size >= 5
+        assert train.max() < test.min() - 4          # purge gap respected
+        assert test.min() > train.max()              # test strictly after train

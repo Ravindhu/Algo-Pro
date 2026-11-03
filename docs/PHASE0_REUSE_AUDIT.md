@@ -61,8 +61,8 @@ Verified = read both sides and compared logic. Declared = taken from the module 
 
 | src module | Blue_engine target | Duplicate? | Decision | Status |
 |---|---|---|---|---|
-| `research/costs.py` | `backtest/costs.py` (`CostModel`) | Yes. Same statutory stack, different interface and placeholder rates | WRAP | Verified. Step 1 |
-| `research/walk_forward.py` | `ml/evaluation/splits.py` (`walk_forward`) | Yes. Expanding window with purge, same purpose | WRAP | Verified. Step 2 |
+| `research/costs.py` | `backtest/costs.py` (`CostModel`) | Yes. Same statutory stack, different interface and placeholder rates | WRAP | Done. Step 1 |
+| `research/walk_forward.py` | `ml/evaluation/splits.py` (`walk_forward`) | Yes. Expanding window with purge, same purpose | WRAP (API change: `test_size` removed) | Done. Step 2 |
 | `research/validation.py`, DSR | `ml/evaluation/metrics.py` (`deflated_sharpe`, `sharpe`) | Yes. Re-implements DSR | WRAP the DSR and Sharpe parts | Verified. Step 3 |
 | `research/validation.py`, PBO | none found in `Blue_engine/` | No | KEEP. Document in this file | Verified: no `pbo` function in Blue_engine |
 | `research/validation.py`, bootstrap | `portfolio/optim/significance.py` (`bootstrap_metric`) | Partly. Different output (one-sided p-value) | KEEP, reason documented | Verified |
@@ -95,7 +95,10 @@ Each step is one commit. The step list is updated before each commit.
    Bridge `src/quant/core/blue_bridge.py` added in the same commit.
    Equivalence: 36 grid cases match the pre-wrap code (max diff 2e-10 INR).
    Regression tests: `tests/unit/test_phase0_wrappers.py` (golden values, delegation spy).
-2. `research/walk_forward.py` → wrapper over `blue_engine.ml.evaluation.splits.walk_forward`.
+2. DONE: `research/walk_forward.py` → wrapper over `blue_engine.ml.evaluation.splits.walk_forward`.
+   API CHANGE (flagged): `purged_walk_forward` no longer takes `test_size`. Blue derives the test-block size
+   from `n_splits`. Its only caller was `tests/unit/test_phase1_research.py`, updated to the new signature.
+   Production scripts already call Blue directly. Test added for delegation and purge gap.
 3. `research/validation.py` → DSR and Sharpe delegated to `blue_engine.ml.evaluation.metrics`. PBO and bootstrap kept.
 4. `research/backtest.py` → decision after reading `engine.py`.
 

@@ -63,7 +63,7 @@ def test_missing_bar_counts_as_missed_fill():
 
 
 def test_purged_walk_forward_keeps_train_before_test_minus_purge():
-    folds = list(purged_walk_forward(100, n_splits=4, test_size=10, purge=5))
+    folds = list(purged_walk_forward(100, n_splits=4, purge=5))
     assert len(folds) == 4
     for train, test in folds:
         assert train.max() < test.min() - 5 + 1
