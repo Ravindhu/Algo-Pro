@@ -155,8 +155,8 @@ Each step is one commit. The step list is updated before each commit.
 | `portfolio/sizing.py` | `portfolio/sizing/kelly.py::kelly_leverage`, `portfolio/sizing/vol_target.py::vol_target_scale` (declared `core/risk_engine.py` was wrong) | Yes, same formulas | WRAP. Zero-vol and zero-sigma guards stay local. 180 Kelly and 24 vol-target grid cases match | Done. Step 7 |
 | `portfolio/portfolio_risk.py::historical_cvar` | `portfolio/risk/tail.py::cvar` (declared `core/risk_engine.py` was wrong) | Yes, same values at alpha 0.05, 0.01, 0.10 | WRAP. Caps and stress stay local | Done. Step 7 |
 | `monitor/live_monitor.py::max_drawdown` | `ml/evaluation/metrics.py::max_drawdown` | Yes, same on 300 random paths. Local version returned NaN for a path starting at 0 | WRAP (bug fix). MAE/MFE `excursions` KEEP (no Blue equivalent) | Done. Step 7 |
-| `portfolio/covariance.py::shrink_cov` | `portfolio/risk/covariance.py::ledoit_wolf_cov` (declared `ml/features/cross_section.py` was wrong) | Not the same. Blue's output is not the sample covariance at delta=0 (ratio 1.23) | KEEP. Blue discrepancy to verify (section 7) | Done. Step 7 |
-| `portfolio/optimizer.py::hrp_weights` | `portfolio/optim/hrp.py::hrp_weights` (declared `core/auto_tune.py` was wrong) | Both claim HRP. Weights differ on the same covariance (asset 0: 0.217 ours vs 0.236 Blue) | KEEP. Verify both against a published HRP reference (section 7) | Done. Step 7 |
+| `portfolio/covariance.py::shrink_cov` | `portfolio/risk/covariance.py::ledoit_wolf_cov` (declared `ml/features/cross_section.py` was wrong) | Same estimator once Blue's `nearest_psd` eigenvector bug is fixed (commit 9b0bff4). Agreement 6.5e-13 on 240 panels | WRAP `shrink_cov` to Blue `ledoit_wolf_cov(shrink=delta)`. Decision 0003 | Done. Step 8 |
+| `portfolio/optimizer.py::hrp_weights` | `portfolio/optim/hrp.py::hrp_weights` (declared `core/auto_tune.py` was wrong) | Ours matches the published Lopez de Prado HRP exactly (25 random covariances). Blue's differs (max 0.034 on the same input) | KEEP local. Blue HRP fix is an owner item (decision 0003, section 4) | Done. Step 8 |
 | `risk/price_band.py` | `core/band.py` (different) | Different: Blue's band module is POV pacing; ours is a circuit-band and ASM/GSM check | KEEP | Done. Step 7 |
 | `risk/liquidity.py` | `core/liquidity.py` | Different: Blue sizes blocks by tier; ours is a percent-of-ADV cap | KEEP | Done. Step 7 |
 | `risk/exits.py` | `core/exit_engine.py` | Different: Blue places broker protection orders; ours is a pure price-check state | KEEP | Done. Step 7 |
@@ -182,6 +182,8 @@ Wraps added:
 Declared targets that were wrong: `research/trial_log.py`, `research/lineage.py`, `research/capacity.py`, `monitor/tca.py`, and several `portfolio/` and `models/` headers. Corrected in the module headers where the stage label allows.
 
 ## 7. Open verification items (owner)
+
+(Items 1 and 2 are resolved by decision 0003, step 8. Item 1 now refers only to Blue's HRP.)
 
 1. **HRP disagreement.** `src/quant/portfolio/optimizer.py::hrp_weights` and Blue `portfolio/optim/hrp.py::hrp_weights` give different weights on the same covariance. Check both against the published Lopez de Prado algorithm (single-linkage quasi-diagonalisation, recursive bisection) before Phase 2 exit checks.
 2. **Ledoit-Wolf disagreement.** Blue's `ledoit_wolf_cov(shrink=0)` is not the sample covariance (ratio 1.23). Our `shrink_cov(delta=0)` is, by construction. Decide which estimator is intended.
