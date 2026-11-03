@@ -1,8 +1,8 @@
 """Portfolio caps (sector, cluster, beta), stress scenarios and historical CVaR.
 
 Flow stage: Portfolio risk, Stress and CVaR, Beta limits, Live intraday VaR/CVaR
-Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_engine.py
+Status: PHASE 2 IMPLEMENTED (Phase 0 wrap: historical CVaR wrapped; caps and stress stay local)
+Existing code to reuse or wrap (do not copy): Blue_engine/portfolio/risk/tail.py (cvar)
 """
 from __future__ import annotations
 
@@ -33,7 +33,10 @@ def stress_pnl(weights: Dict[str, float], shocks: Dict[str, float]) -> float:
 
 
 def historical_cvar(pnl, alpha: float = 0.05) -> float:
-    """Average loss in the worst alpha share of outcomes. Returned as a positive number."""
-    x = np.sort(np.asarray(pnl, float))
-    k = max(1, int(np.ceil(alpha * len(x))))
-    return float(-x[:k].mean())
+    """Average loss in the worst alpha share of outcomes, as a positive number. Delegates to Blue_engine."""
+    from quant.core.blue_bridge import load
+
+    value = load("portfolio.risk.tail").cvar([float(x) for x in pnl], level=1.0 - alpha)
+    if value is None:
+        raise ValueError("CVaR undefined for this sample")
+    return float(value)
