@@ -2,7 +2,7 @@
 
 Date: 2026-11-04
 Stages: Covariance, shrinkage (Phase 2); Sizing and allocation (HRP optimiser, Phase 2)
-Status: accepted. One Blue_engine item is open for the owner (section 4).
+Status: accepted. Update 2026-11-04: Blue HRP fixed (commit 8986b65); HRP now WRAPPED (section 3, item 2).
 
 ## Context
 
@@ -34,17 +34,18 @@ Blue `portfolio/risk/covariance.py::ledoit_wolf_cov`). The disagreement was not 
 1. **Shrinkage: WRAP.** `src/quant/portfolio/covariance.py::shrink_cov` delegates to Blue
    `ledoit_wolf_cov(shrink=delta)`. Our validation of `delta` stays local. Reason: after the
    Blue fix, the two agree to rounding error, so wrapping changes no numbers.
-2. **HRP: KEEP local.** Our output matches the published algorithm. Blue's does not on the
-   same input. Wrapping Blue would move allocations away from the reference algorithm.
-   This is a deliberate choice, not an oversight.
+2. **HRP: WRAP (updated 2026-11-04).** The original decision kept HRP local because Blue's
+   quasi-diagonal order differed from the reference. The fix in commit 8986b65 makes Blue match
+   the reference: 60/60 regression cases pass (order and weights), and the 25-case src test
+   passes against Blue. `src/quant/portfolio/optimizer.py::hrp_weights` now delegates to Blue,
+   keeps the n == 1 shortcut, and raises ValueError if Blue returns None.
 3. **Blue `nearest_psd` / `_jacobi_eig`: FIXED** (Blue commit `9b0bff4`). This was a clear
    defect with an exact reproduction, so it was fixed in place, not wrapped around. Blue
    suite failure set unchanged (49, all pre-existing).
 
 ## 4. Open for the owner
 
-- **Blue HRP deviates from the published algorithm** (`Blue_engine/portfolio/optim/hrp.py`).
-  Suspected location: `quasi_diag` / `cluster_order`. Not changed here, because Blue's HRP feeds
-  Blue's optimiser and changes allocations. Fix it in Blue with a reference test (same
-  reference as `tests/unit/test_phase0_hrp_cov.py`), then decide whether to wrap it.
+- ~~Blue HRP deviates from the published algorithm~~ Resolved in 8986b65 (quasi_diag root
+  traversal). Blue's HRP feeds Blue's optimiser, so allocations in Blue's own optimiser change
+  too. Owner should re-check any Blue-based backtest that used HRP.
 - Blue DSR threshold (decision 0001) and PBO docstring remain open.
