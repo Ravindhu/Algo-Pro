@@ -148,6 +148,23 @@ Broker connectivity must remain modular.
 
 The system should be designed so that brokers can be added, removed, replaced, or upgraded without requiring major changes to the core strategy engine.
 
+## Algo Flow v5 — Implementation Rules
+
+Source of truth: `docs/quant_system_flow_v5.md` (diagram: `quant_system_flow_v5.svg`).
+Read both before changing pipeline, risk, execution, or dashboard code.
+
+Status: the flow is a proposed design. Do not describe any stage as live until code and tests exist.
+
+1. Build stages in flow order. Stage names must match the SVG and the doc.
+2. Only the Risk gate may pass an order intent to OpenAlgo. No other module imports the order client.
+3. Frontline stages (economic, sector, screener, market, portfolio, database) produce inputs only.
+4. Event scoring and any LLM output are advice only. They never create orders or set final size.
+5. Only approved models enter production: Model registry → factor models. A person signs off (Human sign-off).
+6. Kill switch and Safe mode controller can block entries from any stage. Kill switch feeds back to the Risk gate.
+7. Every signal, intent, gate result, and override writes to the Audit log.
+8. Dashboard shows P&L hidden by default. EV, MAE/MFE, and rule compliance stay visible.
+9. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
+
 ## OpenAlgo Project Path
 
 Current OpenAlgo project path:
