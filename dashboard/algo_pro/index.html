@@ -84,7 +84,14 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
 .flowhd{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #17344d;color:#3fd0ff;font-weight:600}
 .flowhd em{color:#5d7b94;font-style:normal;font-weight:400}
 .flowbd{flex:1;min-height:0;overflow:auto;padding:8px;background:#04070d}
-.flowbd img{display:block;width:100%;height:auto}
+.flowbd svg{display:block;width:100%;height:auto}
+.edge{stroke-dasharray:6 6;animation:march .9s linear infinite}
+@keyframes march{to{stroke-dashoffset:-12}}
+@keyframes glow{0%{stroke-width:1}3%{stroke-width:4}12%{stroke-width:1}100%{stroke-width:1}}
+@keyframes blinkred{0%{fill:#ff4d6d;stroke:#ff4d6d;stroke-width:3}50%{fill:#3a0b15;stroke:#ff4d6d;stroke-width:3}}
+.stg.err text{fill:#ffd6de}
+.stg text{pointer-events:none}
+.flowov:not(.open) .edge,.flowov:not(.open) .stg rect{animation-play-state:paused}
 </style></head><body data-v="ov">
 
 <div class="top">
@@ -154,7 +161,7 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
 <div class="flowov" id="flowov" role="dialog" aria-modal="true" aria-label="Quant system flow">
  <div class="flowbox">
   <div class="flowhd"><span>QUANT SYSTEM FLOW · v5 <em>proposed design · not built</em></span><button id="bflowx">CLOSE ✕</button></div>
-  <div class="flowbd"><img src="../../quant_system_flow_v5.svg" alt="Quant system flow v5 diagram"></div>
+  <div class="flowbd" id="flowbd"></div>
  </div>
 </div>
 
@@ -226,10 +233,10 @@ function signal(){
  const lat=Math.round(rnd(60,260));
  setTimeout(()=>{
   o.lat=lat;lats.push(lat);
-  if(killed||Math.random()<.03){o.state='REJECTED';o.note=killed?'kill switch':'broker reject (sim)';rejects++;logm(`${o.id} rejected: ${o.note}`,'r');return}
+  if(killed||Math.random()<.03){o.state='REJECTED';o.note=killed?'kill switch':'broker reject (sim)';rejects++;logm(`${o.id} rejected: ${o.note}`,'r');flowErr('OpenAlgo',true);return}
   o.state='ACK';
   setTimeout(()=>{
-   if(killed){o.state='REJECTED';o.note='kill switch before fill';rejects++;logm(`${o.id} rejected: ${o.note}`,'r');return}
+   if(killed){o.state='REJECTED';o.note='kill switch before fill';rejects++;logm(`${o.id} rejected: ${o.note}`,'r');flowErr('OpenAlgo',true);return}
    const slipPx=rnd(0,.0004)*s.px,fp=Math.round((side==='BUY'?s.px+slipPx:s.px-slipPx)/TICK)*TICK;
    o.fill=fp;o.slip=slipPx/s.px*1e4;o.state='FILLED';o.note='@ ₹'+px2(fp);fills++;slips.push(o.slip);
    open.push({id:o.id,t:o.t,sy:s,side,entry:fp,sl:side==='BUY'?fp-slPer:fp+slPer,tp:side==='BUY'?fp+slPer*RR:fp-slPer*RR,sd:slPer,risk,qty,eq,fl:0});
@@ -251,7 +258,7 @@ function close(t,ex,why){
 }
 function kill(why){
  if(killed)return;
- killed=true;running=false;
+ killed=true;running=false;flowErr('Kill switch',true);
  const cl=open;open=[];cl.forEach(t=>close(t,t.sy.px,'KILL'));
  logm(why||'KILL SWITCH: open positions closed at market, new orders blocked','r');
  uiControls();
@@ -261,7 +268,7 @@ function kill(why){
 const demo=$('demo');
 function step(){
  tick++;if(cool>0)cool--;
- const ik=ist();if(ik.date!==dayKey){dayKey=ik.date;dayStart=equity();dailyStop=false;logm('New IST day '+ik.date+': today P&L and loss limit reset','d')}
+ const ik=ist();if(ik.date!==dayKey){dayKey=ik.date;dayStart=equity();dailyStop=false;flowErr('Loss budget breaker',false);logm('New IST day '+ik.date+': today P&L and loss limit reset','d')}
  SYM.forEach(s=>{s.px=Math.round((s.px+(Math.random()-.5)*s.px*.0012+Math.sin(tick/50)*s.px*.00005)/TICK)*TICK;s.vr=Math.min(3,Math.max(.5,s.vr+(Math.random()-.5)*.1))});
  if(tick%8===0)SYM.forEach(s=>{s.hist.push(s.px);if(s.hist.length>HIST)s.hist.shift()});
  open=open.filter(t=>{
@@ -275,7 +282,7 @@ function step(){
  let eq=equity();eqh.push(eq);if(eqh.length>HIST)eqh.shift();
  peak=Math.max(peak,eq);const dd0=(peak-eq)/peak;
  if(!killed&&dd0>DDLIM){kill('Drawdown 6% reached: auto kill switch, open positions closed');eq=equity()}
- if(!dailyStop&&eq-dayStart<-DAYLIM*dayStart){dailyStop=true;running=false;logm('Daily loss limit (2%) hit: no new entries until the next IST day','r')}
+ if(!dailyStop&&eq-dayStart<-DAYLIM*dayStart){dailyStop=true;running=false;flowErr('Loss budget breaker',true);logm('Daily loss limit (2%) hit: no new entries until the next IST day','r')}
  const dd=(peak-eq)/peak;ddh.push(dd);if(ddh.length>HIST)ddh.shift();mdd=Math.max(mdd,dd);
  ui(eq,dd);uiControls();
 }
@@ -355,7 +362,7 @@ function emptyRow(cols,t){const tr=el('tr'),td=el('td','d',t);td.colSpan=cols;td
 $('bstart').onclick=()=>{if(killed||running)return;running=true;logm('START: dry-run trading on (simulated feed)','g');uiControls()};
 $('bstop').onclick=()=>{if(!running)return;running=false;logm('STOP: no new entries; open positions still managed','a');uiControls()};
 $('bkill').onclick=()=>kill();
-$('breset').onclick=()=>{if(!killed)return;if(confirm('Clear the kill switch? Trading stays stopped until you press START.')){killed=false;logm('Kill switch cleared. Press START to resume.','a');uiControls()}};
+$('breset').onclick=()=>{if(!killed)return;if(confirm('Clear the kill switch? Trading stays stopped until you press START.')){killed=false;flowErr('Kill switch',false);flowErr('OpenAlgo',false);logm('Kill switch cleared. Press START to resume.','a');uiControls()}};
 
 /* ---------- drawing ---------- */
 function fit(c){const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==Math.round(w*d)||c.height!==Math.round(h*d)){c.width=Math.round(w*d);c.height=Math.round(h*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);return[x,w,h]}
@@ -447,7 +454,26 @@ document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',
 }));
 const flowov=$('flowov');
 const closeFlow=()=>flowov.classList.remove('open');
-$('bflow').addEventListener('click',()=>flowov.classList.add('open'));
+/* Flow popup: animated boxes, red blink on errors */
+let flowReady=false;
+function flowInit(){
+ if(flowReady||!window.FLOW_SVG)return;flowReady=true;
+ $('flowbd').innerHTML=window.FLOW_SVG;
+ $('flowbd').querySelectorAll('.stg').forEach(g=>{
+  const r=g.querySelector('rect'),row=+g.dataset.row,col=Math.round((+g.dataset.col-40)/250);
+  r.dataset.d=(row*.4+col*.12).toFixed(2);
+  r.style.animation=`glow 6s linear ${r.dataset.d}s infinite`;
+ });
+}
+function flowErr(label,on){
+ flowInit();
+ const g=$('flowbd').querySelector(`.stg[data-label="${CSS.escape(label)}"]`);
+ if(!g)return;
+ const r=g.querySelector('rect');
+ g.classList.toggle('err',on);
+ r.style.animation=on?'blinkred .9s steps(1,end) infinite':`glow 6s linear ${r.dataset.d}s infinite`;
+}
+$('bflow').addEventListener('click',()=>{flowInit();flowov.classList.add('open')});
 $('bflowx').addEventListener('click',closeFlow);
 flowov.addEventListener('click',e=>{if(e.target===flowov)closeFlow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeFlow()});
@@ -458,4 +484,5 @@ step();
 setInterval(step,700);
 requestAnimationFrame(frame);
 </script>
+<script src="flow_svg.js"></script>
 </body></html>
