@@ -78,6 +78,13 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
  .neuin{overflow-x:auto;overflow-y:hidden}
  .neuin canvas{width:780px;height:100%}
 }
+.flowov{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;padding:3vh 3vw;background:rgba(2,5,10,.85)}
+.flowov.open{display:flex}
+.flowbox{width:min(96vw,1400px);height:min(92vh,1000px);display:flex;flex-direction:column;min-height:0;background:#08111c;border:1px solid #3fd0ff;border-radius:6px;box-shadow:0 0 40px rgba(63,208,255,.25)}
+.flowhd{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #17344d;color:#3fd0ff;font-weight:600}
+.flowhd em{color:#5d7b94;font-style:normal;font-weight:400}
+.flowbd{flex:1;min-height:0;overflow:auto;padding:8px;background:#04070d}
+.flowbd img{display:block;width:100%;height:auto}
 </style></head><body data-v="ov">
 
 <div class="top">
@@ -89,6 +96,7 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
  <span class="sp"></span>
  <span class="chip" id="state">STOPPED</span>
  <div class="ctl">
+  <button class="bres" id="bflow">FLOW</button>
   <button class="bgo" id="bstart">START</button>
   <button class="bstop" id="bstop">STOP</button>
   <button class="bkill" id="bkill">KILL SWITCH</button>
@@ -142,6 +150,13 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
  <section class="pn c4" data-v="trd"><h3>Execution window <span>last 8 orders</span></h3><div class="bd">
   <div class="exsum" id="exsum"></div><div class="scroll" id="exw"></div></div></section>
 </main>
+
+<div class="flowov" id="flowov" role="dialog" aria-modal="true" aria-label="Quant system flow">
+ <div class="flowbox">
+  <div class="flowhd"><span>QUANT SYSTEM FLOW · v5 <em>proposed design · not built</em></span><button id="bflowx">CLOSE ✕</button></div>
+  <div class="flowbd"><img src="../../quant_system_flow_v5.svg" alt="Quant system flow v5 diagram"></div>
+ </div>
+</div>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -430,6 +445,12 @@ document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',
  document.body.dataset.v=b.dataset.v;
  document.querySelectorAll('#tabs button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
 }));
+const flowov=$('flowov');
+const closeFlow=()=>flowov.classList.remove('open');
+$('bflow').addEventListener('click',()=>flowov.classList.add('open'));
+$('bflowx').addEventListener('click',closeFlow);
+flowov.addEventListener('click',e=>{if(e.target===flowov)closeFlow()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeFlow()});
 setInterval(()=>{$('clk').textContent=ist().t+' IST'},1000);
 logm('Dashboard ready. Market hours: NSE 09:15–15:30 IST, Mon–Fri. Press START to begin dry-run trading.');
 uiControls();
