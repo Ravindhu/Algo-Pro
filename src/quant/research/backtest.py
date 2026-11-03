@@ -2,7 +2,9 @@
 
 Flow stage: Historical bars, Replay simulator
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/backtest/engine.py, Blue_engine/backtest/loops.py
+Existing code to reuse or wrap (do not copy): Blue_engine/backtest/costs.py (via research/costs.py, wrapped).
+The portfolio replay is kept local on purpose. Blue_engine/backtest/engine.py is single-symbol.
+See docs/decisions/0002-portfolio-backtest-kept-local.md.
 """
 from __future__ import annotations
 

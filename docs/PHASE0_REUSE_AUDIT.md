@@ -67,7 +67,7 @@ Verified = read both sides and compared logic. Declared = taken from the module 
 | `research/validation.py`, DSR | `ml/evaluation/metrics.py` (`deflated_sharpe`) | Formula differs: Blue omits the cross-trial variance, so its threshold is mis-scaled | KEEP (see `docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md`) | Done. Step 3 |
 | `research/validation.py`, PBO | none found in `Blue_engine/` | No. Blue's docstring claims PBO exists; it does not | KEEP (decision 0001) | Verified |
 | `research/validation.py`, bootstrap | `portfolio/optim/significance.py` (`bootstrap_ci`, `bootstrap_metric`) | Different output: Blue gives CIs, this gives a one-sided p-value | KEEP (decision 0001) | Verified |
-| `research/backtest.py` | `backtest/engine.py`, `backtest/loops.py` | Partly. Blue engine is strategy-driven | PENDING | Step 4 |
+| `research/backtest.py` | `backtest/engine.py`, `backtest/loops.py` | Different model: Blue is single-symbol, this is a multi-symbol portfolio replay with shared cash. `loops.py` is TCA, not a backtest | KEEP (decision 0002). Cost step is wrapped via `costs.py` | Done. Step 4 |
 | `research/trial_log.py` | `core/auto_tune.py` | Not yet read | PENDING | |
 | `research/lineage.py` | `core/ledger.py` | Not yet read. Ledger is execution-scoped; lineage is run-scoped | PENDING | |
 | `research/capacity.py` | `backtest/metrics.py` | Not yet read | PENDING | |
@@ -101,7 +101,7 @@ Each step is one commit. The step list is updated before each commit.
    from `n_splits`. Its only caller was `tests/unit/test_phase1_research.py`, updated to the new signature.
    Production scripts already call Blue directly. Test added for delegation and purge gap.
 3. DONE (partial): `research/validation.py`. `sharpe` wraps Blue. Behaviour change: constant input gives 0.0 instead of ~6.9e16 (float noise). DSR, PBO and bootstrap kept local. Decision: `docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md`.
-4. `research/backtest.py` → decision after reading `engine.py`.
+4. DONE (decision only): `research/backtest.py` KEEP. See `docs/decisions/0002-portfolio-backtest-kept-local.md`. Owner question open.
 
 ### Open questions found in step 1 (NOT changed; need a decision)
 
