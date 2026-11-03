@@ -19,6 +19,7 @@ C:\Users\Admin\CodeGPT\my-trading-system\docs\My trading system SOP
 After every successful git commit, append a dated work-log entry to:
 `C:\Users\Admin\CodeGPT\my-trading-system\Temp\Daily work log\`
 
+dont remove/ delect  any unwanted files ,move to temp folder and staging folder
 
 Project layout
 
