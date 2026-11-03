@@ -194,22 +194,26 @@ flowchart LR
 
 ---
 
-## 4. Proposed home in `Blue_engine/` (to confirm)
+## 4. Code layout (`src/quant/`)
 
-Based on the package layout in `README.md`. Not yet verified against code.
+The layout follows the project layout in `AGENTS.md`. Each module is a scaffold until it has logic and tests.
+One module can implement several blocks. Its `Flow stage:` line lists them.
+`tests/unit/test_layout.py` checks that every SVG block title is mapped. The two open gaps are listed there.
+Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/IMPLEMENTATION_PLAN.md`.
 
-| Flow area | Proposed package |
+| Flow lane | Package |
 |---|---|
-| Market inputs, live data, universe | `market/` |
-| Economic and India flow inputs | `economics/` |
-| Signal, alpha, meta-labeler | `alpha/` |
-| Pipeline, risk gate, ledger, kill switch | `core/` |
-| Sizing, allocator, portfolio risk | `portfolio/` |
-| Order slicing and routing (POV) | `pov/` |
-| Scheduled checks, recon, halts | `jobs/` |
-| Dashboard and alerts | `dashboard/` |
-| Config (calendar, limits) | `input/` |
-| Plumbing (logging, retries, audit storage) | `infrastructure/` |
+| Research validation | `src/quant/research/` |
+| Market inputs | `src/quant/data/market_inputs.py` |
+| Data and features | `src/quant/data/` |
+| Signal and conviction | `src/quant/models/` |
+| Sizing and portfolio | `src/quant/portfolio/` |
+| Portfolio risk, session guards, safety gate | `src/quant/risk/` |
+| Execution | `src/quant/execution/` |
+| Post-trade | `src/quant/monitor/` |
+| Audit | `src/quant/audit/` |
+| Improvement loop | `src/quant/feedback/` |
+| Support, dashboard, alerts | `src/quant/monitor/`, `src/quant/reporting/`, `src/quant/notify/` |
 
 ---
 
@@ -244,6 +248,6 @@ Based on the package layout in `README.md`. Not yet verified against code.
 
 ## 6. Open items
 
-- Confirm each stage against existing code in `Blue_engine/`. Section 4 is a guess from the layout.
+- Confirm each reuse target in `Blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
 - Items 13, 15 and 17 are regulatory or audit requirements. Treat them as blocking before live trading.
 - Keep this doc, the SVG, `AGENTS.md` and `README.md` in sync. Change them in the same commit.
