@@ -62,6 +62,9 @@ Exit checks:
 Goal: produce target positions that respect caps. Models enter only after a human signs off.
 Depends on: all Phase 1 exit checks passing.
 
+Status: IMPLEMENTED. 57 unit tests pass (Phase 1 + 2). `scripts/run_backtest.py` runs the research pipeline.
+Validated on synthetic bars only. No real-data evidence yet, so no strategy is approved.
+
 | Flow lane | Blocks | Module |
 |---|---|---|
 | Market inputs | India flow data, Bulk and block deals, Relative strength, Intraday microstructure, Filings and circulars, Global cues | `data/market_inputs.py` |
