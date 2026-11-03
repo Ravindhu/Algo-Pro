@@ -63,9 +63,10 @@ Verified = read both sides and compared logic. Declared = taken from the module 
 |---|---|---|---|---|
 | `research/costs.py` | `backtest/costs.py` (`CostModel`) | Yes. Same statutory stack, different interface and placeholder rates | WRAP | Done. Step 1 |
 | `research/walk_forward.py` | `ml/evaluation/splits.py` (`walk_forward`) | Yes. Expanding window with purge, same purpose | WRAP (API change: `test_size` removed) | Done. Step 2 |
-| `research/validation.py`, DSR | `ml/evaluation/metrics.py` (`deflated_sharpe`, `sharpe`) | Yes. Re-implements DSR | WRAP the DSR and Sharpe parts | Verified. Step 3 |
-| `research/validation.py`, PBO | none found in `Blue_engine/` | No | KEEP. Document in this file | Verified: no `pbo` function in Blue_engine |
-| `research/validation.py`, bootstrap | `portfolio/optim/significance.py` (`bootstrap_metric`) | Partly. Different output (one-sided p-value) | KEEP, reason documented | Verified |
+| `research/validation.py`, Sharpe | `ml/evaluation/metrics.py` (`sharpe`) | Yes. Same formula | WRAP | Done. Step 3 |
+| `research/validation.py`, DSR | `ml/evaluation/metrics.py` (`deflated_sharpe`) | Formula differs: Blue omits the cross-trial variance, so its threshold is mis-scaled | KEEP (see `docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md`) | Done. Step 3 |
+| `research/validation.py`, PBO | none found in `Blue_engine/` | No. Blue's docstring claims PBO exists; it does not | KEEP (decision 0001) | Verified |
+| `research/validation.py`, bootstrap | `portfolio/optim/significance.py` (`bootstrap_ci`, `bootstrap_metric`) | Different output: Blue gives CIs, this gives a one-sided p-value | KEEP (decision 0001) | Verified |
 | `research/backtest.py` | `backtest/engine.py`, `backtest/loops.py` | Partly. Blue engine is strategy-driven | PENDING | Step 4 |
 | `research/trial_log.py` | `core/auto_tune.py` | Not yet read | PENDING | |
 | `research/lineage.py` | `core/ledger.py` | Not yet read. Ledger is execution-scoped; lineage is run-scoped | PENDING | |
@@ -99,7 +100,7 @@ Each step is one commit. The step list is updated before each commit.
    API CHANGE (flagged): `purged_walk_forward` no longer takes `test_size`. Blue derives the test-block size
    from `n_splits`. Its only caller was `tests/unit/test_phase1_research.py`, updated to the new signature.
    Production scripts already call Blue directly. Test added for delegation and purge gap.
-3. `research/validation.py` → DSR and Sharpe delegated to `blue_engine.ml.evaluation.metrics`. PBO and bootstrap kept.
+3. DONE (partial): `research/validation.py`. `sharpe` wraps Blue. Behaviour change: constant input gives 0.0 instead of ~6.9e16 (float noise). DSR, PBO and bootstrap kept local. Decision: `docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md`.
 4. `research/backtest.py` → decision after reading `engine.py`.
 
 ### Open questions found in step 1 (NOT changed; need a decision)
@@ -122,3 +123,10 @@ Each step is one commit. The step list is updated before each commit.
 3. The Blue_engine baseline is recorded in this file. Real failures are listed by name.
 4. Each KEEP has a reason in this file.
 5. The PENDING rows above are either done or explicitly deferred to Phase 1 work by the user.
+
+## 7. Blue_engine findings (reported, NOT changed here)
+
+- `ml/evaluation/metrics.py::deflated_sharpe` mis-scales the threshold (no cross-trial variance). Rejects almost every strategy at N >= 10. See decision 0001.
+- `ml/__init__.py` docstring lists PBO in `ml/evaluation/`. No implementation exists.
+- Blue_engine import name: code uses `blue_engine`, folder is `Blue_engine/`. Works on Windows only without a bridge (fixed for src by `quant/core/blue_bridge.py`).
+- Blue_engine test failures with the SDK loaded (49): environment (pyarrow, yfinance) and two real logic failures (`test_phase3_bars`, `test_optimizer_engine`), plus a checkout-name dependency (`test_skill_writer`).

@@ -97,3 +97,35 @@ def test_walk_forward_delegates_and_keeps_purge_gap(monkeypatch):
         assert train.size >= 5
         assert train.max() < test.min() - 4          # purge gap respected
         assert test.min() > train.max()              # test strictly after train
+
+
+# Golden Sharpe values from the pre-wrap implementation (annualised, periods=252).
+def test_sharpe_numbers_unchanged_after_wrap():
+    _blue_or_skip("ml.evaluation.metrics")
+    from quant.research.validation import sharpe
+
+    assert sharpe([0.01, -0.005, 0.02, 0.0, 0.007]) == pytest.approx(10.574976083972865, rel=1e-12)
+
+
+def test_sharpe_delegates_to_blue(monkeypatch):
+    metrics = _blue_or_skip("ml.evaluation.metrics")
+    from quant.research import validation
+
+    calls = []
+    real = metrics.sharpe
+
+    def spy(returns, **kwargs):
+        calls.append(kwargs)
+        return real(returns, **kwargs)
+
+    monkeypatch.setattr(metrics, "sharpe", spy)
+    validation.sharpe([0.01, -0.005, 0.02])
+    assert calls and calls[0]["periods_per_year"] == 252.0
+
+
+def test_sharpe_constant_series_is_zero_not_noise():
+    """Old code returned ~6.9e16 here (float noise in the std). The wrapped version returns 0.0."""
+    _blue_or_skip("ml.evaluation.metrics")
+    from quant.research.validation import sharpe
+
+    assert sharpe([0.001] * 10) == 0.0

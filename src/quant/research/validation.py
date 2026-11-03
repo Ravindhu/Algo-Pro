@@ -2,7 +2,8 @@
 
 Flow stage: Trial logger + DSR/PBO, Bootstrap of trades
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/evaluation/splits.py
+Existing code to reuse or wrap (do not copy): Blue_engine/ml/evaluation/metrics.py (sharpe: wrapped).
+DSR, PBO and bootstrap are kept here on purpose. See docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md.
 """
 from __future__ import annotations
 
@@ -16,9 +17,11 @@ EULER_GAMMA = 0.5772156649015329
 
 
 def sharpe(returns, periods: int = 252) -> float:
-    r = np.asarray(returns, dtype=float)
-    s = r.std(ddof=1)
-    return 0.0 if s == 0 else float(r.mean() / s * math.sqrt(periods))
+    """Annualised Sharpe. Delegates to Blue_engine; 0.0 when undefined (kept from the old contract)."""
+    from quant.core.blue_bridge import load
+
+    value = load("ml.evaluation.metrics").sharpe(list(returns), periods_per_year=float(periods))
+    return 0.0 if value is None else float(value)
 
 
 def expected_max_sharpe(n_trials: int, trial_sharpe_var: float) -> float:
