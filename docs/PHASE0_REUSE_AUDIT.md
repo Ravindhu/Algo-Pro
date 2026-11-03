@@ -203,3 +203,19 @@ These src modules have no row above and were not compared line by line. Each nee
 - `feedback/`: `champion_challenger.py`, `reopt.py`
 - `reporting/`: `dashboard.py`, `accounting.py`
 - `notify/`: `alerts.py`
+
+### Step 9: rebalance wrapped; allocator, queue, rolling Sharpe, drift, CUSUM kept (2026-11-04)
+
+| src module | Blue_engine target | Duplicate? | Decision | Status |
+|---|---|---|---|---|
+| `portfolio/rebalance.py::rebalance_trades` | `portfolio/optim/cost_aware.py::should_rebalance` (declared `jobs/daily_portfolio.py` was not the band logic) | Yes. 400 random cases: same names traded; values within 5e-7 (Blue rounds to 6 dp) | WRAP. Strict boundary (trade only when drift is above the band) kept locally, because Blue uses `>=` | Done. Step 9 |
+| `portfolio/allocator.py` | none (Blue has no score-proportional capped budget, no T+1 funds check) | No | KEEP | Done. Step 9 |
+| `execution/queue.py` | none (Blue `core/orchestrator.py` is a pipeline runner, not an approval-gated queue) | No | KEEP. Approval check is a safety invariant | Done. Step 9 |
+| `monitor/strategy_health.py::rolling_sharpe` | `portfolio/attribution/perf.py::sharpe` | No. Blue's Sharpe is annualised compound return over annualised vol. Ours is arithmetic mean over std. Values differ (9.71 vs 16.02 on the same window) | KEEP. Different metric | Done. Step 9 |
+| `monitor/strategy_health.py::cusum_alarm` | none | No | KEEP | Done. Step 9 |
+| `monitor/drift.py::psi` | none (Blue `ml/audit/degradation.py` is a log, not PSI) | No | KEEP | Done. Step 9 |
+| `models/regime.py` | `economics/regime.py` (score bands and multipliers) | No. Different inputs and outputs | KEEP | Done. Step 9 |
+
+**Blue finding (not changed):** `portfolio/attribution/perf.py::sharpe` and `ml/evaluation/metrics.py::sharpe` use different definitions. Two Sharpe ratios in one codebase will disagree in reports. Decide on one definition and label the other.
+
+**Still not compared (section 8, reduced):** `models/events.py`, `models/factors.py`, `models/meta_label.py`, `data/ingest.py`, `data/market_inputs.py`, `data/feature_store.py`, `data/universe.py`, `risk/controls.py`, `execution/router.py`, `monitor/session.py`, `feedback/champion_challenger.py`, `feedback/reopt.py`, `reporting/dashboard.py`, `reporting/accounting.py`, `notify/alerts.py`. These have a declared target but no line-by-line comparison yet.
