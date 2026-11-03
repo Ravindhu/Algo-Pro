@@ -219,3 +219,12 @@ These src modules have no row above and were not compared line by line. Each nee
 **Blue finding (not changed):** `portfolio/attribution/perf.py::sharpe` and `ml/evaluation/metrics.py::sharpe` use different definitions. Two Sharpe ratios in one codebase will disagree in reports. Decide on one definition and label the other.
 
 **Still not compared (section 8, reduced):** `models/events.py`, `models/factors.py`, `models/meta_label.py`, `data/ingest.py`, `data/market_inputs.py`, `data/feature_store.py`, `data/universe.py`, `risk/controls.py`, `execution/router.py`, `monitor/session.py`, `feedback/champion_challenger.py`, `feedback/reopt.py`, `reporting/dashboard.py`, `reporting/accounting.py`, `notify/alerts.py`. These have a declared target but no line-by-line comparison yet.
+
+## 10. Step 10: remaining 15 modules decided (2026-11-04)
+
+All 15 modules listed in section 9 are now decided. Full table and reasons:
+`docs/decisions/0005-remaining-modules.md`.
+
+- WRAP (2): `models/factors.py::momentum_12_1` (Blue `momentum`), `reporting/dashboard.py::profit_factor` (Blue `profit_factor`).
+- KEEP (13): reasons per module in decision 0005.
+- Section 8 "still not compared" list is closed.
