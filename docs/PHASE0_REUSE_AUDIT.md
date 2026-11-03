@@ -71,7 +71,7 @@ Verified = read both sides and compared logic. Declared = taken from the module 
 | `research/trial_log.py` | `core/auto_tune.py` | Not yet read | PENDING | |
 | `research/lineage.py` | `core/ledger.py` | Not yet read. Ledger is execution-scoped; lineage is run-scoped | PENDING | |
 | `research/capacity.py` | `backtest/metrics.py` | Not yet read | PENDING | |
-| `risk/gate.py`, `risk/pretrade.py` | `core/risk_gate.py` | Not yet read. Safety-critical | PENDING, priority | |
+| `risk/gate.py`, `risk/pretrade.py`, `risk/loss_breaker.py` | `core/risk_gate.py` | Partly. Blue has the monetary checks (qty, notional, daily loss, exposure) and fails closed. Blue treats a missing limit as "not set" (approve); this project rejects entries when a limit is null. Each src module also has checks Blue lacks | SPLIT: monetary arithmetic WRAP via `risk/blue_risk_gate.py`; null-limit policy, lot size, duplicate IDs, safe mode, price band, liquidity, strategy loss stay local | Done. Step 5. Verdicts identical on 3,456-case grid |
 | `risk/kill_switch.py` | `core/kill_switch_store.py` | Not yet read | PENDING | |
 | `execution/openalgo_client.py` | `core/client.py` | Not yet read. Must stay the only `.placeorder(` caller | PENDING, priority | |
 | `monitor/ledger.py` | `core/ledger_store.py` | Not yet read | PENDING | |
@@ -131,6 +131,10 @@ Each step is one commit. The step list is updated before each commit.
 3. The Blue_engine baseline is recorded in this file. Real failures are listed by name.
 4. Each KEEP has a reason in this file.
 5. The PENDING rows above are either done or explicitly deferred to Phase 1 work by the user.
+
+### Step 5 (risk gate, 2026-11-03)
+
+`risk/blue_risk_gate.py` is the only place src/quant calls Blue's RiskGate. `gate.py`, `pretrade.py` and `loss_breaker.py` keep only the null-limit policy. Blue's live acknowledgement is not used (no live mode yet). Exits never reach Blue.
 
 ## 7. Blue_engine findings (reported, NOT changed here)
 

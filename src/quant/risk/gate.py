@@ -2,7 +2,7 @@
 
 Flow stage: Trade intent, Risk gate
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py
+Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (values via risk/blue_risk_gate.py)
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import List, Set
 from quant.core.config import RiskLimits
 from quant.core.types import GateDecision, TradeIntent
 from quant.monitor.safe_mode import Mode, SafeMode
+from quant.risk.blue_risk_gate import entry_breaches
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.liquidity import liquidity_checks
 from quant.risk.loss_breaker import loss_checks
@@ -51,11 +52,12 @@ def check_intent(
     reasons += pretrade_checks(intent, limits)
     reasons += price_band_checks(intent)
     reasons += liquidity_checks(intent, limits)
-    if is_entry:
-        if limits.max_open_exposure is None:
-            reasons.append("limit not set: max_open_exposure")
-        elif state.open_notional + intent.notional > limits.max_open_exposure:
-            reasons.append("open exposure limit would be exceeded")
+    if is_entry and limits.max_open_exposure is None:
+        reasons.append("limit not set: max_open_exposure")
+    # Monetary values (order qty, notional, daily loss, open exposure) are checked by Blue_engine.
+    reasons += entry_breaches(
+        intent, limits, open_notional=state.open_notional, daily_pnl=state.daily_pnl
+    )
     reasons += loss_checks(
         intent, state.daily_pnl, state.strategy_pnl.get(intent.strategy_id, 0.0), limits
     )
