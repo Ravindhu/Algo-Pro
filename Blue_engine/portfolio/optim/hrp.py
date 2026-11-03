@@ -78,7 +78,8 @@ def quasi_diag(link: List[Tuple[int, int, float]], n: int) -> List[int]:
         return list(range(n))
     order: List[int] = []
     # Stack of node ids to expand; begin with the two children of the root merge.
-    stack: List[int] = [int(link[-1][0]), int(link[-1][1])]
+    # Push right, then left, so the LEFT child of the root is expanded first (same as inner nodes).
+    stack: List[int] = [int(link[-1][1]), int(link[-1][0])]
     while stack:
         node = stack.pop()
         if node < n:
