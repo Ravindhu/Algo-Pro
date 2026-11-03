@@ -1,7 +1,7 @@
 """Indian equity cost model: thin wrapper over the Blue_engine cost model.
 
 Flow stage: Indian cost model
-Status: PHASE 0 IMPLEMENTED (wrapper: arithmetic delegated to Blue_engine)
+Status: PHASE 1 IMPLEMENTED (Phase 0 wrap: wrapper: arithmetic delegated to Blue_engine)
 Existing code to reuse or wrap (do not copy): Blue_engine/backtest/costs.py
 
 WHAT THIS FILE KEEPS

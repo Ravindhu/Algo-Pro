@@ -1,7 +1,7 @@
 """Monetary and size breach arithmetic for ENTRY intents, delegated to Blue_engine's RiskGate.
 
 Flow stage: Risk gate (monetary breach checks)
-Status: PHASE 0 IMPLEMENTED (wrapper: arithmetic delegated to Blue_engine)
+Status: PHASE 1 IMPLEMENTED (Phase 0 wrap: monetary arithmetic delegated to Blue_engine)
 Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py
 
 WHAT THIS FILE DOES

@@ -9,7 +9,7 @@ For each `src/quant/` module that declares a `Blue_engine/` target, decide:
 
 - **WRAP**: the module becomes a thin adapter over the Blue_engine function. No logic copy.
 - **KEEP**: no Blue_engine equivalent exists. The new code stays, with a reason.
-- **PENDING**: not audited yet.
+- **PENDING**: not audited yet (none remain in the Phase 1 table; section 8 lists the Phase 2 and 3 gaps).
 
 Each WRAP is one commit. Each commit runs the unit suite and the Blue_engine suite.
 
@@ -68,16 +68,16 @@ Verified = read both sides and compared logic. Declared = taken from the module 
 | `research/validation.py`, PBO | none found in `Blue_engine/` | No. Blue's docstring claims PBO exists; it does not | KEEP (decision 0001) | Verified |
 | `research/validation.py`, bootstrap | `portfolio/optim/significance.py` (`bootstrap_ci`, `bootstrap_metric`) | Different output: Blue gives CIs, this gives a one-sided p-value | KEEP (decision 0001) | Verified |
 | `research/backtest.py` | `backtest/engine.py`, `backtest/loops.py` | Different model: Blue is single-symbol, this is a multi-symbol portfolio replay with shared cash. `loops.py` is TCA, not a backtest | KEEP (decision 0002). Cost step is wrapped via `costs.py` | Done. Step 4 |
-| `research/trial_log.py` | `core/auto_tune.py` | Not yet read | PENDING | |
-| `research/lineage.py` | `core/ledger.py` | Not yet read. Ledger is execution-scoped; lineage is run-scoped | PENDING | |
-| `research/capacity.py` | `backtest/metrics.py` | Not yet read | PENDING | |
+| research/trial_log.py | `optimizer/store.py` (declared `core/auto_tune.py` is wrong: it is a tuner) | Different. Blue's journal is an fsync'd per-study store under a fixed root; ours is a plain JSONL trial count that DSR relies on | KEEP. Declared target corrected | Done. Step 7 |
+| research/lineage.py | none (declared `core/ledger.py` is the execution ledger) | No equivalent: Blue has no data-hash, code-commit and params record | KEEP. Declared target corrected | Done. Step 7 |
+| research/capacity.py | none (declared `backtest/metrics.py` has no capacity function) | No equivalent. The formula is one line | KEEP. Declared target corrected | Done. Step 7 |
 | `risk/gate.py`, `risk/pretrade.py`, `risk/loss_breaker.py` | `core/risk_gate.py` | Partly. Blue has the monetary checks (qty, notional, daily loss, exposure) and fails closed. Blue treats a missing limit as "not set" (approve); this project rejects entries when a limit is null. Each src module also has checks Blue lacks | SPLIT: monetary arithmetic WRAP via `risk/blue_risk_gate.py`; null-limit policy, lot size, duplicate IDs, safe mode, price band, liquidity, strategy loss stay local | Done. Step 5. Verdicts identical on 3,456-case grid |
-| `risk/kill_switch.py` | `core/kill_switch_store.py` | Not yet read | PENDING | |
+| risk/kill_switch.py | `core/kill_switch_store.py` | Different failure policy. Blue's store is a process singleton and DEGRADES to memory-only on write error. Ours raises and persists per path. For a halt, degrade-to-memory is the unsafe choice | KEEP (safer policy) | Done. Step 7 |
 | `execution/openalgo_client.py` | `core/client.py` | Partly. Blue's client is SDK setup and key handling; its order path is SDK-based in other modules. src order path uses an injected transport (testable, one payload). Blue's `resolve_api_key` also decrypts DB keys | SPLIT: `.env` loader WRAP (`load_env_file`); transport order path KEEP; key discovery from DB NOT used | Done. Step 6 |
 | `execution/openalgo_client.py::PaperBroker` | `core/paper_broker.py` | Different surfaces. Blue's is an SDK-shaped simulator with synthetic prices and order book; src fills at reference price plus slippage | KEEP for Phase 1. Owner decision later: Phase 3 paper parity may use Blue's | Done. Step 6 |
-| `monitor/ledger.py` | `core/ledger_store.py` | Not yet read | PENDING | |
-| `monitor/tca.py` | `backtest/costs.py` | Not yet read | PENDING | |
-| Phase 2 and 3 modules (about 40 more) | see section 3 header list in `src/quant/*` | Not audited | PENDING | |
+| monitor/ledger.py | `core/ledger_store.py` | Different purpose. Blue's is a fail-soft POV execution mirror; ours is an append-only intent and fill ledger with reconciliation | KEEP | Done. Step 7 |
+| monitor/tca.py | none (declared `backtest/costs.py` has no TCA) | No equivalent. Two short formulas | KEEP. Declared target corrected | Done. Step 7 |
+| Phase 2 and 3 modules | see "Phase 2 and 3 decisions" below | See below | Done. Step 7 | |
 
 ## 4. Bridge: how wrappers import `Blue_engine`
 
@@ -131,7 +131,7 @@ Each step is one commit. The step list is updated before each commit.
 2. The unit suite stays green (73 tests, no regression).
 3. The Blue_engine baseline is recorded in this file. Real failures are listed by name.
 4. Each KEEP has a reason in this file.
-5. The PENDING rows above are either done or explicitly deferred to Phase 1 work by the user.
+5. Every row is Done (decision recorded). Modules listed in section 8 still need a decision.
 
 ### Step 5 (risk gate, 2026-11-03)
 
@@ -141,9 +141,63 @@ Each step is one commit. The step list is updated before each commit.
 
 `OpenAlgoClient.api_key_from_env` now loads the repo-root `.env` through Blue's `load_env_file`. It reads only the environment and never calls Blue's `resolve_api_key`, which can decrypt keys from the OpenAlgo database. The order path stays the injected transport. Layout test still enforces that only `openalgo_client.py` may send orders.
 
-## 7. Blue_engine findings (reported, NOT changed here)
+## 7a. Blue_engine findings (earlier, NOT changed here)
 
 - `ml/evaluation/metrics.py::deflated_sharpe` mis-scales the threshold (no cross-trial variance). Rejects almost every strategy at N >= 10. See decision 0001.
 - `ml/__init__.py` docstring lists PBO in `ml/evaluation/`. No implementation exists.
 - Blue_engine import name: code uses `blue_engine`, folder is `Blue_engine/`. Works on Windows only without a bridge (fixed for src by `quant/core/blue_bridge.py`).
 - Blue_engine test failures with the SDK loaded (49): environment (pyarrow, yfinance) and two real logic failures (`test_phase3_bars`, `test_optimizer_engine`), plus a checkout-name dependency (`test_skill_writer`).
+
+### Phase 2 and 3 decisions (step 7, 2026-11-03)
+
+| src module | Blue_engine target | Duplicate? | Decision | Status |
+|---|---|---|---|---|
+| `portfolio/sizing.py` | `portfolio/sizing/kelly.py::kelly_leverage`, `portfolio/sizing/vol_target.py::vol_target_scale` (declared `core/risk_engine.py` was wrong) | Yes, same formulas | WRAP. Zero-vol and zero-sigma guards stay local. 180 Kelly and 24 vol-target grid cases match | Done. Step 7 |
+| `portfolio/portfolio_risk.py::historical_cvar` | `portfolio/risk/tail.py::cvar` (declared `core/risk_engine.py` was wrong) | Yes, same values at alpha 0.05, 0.01, 0.10 | WRAP. Caps and stress stay local | Done. Step 7 |
+| `monitor/live_monitor.py::max_drawdown` | `ml/evaluation/metrics.py::max_drawdown` | Yes, same on 300 random paths. Local version returned NaN for a path starting at 0 | WRAP (bug fix). MAE/MFE `excursions` KEEP (no Blue equivalent) | Done. Step 7 |
+| `portfolio/covariance.py::shrink_cov` | `portfolio/risk/covariance.py::ledoit_wolf_cov` (declared `ml/features/cross_section.py` was wrong) | Not the same. Blue's output is not the sample covariance at delta=0 (ratio 1.23) | KEEP. Blue discrepancy to verify (section 7) | Done. Step 7 |
+| `portfolio/optimizer.py::hrp_weights` | `portfolio/optim/hrp.py::hrp_weights` (declared `core/auto_tune.py` was wrong) | Both claim HRP. Weights differ on the same covariance (asset 0: 0.217 ours vs 0.236 Blue) | KEEP. Verify both against a published HRP reference (section 7) | Done. Step 7 |
+| `risk/price_band.py` | `core/band.py` (different) | Different: Blue's band module is POV pacing; ours is a circuit-band and ASM/GSM check | KEEP | Done. Step 7 |
+| `risk/liquidity.py` | `core/liquidity.py` | Different: Blue sizes blocks by tier; ours is a percent-of-ADV cap | KEEP | Done. Step 7 |
+| `risk/exits.py` | `core/exit_engine.py` | Different: Blue places broker protection orders; ours is a pure price-check state | KEEP | Done. Step 7 |
+| `risk/squareoff.py` | `core/auction_windows.py` | Different: auction windows vs cutoff time and expiry roll | KEEP | Done. Step 7 |
+| `monitor/throttle.py` | `core/throttle.py` | Different: order-rate function vs token bucket | KEEP. Revisit in Phase 3 | Done. Step 7 |
+| `monitor/safe_mode.py` | `core/mode.py` | Different: Blue reads mode from the broker client; ours is a local state machine | KEEP | Done. Step 7 |
+| `monitor/parity.py` | `core/paper_shift.py` (LLM research harness; poor fit) | Different: tolerance check on two dicts | KEEP | Done. Step 7 |
+| `execution/protection.py` | `core/protective_orders.py` | Different: broker-side stop state vs intent builder | KEEP | Done. Step 7 |
+| `execution/order_fsm.py` | `core/order_updates.py` | Different: Blue normalizes broker events, no state machine | KEEP | Done. Step 7 |
+| `data/qa.py` | `ml/audit/quality.py` | Different output contract | KEEP. Revisit with data work | Done. Step 7 |
+| `data/corp_actions.py` | `core/symbol_meta.py` (declared; metadata only) | Blue has no back-adjustment | KEEP | Done. Step 7 |
+| `audit/log.py` | `core/ledger.py` (declared; execution ledger) | Different: hash-chained audit trail | KEEP | Done. Step 7 |
+| `models/calibration.py` | `ml/models/base.py` (declared) | No Platt or isotonic calibration found in Blue | KEEP | Done. Step 7 |
+| `models/signal.py` | `alpha/base.py` (declared; file does NOT exist) | Target missing | KEEP. Declared path is stale | Done. Step 7 |
+
+### Step 7 summary
+
+Wraps added:
+- `portfolio/sizing.py`: Kelly and vol target delegate to Blue. Matches 180 and 24 grid cases.
+- `portfolio/portfolio_risk.py::historical_cvar`: delegates to Blue `tail.cvar`. Behaviour change: empty input now raises `ValueError`. The old code returned NaN silently.
+- `monitor/live_monitor.py::max_drawdown`: delegates to Blue. Bug fix: no NaN on a zero-start path.
+
+Declared targets that were wrong: `research/trial_log.py`, `research/lineage.py`, `research/capacity.py`, `monitor/tca.py`, and several `portfolio/` and `models/` headers. Corrected in the module headers where the stage label allows.
+
+## 7. Open verification items (owner)
+
+1. **HRP disagreement.** `src/quant/portfolio/optimizer.py::hrp_weights` and Blue `portfolio/optim/hrp.py::hrp_weights` give different weights on the same covariance. Check both against the published Lopez de Prado algorithm (single-linkage quasi-diagonalisation, recursive bisection) before Phase 2 exit checks.
+2. **Ledoit-Wolf disagreement.** Blue's `ledoit_wolf_cov(shrink=0)` is not the sample covariance (ratio 1.23). Our `shrink_cov(delta=0)` is, by construction. Decide which estimator is intended.
+3. **Blue DSR threshold** (decision 0001). Unchanged. Do not use Blue's `deflated_sharpe` in any gate.
+4. **Blue_engine test failures** (49 with SDK): environment (pyarrow, yfinance), two real logic failures (`test_phase3_bars`, `test_optimizer_engine`), and a checkout-name dependency (`test_skill_writer`).
+
+## 8. Modules not individually compared (honest gap)
+
+These src modules have no row above and were not compared line by line. Each needs a decision before its phase exit check:
+
+- `models/`: `events.py`, `factors.py`, `meta_label.py`, `regime.py`
+- `portfolio/`: `allocator.py`, `rebalance.py`
+- `data/`: `ingest.py`, `market_inputs.py`, `feature_store.py`, `universe.py`
+- `risk/`: `controls.py`
+- `execution/`: `queue.py`, `router.py`
+- `monitor/`: `drift.py`, `session.py`, `strategy_health.py`
+- `feedback/`: `champion_challenger.py`, `reopt.py`
+- `reporting/`: `dashboard.py`, `accounting.py`
+- `notify/`: `alerts.py`
