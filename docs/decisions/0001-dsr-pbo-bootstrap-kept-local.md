@@ -61,3 +61,20 @@ Those are different outputs. Keep the local function.
    DSR in any gate.
 2. Blue_engine `ml/__init__.py` docstring: remove "PBO", or implement it.
 3. Consider moving the local PBO into Blue_engine later, so the whole stack lives in one place.
+
+## Follow-up (2026-11-04): Blue DSR threshold fixed
+
+Blue `ml/evaluation/metrics.py::deflated_sharpe` used a cross-trial Sharpe variance of 1.0
+(hard-coded). The Bailey and Lopez de Prado threshold scales with its square root.
+Fix: optional `trial_sharpe_var`. When it is given, the threshold uses sqrt(V). When it is
+omitted, the legacy result is kept and the output field `trial_sharpe_var_used` shows 1.0.
+Regression tests: `Blue_engine/tests/test_dsr_trial_variance.py` (4 tests). Blue suite
+failure set unchanged (49 pre-existing).
+
+Callers still on the legacy default (owner to decide whether to pass a real variance):
+- `Blue_engine/backtest/metrics.py:227` (backtest gate)
+- `Blue_engine/optimizer/study.py:304`
+- `Blue_engine/ml/evaluation/walk_forward.py:387`
+
+Our local `src/quant/research/validation.py::deflated_sharpe` already takes the variance
+explicitly and stays local (this decision).
