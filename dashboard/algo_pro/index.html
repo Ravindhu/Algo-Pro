@@ -120,7 +120,7 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
 
 <main class="grid">
  <section class="pn c8" data-v="ov"><h3>Portfolio &amp; P&amp;L <span>all accounts · simulated · ₹</span></h3><div class="bd">
-  <div class="d">Today</div><div class="big" id="pnl">+₹0</div>
+  <div class="d">Today <button id="rev" type="button">Show ₹</button></div><div class="big" id="pnl">••••</div>
   <div class="kv">
    <div><span>Equity</span><b id="eqv">—</b></div>
    <div><span>Total P&amp;L</span><b id="totp">—</b></div>
@@ -288,11 +288,14 @@ function step(){
 }
 
 /* ---------- UI ---------- */
+let revealPnl=false,lastEq=0,lastDd=0;
+document.addEventListener('click',e=>{if(e.target.id==='rev'){revealPnl=!revealPnl;e.target.textContent=revealPnl?'Hide ₹':'Show ₹';ui(lastEq,lastDd)}});
 function ui(eq,dd){
+ lastEq=eq;lastDd=dd;
  const day=eq-dayStart,tot=eq-START,n=rets.length,expo=open.reduce((a,t)=>a+t.risk,0),grossAbs=Math.abs(grossTot);
  const mean=n?rets.reduce((a,b)=>a+b,0)/n:0,sd=n>1?Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/(n-1)):0,sh=n>=5&&sd>0?mean/sd:null;
- const p=$('pnl');p.textContent=money(day,true);p.className='big '+sgn(day);
- setT('eqv',money(eq));setT('totp',money(tot,true),sgn(tot));setT('tr',(tot/START*100).toFixed(2)+'%',sgn(tot));
+ const p=$('pnl');p.textContent=revealPnl?money(day,true):'••••';p.className='big '+(revealPnl?sgn(day):'');
+ setT('eqv',revealPnl?money(eq):'••••');setT('totp',revealPnl?money(tot,true):'••••',revealPnl?sgn(tot):'');setT('tr',revealPnl?(tot/START*100).toFixed(2)+'%':'••••',revealPnl?sgn(tot):'');
  setT('mdd',(mdd*100).toFixed(2)+'%',mdd>.04?'a':'');
  setT('sh',sh==null?'—':sh.toFixed(2),sh==null?'':sh>=0?'g':'r');
  setT('wr',n?Math.round(wins/n*100)+'%':'—');

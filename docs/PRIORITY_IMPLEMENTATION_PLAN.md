@@ -61,7 +61,7 @@ Gap: P&L is visible by default in both dashboards. This fails Phase 3 exit check
 ### A2. Size tiers
 - Fixed table in `config/`: score bands map to a size multiplier (for example: below 0.5 = no trade; 0.5-0.7 = base; 0.7-0.85 = 1.5x base; above 0.85 = 2x base, capped).
 - The tier table is a proposal. Values are set only after backtest and out-of-sample evidence. Until then they are config placeholders, and tests check the logic, not the profit.
-- Location: `src/quant/models/tiers.py` and `config/conviction_tiers.yaml`. Decision (2026-11-04): placeholder values, tiers DISABLED by default.
+- Location: `src/quant/portfolio/tiers.py` (Sizing lane; corrected from models/, see `docs/decisions/0006`) and `config/conviction_tiers.yaml`. Placeholder values, tiers DISABLED by default.
 
 ### A3. Wire into sizing with hard caps
 - Tier multiplier applies to the base size from fractional Kelly.
@@ -132,3 +132,26 @@ Open:
 - **Branch reconciliation:** choose how `main` and `master` are reconciled before anything lands on `main`. Not yet decided.
 - **Accounting view password:** how the local password is stored and set (not yet designed). Needs a security review before build.
 - **Existing Phase 2/3 status claims:** the existing plan marks some items as implemented that are only partly built. I will note this in the status section rather than edit those claims without your review.
+
+---
+
+## 7. Progress log (2026-11-04)
+
+| Step | Status | Where | Tests |
+|---|---|---|---|
+| A1 conviction score | DONE | `models/conviction.py` | 18 pass |
+| A2 tier config | DONE, disabled | `config/conviction_tiers.yaml`, `portfolio/tiers.py` | 32 pass (tiers + layout) |
+| A3 cap wiring | DONE | `portfolio/tiers.py` `decide_size` | included above |
+| A4 calibration report, backtest with costs | NOT DONE, needs real data | - | - |
+| B1 hide P&L by default | DONE | `Blue_engine/dashboard/render.py`, `dashboard/algo_pro/index.html` | 5 web pass; 5 terminal skip until `rich` installed |
+| B2 execution panels | PARTIAL | `reporting/dashboard.py` `build_payload` already has EV, win rate, profit factor, MAE/MFE, risk use, rule breaches | existing test in `test_phase3.py` (blocked by missing `openalgo`) |
+| B3 accounting view | DONE (password gate) | `reporting/accounting.py` | 11 pass |
+
+Corrections to earlier sections:
+- B2 was described as "not built". `build_payload` already provides most of the panel metrics. What is missing: "strategy consistency" and "deviation alerts" (no definition yet), and the panel is not yet wired into either live dashboard.
+- Web dashboard: P&L is hidden in daily P&L, equity, total P&L and total return. Other money figures in the web view (for example, log lines) were not audited.
+
+Still open:
+- Rate limit on password attempts. Not built.
+- Setup script for the accounting password. Not built.
+- Tier values. Placeholders until A4.

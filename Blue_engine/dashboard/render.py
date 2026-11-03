@@ -76,10 +76,12 @@ def render_universe_table(
     *,
     title: str = "Watchlist",
     max_rows: int = 50,
+    reveal_pnl: bool = False,
 ) -> Table:
     """Render the main universe table.
 
     Each row dict is shaped by :class:`LiveDashboard._build_universe_row`.
+    P&L is hidden unless ``reveal_pnl`` is True (behavioural risk control).
     """
     table = Table(title=title, expand=True, header_style="bold cyan")
     table.add_column("Symbol", style="bold", no_wrap=True, min_width=10)
@@ -127,7 +129,9 @@ def render_universe_table(
         else:
             dist_text = Text("-", style="dim")
         pos_text = Text(f"{pos}", style="bold") if pos else Text("-", style="dim")
-        if isinstance(pnl, (int, float)) and pos:
+        if not reveal_pnl:
+            pnl_text = Text("hidden", style="dim")
+        elif isinstance(pnl, (int, float)) and pos:
             pnl_text = Text(f"{pnl:+,.0f}", style="green" if pnl >= 0 else "red")
         else:
             pnl_text = Text("-", style="dim")
@@ -156,8 +160,13 @@ def render_universe_table(
 # ---------------------------------------------------------------------------
 
 
-def render_detail_panel(row: Optional[Dict[str, Any]], candles: Sequence[Dict[str, float]]) -> Panel:
-    """Render the per-symbol detail panel (selected row)."""
+def render_detail_panel(
+    row: Optional[Dict[str, Any]],
+    candles: Sequence[Dict[str, float]],
+    *,
+    reveal_pnl: bool = False,
+) -> Panel:
+    """Render the per-symbol detail panel (selected row). P&L hidden unless ``reveal_pnl``."""
     if not row:
         return Panel(
             Text("No symbol selected. Press a key in the dashboard to focus a symbol.", style="dim italic"),
@@ -180,6 +189,8 @@ def render_detail_panel(row: Optional[Dict[str, Any]], candles: Sequence[Dict[st
     pnl = row.get("unrealized_pnl", 0)
     pnl_style = "green" if isinstance(pnl, (int, float)) and pnl >= 0 else "red"
     pnl_str = f"{pnl:+,.0f}" if isinstance(pnl, (int, float)) and pos else "-"
+    if not reveal_pnl:
+        pnl_str, pnl_style = "hidden", "dim"
 
     header = Text()
     header.append(f"{sym} {exch}", style="bold cyan")
