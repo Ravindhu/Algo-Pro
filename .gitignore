@@ -168,3 +168,6 @@ Temp/
 !Blue_engine/pyproject.toml
 # Deployment config with the API key - the .example template IS tracked
 Servers/deploy.env
+
+# src/quant/data is source code; the data/ rules above are for runtime data
+!src/quant/data/
