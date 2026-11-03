@@ -1,7 +1,7 @@
 """Indian equity cost model: thin wrapper over the Blue_engine cost model.
 
 Flow stage: Indian cost model
-Status: PHASE 0 IMPLEMENTED (wrapper: arithmetic delegated to Blue_engine; behaviour unchanged)
+Status: PHASE 0 IMPLEMENTED (wrapper: arithmetic delegated to Blue_engine)
 Existing code to reuse or wrap (do not copy): Blue_engine/backtest/costs.py
 
 WHAT THIS FILE KEEPS
@@ -10,17 +10,21 @@ The public parameters and ``trade_cost`` signature used by Phase 1 code and test
 The statutory arithmetic (brokerage, exchange, SEBI, GST, STT, stamp, impact) is NOT
 here. It is computed by ``blue_engine.backtest.costs.CostModel``.
 
+RULES (owner-confirmed 2026-11-03)
+----------------------------------
+- Delivery: brokerage is zero. STT applies on BOTH buy and sell legs.
+- Intraday: brokerage is 0.03% of notional capped at Rs 20 per order. STT applies on the
+  sell leg only.
+- Stamp duty applies on the buy leg only (delivery and intraday rates differ).
+- ``impact_bps`` is a flat per-side cost, mapped to Blue's slippage term. Blue's
+  square-root impact model is not used yet (see docs/PHASE0_REUSE_AUDIT.md).
+
 WHAT THIS FILE TRANSLATES (only this)
 -------------------------------------
 - Currency brokerage cap -> bps for one trade, so Blue's percentage brokerage matches.
-- Per-product rates (delivery vs intraday) -> one Blue config per leg.
-- STT and stamp duty apply only on the leg they are charged on (kept as before this wrap).
-- ``impact_bps`` (flat per-side bps) -> Blue's slippage term, with latency and sqrt impact off.
+- Per-product rules (delivery vs intraday) -> one Blue config per leg.
 
-BEHAVIOUR IS UNCHANGED FROM BEFORE THE WRAP. Known questions, NOT changed here:
-- STT on the BUY leg of delivery trades. The pre-wrap code charged STT on the SELL leg only.
-  Verify against the current NSE/SEBI schedule before changing it (separate commit).
-- Default rates are placeholders. Verify against current NSE, BSE and SEBI schedules before use.
+NOTE: default rates are placeholders. Verify against current NSE, BSE and SEBI schedules before use.
 """
 from __future__ import annotations
 
@@ -38,10 +42,11 @@ def _blue_cost_class() -> Any:
 
 @dataclass(frozen=True)
 class CostModel:
-    brokerage_pct: float = 0.0003
-    brokerage_cap: float = 20.0
-    stt_delivery_sell: float = 0.001
-    stt_intraday_sell: float = 0.00025
+    brokerage_pct: float = 0.0003          # intraday only
+    brokerage_cap: float = 20.0            # Rs per order, intraday only
+    delivery_brokerage_pct: float = 0.0    # delivery brokerage is zero
+    stt_delivery: float = 0.001            # delivery, both legs
+    stt_intraday_sell: float = 0.00025     # intraday, sell leg only
     exchange_txn_pct: float = 0.0000322
     sebi_fee_pct: float = 0.000001
     stamp_buy_delivery: float = 0.00015
@@ -67,16 +72,17 @@ class CostModel:
         )
 
     def _leg_config(self, notional: float, is_buy: bool, intraday: bool) -> Dict[str, float]:
-        """Map this model's currency and fraction fields onto Blue's bps keys for one leg."""
-        brokerage_bps = self.brokerage_pct * 1e4
-        if notional > 0:
-            brokerage_bps = min(brokerage_bps, self.brokerage_cap / notional * 1e4)
-        if is_buy:
-            stt_bps = 0.0
-            stamp_bps = (self.stamp_buy_intraday if intraday else self.stamp_buy_delivery) * 1e4
+        """Map this model's fields onto Blue's bps keys for one leg."""
+        if intraday:
+            brokerage_bps = self.brokerage_pct * 1e4
+            if notional > 0:
+                brokerage_bps = min(brokerage_bps, self.brokerage_cap / notional * 1e4)
+            stt_bps = 0.0 if is_buy else self.stt_intraday_sell * 1e4
+            stamp_bps = self.stamp_buy_intraday * 1e4 if is_buy else 0.0
         else:
-            stt_bps = (self.stt_intraday_sell if intraday else self.stt_delivery_sell) * 1e4
-            stamp_bps = 0.0
+            brokerage_bps = self.delivery_brokerage_pct * 1e4
+            stt_bps = self.stt_delivery * 1e4          # both legs
+            stamp_bps = self.stamp_buy_delivery * 1e4 if is_buy else 0.0
         return {
             "brokerage": brokerage_bps,
             "stt": stt_bps,

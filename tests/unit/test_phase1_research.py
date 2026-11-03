@@ -16,11 +16,13 @@ from quant.research.trial_log import TrialLog
 from quant.research.capacity import max_capital
 
 
-def test_sell_has_stt_and_buy_has_stamp():
+def test_delivery_stt_on_both_legs_and_stamp_on_buy_only():
+    # Owner-confirmed rule: delivery STT applies to both legs; stamp duty to the buy leg.
+    # Brokerage is zero on delivery, so the only sell-minus-buy gap is the stamp duty.
     cm = CostModel()
     buy = cm.trade_cost(100_000, "BUY", "delivery")
     sell = cm.trade_cost(100_000, "SELL", "delivery")
-    assert sell - buy == pytest.approx(cm.stt_delivery_sell * 100_000 - cm.stamp_buy_delivery * 100_000)
+    assert sell - buy == pytest.approx(-cm.stamp_buy_delivery * 100_000)
     assert cm.trade_cost(1e9, "BUY") - cm.trade_cost(1e9 - 1, "BUY") > 0
 
 

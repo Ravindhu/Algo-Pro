@@ -103,13 +103,21 @@ Each step is one commit. The step list is updated before each commit.
 3. DONE (partial): `research/validation.py`. `sharpe` wraps Blue. Behaviour change: constant input gives 0.0 instead of ~6.9e16 (float noise). DSR, PBO and bootstrap kept local. Decision: `docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md`.
 4. DONE (decision only): `research/backtest.py` KEEP. See `docs/decisions/0002-portfolio-backtest-kept-local.md`. Owner question open.
 
-### Open questions found in step 1 (NOT changed; need a decision)
+### Cost rules: decided by owner 2026-11-03 (applied in commit below)
 
-- **STT on the BUY leg of delivery.** The pre-wrap code charged STT on the sell leg only.
+- Delivery: STT on BOTH legs (owner: "both side"). Brokerage zero (owner: "zero cost").
+- Intraday: brokerage min(0.03%, Rs 20) per order (owner: "20 for intraday"). STT on sell only.
+- Stamp duty: buy leg only (unchanged).
+- Impact: flat 5 bps still applied; square-root impact still open.
+- Verify all rates against the current NSE/SEBI schedule before live use.
+
+### Former open questions (now resolved except impact)
+
+- **STT on the BUY leg of delivery (RESOLVED: both legs).** The pre-wrap code charged STT on the sell leg only.
   Blue charges STT on both legs. Delivery STT, as I understand it, applies to both buy and sell.
   Verify against the current NSE/SEBI schedule. If confirmed, the wrapper's `_leg_config` changes
   one line. That is a behaviour change and needs its own commit and test update.
-- **Brokerage cap.** Pre-wrap code: `min(0.03% of notional, ₹20)`. Blue uses a pure percentage.
+- **Brokerage cap (RESOLVED: zero delivery, Rs 20 intraday).** Pre-wrap code: `min(0.03% of notional, ₹20)`. Blue uses a pure percentage.
   The wrapper keeps the ₹20 cap by converting it to bps per trade. Confirm the broker's real schedule.
 - **Impact.** Pre-wrap code used a flat `impact_bps` (5 bps). Blue's better model is square-root
   impact (`impact_coefficient`). Phase 1 exit check 3 wants impact included. The flat model is kept for now.

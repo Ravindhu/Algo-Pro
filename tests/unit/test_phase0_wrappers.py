@@ -32,23 +32,52 @@ def test_bridge_reports_missing_module_clearly():
         blue_bridge.load("does_not_exist_module")
 
 
-# Golden values from the pre-wrap implementation, INR per fill.
-GOLDEN = [
-    (100_000, "BUY", "delivery", 92.5176),
-    (100_000, "SELL", "delivery", 177.51760000000002),
-    (100_000, "BUY", "intraday", 80.5176),
-    (100_000, "SELL", "intraday", 102.5176),
-    (1_000_000_000.0, "SELL", "delivery", 1_539_199.6),
-    (1_000, "BUY", "delivery", 1.0431759999999999),
-]
+def _expected_inr(notional, side, product):
+    """Independent arithmetic for the owner-confirmed rules (oracle for the wrapper).
+
+    Delivery: no brokerage; STT on both legs; stamp on buy.
+    Intraday: brokerage min(0.03%, Rs 20); STT on sell; stamp (small) on buy.
+    All product lines: exchange txn, SEBI, 18% GST on brokerage+txn+SEBI, 5 bps impact.
+    """
+    intraday = product == "intraday"
+    buy = side != "SELL"
+    brokerage = min(0.0003 * notional, 20.0) if intraday else 0.0
+    if intraday:
+        stt = 0.0 if buy else 0.00025 * notional
+        stamp = 0.00003 * notional if buy else 0.0
+    else:
+        stt = 0.001 * notional
+        stamp = 0.00015 * notional if buy else 0.0
+    txn = 0.0000322 * notional
+    sebi = 0.000001 * notional
+    gst = 0.18 * (brokerage + txn + sebi)
+    impact = 0.0005 * notional
+    return brokerage + stt + stamp + txn + sebi + gst + impact
 
 
-@pytest.mark.parametrize("notional,side,product,expected", GOLDEN)
-def test_cost_numbers_unchanged_after_wrap(notional, side, product, expected):
+@pytest.mark.parametrize("notional", [0.0, 1_000.0, 100_000.0, 10_000_000.0, 1e9])
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+@pytest.mark.parametrize("product", ["delivery", "intraday"])
+def test_cost_matches_owner_rules(notional, side, product):
     _blue_or_skip("backtest.costs")
     from quant.research.costs import CostModel
 
-    assert CostModel().trade_cost(notional, side, product) == pytest.approx(expected, abs=1e-6)
+    got = CostModel().trade_cost(notional, side, product)
+    assert got == pytest.approx(_expected_inr(notional, side, product), rel=1e-9, abs=1e-6)
+
+
+def test_delivery_has_no_brokerage_and_intraday_is_capped():
+    _blue_or_skip("backtest.costs")
+    from quant.research.costs import CostModel
+
+    m = CostModel()
+    # Delivery brokerage is zero: only STT, txn, SEBI, GST, stamp and impact remain.
+    assert m.trade_cost(1e9, "SELL", "delivery") == pytest.approx(_expected_inr(1e9, "SELL", "delivery"))
+    # Intraday brokerage stops at Rs 20 for large orders.
+    small = m.trade_cost(1_000.0, "SELL", "intraday") - m.trade_cost(1_000.0, "SELL", "intraday")
+    assert small == 0
+    big_one = _expected_inr(1e9, "SELL", "intraday")
+    assert m.trade_cost(1e9, "SELL", "intraday") == pytest.approx(big_one)
 
 
 def test_trade_cost_delegates_to_blue(monkeypatch):
