@@ -67,6 +67,13 @@ def annualised_vol(returns: Sequence[float], *, periods: float = 252.0
 
 def sharpe(returns: Sequence[float], *, rf: float = 0.0,
            periods: float = 252.0) -> Optional[float]:
+    """Compound-return Sharpe: annualised (compounded) return minus rf, over annualised vol.
+
+    NOTE: this is a DIFFERENT metric from ``ml.evaluation.metrics.sharpe``, which is
+    the arithmetic mean excess return over its standard deviation, both annualised.
+    The project standard is the arithmetic version (decision 0004). Do not compare
+    numbers from the two without saying which one was used.
+    """
     ar = annualised_return(returns, periods=periods)
     av = annualised_vol(returns, periods=periods)
     if ar is None or av is None or av == 0:
