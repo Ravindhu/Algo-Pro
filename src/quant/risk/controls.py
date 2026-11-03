@@ -1,6 +1,43 @@
-"""Market-halt handler, event blackout and overnight gap checks.
+"""Session guards: market-halt handler, event blackout, overnight gap check.
 
 Flow stage: Market-halt handler, Event blackout, Overnight gap check
-Status: SCAFFOLD. No logic yet. Do not import this from the trade path.
-Existing code to reuse or wrap (do not copy): Blue_engine/economics/nlp/event_calendar.py
+Status: PHASE 3 IMPLEMENTED
+Existing code to reuse or wrap (do not copy): Blue_engine/core/auction_windows.py
 """
+from __future__ import annotations
+
+from datetime import date
+from typing import Iterable, Optional, Set
+
+
+class HaltHandler:
+    """Index circuit freeze. Entries stay blocked until the freeze is cleared by a person or the feed."""
+
+    def __init__(self) -> None:
+        self.frozen: Set[str] = set()
+
+    def freeze(self, index: str) -> None:
+        self.frozen.add(index)
+
+    def resume(self, index: str) -> None:
+        self.frozen.discard(index)
+
+    def is_frozen(self, index: str) -> bool:
+        return index in self.frozen
+
+
+def in_event_blackout(day: date, blackout_days: Iterable[date]) -> bool:
+    """Results, RBI policy, Budget and Fed days. No new entries on these dates."""
+    return day in set(blackout_days)
+
+
+def carry_allowed(product: str, adv_ok: bool) -> bool:
+    """MIS (intraday) positions never carry overnight. Delivery carry needs liquidity."""
+    return product != "MIS" and adv_ok
+
+
+def gap_exit_required(prev_close: float, open_px: float, gap_limit: float = 0.10) -> Optional[str]:
+    gap = open_px / prev_close - 1
+    if abs(gap) > gap_limit:
+        return f"overnight gap {gap:+.1%} beyond limit {gap_limit:.0%}: review exit"
+    return None

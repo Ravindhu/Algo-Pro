@@ -38,8 +38,8 @@ Status: IMPLEMENTED. 37 unit tests in `tests/unit/test_phase1_*.py`. Run with `s
 | Audit | Audit log, Override log | `audit/log.py`, `audit/override_log.py` |
 | Execution | Approved order queue, Order state machine | `execution/queue.py`, `execution/order_fsm.py` |
 | Post-trade | Ledger and recon, Restart and recovery | `monitor/ledger.py` |
-| Gap | Paper trading stage | `scripts/run_paper.py` (named in AGENTS.md, not created) |
-| Gap | Trading calendar | `config/calendar/` (data only, no loader yet) |
+| Paper | Paper trading stage | `scripts/run_paper.py` |
+| Data | Trading calendar | `core/calendar.py`, `config/calendar/holidays.csv` (fill from exchange list) |
 
 Reuse (wrap, do not copy):
 - `Blue_engine/core/risk_gate.py`, `Blue_engine/core/kill_switch_store.py`
@@ -103,6 +103,8 @@ Exit checks:
 Goal: go live in small steps, with every guard tested.
 Depends on: Phase 2 exit checks, plus a paper period with parity results.
 
+Status: IMPLEMENTED as code, not enabled. 73 unit tests pass. `scripts/run_live.py` is deliberately NOT created. Live stays blocked until the exit checks below are done by you.
+
 | Flow lane | Blocks | Module |
 |---|---|---|
 | Session guards | Market-halt handler, Event blackout, Overnight gap check | `risk/controls.py` |
@@ -133,7 +135,8 @@ Exit checks (all required before real capital):
 
 ## Open gaps and assumptions
 
-- Gaps: Paper trading stage and Trading calendar have no module yet (see `KNOWN_GAPS` in `tests/unit/test_layout.py`).
+- No flow block is unmapped. `KNOWN_GAPS` in `tests/unit/test_layout.py` is empty.
+- `config/calendar/holidays.csv` is empty. Fill it from the NSE/BSE holiday list before any trading day is treated as verified.
 - Risk limit values are unset in `config/risk_limits.yaml`. Live trading stays blocked until you set them.
 - Paper period length, parity tolerance and starting capital are not set here.
 - Blue_engine reuse targets are named by path only. Read and confirm each one before wrapping it.

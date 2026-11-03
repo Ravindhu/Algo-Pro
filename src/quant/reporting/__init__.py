@@ -1,1 +1,1 @@
-"""reporting package (scaffold)."""
+"""Reporting: dashboard data and accounting views."""

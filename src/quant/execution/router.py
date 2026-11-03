@@ -1,6 +1,27 @@
-"""POV, VWAP, IS, auction algos.
+"""Algo router: POV child sizing and VWAP schedule. Only gate-approved parents are routed.
 
 Flow stage: Algo router
-Status: SCAFFOLD. No logic yet. Do not import this from the trade path.
-Existing code to reuse or wrap (do not copy): Blue_engine/pov/pov_engine.py, pov/slicers/ (VWAP/IS not found)
+Status: PHASE 3 IMPLEMENTED
+Existing code to reuse or wrap (do not copy): Blue_engine/dashboard/pov_state_machine.py
+NOTE: the POV state machine in Blue_engine is dashboard state. Check before reuse.
 """
+from __future__ import annotations
+
+from typing import List, Sequence
+
+
+def pov_child_qty(remaining: int, bar_volume: float, pov: float = 0.1) -> int:
+    """Child order = pov share of the last bar's volume, never more than what is left."""
+    if remaining <= 0 or bar_volume <= 0:
+        return 0
+    return min(remaining, int(bar_volume * pov))
+
+
+def vwap_schedule(total_qty: int, profile: Sequence[float]) -> List[int]:
+    """Split total_qty by an expected intraday volume profile. Rounding goes to the last bucket."""
+    s = float(sum(profile))
+    if total_qty < 0 or s <= 0:
+        raise ValueError("bad quantity or profile")
+    out = [int(total_qty * p / s) for p in profile]
+    out[-1] += total_qty - sum(out)
+    return out

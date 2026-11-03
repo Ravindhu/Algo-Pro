@@ -38,3 +38,17 @@ class FeedHealth:
 
     def is_stale(self, now: datetime) -> bool:
         return self.last is None or now - self.last > self.max_gap
+
+
+def normalize_fill_event(raw: dict) -> dict:
+    """Map a broker fill message to the ledger fields. Raises if a required field is missing."""
+    required = ("order_id", "symbol", "side", "filled_qty", "avg_price")
+    missing = [k for k in required if k not in raw]
+    if missing:
+        raise ValueError(f"fill event missing {missing}")
+    qty = int(raw["filled_qty"])
+    if qty <= 0 or raw["side"] not in ("BUY", "SELL"):
+        raise ValueError("bad fill quantity or side")
+    signed = qty if raw["side"] == "BUY" else -qty
+    return {"order_id": str(raw["order_id"]), "symbol": str(raw["symbol"]),
+            "signed_qty": signed, "price": float(raw["avg_price"])}

@@ -198,7 +198,7 @@ flowchart LR
 
 The layout follows the project layout in `AGENTS.md`. Each module is a scaffold until it has logic and tests.
 One module can implement several blocks. Its `Flow stage:` line lists them.
-`tests/unit/test_layout.py` checks that every SVG block title is mapped. The two open gaps are listed there.
+`tests/unit/test_layout.py` checks that every SVG block title is mapped. Known gaps are listed there (currently none).
 Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/IMPLEMENTATION_PLAN.md`.
 
 | Flow lane | Package |

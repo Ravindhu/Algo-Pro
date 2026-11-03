@@ -42,9 +42,8 @@ def test_only_openalgo_client_names_the_order_client():
         assert ".placeorder(" not in path.read_text(), path
 
 
-# SVG blocks with no module yet. Shrink this list as each gap gets a home.
-#   Trading calendar: data lives in config/calendar/, no loader placed yet
-KNOWN_GAPS = {"Trading calendar"}
+# SVG blocks with no module yet. Shrink this list as each gap gets a home. Empty = no gaps.
+KNOWN_GAPS: set = set()
 
 
 def _svg_block_titles():
