@@ -16,6 +16,8 @@ Rules for every phase:
 Goal: run the pipeline end to end on paper, with no capital.
 Timeline: not set. You decide.
 
+Status: IMPLEMENTED. 37 unit tests in `tests/unit/test_phase1_*.py`. Run with `scripts/run_paper.py`.
+
 | Flow lane | Blocks | Module |
 |---|---|---|
 | Research validation | Historical bars, Replay simulator | `research/backtest.py` |

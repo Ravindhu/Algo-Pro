@@ -6,6 +6,7 @@ into the live path. See docs/quant_system_flow_v5.md.
 from __future__ import annotations
 
 import importlib
+import re
 import pathlib
 import sys
 
@@ -30,7 +31,7 @@ def test_every_module_imports():
 
 def test_stage_modules_are_marked_scaffold():
     for path in _stage_files():
-        assert "Status: SCAFFOLD" in path.read_text(), path
+        assert re.search(r"^Status: (SCAFFOLD|PHASE \d IMPLEMENTED)", path.read_text(), re.M), path
 
 
 def test_only_openalgo_client_names_the_order_client():
@@ -42,9 +43,8 @@ def test_only_openalgo_client_names_the_order_client():
 
 
 # SVG blocks with no module yet. Shrink this list as each gap gets a home.
-#   Paper trading stage: scripts/run_paper.py (named in AGENTS.md, not created yet)
 #   Trading calendar: data lives in config/calendar/, no loader placed yet
-KNOWN_GAPS = {"Paper trading stage", "Trading calendar"}
+KNOWN_GAPS = {"Trading calendar"}
 
 
 def _svg_block_titles():
@@ -60,9 +60,10 @@ def test_every_svg_block_is_mapped_to_a_module():
     """Each SVG block title must appear in a stage file's Flow stage line, or be a known gap."""
     titles = _svg_block_titles()
     assert len(titles) == 77, len(titles)  # guards against the parser finding nothing
+    scripts = list((ROOT / "scripts").glob("*.py"))
     stage_lines = "\n".join(
         line
-        for path in _stage_files()
+        for path in _stage_files() + scripts
         for line in path.read_text().splitlines()
         if line.startswith("Flow stage:")
     )
