@@ -1,14 +1,21 @@
 """Dashboard data: EV, win rate, profit factor, MAE/MFE, risk use, rule compliance. P&L hidden by default.
 
 Flow stage: Dashboard
-Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/dashboard/app.py
+Status: PHASE 3 IMPLEMENTED (profit factor delegated to Blue backtest.metrics; rest local)
+Existing code to reuse or wrap (do not copy): Blue_engine/dashboard/app.py, Blue_engine/backtest/metrics.py
 """
 from __future__ import annotations
 
 from typing import Dict, Optional, Sequence
 
 import numpy as np
+
+from quant.core.blue_bridge import load
+
+
+def profit_factor(gross_profit: float, gross_loss: float) -> Optional[float]:
+    """Blue backtest.metrics.profit_factor: None when there are no losses."""
+    return load("backtest.metrics").profit_factor(gross_profit, gross_loss)
 
 
 def build_payload(trades: Sequence[dict], risk_used: float, rule_breaches: int,
@@ -24,7 +31,7 @@ def build_payload(trades: Sequence[dict], risk_used: float, rule_breaches: int,
     ret = np.asarray([t["ret"] for t in trades], float)
     pnl = np.asarray([t["pnl"] for t in trades], float)
     wins, losses = pnl[pnl > 0].sum(), pnl[pnl < 0].sum()
-    pf: Optional[float] = float(wins / abs(losses)) if losses < 0 else None
+    pf: Optional[float] = profit_factor(float(wins), float(losses))
     payload: Dict[str, object] = {
         "trades": len(trades),
         "ev_pct_per_trade": float(ret.mean() * 100),

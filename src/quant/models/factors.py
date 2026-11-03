@@ -1,20 +1,35 @@
 """Cross-sectional factors: 12-1 momentum and low volatility. Each date uses only its past.
 
 Flow stage: Factor and alpha models
-Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/alpha/signals/keylevel.py
+Status: PHASE 2 IMPLEMENTED (12-1 momentum delegated to Blue_engine ml.features.engineering.momentum)
+Existing code to reuse or wrap (do not copy): Blue_engine/ml/features/engineering.py (momentum)
+Low-vol, z-score and composite stay here: Blue realised_vol is annualised (different scale), and
+no Blue equivalent exists for the cross-sectional z-score or composite.
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
+from quant.core.blue_bridge import load
+
 MOM_LONG, MOM_SKIP, VOL_WINDOW = 252, 21, 60
 
 
 def momentum_12_1(close: pd.DataFrame) -> pd.DataFrame:
-    """Return from t-252 to t-21 (skips the last month, a common reversal guard)."""
-    return close.shift(MOM_SKIP) / close.shift(MOM_LONG) - 1
+    """Return from t-252 to t-21 (skips the last month, a common reversal guard).
+
+    Equals Blue momentum(window=MOM_LONG - MOM_SKIP, shift=MOM_SKIP) per column; checked
+    to the NaN pattern and to 0.0 difference on random panels (tests/unit/test_phase2_portfolio.py
+    and the wrapper check in this session's commit message).
+    """
+    blue = load("ml.features.engineering").momentum
+    window = MOM_LONG - MOM_SKIP
+    cols = {}
+    for c in close.columns:
+        vals = blue(close[c].tolist(), window, shift=MOM_SKIP)
+        cols[c] = [np.nan if v is None else v for v in vals]
+    return pd.DataFrame(cols, index=close.index)
 
 
 def low_vol(close: pd.DataFrame) -> pd.DataFrame:
