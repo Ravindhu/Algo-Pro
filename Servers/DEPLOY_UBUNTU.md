@@ -25,8 +25,8 @@ you never track or upload the 3,175 upstream files.
 
 ```bash
 # 1. Clone your repo onto the VPS and enter it
-git clone https://github.com/Ravindhu/my-trading-system.git
-cd my-trading-system
+git clone https://github.com/Ravindhu/Algo-Pro.git
+cd Algo-Pro
 
 # 2. Create the deploy config from the template
 cp Servers/deploy.env.example Servers/deploy.env
