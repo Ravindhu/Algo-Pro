@@ -151,7 +151,10 @@ Corrections to earlier sections:
 - B2 was described as "not built". `build_payload` already provides most of the panel metrics. What is missing: "strategy consistency" and "deviation alerts" (no definition yet), and the panel is not yet wired into either live dashboard.
 - Web dashboard: P&L is hidden in daily P&L, equity, total P&L and total return. Other money figures in the web view (for example, log lines) were not audited.
 
+Done since (2026-11-04, items 1-3 of priority list):
+- Lockout: 5 wrong passwords lock the accounting view for 15 min. Success clears it. A corrupt lockout file fails closed.
+- Setup script: `scripts/set_accounting_password.py` (no echo, stores hash only, `--clear-lockout`).
+- P&L hidden everywhere in the web view: daily, equity, total, return, expectancy, trade table, closed-trade log, equity curve, portfolio and ledger status.
+
 Still open:
-- Rate limit on password attempts. Not built.
-- Setup script for the accounting password. Not built.
 - Tier values. Placeholders until A4.

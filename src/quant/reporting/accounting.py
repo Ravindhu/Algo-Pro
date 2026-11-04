@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
+import time
 from collections import deque
 from datetime import date
 from pathlib import Path
@@ -91,14 +93,62 @@ def set_password(password: str, path: Optional[Path] = None) -> Path:
     return target
 
 
-def authorise_accounting(role: str, password: str, path: Optional[Path] = None) -> None:
-    """Role check first, then the local password. Raises PermissionError on any failure.
+# Lockout: after MAX_FAILURES wrong passwords, refuse all attempts for LOCKOUT_SECONDS.
+MAX_FAILURES = 5
+LOCKOUT_SECONDS = 15 * 60
 
-    The password is never logged or echoed in the error message.
+
+def _lockout_path(password_path: Path) -> Path:
+    return password_path.with_name(password_path.name + ".lockout.json")
+
+
+def _read_lockout(lock_path: Path, now: float) -> dict:
+    """Return {'failures': int, 'locked_until': float}. A corrupt file fails closed (locked)."""
+    if not lock_path.exists():
+        return {"failures": 0, "locked_until": 0.0}
+    try:
+        data = json.loads(lock_path.read_text(encoding="utf-8"))
+        return {"failures": int(data["failures"]), "locked_until": float(data["locked_until"])}
+    except (ValueError, KeyError, TypeError):
+        return {"failures": MAX_FAILURES, "locked_until": now + LOCKOUT_SECONDS}
+
+
+def _write_lockout(lock_path: Path, state: dict) -> None:
+    """Atomic write so a crash cannot leave a half-written lockout file."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = lock_path.with_name(lock_path.name + ".tmp")
+    tmp.write_text(json.dumps(state), encoding="utf-8")
+    os.replace(tmp, lock_path)
+
+
+def clear_lockout(path: Optional[Path] = None) -> None:
+    """Owner action: remove the failure counter and any lock."""
+    lock_path = _lockout_path(password_file(path))
+    if lock_path.exists():
+        lock_path.unlink()
+
+
+def authorise_accounting(role: str, password: str, path: Optional[Path] = None,
+                         now: Optional[float] = None) -> None:
+    """Role check, lockout check, then the local password. Raises PermissionError on failure.
+
+    The password is never logged or echoed. Lock status is checked before the password,
+    so a locked account gives no hint whether the password was right.
     """
     require_role(role)
     target = password_file(path)
     if not target.exists():
         raise PermissionError("accounting password not set")
-    if not verify_password(password, target.read_text(encoding="utf-8").strip()):
-        raise PermissionError("accounting password rejected")
+    clock = time.time() if now is None else now
+    lock_path = _lockout_path(target)
+    state = _read_lockout(lock_path, clock)
+    if clock < state["locked_until"]:
+        raise PermissionError("accounting locked after too many failed attempts; try later")
+    if verify_password(password, target.read_text(encoding="utf-8").strip()):
+        clear_lockout(target)
+        return
+    state["failures"] += 1
+    if state["failures"] >= MAX_FAILURES:
+        state = {"failures": 0, "locked_until": clock + LOCKOUT_SECONDS}
+    _write_lockout(lock_path, state)
+    raise PermissionError("accounting password rejected")

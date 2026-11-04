@@ -78,3 +78,109 @@ def test_password_file_resolution_order(tmp_path, monkeypatch):
     monkeypatch.delenv("ACCOUNTING_PASSWORD_FILE")
     assert password_file() == DEFAULT_PASSWORD_FILE
     assert DEFAULT_PASSWORD_FILE.parts[-2] == "logs"   # git-ignored location
+
+
+# --- lockout after repeated wrong passwords ------------------------------------
+
+from quant.reporting.accounting import (  # noqa: E402
+    LOCKOUT_SECONDS,
+    MAX_FAILURES,
+    clear_lockout,
+)
+
+
+def _fail_n(target, n, now):
+    for _ in range(n):
+        with pytest.raises(PermissionError):
+            authorise_accounting("owner", "wrong password!!", target, now=now)
+
+
+def test_lockout_after_max_failures_blocks_even_correct_password(tmp_path):
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    _fail_n(target, MAX_FAILURES, now=1000.0)
+    with pytest.raises(PermissionError) as err:
+        authorise_accounting("owner", GOOD, target, now=1001.0)
+    assert "locked" in str(err.value)
+    assert GOOD not in str(err.value)
+
+
+def test_lockout_expires_after_window(tmp_path):
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    _fail_n(target, MAX_FAILURES, now=1000.0)
+    authorise_accounting("owner", GOOD, target, now=1000.0 + LOCKOUT_SECONDS + 1)
+
+
+def test_success_resets_failure_counter(tmp_path):
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    _fail_n(target, MAX_FAILURES - 1, now=1000.0)
+    authorise_accounting("owner", GOOD, target, now=1001.0)   # resets
+    _fail_n(target, MAX_FAILURES - 1, now=1002.0)             # still under the limit
+    authorise_accounting("owner", GOOD, target, now=1003.0)   # not locked
+
+
+def test_corrupt_lockout_file_fails_closed(tmp_path):
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    (tmp_path / "pw.hash.lockout.json").write_text("not json", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        authorise_accounting("owner", GOOD, target, now=1000.0)
+
+
+def test_clear_lockout_removes_the_lock(tmp_path):
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    _fail_n(target, MAX_FAILURES, now=1000.0)
+    clear_lockout(target)
+    authorise_accounting("owner", GOOD, target, now=1001.0)
+
+
+def test_wrong_role_does_not_count_as_password_failure(tmp_path):
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    for _ in range(MAX_FAILURES + 2):
+        with pytest.raises(PermissionError):
+            authorise_accounting("trader", GOOD, target, now=1000.0)
+    authorise_accounting("owner", GOOD, target, now=1000.0)   # role check ran first
+
+
+# --- setup script ----------------------------------------------------------------
+
+def _load_script():
+    import importlib.util
+    import pathlib
+    path = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "set_accounting_password.py"
+    spec = importlib.util.spec_from_file_location("set_accounting_password", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_script_sets_password_when_both_entries_match(tmp_path, monkeypatch, capsys):
+    script = _load_script()
+    answers = iter([GOOD, GOOD])
+    monkeypatch.setattr(script.getpass, "getpass", lambda prompt="": next(answers))
+    target = tmp_path / "pw.hash"
+    assert script.main(["--path", str(target)]) == 0
+    assert verify_password(GOOD, target.read_text(encoding="utf-8").strip())
+    assert GOOD not in capsys.readouterr().out
+
+
+def test_script_writes_nothing_when_entries_differ(tmp_path, monkeypatch):
+    script = _load_script()
+    answers = iter([GOOD, GOOD + "x"])
+    monkeypatch.setattr(script.getpass, "getpass", lambda prompt="": next(answers))
+    target = tmp_path / "pw.hash"
+    assert script.main(["--path", str(target)]) == 1
+    assert not target.exists()
+
+
+def test_script_clear_lockout_flag(tmp_path):
+    script = _load_script()
+    target = tmp_path / "pw.hash"
+    set_password(GOOD, target)
+    _fail_n(target, MAX_FAILURES, now=1000.0)
+    assert script.main(["--path", str(target), "--clear-lockout"]) == 0
+    authorise_accounting("owner", GOOD, target, now=1001.0)
