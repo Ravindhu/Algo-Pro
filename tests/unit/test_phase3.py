@@ -124,15 +124,15 @@ def test_alerts_critical_calls_handler():
         a.emit("LOUD", "x", "y")
 
 
-def test_dashboard_hides_pnl_by_default_and_shows_ev():
+def test_dashboard_shows_pnl_always_and_ev_without_mae_mfe():
     trades = [{"ret": 0.02, "pnl": 2000.0, "mae": 0.01, "mfe": 0.03},
               {"ret": -0.01, "pnl": -1000.0, "mae": 0.02, "mfe": 0.005}]
-    hidden = build_payload(trades, risk_used=0.3, rule_breaches=0)
-    assert hidden["pnl_hidden"] and "total_pnl" not in hidden and "pnl" not in hidden
-    assert hidden["ev_pct_per_trade"] == pytest.approx(0.5)
-    assert hidden["profit_factor"] == pytest.approx(2.0)
-    shown = build_payload(trades, risk_used=0.3, rule_breaches=0, reveal_pnl=True)
-    assert shown["total_pnl"] == pytest.approx(1000.0)
+    payload = build_payload(trades, risk_used=0.3, rule_breaches=0)
+    assert payload["total_pnl"] == pytest.approx(1000.0)
+    assert payload["ev_pct_per_trade"] == pytest.approx(0.5)
+    assert payload["profit_factor"] == pytest.approx(2.0)
+    # MAE/MFE belong to the optimizer, not the dashboard.
+    assert "mean_mae" not in payload and "mean_mfe" not in payload
 
 
 def test_accounting_needs_role_and_fifo_terms():

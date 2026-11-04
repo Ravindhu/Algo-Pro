@@ -63,6 +63,14 @@ __all__ = ["ObjectiveResult", "Objective", "STABILITY_PENALTY"]
 #: normal sampling noise of a 4-5 fold walk-forward.
 STABILITY_PENALTY = 0.5
 
+#: MAE term: Sharpe cost per 1% of mean adverse excursion per trade.
+#: UNTESTED default. Set by hand; must be tuned/validated before it is trusted.
+MAE_PENALTY_PER_PCT = 0.02
+
+#: MFE term: Sharpe bonus for capturing the favourable move (realised return /
+#: MFE, clipped to [0, 1]). UNTESTED default, same caveat as above.
+MFE_CAPTURE_WEIGHT = 0.1
+
 
 @dataclass
 class ObjectiveResult:
@@ -97,6 +105,10 @@ class ObjectiveResult:
     folds: List[Dict[str, Any]] = field(default_factory=list)
     seconds: float = 0.0
     cached: bool = False
+    #: Mean adverse excursion per trade, in percent (None if no trade data).
+    mean_mae_pct: Optional[float] = None
+    #: Mean MFE capture in [0, 1] (None if no trade data).
+    mfe_capture: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -118,6 +130,8 @@ class ObjectiveResult:
             "folds": list(self.folds),
             "seconds": round(self.seconds, 4),
             "cached": self.cached,
+            "mean_mae_pct": self.mean_mae_pct,
+            "mfe_capture": self.mfe_capture,
         }
 
 
@@ -136,6 +150,22 @@ def _stats(values: Sequence[float]) -> Tuple[Optional[float], Optional[float],
     median = (ordered[mid] if n % 2 else
               0.5 * (ordered[mid - 1] + ordered[mid]))
     return mean, std, min(xs), median
+
+
+def _excursion_terms(trades: List[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
+    """(mean MAE as a fraction, mean MFE capture in [0, 1]). (None, None) if no trades."""
+    maes = [float(t["mae"]) for t in trades
+            if t.get("mae") is not None and math.isfinite(float(t["mae"]))]
+    if not maes:
+        return None, None
+    captures = []
+    for t in trades:
+        mfe, ret = t.get("mfe"), t.get("ret")
+        if mfe is None or ret is None or float(mfe) <= 0:
+            continue
+        captures.append(min(1.0, max(0.0, float(ret) / float(mfe))))
+    capture = sum(captures) / len(captures) if captures else 0.0
+    return sum(maes) / len(maes), capture
 
 
 class Objective:
@@ -259,6 +289,7 @@ class Objective:
         fold_returns: List[List[float]] = []
         folds: List[Dict[str, Any]] = []
         fold_costs: List[bool] = []
+        fold_trades: List[Dict[str, Any]] = []
         errors: List[str] = []
 
         # We split the *period budget* across folds rather than generating one
@@ -332,6 +363,7 @@ class Objective:
             fold_returns.append(rets)
             folds.append(fold_meta)
             fold_costs.append(bool(out.get("costs_applied_once", False)))
+            fold_trades.extend(t for t in (out.get("trades") or []) if isinstance(t, dict))
 
         if not fold_returns:
             self.n_rejected += 1
@@ -420,6 +452,14 @@ class Objective:
         # --- 4. the score: mean minus a dispersion penalty ----------------- #
         score = mean_sh - STABILITY_PENALTY * (std_sh or 0.0)
 
+        # --- 4b. trade excursion terms (MAE / MFE) ----------------------- #
+        # Only applies when the strategy reports per-trade excursions. With no
+        # trade data the score is unchanged (backward compatible).
+        mae_mean, mfe_capture = _excursion_terms(fold_trades)
+        if mae_mean is not None:
+            score -= MAE_PENALTY_PER_PCT * (mae_mean * 100.0)
+            score += MFE_CAPTURE_WEIGHT * (mfe_capture or 0.0)
+
         #: Number of folds that actually produced a scoreable result. Kept on
         #: the result so a caller can tell "4 of 4" from "2 of 4" without
         #: re-deriving it from the fold list.
@@ -490,6 +530,8 @@ class Objective:
             params=dict(params),
             score=round(score, 6),
             ok=True,
+            mean_mae_pct=None if mae_mean is None else round(mae_mean * 100.0, 6),
+            mfe_capture=None if mfe_capture is None else round(mfe_capture, 6),
             mean_sharpe=round(mean_sh, 6),
             std_sharpe=None if std_sh is None else round(std_sh, 6),
             min_sharpe=None if min_sh is None else round(min_sh, 6),
