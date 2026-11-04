@@ -1,7 +1,10 @@
-# Hard limits. Values intentionally empty until set by a human.
-# Mirrors RiskGate keys in Blue_engine/core/risk_gate.py.
-max_order_quantity: null
-max_order_notional: null
-max_daily_loss: null
-max_open_exposure: null
-blocked: false
+# Hard limits (INR). Minimum starter values set on 2026-11-04 for PAPER trading.
+# Change only after a human review. Any null value makes the gate reject entries
+# (fail closed). Mirrors RiskGate keys in Blue_engine/core/risk_gate.py.
+max_order_quantity: 10          # shares per order
+max_order_notional: 10000       # INR per order
+max_open_exposure: 20000        # INR across all open entries
+max_daily_loss: 1000            # INR, daily loss budget
+max_strategy_loss: 500          # INR, loss budget per strategy per day
+max_adv_pct: 0.01               # max 1% of average daily volume per order
+blocked: false                  # true = stop all entries

@@ -1,0 +1,50 @@
+# OCL keylevel strategy - starter config for PAPER trading only.
+# Values are the defaults from Blue_engine/alpha/Statergy/ocl_keylevel.py (params_space).
+# Sizing overrides for paper: qty_per_fire=1, exec_mode=ONE_SHOT, max_fires=1.
+# live_enabled must stay false until a human signs off (see docs/IMPLEMENTATION_PLAN.md).
+strategy: ocl_keylevel
+mode: paper
+live_enabled: false
+
+params:
+  htf_interval: "15m"
+  htf_candles: 5
+  pattern_type: "RRG"
+  trigger_level_mode: "CONSERVATIVE"
+  trade_direction: "AUTO"
+  ltf_interval: "5m"
+  ltf_touch_buffer: 0.05
+  poll_seconds: 10
+  exec_mode: "ONE_SHOT"
+  qty_per_fire: 1
+  cooldown_seconds: 0
+  max_fires: 1
+  ltf_pattern_enabled: true
+  hm_enabled: true
+  hm_rsi_period: 9
+  hm_ema_period: 3
+  hm_oversold_level: 30.0
+  hm_htf_oversold_enabled: false
+  target_rr: 3.0
+  exit_mode: "AUTO"
+  atr_trail_enabled: true
+  atr_period: 14
+  atr_multiplier: 2.0
+  dvs_enabled: true
+  dvs_sensitivity: 1.0
+  dvs_max_scale: 2.5
+  dvs_reference_period: 50
+  dvs_atr_sizing_factor: 1.0
+  stop_fallback_atr_mult: 2.0
+  require_close_above_c2_open: true
+  allow_c4_confirmation: true
+  aggressive_level_source: "C3_CLOSE"
+  conservative_level_source: "C3_OPEN"
+  min_body_pct_c23: 0.5
+  sell_failure_enabled: false
+  setup_mode: "OCL"
+  apply_body_filter_failure: true
+  entry_model: "aggressive"
+  mhtf_interval: "1month"
+  mhtf_max_pattern_age: 30
+  rung_mode: "aggressive"
