@@ -20,7 +20,7 @@
 # =============================================================================
 set -euo pipefail
 
-REPO_URL="https://github.com/Ravindhu/my-trading-system.git"
+REPO_URL="https://github.com/Ravindhu/Algo-Pro.git"
 INSTALL_ROOT="${MTS_ROOT:-/opt/my-trading-system}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
