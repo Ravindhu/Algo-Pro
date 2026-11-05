@@ -7,6 +7,6 @@ Signal and conviction. Advice and direction only. Models never place orders.
 - `factors.py`: momentum and profit factor wrapped. PARTIAL.
 - `regime.py`: regime detector. Kept local (decision 0005). PENDING.
 - `signal.py`, `meta_label.py`: direction, stop, time limit, take-or-skip. PENDING.
-- `events.py`: event scoring, advice only, with a deterministic fallback (X-17). PENDING.
+- `events.py`: event scoring, advice only. Keyword fallback DONE (X-17). Optional LLM scorer is not wired to a caller yet.
 
 Rule: no model goes live without a registry record and human sign-off (X-19).

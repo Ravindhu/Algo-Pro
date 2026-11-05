@@ -8,6 +8,7 @@ Companion to `docs/IMPLEMENTATION_PLAN.md`. Item IDs (P0-*, P1-*, P2-*, PB-*, D-
 Owner decisions taken on 2026-11-05:
 - **P&L is SHOWN by default** on all dashboards (overrides the earlier "hidden by default" rule).
   A toggle can still hide it on screen. Record: `docs/decisions/0007-pnl-shown-by-default.md`.
+- **EV, MAE/MFE and rule compliance removed from the dashboard; MAE/MFE are optimizer parameters.** Record: `docs/decisions/0008-dashboard-metrics-and-optimizer-excursion-weights.md`.
 - The NSE event-calendar feed (`https://www.nseindia.com/api/event-calendar`) is the source for
   board-meeting events used by the event-blackout check. It is NOT a holiday calendar.
 
@@ -64,7 +65,7 @@ After:
 - Accounting view (password-gated) stays unchanged.
 - Tests in `test_pnl_hidden.py` and `test_phase3.py` are updated to assert "shown by default" and "toggle hides".
 
-Guardrails unchanged: EV, MAE/MFE, profit factor, and rule compliance stay visible. No P&L value can set size or create an order.
+Superseded by decision 0008: EV, MAE/MFE and rule compliance are removed from the dashboard. Profit factor and win rate stay visible. No P&L value can set size or create an order.
 
 ---
 
@@ -97,6 +98,6 @@ Guardrails unchanged: EV, MAE/MFE, profit factor, and rule compliance stay visib
 
 - Tier values and weights: placeholders until out-of-sample evidence.
 - "Authorised" accounting view: current design is a password (set via `scripts/set_accounting_password.py`). Owner to confirm.
-- AGENTS.md still says "P&L hidden by default" (rule 8) and "Phase 0 pending". Full rewrite needed. Not done in this round.
+- AGENTS.md rule 8 updated 2026-11-05 (decision 0008). Phase 0 wording and the full rewrite are still pending.
 - Remote `main` (`76f21af`) and `docs/status-2026-11-05` still exist. Owner to delete on GitHub.
 - SEBI checklist scope, HRP choice, impact model and Sharpe definition: see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions" and Tier F (X-25 to X-30).

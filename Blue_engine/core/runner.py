@@ -50,7 +50,7 @@ from blue_engine.core.symbol_meta import is_sme_periodic_call_auction
 
 
 # Default config used when the runner is called with no arguments.
-DEFAULT_CONFIG = "blue_engine/input/master.json"
+DEFAULT_CONFIG = "Blue_engine/input/master.json"
 
 
 def load_raw_config(path: str) -> Dict[str, Any]:

@@ -24,7 +24,7 @@ Work, in order:
 2. X-4 point-in-time test: features and conviction read only past bars. DONE 2026-11-05.
 3. P1-7 / X-13 survivorship-free universe and corporate actions (`data/universe.py`, `data/corp_actions.py`).
 4. P1-6 / X-10 real-data backtest with costs and walk-forward (`research/backtest.py`, `research/walk_forward.py`).
-5. X-12 trial log entry for every run (`research/trial_log.py`). No trial log entry, no evidence.
+5. X-12 trial log entry for every run (`research/trial_log.py`). No trial log entry, no evidence. Wiring DONE 2026-11-05; the research runner must set `trial_log_path`.
 6. DSR and PBO (`research/validation.py`). Keep local. Do not use Blue's `deflated_sharpe` in any gate (X-26).
 7. Pick one Sharpe definition for reports and label the others (X-27).
 Gate (P1 exit checks 3 and 4): costs included, look-ahead test passes, DSR and PBO reported out of sample.
@@ -49,7 +49,7 @@ Work, in order:
 3. `models/signal.py`: direction, stop, time limit.
 4. `models/meta_label.py`: take or skip, bet size.
 5. `models/calibration.py`: Platt or isotonic. Out-of-sample report (P2-6 / X-11).
-6. `models/events.py` (X-17): advice only. Deterministic fallback when the LLM is off. Output named `advice_*`.
+6. `models/events.py` (X-17): advice only. Deterministic fallback when the LLM is off. DONE 2026-11-05: `score_filing_advice`, `source` field, `advice_score` and `advice_source` properties.
 Gate: no model enters production without a registry record and human sign-off (P2-5 / X-19).
 
 ## Step 4 - Conviction, sizing and allocation
@@ -121,7 +121,7 @@ Work, in order:
 1. `audit/log.py` (immutable, append-only), `audit/override_log.py` (DONE).
 2. `monitor/throttle.py`, `monitor/session.py`, `monitor/drift.py`.
 3. `notify/alerts.py` at INFO, WARNING, ERROR, CRITICAL (P3-5).
-4. `reporting/dashboard.py`: P&L shown by default (decision 0007). EV, MAE/MFE, profit factor visible. Rule-compliance panel is NOT NEEDED (owner).
+4. `reporting/dashboard.py`: P&L shown by default (decision 0007). EV, MAE/MFE and rule compliance removed; profit factor and win rate visible (decision 0008).
 5. `reporting/accounting.py`: password-gated view (DONE).
 Gate: critical error shows on the dashboard and triggers safe mode. Restart never resumes live trading without all checks passed.
 
@@ -145,6 +145,6 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-Items that need no owner input: the case-sensitivity check from X-29 (checkout-name test fixed 2026-11-05). X-25 and X-30 can get decision notes drafted, but the choice is the owner's.
+Done 2026-11-05 without owner input: X-12, X-17, X-29 (case check), PB-6 (MAE/MFE optimizer parameters), decision notes 0009 and 0010 (PROPOSED, owner chooses).
 Done 2026-11-05: X-3, X-4, X-5, X-8, X-9 and X-15. X-9b (lazy Blue package imports) needs an owner test run before it can be merged.
 Owner items first when available: P0-2, P0-3, P0-4, and the SEBI scope question (see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions").

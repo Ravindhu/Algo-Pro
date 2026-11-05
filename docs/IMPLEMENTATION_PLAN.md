@@ -5,7 +5,7 @@ Phases 1-3 have code and unit tests. Phase 3 live path is NOT enabled.
 No live trading path exists. Nothing reaches OpenAlgo from Phase 1 or 2.
 Source of truth: `docs/quant_system_flow_v5.md` and `quant_system_flow_v5.svg`.
 Layout: `AGENTS.md` (project layout) and `src/quant/`.
-Current state and open decisions: `docs/STATUS_2026-11-05.md`. P&L decision: `docs/decisions/0007-pnl-shown-by-default.md`.
+Current state and open decisions: `docs/STATUS_2026-11-05.md`. P&L decision: `docs/decisions/0007-pnl-shown-by-default.md`. Dashboard panels and MAE/MFE: `docs/decisions/0008-dashboard-metrics-and-optimizer-excursion-weights.md`.
 
 ## Doc map (which file owns what)
 
@@ -14,7 +14,7 @@ Current state and open decisions: `docs/STATUS_2026-11-05.md`. P&L decision: `do
 - `docs/IMPLEMENTATION_WORKFLOW.md`: order of work from start to end, in money-flow order.
 - `docs/PHASE0_REUSE_AUDIT.md`: decision for each module that wraps or keeps `Blue_engine/` code.
 - `docs/STATUS_2026-11-05.md`: latest plain-English state of the repo.
-- `docs/decisions/`: owner and design decisions (0001 to 0007).
+- `docs/decisions/`: owner and design decisions (0001 to 0010; 0009 and 0010 are proposals).
 - `docs/quant_system_flow_v5.md` and `quant_system_flow_v5.svg`: stage design (source of truth).
 - `AGENTS.md`: project layout and rules. Still needs a rewrite (D-1).
 
@@ -24,7 +24,7 @@ Rules for every phase:
 - Only `execution/openalgo_client.py` may call the order API.
 - Item status: DONE (code + tests pass here), PARTIAL (code exists, some checks missing), PENDING (not started or needs owner/data/network).
 
-Test state (2026-11-05): full unit run in this sandbox gives 154 passed, 34 skipped, 70 failed. All 70 failures are `ModuleNotFoundError: openalgo` (PyPI blocked here). The new and changed test files pass: 91 passed, 7 skipped (terminal-dashboard tests need `rich` and `Blue_engine`).
+Test state (2026-11-05, after the dashboard and optimizer change): `pytest tests/unit Blue_engine/tests` gives 378 passed, 112 skipped, 107 failed, 1 xfailed. The 107 failures are the same set as before the change (checked by stashing the change and re-running). Most are `ModuleNotFoundError: openalgo` (PyPI blocked here). X-28 lists the real Blue logic failures.
 The owner-machine baseline (P0-2) is still needed to confirm the full suite.
 
 ---
@@ -89,7 +89,7 @@ Status: PARTIAL. Conviction score, size tiers, and cap wiring are on `master` (m
 | Market inputs | India flow data, bulk/block deals, relative strength, microstructure, global cues | `data/market_inputs.py` | PARTIAL (relative strength and order-book helpers exist; flow and bulk/block PENDING) |
 | Models | Regime detector | `models/regime.py` | PENDING (Blue comparison DONE: decision 0005, KEEP local) |
 | Models | Factor and alpha models | `models/factors.py` | PARTIAL (momentum and profit factor wrapped) |
-| Signal | Event scoring (advice only) | `models/events.py` | PENDING |
+| Signal | Event scoring (advice only) | `models/events.py` | PARTIAL: keyword fallback DONE (X-17, `score_filing_advice`); optional LLM scorer not wired to a caller yet |
 | Signal | Signal (direction, stop, time limit) | `models/signal.py` | PENDING |
 | Signal | Meta-labeler | `models/meta_label.py` | PENDING |
 | Signal | Conviction score (six conditions) | `models/conviction.py` | DONE: tests pass (`test_conviction.py`) |
@@ -142,7 +142,7 @@ Status: PENDING for the live path. Risk control modules exist (controls, exits, 
 | Post-trade | Live monitor | `monitor/live_monitor.py` | PENDING |
 | Post-trade | Strategy health | `monitor/strategy_health.py` | PENDING |
 | Post-trade | TCA to cost model | `monitor/tca.py` | PENDING |
-| Reporting | Dashboard (P&L shown by default) | `reporting/dashboard.py`, `Blue_engine/dashboard/render.py`, `dashboard/algo_pro/index.html` | DONE for P&L visibility (decision 0007). Other panels PARTIAL. |
+| Reporting | Dashboard (P&L shown by default) | `reporting/dashboard.py`, `Blue_engine/dashboard/render.py`, `dashboard/algo_pro/index.html` | DONE for P&L visibility (decision 0007). EV, MAE/MFE and rule compliance removed (decision 0008). |
 | Reporting | Accounting view (password-gated) | `reporting/accounting.py`, `scripts/set_accounting_password.py` | DONE: password lockout tested (`test_accounting_password.py`) |
 | Notify | Alerts | `notify/alerts.py` | PENDING |
 
@@ -158,7 +158,7 @@ Exit checks (all required before real capital):
 2. Regulatory items (SEBI algo registration, order tagging, immutable audit store, NTP clock sync) checked against current SEBI rules. NOT verified yet. Scope is an OPEN OWNER QUESTION (see "Open owner decisions").
 3. Capital starts at a fixed, small cap in config. Any scale-up needs owner sign-off.
 4. Kill switch and safe mode tested in a live session with no orders sent. PENDING.
-5. Dashboard P&L shown by default (decision 0007). EV, MAE/MFE and profit factor visible. Rule-compliance panel NOT NEEDED (owner, 2026-11-05).
+5. Dashboard P&L shown by default (decision 0007). EV, MAE/MFE and rule compliance removed; profit factor and win rate visible (decision 0008).
 
 ---
 
@@ -194,9 +194,10 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 ### PB - Priority B: dashboard P&L and panels
 - **PB-1** P&L shown by default on terminal and web dashboards. DONE (reversed from hidden; decision 0007).
 - **PB-2** Toggle hides money figures on screen. DONE: tests pass.
-- **PB-3** Execution panels: EV, profit factor, risk-to-reward, MAE, MFE, win rate, rule compliance, deviation alerts. PARTIAL. EV, profit factor, win rate, MAE and MFE are shown (MAE/MFE visibility fixed 2026-11-05, X-15). Risk-to-reward, execution quality and risk utilization are NOT confirmed in this doc pass; check the dashboard code before marking them. Rule-compliance panel and deviation alerts: NOT NEEDED (owner, 2026-11-05).
+- **PB-3** Dashboard panels. Owner rule (decision 0008, 2026-11-05): show P&L, win rate, profit factor, risk utilisation. Remove EV, MAE/MFE and rule compliance. DONE for the quant dashboard payload and the web dashboard. Risk-to-reward and execution quality are NOT confirmed in code; check before marking them. Deviation alerts: NOT NEEDED (owner).
 - **PB-4** Accounting view behind an authorised action. DONE (password lockout; tested). Owner to confirm the method.
-- **PB-5** Hand-checked tests for EV, profit factor, MAE/MFE. DONE 2026-11-05 (X-15).
+- **PB-5** Hand-checked tests for profit factor, win rate, P&L and excursion math. DONE 2026-11-05 (X-15). EV and MAE/MFE checks on the dashboard were removed with decision 0008; the removal is tested.
+- **PB-6** MAE/MFE as optimizer parameters (decision 0008). DONE 2026-11-05: `mae_penalty_per_pct` and `mfe_capture_weight` are `Objective` and `EngineConfig` parameters, validated, defaults unchanged, recorded in stats and the trial log. Automatic search over them is OFF until the owner approves bounds and out-of-sample evidence exists.
 
 ### P3 - Phase 3 (live path, NOT enabled)
 - **P3-1** Broker live feed in `data/ingest.py`. PENDING.
@@ -209,7 +210,7 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 - **P3-8** Regulatory checklist verified against current SEBI rules, from official sources. PENDING. Scope is an open owner question (see "Open owner decisions").
 
 ### Docs and governance
-- **D-1** Update `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done). Full rewrite; owner approval needed. PENDING.
+- **D-1** Update `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done). Rule 8 and the layout comment DONE 2026-11-05 (decision 0008). Status line and full rewrite still PENDING (owner approval).
 - **D-2** Review flow doc and `ALGO_FLOW.md`. DONE 2026-11-05: flow doc P&L and event-blackout lines fixed; SVG label fixed; `ALGO_FLOW.md` is only a pointer (no change needed).
 - **D-3** Daily SOP entry at `docs/My_trading_system_SOP/SOP.md`. PENDING (file not reviewed).
 - **D-4** Work-log entry after each commit (`Temp/Daily work log/`, git-ignored, not pushed). Ongoing.
@@ -237,16 +238,16 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 ### Tier B - research evidence (needs real data)
 - **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). Needs: NSE bar data from owner; sandbox cannot reach NSE.
 - **X-11** Out-of-sample conviction calibration report (P2-6). Needs: X-10 data.
-- **X-12** Trial log entry for every optimisation run (AGENTS rule: sampler, trial count, bounds, folds, cost model version). Needs: none for the wiring; real runs need X-10.
+- **X-12** Trial log entry for every optimisation run (AGENTS rule: sampler, trial count, bounds, folds, cost model version). DONE 2026-11-05 (wiring): with `EngineConfig.trial_log_path` set, Blue writes one row per trial (failed ones too) and one run row; `TrialLog` reads them (`tests/unit/test_trial_log_optimizer.py`). Default is OFF, so the research runner (X-6/X-10) must set the path. Owner to decide if the default should be on.
 - **X-13** Survivorship-free universe and corporate-action review (P1-7). Needs: owner data source for delisted symbols.
 
 ### Tier C - dashboard
 - **X-14** NOT NEEDED (owner, 2026-11-05). Was: rule-compliance panel and strategy deviation alerts (PB-3 remainder).
-- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). DONE 2026-11-05: 10 tests with hand-worked numbers (EV 0.6%, win rate 60%, PF 2.0, net P&L 3000, MAE 4%, MFE 10%, short-side flip, edge cases) in `tests/unit/test_dashboard_metrics_handchecked.py`. Four planted bugs caught. MAE/MFE visibility fixed 2026-11-05: `build_payload` now shows `avg_mae_pct` and `avg_mfe_pct` (AGENTS rule 8). Trades without `mae`/`mfe` show None. Also: win rate uses the return sign and profit factor uses the rupee sign; they could disagree if costs flip a trade.
+- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). DONE 2026-11-05: 10 tests with hand-worked numbers (EV 0.6%, win rate 60%, PF 2.0, net P&L 3000, MAE 4%, MFE 10%, short-side flip, edge cases) in `tests/unit/test_dashboard_metrics_handchecked.py`. Four planted bugs caught. MAE/MFE were removed from the dashboard by decision 0008 (2026-11-05); the excursion math is still tested. Also: win rate uses the return sign and profit factor uses the rupee sign; they could disagree if costs flip a trade.
 - **X-16** NOT NEEDED (owner, 2026-11-05). Was: upcoming NSE board meetings on the dashboard. The parser and blackout helper stay, because X-8 uses them.
 
 ### Tier D - signal build-out (paper only)
-- **X-17** Event scoring, advice only, with a deterministic fallback when the LLM is off (P2 events). Needs: none for the fallback; LLM provider is optional.
+- **X-17** Event scoring, advice only, with a deterministic fallback when the LLM is off (P2 events). Needs: none for the fallback; LLM provider is optional. DONE 2026-11-05: `score_filing_advice` uses an optional LLM callable, falls back to the keyword scorer on error or non-finite output (WARNING logged), clamps to [-1, 1], records `source`, and never sets size (`tests/unit/test_event_advice_fallback.py`).
 - **X-18** Regime detector and factor models (P2-4). Needs: X-10 data to validate.
 - **X-19** Model registry with human sign-off record (P2-5). Needs: owner sign-off process.
 
@@ -259,17 +260,16 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 
 ### Tier F - Blue_engine follow-ups from the Phase 0 audit (added 2026-11-05)
 These come from `docs/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an item before this pass.
-- **X-25** Blue HRP (`portfolio/optim/hrp.py`) gives different weights from our HRP (`portfolio/optimizer.py`) on the same covariance. Ours matches the published Lopez de Prado algorithm on 25 random covariances, so ours stays local for now. Needs: owner decision (keep local, or fix Blue). A Phase 2 exit check depends on it.
+- **X-25** Blue HRP (`portfolio/optim/hrp.py`) gives different weights from our HRP (`portfolio/optimizer.py`) on the same covariance. Ours matches the published Lopez de Prado algorithm on 25 random covariances, so ours stays local for now. Needs: owner decision (keep local, or fix Blue). A Phase 2 exit check depends on it. Decision note drafted: `docs/decisions/0009-hrp-optimizer-choice.md` (PROPOSED, owner to choose).
 - **X-26** Blue `ml/evaluation/metrics.py::deflated_sharpe` mis-scales the threshold (no cross-trial variance). It rejects almost every strategy at N >= 10. Decision 0001 applies: do not use Blue's `deflated_sharpe` in any gate. Needs: owner to fix Blue or confirm local-only; then add a test that gates never import it.
 - **X-27** Two Sharpe definitions in Blue: `portfolio/attribution/perf.py::sharpe` (annualised compound return over vol) and `ml/evaluation/metrics.py::sharpe` (arithmetic mean over std). They disagree on the same window, so reports can conflict. Our `strategy_health.rolling_sharpe` is a third definition. Needs: owner to pick one definition for reports and label the others.
 - **X-28** Blue_engine tests with the SDK loaded (49 failures, from the 2026-11-03 baseline). Real logic failures: `test_phase3_bars` (expected at least 4 strategy calls, got 2) and `test_optimizer_engine` (best score 2.97 is under 90% of the known peak 3.84). Not yet classified: `test_portfolio_engine`, `test_phase4_registry_cli`. Environment failures (`pyarrow`, `yfinance`) are not bugs. Needs: owner run with `openalgo==2.0.3`, `pyarrow` and `yfinance` installed (see P0-2).
-- **X-29** `test_skill_writer::test_default_sandbox_is_under_the_project_data_dir` expects the folder name `my-trading-system`, so it fails in a checkout named `Algo-Pro`. Fix the test so it does not depend on the checkout name. DONE 2026-11-05 for the checkout-name part: the test now checks only that the sandbox is `<repo>/data/agent_stage`. It is skipped in the sandbox (no `openalgo`), so the owner run must confirm it. NOT DONE: the `blue_engine` vs `Blue_engine/` case-sensitivity check (the bridge in `src/quant/core/blue_bridge.py` covers `src/quant` only).
-- **X-30** Impact: the code uses a flat 5 bps. Blue has a square-root impact model (`impact_coefficient`), which is not used. Phase 1 exit check 3 wants impact included. Switching changes backtest results, so it needs its own commit and test update. Needs: owner decision.
+- **X-29** `test_skill_writer::test_default_sandbox_is_under_the_project_data_dir` expects the folder name `my-trading-system`, so it fails in a checkout named `Algo-Pro`. Fix the test so it does not depend on the checkout name. DONE 2026-11-05 for the checkout-name part: the test now checks only that the sandbox is `<repo>/data/agent_stage`. It is skipped in the sandbox (no `openalgo`), so the owner run must confirm it. DONE 2026-11-05: `tests/unit/test_case_paths.py` blocks quoted lowercase `blue_engine/` path literals in `src/` and `Blue_engine/` code. The one real code path (`Blue_engine/core/runner.py`, `DEFAULT_CONFIG`) and two docstring paths were fixed.
+- **X-30** Impact: the code uses a flat 5 bps. Blue has a square-root impact model (`impact_coefficient`), which is not used. Phase 1 exit check 3 wants impact included. Switching changes backtest results, so it needs its own commit and test update. Needs: owner decision. Decision note drafted: `docs/decisions/0010-impact-model-choice.md` (PROPOSED).
 
 ### Next to start without the owner
-- **X-29** checkout-name part done (owner run to confirm). Case-sensitivity check still open; no owner input needed.
-- **X-25** and **X-30** can get decision notes drafted now. The choice itself needs the owner.
-- Everything else needs owner input or data: P0-2, P0-3, P0-4, X-9b test run, X-10 data.
+- Done 2026-11-05 without owner input: X-12 (wiring), X-17 (fallback), X-29 (case check), PB-6 (MAE/MFE optimizer parameters), decision notes 0009 and 0010 (PROPOSED).
+- Still needs the owner: P0-2, P0-3, P0-4, X-9b test run, X-10 data, the 0009/0010 choices, the trial-log default, and the MAE/MFE search bounds.
 
 ---
 
@@ -280,7 +280,9 @@ These come from `docs/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an ite
 - Tier values and weights (`config/conviction_tiers.yaml`). Placeholders until out-of-sample evidence exists.
 - Holiday list (P0-4, X-23). BSE dates still to confirm.
 - "Authorised" accounting view method (PB-4).
-- Impact model (X-30) and HRP choice (X-25).
+- Impact model (X-30) and HRP choice (X-25). Drafts: `0010`, `0009`.
+- Trial log on or off by default (`EngineConfig.trial_log_path`, X-12).
+- Search bounds for the MAE/MFE weights (PB-6). Off until approved.
 
 ## Open gaps and assumptions
 
@@ -289,5 +291,5 @@ These come from `docs/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an ite
 - Paper period length, parity tolerance and starting capital are not set.
 - Event blackout uses the NSE board-meeting feed. It is a blocking input only, not a signal. The sandbox cannot reach NSE from code; the sample used in tests is a saved fixture.
 - Blue_engine reuse targets are named by path. Read and confirm each before wrapping.
-- `AGENTS.md` still says P&L is hidden by default. Superseded by decision 0007 until `AGENTS.md` is rewritten (X-20).
-- The 70 unit-test failures are environment only (`openalgo` missing). The Blue_engine logic failures in X-28 are real and not yet fixed.
+- `AGENTS.md` rule 8 updated 2026-11-05 (decision 0008). The full rewrite (X-20) is still pending.
+- The 107 current failures are the same set as before this change. Most are `openalgo` missing. The Blue_engine logic failures in X-28 are real and not yet fixed.

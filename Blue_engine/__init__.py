@@ -32,8 +32,8 @@ Adding a new strategy
 ---------------------
 1. Drop a new file in alpha/signals/  (class MySignal(BaseSignal))
 2. Drop a new file in pov/slicers/  (class MySlicer(BaseSlicer))   [optional, reuse POV]
-3. Add blue_engine/input/my_strategy.json
-4. Run:  python -m blue_engine.core.runner blue_engine/input/my_strategy.json
+3. Add Blue_engine/input/my_strategy.json
+4. Run:  python -m blue_engine.core.runner Blue_engine/input/my_strategy.json
 """
 # IMPORTANT: this must be the very first import. It fixes the import path
 # so `from openalgo import api` always resolves to the installed SDK,

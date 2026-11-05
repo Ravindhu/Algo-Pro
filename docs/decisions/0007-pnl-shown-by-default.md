@@ -2,6 +2,7 @@
 
 Date: 2026-11-05
 Status: Accepted (owner decision)
+Partly superseded by 0008: EV, MAE/MFE and rule compliance are removed from the dashboard. The P&L part stands.
 Supersedes: the P&L-hidden-by-default part of 0006 and the "P&L hidden by default" rule in `AGENTS.md` (rule 8) and `docs/quant_system_flow_v5.md`.
 
 ## Context
@@ -20,13 +21,13 @@ The owner reviewed this and asked that P&L show on the dashboard.
 ## What does not change
 
 - P&L can never set position size or create an order.
-- EV, profit factor, MAE/MFE, and rule compliance stay visible.
+- Profit factor stays visible. EV, MAE/MFE and rule compliance were removed by decision 0008.
 - Risk limits and kill switches work the same way.
 
 ## Tests
 
 - `tests/unit/test_pnl_hidden.py`: shown by default, hidden when the toggle is off, web default is shown.
-- `tests/unit/test_phase3.py`: `test_dashboard_shows_pnl_always_and_ev_without_mae_mfe` needs `openalgo` in this sandbox. It is one of the known pre-existing failures.
+- `tests/unit/test_phase3.py`: `test_dashboard_shows_pnl_and_hides_ev_mae_mfe` needs `openalgo` in this sandbox. It is one of the known pre-existing failures.
 
 ## Consequence to review
 

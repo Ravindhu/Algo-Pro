@@ -168,6 +168,28 @@ def _excursion_terms(trades: List[Dict[str, Any]]) -> Tuple[Optional[float], Opt
     return sum(maes) / len(maes), capture
 
 
+def excursion_adjustment(mae_mean: Optional[float], mfe_capture: Optional[float],
+                         mae_penalty_per_pct: float, mfe_capture_weight: float) -> float:
+    """Score change from trade excursions. 0.0 when there is no trade data.
+
+    MAE costs ``mae_penalty_per_pct`` per 1% of mean adverse move.
+    MFE capture adds ``mfe_capture_weight`` times the capture in [0, 1].
+    Example: MAE 2%, capture 0.5, penalty 0.02, weight 0.1 -> -0.04 + 0.05 = +0.01.
+    """
+    if mae_mean is None:
+        return 0.0
+    return (-mae_penalty_per_pct * (mae_mean * 100.0)
+            + mfe_capture_weight * (mfe_capture or 0.0))
+
+
+def _check_weight(name: str, value: float) -> float:
+    """Excursion weights are non-negative and finite. Negative weights would reward MAE."""
+    v = float(value)
+    if not math.isfinite(v) or v < 0:
+        raise ValueError(f"{name} must be finite and >= 0 (got {value!r})")
+    return v
+
+
 class Objective:
     """Turns a parameter dict into a score, using walk-forward folds.
 
@@ -184,6 +206,8 @@ class Objective:
             still deterministic per trial. Reproducibility is not optional in
             research - an unreproducible optimum cannot be acted on.
         cost_bps: round-trip cost assumption, in bps.
+        mae_penalty_per_pct: optimizer parameter. Score cost per 1% mean MAE.
+        mfe_capture_weight: optimizer parameter. Score bonus for MFE capture.
     """
 
     def __init__(self, strategy: StrategyFn, space: Any = None, *,
@@ -194,7 +218,9 @@ class Objective:
                  risk_free_per_period: float = 0.0,
                  periods_per_year: Optional[float] = None,
                  min_fold_sharpe: Optional[float] = None,
-                 cache_size: int = 4096) -> None:
+                 cache_size: int = 4096,
+                 mae_penalty_per_pct: float = MAE_PENALTY_PER_PCT,
+                 mfe_capture_weight: float = MFE_CAPTURE_WEIGHT) -> None:
         self.strategy = strategy
         self.space = space
         self.periods = max(60, int(periods))
@@ -214,6 +240,9 @@ class Objective:
         #: than merely score badly. Off by default (None) because a legitimate
         #: strategy can have one bad fold; turning it on is a policy choice.
         self.min_fold_sharpe = min_fold_sharpe
+        #: Excursion weights (optimizer parameters). Defaults are UNTESTED; see constants.
+        self.mae_penalty_per_pct = _check_weight("mae_penalty_per_pct", mae_penalty_per_pct)
+        self.mfe_capture_weight = _check_weight("mfe_capture_weight", mfe_capture_weight)
         self._cache: Dict[str, ObjectiveResult] = {}
         self._cache_size = int(cache_size)
         self.n_evaluated = 0
@@ -456,9 +485,9 @@ class Objective:
         # Only applies when the strategy reports per-trade excursions. With no
         # trade data the score is unchanged (backward compatible).
         mae_mean, mfe_capture = _excursion_terms(fold_trades)
-        if mae_mean is not None:
-            score -= MAE_PENALTY_PER_PCT * (mae_mean * 100.0)
-            score += MFE_CAPTURE_WEIGHT * (mfe_capture or 0.0)
+        score += excursion_adjustment(mae_mean, mfe_capture,
+                                      self.mae_penalty_per_pct,
+                                      self.mfe_capture_weight)
 
         #: Number of folds that actually produced a scoreable result. Kept on
         #: the result so a caller can tell "4 of 4" from "2 of 4" without
@@ -564,4 +593,6 @@ class Objective:
             "n_folds": self.n_folds,
             "periods": self.periods,
             "cost_bps": self.cost_bps,
+            "mae_penalty_per_pct": self.mae_penalty_per_pct,
+            "mfe_capture_weight": self.mfe_capture_weight,
         }

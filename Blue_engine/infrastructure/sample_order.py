@@ -24,7 +24,7 @@ USAGE
     #       .\.venv\Scripts\Activate.ps1
     #
     # 3. Run this script:
-    #       python blue_engine/infrastructure/sample_order.py
+    #       python Blue_engine/infrastructure/sample_order.py
     #
     # Expected output:
     #       HTTP 200

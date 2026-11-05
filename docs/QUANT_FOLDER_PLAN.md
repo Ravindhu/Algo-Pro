@@ -33,8 +33,10 @@ Partly.
 - Deflated Sharpe: do not use Blue's `deflated_sharpe` in any gate (X-26)
 - Impact: code uses a flat 5 bps; Blue has a square-root model not used yet (X-30)
 
+**Event scoring with keyword fallback (done 2026-11-05, X-17):** `models/events.py`
+
 **Still new code, not started:**
-- Signal, meta-labeler, event scoring: `models/signal.py`, `models/meta_label.py`, `models/events.py`
+- Signal, meta-labeler: `models/signal.py`, `models/meta_label.py`
 - Router and protection: `execution/router.py`, `execution/protection.py`
 - Broker live feed `data/ingest.py`, session manager, throttle, parity, drift
 - Alerts `notify/alerts.py`, feedback loop `feedback/*`
@@ -52,7 +54,7 @@ Each folder has a `README.md` with its purpose and status.
 | `core/` | shared basics | `calendar.py` (2026 holidays) | `blue_bridge.py`, `config.py`, `types.py` | expiry-day rules (X-1) |
 | `data/` | market inputs | `market_inputs.py` (NSE event parser, blackout dates) | `qa.py`, `feature_store.py`, `universe.py`, `corp_actions.py` | `ingest.py` live feed; bulk/block deals (P2-8) |
 | `research/` | research validation | cost rule tests | `backtest.py`, `walk_forward.py`, `trial_log.py`, `validation.py`, `lineage.py` | `capacity.py` |
-| `models/` | signal and conviction | `conviction.py` | `calibration.py`, `factors.py` | `regime.py`, `signal.py`, `meta_label.py`, `events.py` |
+| `models/` | signal and conviction | `conviction.py`, `events.py` (keyword fallback, X-17) | `calibration.py`, `factors.py` | `regime.py`, `signal.py`, `meta_label.py` |
 | `portfolio/` | sizing and allocation | `sizing.py`, `tiers.py`, `rebalance.py`, `covariance.py` | `allocator.py`, `optimizer.py`, `portfolio_risk.py` | HRP decision (X-25) |
 | `risk/` | safety gate | `controls.py` entry blackout (X-8) | `gate.py`, `pretrade.py`, `price_band.py`, `liquidity.py`, `loss_breaker.py`, `kill_switch.py`, `exits.py`, `squareoff.py`, `blue_risk_gate.py` | expiry and rollover (X-1) |
 | `execution/` | orders (Phase 3 only) | `order_fsm.py` retry-safe (X-3) | `queue.py`, `openalgo_client.py` (refuses in paper) | `router.py`, `protection.py` |
@@ -60,7 +62,7 @@ Each folder has a `README.md` with its purpose and status.
 | `audit/` | audit trail | `override_log.py` | `log.py` (tamper test) | immutable store check (P3-8) |
 | `feedback/` | improvement loop | - | - | `reopt.py`, `champion_challenger.py` (needs sign-off, X-19) |
 | `notify/` | alerts | - | - | `alerts.py` (P3-5) |
-| `reporting/` | dashboard, accounting | `accounting.py` (password view) | `dashboard.py` | **P&L and dashboard rule conflict: open owner decision (section 4)** |
+| `reporting/` | dashboard, accounting | `accounting.py` (password view); dashboard shows P&L, win rate, profit factor (0007, 0008) | `dashboard.py` (risk-to-reward not confirmed) | - |
 
 Note: the plan docs give the status. Before editing any file, open it and confirm the status.
 
@@ -85,9 +87,9 @@ Follow `docs/IMPLEMENTATION_WORKFLOW.md`. Each step must pass its gate first.
 
 ---
 
-## 4. Open owner decision: P&L and dashboard rules conflict (resolve first)
+## 4. Dashboard rule (resolved 2026-11-05, decision 0008)
 
-Three sources disagree. The code must follow one of them. No code was changed for this.
+The owner answered on 2026-11-05: P&L shown; EV, MAE/MFE and rule compliance removed; MAE/MFE become optimizer parameters. The table is kept as history.
 
 | Source | P&L default | EV, MAE/MFE, profit factor | Rule-compliance panel |
 |---|---|---|---|
@@ -95,21 +97,16 @@ Three sources disagree. The code must follow one of them. No code was changed fo
 | `AGENTS.md` rule 8 (commit `a0c7847`, latest on master) | Hidden | Remove from dashboard | Remove |
 | Operating brief in the project preferences | Hidden | Show (EV, profit factor, MAE, MFE, risk-to-reward) | Show (rule compliance) |
 
-Owner to answer:
-1. Is P&L shown or hidden by default?
-2. Should EV, MAE/MFE and profit factor stay on the dashboard?
-3. Should the rule-compliance panel exist? (Decision 0007 says not needed; the brief says show.)
-
-Until this is answered, `reporting/dashboard.py` and the dashboard HTML must not be changed for these items. Decision 0007 and `AGENTS.md` rule 8 should be updated in the same commit once the owner answers.
+Done: `reporting/dashboard.py`, `dashboard/algo_pro/index.html`, the SVG, the flow doc and AGENTS rule 8 are updated together. Still open for the owner: the trial-log default path and MAE/MFE search bounds (see `IMPLEMENTATION_PLAN.md`).
 
 ---
 
-## 5. What can be done now without owner input
+## 5. Done without owner input (2026-11-05)
 
-1. **X-17** Deterministic fallback for event scoring in `models/events.py` (no LLM needed).
-2. **X-12** Wire trial-log entries into `research/trial_log.py` for every run (wiring needs no data).
-3. **X-29 (case check)** Fix the `blue_engine` vs `Blue_engine/` path check.
-4. Draft decision notes for X-25 (HRP) and X-30 (impact). The owner makes the choice.
+1. DONE: X-17 fallback in `models/events.py`.
+2. DONE: X-12 trial-log wiring (default off).
+3. DONE: X-29 case check and one real path fix.
+4. DONE: decision notes 0009 (HRP) and 0010 (impact), both PROPOSED.
 
 Blocked by owner or data:
 - P0-2: install `openalgo` and run the full suite (sandbox cannot install it; 70 tests fail here for that reason only)
@@ -118,7 +115,7 @@ Blocked by owner or data:
 - X-10: real NSE bar data for backtest, DSR, PBO
 - X-9b: a fix in Blue needs an owner test run first
 - X-24 / P3-8: SEBI checklist. Scope conflict is still open (see `IMPLEMENTATION_PLAN.md`).
-- Section 4: P&L and dashboard rules.
+- Trial-log default path and MAE/MFE search bounds (owner).
 
 ---
 

@@ -129,7 +129,6 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
    <div><span>Sharpe (per trade)</span><b id="sh">—</b></div>
    <div><span>Profit factor</span><b id="pf">—</b></div>
    <div><span>Win rate</span><b id="wr">—</b></div>
-   <div><span>Expectancy / trade</span><b id="ex">—</b></div>
    <div><span>Cost % of gross</span><b id="costp">—</b></div>
    <div><span>Screener pass rate</span><b id="mtfr">—</b></div>
    <div><span>Open positions</span><b id="op">—</b></div>
@@ -301,8 +300,7 @@ function ui(eq,dd){
  setT('sh',sh==null?'—':sh.toFixed(2),sh==null?'':sh>=0?'g':'r');
  setT('wr',n?Math.round(wins/n*100)+'%':'—');
  setT('pf',gl?(gw/gl).toFixed(2):'—',gl?(gw/gl>=1?'g':'r'):'');
- setT('ex',n?MM((gw-gl)/n,true):'—',n&&revealPnl?sgn(gw-gl):'');
- setT('costp',grossAbs?(costTot/grossAbs*100).toFixed(1)+'%':'—',grossAbs&&costTot/grossAbs>.5?'a':'');
+  setT('costp',grossAbs?(costTot/grossAbs*100).toFixed(1)+'%':'—',grossAbs&&costTot/grossAbs>.5?'a':'');
  setT('op',String(open.length));setT('ntr',String(n));
  setT('mtfr',scrTotal?Math.round(scrPass/scrTotal*100)+'%':'—');
  panels(eq,dd,expo,day,n);

@@ -52,8 +52,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from . import __version__, config, logger
 from .search_space import SearchSpace
 from .strategies import resolve_strategy
-from .objective import Objective, ObjectiveResult
+from .objective import (MAE_PENALTY_PER_PCT, MFE_CAPTURE_WEIGHT, Objective,
+                        ObjectiveResult, _check_weight)
 from .study import Study, TrialRecord
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 """
 Core optimization engine for Blue_engine param sweeps on top of Optuna-TPE,
@@ -79,6 +83,39 @@ def _copy_cost_gate(gate: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     half a dozen scalar fields.
     """
     return None if not gate else dict(gate)
+
+
+def append_trial_log(path: Any, *, strategy: str, study: Study, cfg: "EngineConfig",
+                     space: Any, backend: str, verdict: Dict[str, Any]) -> int:
+    """Append one ``trial`` row per study trial, then one ``optimizer_run`` row.
+
+    Row format is the one read by ``quant.research.trial_log.TrialLog``. Failed
+    trials are written too (``sharpe`` None): DSR needs every variant tried,
+    not only the ones that worked. Returns the number of rows written.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    rows: List[Dict[str, Any]] = [
+        {"kind": "trial", "strategy_id": strategy, "ts": ts,
+         "params": t.params, "sharpe": t.mean_sharpe,
+         "n_obs": int(t.n_obs or 0), "ok": bool(t.ok), "value": t.value}
+        for t in study.trials]
+    rows.append({
+        "kind": "optimizer_run", "strategy_id": strategy, "ts": ts,
+        "sampler": backend, "n_trials_cap": cfg.n_trials,
+        "n_trials_run": len(study.trials),
+        "bounds": space.to_dict() if space is not None else None,
+        "n_folds": cfg.n_folds, "cost_bps": cfg.cost_bps, "seed": cfg.seed,
+        "objective_version": __version__,
+        "mae_penalty_per_pct": cfg.mae_penalty_per_pct,
+        "mfe_capture_weight": cfg.mfe_capture_weight,
+        "verdict_ok": bool(verdict.get("ok", False)),
+    })
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+    return len(rows)
 
 
 # --------------------------------------------------------------------------- #
@@ -108,8 +145,20 @@ class EngineConfig:
                  n_ei_candidates: int = 32,
                  early_stop_patience: int = 40,
                  keep_failed: bool = True,
-                 multivariate: bool = True) -> None:
+                 multivariate: bool = True,
+                 mae_penalty_per_pct: float = MAE_PENALTY_PER_PCT,
+                 mfe_capture_weight: float = MFE_CAPTURE_WEIGHT,
+                 trial_log_path: Optional[str] = None) -> None:
         self.name = name
+        #: Optimizer parameters for the trade-excursion terms (see objective.py).
+        #: Searched only when the owner approves bounds; default values untested.
+        self.mae_penalty_per_pct = _check_weight("mae_penalty_per_pct", mae_penalty_per_pct)
+        self.mfe_capture_weight = _check_weight("mfe_capture_weight", mfe_capture_weight)
+        #: JSONL file that receives one row per trial and one run row (AGENTS:
+        #: every optimisation run must be logged). None = off. Read with
+        #: ``quant.research.trial_log.TrialLog``. Off by default so tests do not
+        #: write into the research log; the research runner sets it.
+        self.trial_log_path = None if trial_log_path is None else str(trial_log_path)
         #: Hard cap on trials. 200 is the working default: enough for TPE to
         #: model a 10-parameter space (importance needs >=50 by config), small
         #: enough that a 600-bar synthetic evaluates in minutes.
@@ -263,7 +312,9 @@ class OptimizerEngine:
             seed=self.cfg.seed, cost_bps=self.cfg.cost_bps,
             risk_free_per_period=self.cfg.risk_free_per_period,
             periods_per_year=self.cfg.periods_per_year,
-            min_fold_sharpe=self.cfg.min_fold_sharpe)
+            min_fold_sharpe=self.cfg.min_fold_sharpe,
+            mae_penalty_per_pct=self.cfg.mae_penalty_per_pct,
+            mfe_capture_weight=self.cfg.mfe_capture_weight)
         self._optuna = self._detect_optuna()
 
     @staticmethod
@@ -547,6 +598,11 @@ class OptimizerEngine:
         importance = study.param_importance()
         top_k = importance.get("ranking", [])[:config.DEFAULT_TOP_K]
         verdict = study.verdict()
+
+        if cfg.trial_log_path:
+            append_trial_log(cfg.trial_log_path, strategy=self.strategy_name,
+                             study=study, cfg=cfg, space=self.space,
+                             backend=backend, verdict=verdict)
 
         return SearchResult(ok=verdict.get("ok", False), study=study,
                             config=cfg, space=self.space,

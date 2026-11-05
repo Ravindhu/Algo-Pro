@@ -75,7 +75,7 @@ Support inputs to backtest and risk:
 | Stage | What it does |
 |---|---|
 | Liquidity screener | ADV and ASM/GSM flags |
-| Event scoring | Frontline AI. Advice only, no orders |
+| Event scoring | Frontline AI, optional. Keyword fallback when no LLM. Advice only, no orders |
 | Signal | Direction, stop, time limit |
 | Meta-labeler | Take or skip, bet size |
 | Calibrated conviction | Platt or isotonic calibration |
@@ -165,7 +165,7 @@ Support inputs to backtest and risk:
 | Feed health monitor | Latency, heartbeats, gaps |
 | Trading calendar | Holidays, expiries, lot sizes |
 | Beta limits | Nifty beta, index exposure |
-| Dashboard | P&L shown by default (decision 0007; a toggle can hide it). EV, MAE/MFE |
+| Dashboard | P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
 | Alerts | Errors by level |
 | Audit log | Immutable, every decision |
 | Broker feeds | Orders, fills, quotes |
@@ -239,7 +239,7 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 18. Backup, disaster recovery and failover plan
 19. Change management and model sign-off record
 20. Test suite run on every commit
-21. Dashboard panels: profit factor, risk utilization, rule compliance
+21. Dashboard panels: profit factor, risk utilization (EV, MAE/MFE and rule compliance removed, decision 0008)
 22. Strategy-deviation alerts
 23. Optional index-futures hedge overlay
 24. Per-second order-count limits per exchange

@@ -30,16 +30,28 @@ class TrialLog:
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, sort_keys=True, default=str) + "\n")
 
-    def trials(self, strategy_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _rows(self, kind: str, strategy_id: Optional[str]) -> List[Dict[str, Any]]:
         if not self.path.exists():
             return []
         with self.path.open(encoding="utf-8") as fh:
             rows = [json.loads(line) for line in fh if line.strip()]
-        return [r for r in rows if strategy_id is None or r["strategy_id"] == strategy_id]
+        # Rows without "kind" are plain trials (older format from record()).
+        return [r for r in rows
+                if r.get("kind", "trial") == kind
+                and (strategy_id is None or r["strategy_id"] == strategy_id)]
+
+    def trials(self, strategy_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self._rows("trial", strategy_id)
+
+    def runs(self, strategy_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """One ``optimizer_run`` row per optimisation run (sampler, bounds, folds, cost)."""
+        return self._rows("optimizer_run", strategy_id)
 
     def count(self, strategy_id: Optional[str] = None) -> int:
+        """True trial count for DSR: every variant tried, failed ones included."""
         return len(self.trials(strategy_id))
 
     def sharpe_variance(self, strategy_id: Optional[str] = None) -> float:
-        values = [t["sharpe"] for t in self.trials(strategy_id)]
+        # Failed trials have sharpe None: they count in count() but not in the variance.
+        values = [t["sharpe"] for t in self.trials(strategy_id) if t.get("sharpe") is not None]
         return float(np.var(values, ddof=1)) if len(values) >= 2 else 0.0
