@@ -145,6 +145,6 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-Items that need no owner input: X-29 (test-only fix for the checkout-name dependency). X-25 and X-30 can get decision notes drafted, but the choice is the owner's.
+Items that need no owner input: the case-sensitivity check from X-29 (checkout-name test fixed 2026-11-05). X-25 and X-30 can get decision notes drafted, but the choice is the owner's.
 Done 2026-11-05: X-3, X-4, X-5, X-8, X-9 and X-15. X-9b (lazy Blue package imports) needs an owner test run before it can be merged.
 Owner items first when available: P0-2, P0-3, P0-4, and the SEBI scope question (see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions").

@@ -220,7 +220,7 @@ def test_execution_modules_never_import_the_writer(rel):
 
 
 def test_default_sandbox_is_under_the_project_data_dir():
+    """Sandbox is <repo>/data/agent_stage, whatever the checkout folder is called."""
     from blue_engine.core import skill_writer as mod
-    assert mod._repo_root().name == "my-trading-system"
-    assert mod._repo_root() / DEFAULT_SANDBOX_RELATIVE == (
-        mod._repo_root() / "data" / "agent_stage")
+    root = mod._repo_root()
+    assert root / DEFAULT_SANDBOX_RELATIVE == root / "data" / "agent_stage"
