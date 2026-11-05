@@ -79,47 +79,18 @@ def test_delivery_has_no_brokerage_and_intraday_is_capped():
     assert m.trade_cost(1e9, "SELL", "intraday") == pytest.approx(big_one)
 
 
-def test_trade_cost_delegates_to_blue(monkeypatch):
-    """The wrapper must call Blue's total_bps. It must not compute the arithmetic itself."""
-    blue = _blue_or_skip("backtest.costs")
-    from quant.research import costs as wrapper
-
-    calls = []
-    real = blue.CostModel
-
-    class Spy(real):
-        def total_bps(self, **kwargs):
-            calls.append(kwargs)
-            return super().total_bps(**kwargs)
-
-    monkeypatch.setattr(wrapper, "_blue_cost_class", lambda: Spy)
-    wrapper.CostModel().trade_cost(100_000, "BUY", "delivery")
-    assert calls == [{"is_buy": True}]
-
-
 def test_negative_notional_still_rejected():
-    _blue_or_skip("backtest.costs")
     from quant.research.costs import CostModel
 
     with pytest.raises(ValueError):
         CostModel().trade_cost(-1.0, "BUY")
 
 
-def test_walk_forward_delegates_and_keeps_purge_gap(monkeypatch):
-    """Folds come from Blue's splitter. Each train block stops `purge` rows before its test block."""
-    splits_mod = _blue_or_skip("ml.evaluation.splits")
-    from quant.research import walk_forward as wrapper
+def test_walk_forward_keeps_purge_gap_and_order():
+    """Each train block stops `purge` rows before its test block; test is after train."""
+    from quant.research.walk_forward import purged_walk_forward as wf
 
-    seen = {}
-    real = splits_mod.walk_forward
-
-    def spy(rows, **kwargs):
-        seen.update(kwargs)
-        return real(rows, **kwargs)
-
-    monkeypatch.setattr(splits_mod, "walk_forward", spy)
-    folds = list(wrapper.purged_walk_forward(103, n_splits=3, purge=4, min_train=5))
-    assert seen["horizon"] == 4 and seen["embargo"] == 0 and seen["min_train"] == 5
+    folds = list(wf(103, n_splits=3, purge=4, min_train=5))
     assert folds, "expected at least one fold"
     for train, test in folds:
         assert train.size >= 5

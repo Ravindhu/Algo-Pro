@@ -24,7 +24,8 @@ Rules for every phase:
 - Only `execution/openalgo_client.py` may call the order API.
 - Item status: DONE (code + tests pass here), PARTIAL (code exists, some checks missing), PENDING (not started or needs owner/data/network).
 
-Test state now (2026-11-06): `pytest tests/unit` 70 failed, 325 passed; all 70 failures are the missing `httpx` package. Earlier (2026-11-05, after the dashboard and optimizer change): `pytest tests/unit Blue_engine/tests` gives 378 passed, 112 skipped, 107 failed, 1 xfailed. The 107 failures are the same set as before the change (checked by stashing the change and re-running). Most are `ModuleNotFoundError: openalgo` (PyPI blocked here). X-28 lists the real Blue logic failures.
+Test state now (2026-11-06, after stage 2 of DECOUPLING_PLAN): `pytest tests/unit` 44 failed, 350 passed, 29 skipped; `pytest tests/parity` 38 passed. All 44 failures are the missing `httpx` package (was 70 before stage 2 cut the Blue dependency in cost, walk-forward and momentum).
+Earlier (2026-11-06, before stage 2): `pytest tests/unit` 70 failed, 325 passed; all 70 failures are the missing `httpx` package. Earlier (2026-11-05, after the dashboard and optimizer change): `pytest tests/unit Blue_engine/tests` gives 378 passed, 112 skipped, 107 failed, 1 xfailed. The 107 failures are the same set as before the change (checked by stashing the change and re-running). Most are `ModuleNotFoundError: openalgo` (PyPI blocked here). X-28 lists the real Blue logic failures.
 The owner-machine baseline (P0-2) is still needed to confirm the full suite.
 
 ---

@@ -23,7 +23,7 @@ with a feedback loop back into research.
 | Risk limits | Starter minimums approved for paper. Live values = same values; live still blocked. `config/risk_limits.yaml`. |
 | Model registry | Human sign-off required before promotion. `src/quant/feedback/champion_challenger.py`. |
 | Dashboard | FastAPI, read-only. P&L shown by default. |
-| Tests | Sandbox: 70 failed, 325 passed. All 70 failures are the missing `httpx` package. Owner machine run pending. |
+| Tests | Sandbox: `pytest tests/unit` 44 failed, 350 passed (all 44 are the missing `httpx` package). `pytest tests/parity` 38 passed. Owner machine run pending. |
 | Data | Backtest data (INFY) is fetched on the owner machine with `python Blue_engine/database/sample_data.py` (personal use only). Not in this repo. |
 
 **Next steps and owner follow-ups:** see [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), section "Follow-ups after 2026-11-06".

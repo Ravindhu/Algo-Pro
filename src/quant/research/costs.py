@@ -1,14 +1,10 @@
-"""Indian equity cost model: thin wrapper over the Blue_engine cost model.
+"""Indian equity cost model: local arithmetic (no Blue_engine import).
 
 Flow stage: Indian cost model
-Status: PHASE 1 IMPLEMENTED (Phase 0 wrap: wrapper: arithmetic delegated to Blue_engine)
-Existing code to reuse or wrap (do not copy): Blue_engine/backtest/costs.py
-
-WHAT THIS FILE KEEPS
---------------------
-The public parameters and ``trade_cost`` signature used by Phase 1 code and tests.
-The statutory arithmetic (brokerage, exchange, SEBI, GST, STT, stamp, impact) is NOT
-here. It is computed by ``blue_engine.backtest.costs.CostModel``.
+Status: PHASE 1 IMPLEMENTED (stage 2 port 2026-11-06: arithmetic is local)
+Ported from: Blue_engine/backtest/costs.py (CostModel.charges_bps, total_bps) and
+Blue_engine/portfolio/optim/cost_aware.py (DEFAULT_COST_BPS: STT, GST, stamp, SEBI).
+Parity against Blue: tests/parity/test_costs_parity.py (runs only where Blue loads).
 
 RULES (owner-confirmed 2026-11-03)
 ----------------------------------
@@ -16,36 +12,25 @@ RULES (owner-confirmed 2026-11-03)
 - Intraday: brokerage is 0.03% of notional capped at Rs 20 per order. STT applies on the
   sell leg only.
 - Stamp duty applies on the buy leg only (delivery and intraday rates differ).
-- ``impact_bps`` is a flat per-side cost, mapped to Blue's slippage term. Blue's
-  square-root impact model is not used yet (see docs/audits/PHASE0_REUSE_AUDIT.md).
+- GST (18%) applies to brokerage + exchange transaction charge + SEBI fee.
+- ``impact_bps`` is a flat per-side cost (5 bps). Blue's square-root impact is not used
+  (see docs/audits/PHASE0_REUSE_AUDIT.md, X-30).
 
-WHAT THIS FILE TRANSLATES (only this)
--------------------------------------
-- Currency brokerage cap -> bps for one trade, so Blue's percentage brokerage matches.
-- Per-product rules (delivery vs intraday) -> one Blue config per leg.
+PER-SIDE BPS (one fill)
+-----------------------
+    brokerage + stt + exchange_txn + sebi + gst + stamp_duty(buy only) + impact
 
-RATE SOURCE (checked 2026-11-05): NSE "First time investor" pages, updated 17/04/2026
-(STT, turnover fees and stamp duty). Matches the defaults below: STT delivery 0.1% both
-legs, STT intraday sell 0.025%, stamp delivery buy 0.015%, stamp intraday buy 0.003%,
-SEBI turnover fee 0.0001%, GST 18%.
-EXCHANGE CHARGE (updated 2026-11-06): 0.00307% per side for NSE cash (delivery and intraday),
-from NSE circular FA73061 (dated 27 Feb 2026, effective 1 Mar 2026): Rs 307 per crore, of which
-Rs 306.99 transaction charge and Rs 0.01 IPFT contribution. Replaces the old 0.00322% note.
-GST on exchange and SEBI charges is the standard practice, not stated on those pages.
-Brokerage (0.03%, Rs 20 cap) is the owner's rule, not an exchange rate.
+RATE SOURCE
+-----------
+- STT, stamp duty, SEBI turnover fee, GST: NSE "First time investor" pages, updated 17/04/2026
+  (checked 2026-11-05).
+- Exchange transaction charge 0.00307% per side for NSE cash (delivery and intraday): NSE
+  circular FA73061 (27 Feb 2026, effective 1 Mar 2026): Rs 307 per crore, incl. Rs 0.01 IPFT.
+- Brokerage 0.03%, Rs 20 cap: owner's rule, not an exchange rate.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import Any, Dict
-
-
-@lru_cache(maxsize=1)
-def _blue_cost_class() -> Any:
-    """Resolve Blue_engine's CostModel once. Raises BlueEngineUnavailable if it cannot load."""
-    from quant.core.blue_bridge import load
-    return load("backtest.costs").CostModel
 
 
 @dataclass(frozen=True)
@@ -55,7 +40,7 @@ class CostModel:
     delivery_brokerage_pct: float = 0.0    # delivery brokerage is zero
     stt_delivery: float = 0.001            # delivery, both legs
     stt_intraday_sell: float = 0.00025     # intraday, sell leg only
-    exchange_txn_pct: float = 0.0000307   # NSE circular FA73061, eff. 1 Mar 2026
+    exchange_txn_pct: float = 0.0000307    # NSE circular FA73061, eff. 1 Mar 2026
     sebi_fee_pct: float = 0.000001
     stamp_buy_delivery: float = 0.00015
     stamp_buy_intraday: float = 0.00003
@@ -64,6 +49,10 @@ class CostModel:
 
     def trade_cost(self, notional: float, side: str, product: str = "delivery") -> float:
         """Total statutory cost plus flat impact for one fill, in currency units."""
+        return notional * self.total_bps(notional, side, product) / 10_000.0
+
+    def total_bps(self, notional: float, side: str, product: str = "delivery") -> float:
+        """All cost terms for one fill, in bps of notional."""
         # Refuse unknown strings: a typo like "sell" must not be charged as a buy.
         if side not in ("BUY", "SELL"):
             raise ValueError(f"side must be 'BUY' or 'SELL', got {side!r}")
@@ -73,34 +62,19 @@ class CostModel:
             raise ValueError("notional must be >= 0")
         is_buy = side == "BUY"
         intraday = product == "intraday"
-        return notional * self._blue(notional, is_buy, intraday).total_bps(is_buy=is_buy) / 10_000.0
 
-    def _blue(self, notional: float, is_buy: bool, intraday: bool) -> Any:
-        """A Blue CostModel configured for one leg of one trade."""
-        return _blue_cost_class()(
-            cost_config=self._leg_config(notional, is_buy, intraday),
-            slippage_bps=self.impact_bps,
-            latency_bps=0.0,
-            impact_coefficient=0.0,
-        )
-
-    def _leg_config(self, notional: float, is_buy: bool, intraday: bool) -> Dict[str, float]:
-        """Map this model's fields onto Blue's bps keys for one leg."""
         if intraday:
-            brokerage_bps = self.brokerage_pct * 1e4
+            brokerage = self.brokerage_pct * 1e4
             if notional > 0:
-                brokerage_bps = min(brokerage_bps, self.brokerage_cap / notional * 1e4)
-            stt_bps = 0.0 if is_buy else self.stt_intraday_sell * 1e4
-            stamp_bps = self.stamp_buy_intraday * 1e4 if is_buy else 0.0
+                brokerage = min(brokerage, self.brokerage_cap / notional * 1e4)
+            stt = 0.0 if is_buy else self.stt_intraday_sell * 1e4
+            stamp = self.stamp_buy_intraday * 1e4 if is_buy else 0.0
         else:
-            brokerage_bps = self.delivery_brokerage_pct * 1e4
-            stt_bps = self.stt_delivery * 1e4          # both legs
-            stamp_bps = self.stamp_buy_delivery * 1e4 if is_buy else 0.0
-        return {
-            "brokerage": brokerage_bps,
-            "stt": stt_bps,
-            "exchange_txn": self.exchange_txn_pct * 1e4,
-            "sebi": self.sebi_fee_pct * 1e4,
-            "gst_on_brokerage_pct": self.gst_pct * 100.0,
-            "stamp_duty": stamp_bps,
-        }
+            brokerage = self.delivery_brokerage_pct * 1e4
+            stt = self.stt_delivery * 1e4          # both legs
+            stamp = self.stamp_buy_delivery * 1e4 if is_buy else 0.0
+
+        txn = self.exchange_txn_pct * 1e4
+        sebi = self.sebi_fee_pct * 1e4
+        gst = (brokerage + txn + sebi) * self.gst_pct   # GST on brokerage + txn + SEBI
+        return brokerage + stt + txn + sebi + gst + stamp + self.impact_bps

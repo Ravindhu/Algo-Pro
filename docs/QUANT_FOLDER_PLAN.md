@@ -53,8 +53,8 @@ Each folder has a `README.md` with its purpose and status.
 |---|---|---|---|---|
 | `core/` | shared basics | `calendar.py` (2026 holidays), `expiry_rules.py` (delivery/intraday expiry, SME-only lot size; 2026-11-06) | `blue_bridge.py`, `config.py`, `types.py` | expiry-day rules (X-1) |
 | `data/` | market inputs | `market_inputs.py` (NSE event parser, blackout dates) | `qa.py`, `feature_store.py`, `universe.py`, `corp_actions.py` | `ingest.py` live feed; bulk/block deals (P2-8) |
-| `research/` | research validation | cost rule tests | `backtest.py`, `walk_forward.py`, `trial_log.py`, `validation.py`, `lineage.py` | `capacity.py` |
-| `models/` | signal and conviction | `conviction.py`, `events/scoring.py` (keyword fallback, X-17) | `calibration.py`, `factors.py` | `regime.py`, `signal.py`, `meta_label.py` |
+| `research/` | research validation | cost rule tests; `costs.py` and `walk_forward.py` are local (no Blue) | `backtest.py`, `trial_log.py`, `validation.py`, `lineage.py` | `capacity.py` |
+| `models/` | signal and conviction | `conviction.py`, `events/scoring.py` (keyword fallback, X-17), `factors.py` (momentum local, stage 2) | `calibration.py` | `regime.py`, `signal.py`, `meta_label.py` |
 | `portfolio/` | sizing and allocation | `sizing.py`, `tiers.py`, `rebalance.py`, `covariance.py` | `allocator.py`, `optimizer.py`, `portfolio_risk.py` | HRP decision (X-25) |
 | `risk/` | safety gate | `controls.py` entry blackout (X-8) | `gate.py`, `pretrade.py`, `price_band.py`, `liquidity.py`, `loss_breaker.py`, `kill_switch.py`, `exits.py`, `squareoff.py`, `blue_risk_gate.py` | expiry and rollover (X-1) |
 | `execution/` | orders (Phase 3 only) | `order_fsm.py` retry-safe (X-3) | `queue.py`, `openalgo_client.py` (refuses in paper) | `router.py`, `protection.py` |

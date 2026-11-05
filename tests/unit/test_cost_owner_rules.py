@@ -4,9 +4,7 @@ Flow stage: Indian cost model
 Status: TEST
 
 Expected rupee amounts are hand-calculated here, not taken from the code.
-They run without OpenAlgo: if Blue_engine cannot load, the Blue cost arithmetic
-(``charges_bps``) is loaded from its source file alone, with its two small helper
-imports stubbed. ``monkeypatch`` restores ``sys.modules`` after each test.
+They run without OpenAlgo or Blue_engine (the cost model is local since stage 2).
 
 Rules (see src/quant/research/costs.py):
 - Delivery: brokerage 0. STT 0.1% on both legs. Stamp 0.015% on buy only.
@@ -15,61 +13,16 @@ Rules (see src/quant/research/costs.py):
 - All: exchange 0.00307% (NSE circular FA73061, eff. 1 Mar 2026), SEBI 0.0001%, GST 18% on brokerage+exchange+SEBI only,
   flat impact 5 bps per side.
 """
-import importlib.util
-import sys
-import types
-from pathlib import Path
-
 import pytest
 
-from quant.core import blue_bridge
-from quant.core.blue_bridge import BlueEngineUnavailable
-from quant.research import costs as wrapper
 from quant.research.costs import CostModel
 
-BLUE_COSTS_SRC = Path(__file__).resolve().parents[2] / "Blue_engine" / "backtest" / "costs.py"
 REL = 1e-9
 ABS = 1e-6
 
 
 @pytest.fixture
-def cost_class(monkeypatch):
-    """Blue's CostModel: the real one if it works, else loaded in isolation.
-
-    Loading the module is not enough: its portfolio import (which needs OpenAlgo)
-    runs only when a CostModel is built, so the probe builds one.
-    """
-    try:
-        real = blue_bridge.load("backtest.costs").CostModel
-        real().total_bps(is_buy=True)
-        return real
-    except (BlueEngineUnavailable, ImportError):
-        pass
-
-    pkg = types.ModuleType("blue_engine.backtest")
-    pkg.__path__ = []
-    pkg.config = types.SimpleNamespace(DEFAULT_SLIPPAGE_BPS=5.0, DEFAULT_LATENCY_BPS=0.0)
-    noop = lambda *a, **k: None  # noqa: E731
-    pkg.logger = types.SimpleNamespace(info=noop, warning=noop, debug=noop)
-    cost_aware = types.ModuleType("blue_engine.portfolio.optim.cost_aware")
-    cost_aware.estimate_cost_bps = lambda cfg=None: dict(cfg or {})
-    for name, mod in [
-        ("blue_engine.backtest", pkg),
-        ("blue_engine.portfolio", types.ModuleType("blue_engine.portfolio")),
-        ("blue_engine.portfolio.optim", types.ModuleType("blue_engine.portfolio.optim")),
-        ("blue_engine.portfolio.optim.cost_aware", cost_aware),
-    ]:
-        monkeypatch.setitem(sys.modules, name, mod)
-    spec = importlib.util.spec_from_file_location("blue_engine.backtest.costs", BLUE_COSTS_SRC)
-    mod = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, spec.name, mod)
-    spec.loader.exec_module(mod)
-    monkeypatch.setattr(wrapper, "_blue_cost_class", lambda: mod.CostModel)
-    return mod.CostModel
-
-
-@pytest.fixture
-def cm(cost_class):
+def cm():
     return CostModel()
 
 
@@ -123,7 +76,7 @@ def test_gst_applies_to_brokerage_txn_and_sebi_only(cm):
     assert total - without_gst == pytest.approx(0.18 * notional * (0.0000307 + 0.000001), rel=REL, abs=ABS)
 
 
-def test_impact_is_flat_five_bps_per_side(cost_class):
+def test_impact_is_flat_five_bps_per_side():
     notional = 250_000
     with_impact = CostModel(impact_bps=5.0).trade_cost(notional, "BUY", "intraday")
     no_impact = CostModel(impact_bps=0.0).trade_cost(notional, "BUY", "intraday")

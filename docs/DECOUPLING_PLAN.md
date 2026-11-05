@@ -42,7 +42,13 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 - Tests: `test_perf_metrics.py` (hand-checked, 6 tests), `test_perf_metrics_parity.py` (40 parity cases vs live Blue; passes here). `test_phase0_wrappers.py::test_sharpe_delegates_to_blue` replaced by `test_sharpe_matches_blue_result` (the old test asserted the Blue call happens, which is no longer the design).
 - Exit check: all 51 new/affected tests pass here; no new unit failures vs baseline (to be re-checked before commit).
 
-### Stage 2 — loadable-here items (3-5). Status: PLANNED
+### Stage 2 — loadable-here items (3-5). Status: DONE 2026-11-06 (parity passes here)
+- Done: 3 CostModel is local (`research/costs.py`). Parity grid: `tests/parity/test_costs_parity.py` (24 cases, rel 1e-9).
+- Done: 4 walk-forward is local (`research/walk_forward.py`, `purged_walk_forward`). Parity: `tests/parity/test_walk_forward_parity.py` (8 cases, fold indices equal). Embargo is 0 in both; purge gap test kept in `test_phase0_wrappers.py`.
+- Done: 5 momentum is local (`models/factors.py::momentum`). Parity: `tests/parity/test_momentum_parity.py` (random series + NaN/zero-base cases).
+- Blue is loaded only when importable; otherwise the parity tests load Blue's source file in isolation with stubbed imports, so they run in the sandbox.
+- Exit check: `pytest tests/parity` = 38 passed; `pytest tests/unit` = 44 failed (all `No module named 'httpx'`, was 70 before this stage), 350 passed.
+- Original plan (kept for reference):
 - 3 CostModel: port `backtest/costs.py` rules into `research/costs.py` (currently a wrapper). Parity test on a grid of trades (BUY/SELL, delivery/intraday, value bands). Hand-checked STT/stamp/GST cases already exist (X-5); keep them.
 - 4 walk_forward splitter: port `ml/evaluation/splits.py::walk_forward` (purged, embargoed folds). Parity on fold boundaries and purge sizes. Look-ahead rule must hold (test_point_in_time tests stay green).
 - 5 momentum: port `ml/features/engineering.py::momentum`. Parity on random series + NaN handling.

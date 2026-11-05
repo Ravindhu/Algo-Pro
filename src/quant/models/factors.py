@@ -1,8 +1,9 @@
 """Cross-sectional factors: 12-1 momentum and low volatility. Each date uses only its past.
 
 Flow stage: Factor and alpha models
-Status: PHASE 2 IMPLEMENTED (12-1 momentum delegated to Blue_engine ml.features.engineering.momentum)
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/features/engineering.py (momentum)
+Status: PHASE 2 IMPLEMENTED (stage 2 port 2026-11-06: 12-1 momentum is local)
+Ported from: Blue_engine/ml/features/engineering.py (momentum, _shift). Parity:
+tests/parity/test_momentum_parity.py.
 Low-vol, z-score and composite stay here: Blue realised_vol is annualised (different scale), and
 no Blue equivalent exists for the cross-sectional z-score or composite.
 """
@@ -11,25 +12,25 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from quant.core.blue_bridge import load
-
 MOM_LONG, MOM_SKIP, VOL_WINDOW = 252, 21, 60
 
 
-def momentum_12_1(close: pd.DataFrame) -> pd.DataFrame:
-    """Return from t-252 to t-21 (skips the last month, a common reversal guard).
+def momentum(close: pd.DataFrame, window: int, shift: int = 1) -> pd.DataFrame:
+    """Total return over `window` bars, ending at `t - shift`, per column.
 
-    Equals Blue momentum(window=MOM_LONG - MOM_SKIP, shift=MOM_SKIP) per column; checked
-    to the NaN pattern and to 0.0 difference on random panels (tests/unit/test_phase2_portfolio.py
-    and the wrapper check in this session's commit message).
+    Same rules as Blue: rows before the window are NaN; a missing or zero base is NaN;
+    a negative shift is refused (it would read the future).
     """
-    blue = load("ml.features.engineering").momentum
-    window = MOM_LONG - MOM_SKIP
-    cols = {}
-    for c in close.columns:
-        vals = blue(close[c].tolist(), window, shift=MOM_SKIP)
-        cols[c] = [np.nan if v is None else v for v in vals]
-    return pd.DataFrame(cols, index=close.index)
+    if shift < 0:
+        raise ValueError(f"negative shift ({shift}) would read the future")
+    shifted = close.shift(shift)            # look back only
+    past = shifted.shift(window)
+    return shifted / past.where(past != 0) - 1.0
+
+
+def momentum_12_1(close: pd.DataFrame) -> pd.DataFrame:
+    """Return from t-252 to t-21 (skips the last month, a common reversal guard)."""
+    return momentum(close, MOM_LONG - MOM_SKIP, shift=MOM_SKIP)
 
 
 def low_vol(close: pd.DataFrame) -> pd.DataFrame:
