@@ -69,11 +69,12 @@ D6. Extra root and config files not in the tree:
    Keep or move?
 D7. `Temp/Daily work log/` is git-ignored, but AGENTS.md requires an entry after each commit.
    Keep local only, or allow those files in git?
-D8. P&L on the dashboard. AGENTS.md rule 8 says show P&L by default.
-   The owner's session preferences say hide P&L by default.
-   Decision 0007 and commit a0c7847 are the open conflict. Not touched here.
+D8. P&L on the dashboard. CLOSED 2026-11-05: owner chose SHOW by default.
+   Recorded in `docs/decisions/0007-pnl-shown-by-default.md`.
+   Other dashboard items from the owner brief (EV, MAE/MFE, rule compliance) are still open. See `docs/QUANT_STRUCTURE_DESIGN.md` section 5.
 
 ## 6. Work log
 
 - 2026-11-05 — Phase A: plan written. Baseline recorded (see section 2).
 - 2026-11-05 — Phases B-E: moves G1-G8 done, references fixed, tests equal to baseline, SOP section 19 added.
+- 2026-11-05 — D8 closed (P&L shown, decision 0007). Added `docs/QUANT_STRUCTURE_DESIGN.md`, which documents `src/quant/openalgo_platform/` and `src/quant/vendor/` (decisions 0013, 0014). Docs only.
