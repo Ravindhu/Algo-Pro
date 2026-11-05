@@ -218,7 +218,8 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-6** End-to-end paper run with `scripts/run_paper.py` (P1-5). Needs: `openalgo` (owner).
 - **X-7** Kill-and-restart test mid-run: no duplicate paper orders (P1 exit check 5). Needs: none for ledger-level; full process needs `openalgo`.
 - **X-8** Event blackout wired into entry checks in `risk/controls.py`, with a test that blocks entries on blackout days and allows exits. DONE 2026-11-05: `check_intent` blocks entries on blackout days (per symbol, from `event_blackout_dates`), allows exits and protection orders, and fails closed when `trade_day` is missing for a symbol with a blackout (`tests/unit/test_event_blackout_gate.py`, 9 tests; two planted bugs caught). Open: no runner feeds blackout dates into `RiskState` yet (needs `scripts/run_paper.py`).
-- **X-9** Layout test: no import of `core/llm` from `risk/`, `execution/`, `portfolio/` (P2-7). Needs: none.
+- **X-9** Layout test: no import of `core/llm` from `risk/`, `execution/`, `portfolio/` (P2-7). DONE 2026-11-05: AST scan of the trade path (`risk/`, `execution/`, `portfolio/`, `monitor/ledger.py`, 26 files) finds no direct LLM import (`tests/unit/test_no_llm_in_trade_path.py`, scanner checked with a planted import).
+- **X-9b** GAP FOUND by X-9: the trade path loads LLM client code indirectly. Any `blue_engine.core.*` import runs `core/__init__.py`, which imports `frontline_agent` and then `core/llm`. Any `blue_engine.portfolio.*` import runs `portfolio/__init__.py`, which imports `views/llm_note.py`. Not called on the trade path, but loaded in the same process. Fix: make these package imports lazy in Blue (the `core/__init__.py` file already has a lazy `__getattr__`). Needs: owner to run `pytest Blue_engine/tests` after the change, because Blue has 84 tests and `openalgo` is missing here. Tracked as an expected failure in the test file; the test fails once fixed, so its marker must then be removed.
 
 ### Tier B - research evidence (needs real data)
 - **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). Needs: NSE bar data from owner; sandbox cannot reach NSE.
@@ -244,7 +245,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Next to start without the owner
-X-9, X-15 (X-3, X-4, X-5 and X-8 done 2026-11-05). These need no data, no install, and no decision.
+X-15 (X-3, X-4, X-5, X-8 and X-9 done 2026-11-05). X-9b needs owner test run. These need no data, no install, and no decision.
 
 ---
 

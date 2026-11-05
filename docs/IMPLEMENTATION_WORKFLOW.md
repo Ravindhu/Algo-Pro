@@ -144,5 +144,5 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-Start in this order: X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3, X-4, X-5 and X-8 are done.
+Start in this order: X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3, X-4, X-5, X-8 and X-9 are done. X-9b (lazy Blue package imports) needs an owner test run before it can be merged.
 Owner items first when available: P0-2, P0-3, P0-4.
