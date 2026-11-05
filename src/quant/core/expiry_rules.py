@@ -7,24 +7,23 @@ Owner rules:
 - Delivery (CNC) positions have NO expiry day.
 - Intraday (MIS) positions expire on the SAME trading day they are opened.
 - Lot size applies ONLY to SME-segment stocks. All other cash equities trade in 1 share.
-- The SME lot-size table is config/calendar/sme_lot_sizes.csv. It is empty until the owner
-  fills it. A symbol in the SME segment with no lot size is refused (fail closed).
+- SME lot size is read from the BROKER (OpenAlgo symbol lookup, field "lotsize") at order
+  time, not from a local table. Orders for SME stocks use whole lots only: qty = lots x lot size.
+- If the broker gives no valid lot size for an SME symbol, the order is refused (fail closed).
 
 Product names: "delivery" or "CNC" mean delivery; "intraday" or "MIS" mean intraday.
 This matches the names used in risk/controls.py and risk/squareoff.py (MIS).
+
+No order is placed here. This module only computes and checks quantities. Order placement
+stays in the execution package, behind the risk gate (Phase 3, not enabled).
 """
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
-from typing import Dict, Optional
-
-import pandas as pd
+from typing import Any, Optional
 
 DELIVERY_NAMES = frozenset({"delivery", "cnc"})
 INTRADAY_NAMES = frozenset({"intraday", "mis"})
-
-DEFAULT_SME_LOT_CSV = Path(__file__).resolve().parents[3] / "config" / "calendar" / "sme_lot_sizes.csv"
 
 
 class UnknownProduct(ValueError):
@@ -32,7 +31,11 @@ class UnknownProduct(ValueError):
 
 
 class LotSizeUnknown(ValueError):
-    """SME symbol has no lot size in the owner table. Refused, never guessed."""
+    """SME symbol has no valid broker lot size. Refused, never guessed."""
+
+
+class LotMultipleError(ValueError):
+    """Order quantity is not a whole number of lots."""
 
 
 def _product_kind(product: str) -> str:
@@ -59,26 +62,47 @@ def must_close_by(product: str, trade_day: date) -> Optional[date]:
     return expiry_day(product, trade_day)
 
 
-def load_sme_lots(path: Path | str = DEFAULT_SME_LOT_CSV) -> Dict[str, int]:
-    """Read symbol,lot_size rows. A file with only a header returns an empty table."""
-    df = pd.read_csv(Path(path), dtype={"symbol": str})
-    if df.empty:
-        return {}
-    out: Dict[str, int] = {}
-    for _, row in df.iterrows():
-        sym = str(row["symbol"]).strip().upper()
-        lot = int(row["lot_size"])
-        if not sym or lot <= 0:
-            raise ValueError(f"bad SME lot row: {row.to_dict()}")
-        out[sym] = lot
-    return out
+def lot_size_from_broker(client: Any, symbol: str, exchange: str = "NSE") -> int:
+    """Ask the broker (via OpenAlgo) for the lot size of one symbol.
+
+    `client` is any object with `symbol(symbol=, exchange=)` returning a dict, like the
+    vendored OpenAlgo SDK. Missing, zero, negative or non-numeric lot sizes are refused.
+    """
+    try:
+        resp = client.symbol(symbol=symbol, exchange=exchange)
+    except Exception as exc:  # broker or network failure: fail closed
+        raise LotSizeUnknown(f"broker lookup failed for {symbol!r}: {exc}") from exc
+    data = resp.get("data", resp) if isinstance(resp, dict) else None
+    raw = data.get("lotsize") if isinstance(data, dict) else None
+    try:
+        lot = int(raw)
+    except (TypeError, ValueError):
+        raise LotSizeUnknown(f"broker gave no lot size for {symbol!r}: {raw!r}")
+    if lot <= 0:
+        raise LotSizeUnknown(f"broker lot size for {symbol!r} must be positive, got {lot}")
+    return lot
 
 
-def lot_size(symbol: str, segment: str, sme_lots: Dict[str, int]) -> int:
-    """Shares per lot. Non-SME cash equities: 1. SME: owner table; missing -> refused."""
+def lot_size(segment: str, broker_lot: Optional[int]) -> int:
+    """Shares per lot. Non-SME cash equities: 1. SME: the broker lot size; missing -> refused."""
     if str(segment).strip().upper() != "SME":
         return 1
-    key = str(symbol).strip().upper()
-    if key not in sme_lots:
-        raise LotSizeUnknown(f"no SME lot size for {symbol!r}; owner must add it to sme_lot_sizes.csv")
-    return sme_lots[key]
+    if broker_lot is None or int(broker_lot) <= 0:
+        raise LotSizeUnknown("SME order needs a positive broker lot size")
+    return int(broker_lot)
+
+
+def validate_lot_multiple(qty: int, lot: int) -> int:
+    """Return qty if it is a positive whole number of lots. Otherwise refuse."""
+    if lot <= 0:
+        raise LotMultipleError(f"lot size must be positive, got {lot}")
+    if qty <= 0 or qty % lot != 0:
+        raise LotMultipleError(f"qty {qty} is not a positive multiple of lot {lot}")
+    return qty
+
+
+def sme_order_quantity(lots: int, lot: int) -> int:
+    """Shares for an SME order: whole lots only (lots x lot size)."""
+    if lots < 1:
+        raise LotMultipleError(f"need at least 1 lot, got {lots}")
+    return validate_lot_multiple(lots * lot, lot)
