@@ -44,120 +44,63 @@ Never delete unwanted files. Move them to `Temp/` (scratch) or `Temp/Staging Wor
 
 Project layout
 
-```
-Algo pro/   (repo root)
-├── README.md
+```Algo-Pro/
+├── README.md                    # entry point: status, quick start, doc links
+├── AGENTS.md                    # engineering rules (keep)
+├── INSTALL.md
 ├── requirements.txt
-├── .env.example                  # template only, never real keys
-├── quant_system_flow_v5.svg      # architecture diagram (source of truth)
-├── AGENTS.md
+├── pyproject.toml               # package metadata, pytest config (new, replaces ad-hoc setup)
+├── .env.example                 # template only; real .env is gitignored
+├── .gitignore  .gitattributes  .gitmodules
+├── install.sh  install.bat
+│
 ├── config/
-│   ├── settings.yaml             # global limits, modes, paths
-│   ├── risk_limits.yaml          # hard limits, loss budgets, caps
-│   ├── strategies/               # one file per strategy (params, version)
-│   └── calendar/                 # NSE/BSE holidays, expiries, lot sizes
-├── data/                         # local cache only, git-ignored
-│   ├── raw/
-│   ├── clean/
-│   └── features/
-├── src/quant/
-│   ├── core/                     # shared types, config loader, clock, logging
-│   ├── data/                     # stages 1, 3, 4 (Phase 1)
-│   │   ├── ingest.py             # market data, broker feeds
-│   │   ├── qa.py                 # data QA gate, stale and missing bars
-│   │   ├── corp_actions.py       # splits, bonuses, dividends, demergers
-│   │   ├── universe.py           # survivorship-free universe
-│   │   ├── feature_store.py      # point-in-time features
-│   │   └── market_inputs.py      # flow data, bulk/block, filings, circulars
-│   ├── research/                 # stages 1, 2
-│   │   ├── backtest.py           # event-driven, costs and slippage included
-│   │   ├── walk_forward.py       # purged, embargoed CV
-│   │   ├── validation.py         # DSR, PBO, bootstrap of trades
-│   │   ├── trial_log.py          # counts every tested variant
-│   │   ├── costs.py              # Indian cost model: STT, charges, GST, stamp, impact
-│   │   ├── capacity.py           # max capital per strategy
-│   │   └── lineage.py            # data, code commit, parameters per run
-│   ├── models/                   # stage 4 and 5
-│   │   ├── regime.py             # HMM and volatility states
-│   │   ├── factors.py            # momentum, value, quality, low-vol
-│   │   ├── signal.py             # direction, stop, time limit
-│   │   ├── meta_label.py         # take or skip, bet size
-│   │   ├── calibration.py        # Platt or isotonic conviction
-│   │   └── events.py             # event scoring (advice-only input)
-│   ├── portfolio/                # stage 6, 7
-│   │   ├── sizing.py             # fractional Kelly, vol targeting, hard caps
-│   │   ├── allocator.py          # strategy-level capital budget
-│   │   ├── optimizer.py          # HRP, CVaR-aware weights
-│   │   ├── covariance.py         # shrinkage covariance
-│   │   ├── rebalance.py          # drift check, no-trade bands
-│   │   └── portfolio_risk.py     # sector, cluster, beta caps, stress, VaR/CVaR
-│   ├── risk/                     # stage 8, 9  (the only path to orders)
-│   │   ├── controls.py           # market halt, event blackout, overnight gap
-│   │   ├── exits.py              # stop, trailing, time, volatility exits
-│   │   ├── squareoff.py          # MIS cutoff, futures rollover
-│   │   ├── gate.py               # single entry point for every order intent
-│   │   ├── pretrade.py           # fat finger, lot size, dupes, algo ID
-│   │   ├── price_band.py         # circuit limits, ASM/GSM
-│   │   ├── liquidity.py          # percent-of-ADV cap
-│   │   ├── loss_breaker.py       # daily and per-strategy loss budget
-│   │   └── kill_switch.py        # blocks new entries, manual and automatic
-│   ├── execution/                # stage 10
-│   │   ├── queue.py              # approved order queue
-│   │   ├── router.py             # POV, VWAP, IS, auction algos
-│   │   ├── order_fsm.py          # order state machine, idempotent retries
-│   │   ├── openalgo_client.py    # broker API adapter, only place that talks to OpenAlgo
-│   │   └── protection.py         # stop placed at fill
-│   ├── monitor/                  # stage 11, 13
-│   │   ├── ledger.py             # intent ID trail, reconciliation
-│   │   ├── tca.py                # slippage vs arrival, feeds cost model
-│   │   ├── live_monitor.py       # drawdown, fill quality
-│   │   ├── strategy_health.py    # rolling Sharpe, CUSUM, auto-disable
-│   │   ├── drift.py              # PSI on features
-│   │   ├── parity.py             # live vs replayed backtest
-│   │   ├── safe_mode.py          # normal, reduce-only, halt-all
-│   │   ├── throttle.py           # order-rate limits per exchange
-│   │   └── session.py            # broker login and token refresh
-│   ├── feedback/                 # stage 12
-│   │   ├── champion_challenger.py
-│   │   └── reopt.py              # re-optimization request, fresh bars
-│   ├── audit/
-│   │   ├── log.py                # append-only audit log
-│   │   └── override_log.py       # every manual action
-│   ├── reporting/                # dashboard data, P&L hidden by default
-│   │   ├── dashboard.py
-│   │   └── accounting.py         # separate authorized view
-│   └── notify/
-│       └── alerts.py             # errors by level
-├── Blue_engine/                  # existing engine: 400+ files, 84 tests (reuse source)
-│   ├── core/                     # runner, risk_gate, supervisor, exit_engine,
-│   │                             # paper_broker, ledger, client, broker_auth
-│   ├── backtest/                 # engine, loops, costs, blueprints
-│   ├── portfolio/                # optimizer, risk models, optim_policy
-│   ├── economics/ sectors/ screener/   # frontline engines
-│   ├── alpha/ market/ ml/ pov/ database/   # factors, data, models, execution
-│   ├── optimizer/                # HPO (Optuna: importances, slice, parallel coords)
-│   ├── dashboard/                # Dash app (app.py)
-│   └── tests/                    # 84 test files — baseline before any change
-├── strategies/                   # strategy classes, registered by name
-├── scripts/                      # run_paper.py MISSING — Phase 1 gap
-│                                 # existing: run/ verify/ research/ train/ ops/
-├── dashboard/                    # dashboard UI assets
-├── Servers/                      # platform services (OpenAlgo, dashboard)
-├── rules/ patches/               # project rules, upstream patches
+│   ├── settings.yaml
+│   ├── risk_limits.yaml         # values stay null until a human sets them
+│   ├── strategies/              # one YAML per strategy
+│   └── calendar/                # NSE/BSE holidays
+│
+├── src/quant/                   # ALL trading code lives here
+│   ├── core/                    # types, config loader, clock, logging, db helpers
+│   ├── data/                    # market inputs, providers, feature store, QA
+│   ├── models/                  # regime, factors, signal, meta-label, calibration
+│   │   └── events/              # LLM/event scoring (advice only, never on trade path)
+│   ├── strategies/              # strategy classes, registered by name
+│   ├── portfolio/               # sizing, Kelly, allocator, covariance, HRP, rebalance
+│   ├── risk/                    # gate (only path to orders), pretrade, liquidity,
+│   │                            #   loss breaker, kill switch, exits, squareoff
+│   ├── execution/               # order queue, router, FSM, OpenAlgo client, POV
+│   ├── research/                # backtest, walk-forward, DSR/PBO, trial log, costs
+│   ├── monitor/                 # ledger, TCA, strategy health, drift, session
+│   ├── feedback/                # champion/challenger, re-optimization
+│   ├── audit/                   # append-only audit and override logs
+│   ├── reporting/               # dashboard data, accounting (P&L-gated view)
+│   └── notify/                  # alerts by severity
+│
+├── scripts/
+│   ├── run/                     # run_paper.py, run_live.py, run_supervised.py
+│   ├── research/                # backtest, optimize
+│   ├── train/                   # model training
+│   └── ops/                     # maintenance, recon
+│
+├── dashboard/                   # the ONE dashboard (app.py + assets)
+│
 ├── tests/
-│   ├── unit/                     # sizing, gate, exits, costs (mandatory)
-│   ├── integration/              # data to signal, gate to fake broker
-│   ├── replay/                   # recorded sessions through live code path
-│   └── fixtures/                 # small sample data, no secrets
+│   ├── unit/                    # includes test_layout.py (order-path rule)
+│   ├── integration/
+│   ├── replay/
+│   └── fixtures/
+│
 ├── docs/
-│   ├── quant_system_flow_v5.md   # flow doc (source of truth)
-│   ├── IMPLEMENTATION_PLAN.md    # phases + reuse map + exit checks
-│   ├── ALGO_FLOW.md
-│   ├── My_trading_system_SOP/    # SOP.md (writable), dated revisions
-│   └── decisions/                # one short note per design decision
-├── Temp/                         # staging + daily work log (not production)
-└── logs/                         # git-ignored, runtime only
-```
+│   ├── quant_system_flow_v5.md  + .svg
+│   ├── IMPLEMENTATION_PLAN.md
+│   ├── SOP.md
+│   ├── decisions/               # one note per design decision
+│   ├── audits/                  # dated audit reports
+│   └── skills/                  # per-stage agent skill docs (moved from Blue_engine)
+│
+├── rules/                       # project rules
+└── patches/                     # upstream OpenAlgo patches
 
 ## Temporary / Staging Workspace
 
