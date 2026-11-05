@@ -1,6 +1,6 @@
 # Implementation plan: quant system flow v5
 
-Status: updated 2026-11-05 (doc sync pass after merging `feat/conviction-score-v2` into `master`). This pass changed docs only; no code changed.
+Status: updated 2026-11-06 (owner answers and first fixes; see `docs/STATUS_2026-11-06.md` and `docs/decisions/0015-owner-answers-2026-11-06.md`). Earlier: 2026-11-05 doc sync.
 Phases 1-3 have code and unit tests. Phase 3 live path is NOT enabled.
 No live trading path exists. Nothing reaches OpenAlgo from Phase 1 or 2.
 Source of truth: `docs/quant_system_flow_v5.md` and `quant_system_flow_v5.svg`.
@@ -70,7 +70,7 @@ Reuse (wrap, do not copy):
 Exit checks:
 1. Each hard limit in `config/risk_limits.yaml` has a unit test that blocks an intent. Gate tests need `openalgo`. Limits hold starter values; owner must approve.
 2. Every intent writes an audit record and a ledger row with an intent ID. Partly tested.
-3. Backtest costs include STT, brokerage, exchange charges, GST, stamp duty and impact. Rule tests DONE (X-5, 23 hand-calculated tests, no `openalgo` needed). Still open: exchange transaction charge rate (see X-5). Impact is a flat 5 bps; square-root impact not used yet (X-30).
+3. Backtest costs include STT, brokerage, exchange charges, GST, stamp duty and impact. Rule tests DONE (X-5, hand-calculated tests, no `openalgo` needed). Exchange charge rate DONE 2026-11-06 (0.00307%, NSE circular FA73061). Impact is a flat 5 bps; square-root impact not used yet (X-30).
 4. The trial log counts every trial. Point-in-time (look-ahead) test DONE for conviction inputs and feature store (X-4). DSR and PBO on real data: PENDING (X-10).
 5. Kill the process mid-run, restart, and confirm no duplicate paper orders. Ledger part DONE; full process test PENDING.
 
@@ -168,9 +168,9 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 
 ### P0 - Decisions and test baseline
 - **P0-1** P&L visibility. DONE 2026-11-05: owner chose P&L shown by default (decision 0007).
-- **P0-2** Install `openalgo` on owner machine; run `pytest tests/unit Blue_engine/tests`; record pass/fail counts. PENDING (owner machine; PyPI blocked here). Also needed to classify the Blue failures in X-28.
-- **P0-3** Owner approves or changes starter risk limits in `config/risk_limits.yaml`. PENDING (owner).
-- **P0-4** Holiday list: 2026 NSE holidays are on `master`. Owner to verify once against the NSE circular. PENDING (owner). BSE dates still to confirm.
+- **P0-2** Install `openalgo` on owner machine; run `pytest tests/unit Blue_engine/tests`; record pass/fail counts. PENDING (owner machine). 2026-11-06: sandbox install blocked (PyPI 403); sandbox counts: 70 failed, 311 passed, all failures `httpx` missing. Also needed to classify the Blue failures in X-28.
+- **P0-3** Owner approves or changes starter risk limits in `config/risk_limits.yaml`. PAPER: DONE 2026-11-06 (owner: set minimum values; approved for paper only). LIVE values: still PENDING (owner).
+- **P0-4** Holiday list: 2026 NSE holidays on `master`; owner says updated. 2026-11-06 check vs NSE circular CD71962: 15 match; 4 circular dates not in CSV (2026-02-19, 2026-03-19, 2026-04-01, 2026-08-26); Muhurat 2026-11-08 not recorded. PENDING owner decision. BSE dates still to confirm.
 
 ### P1 - Phase 1 finish (paper)
 - **P1-1** Calendar loader. DONE (2026 holidays; tests). Still to add: expiry-day cases. PENDING (small).
@@ -224,11 +224,11 @@ Order: work top to bottom inside each tier. Tier A comes before any capital deci
 Each task ends with tests, a doc update, and a commit. "Needs" says what blocks it.
 
 ### Tier A - safety and evidence (before any capital)
-- **X-1** Expiry-day and lot-size handling in the calendar loader (`core/calendar.py`, `config/calendar/`). Needs: owner-verified expiry and lot-size list.
+- **X-1** Expiry-day and lot-size rules. DONE 2026-11-06 (owner rules): delivery has no expiry; intraday expires the same trading day; lot size applies only to SME stocks (non-SME = 1 share). SME symbol with no lot in `config/calendar/sme_lot_sizes.csv` is refused (fail closed). Code: `core/expiry_rules.py`; tests: `tests/unit/test_expiry_lot_rules.py` (9 pass). Still needs: owner to fill the SME lot table.
 - **X-2** Gate-level duplicate-order block after restart (P1-4 remainder). Needs: `openalgo` installed (owner).
 - **X-3** Idempotent retry test in the order state machine (P1-3 remainder). DONE 2026-11-05: repeated reports are no-ops, conflicting or stale fills are refused, and a refused move changes nothing (`tests/unit/test_order_fsm_retry.py`). Fixed a bug where a refused FILLED report still changed the fill quantity.
 - **X-4** Point-in-time test: conviction inputs and feature store read only past bars (P2-1 exit check, A4). DONE 2026-11-05: late writes, out-of-order writes, inclusive release time, no forward API, and conviction-from-store unchanged by future data (`tests/unit/test_point_in_time_conviction.py`). Store was already correct; tests catch a leaky store (checked with a mutant).
-- **X-5** Cost-model tests for STT, brokerage, exchange charges, GST, stamp duty and impact, using the owner's cost rules (commit `4dab074`). DONE 2026-11-05: 23 hand-calculated rupee tests run without OpenAlgo (`tests/unit/test_cost_owner_rules.py`); side and product strings are now validated (a lowercase "sell" used to be charged as a buy); two tautological asserts removed from `test_phase0_wrappers.py` and `test_phase1_research.py`. Rates checked 2026-11-05 against NSE "First time investor" pages (updated 17/04/2026): STT, stamp duty, SEBI turnover fee and GST all match. Still open: exchange transaction charge (0.00322%) is not on those pages; verify on NSE's transaction-charges page before live use.
+- **X-5** Cost-model tests for STT, brokerage, exchange charges, GST, stamp duty and impact, using the owner's cost rules (commit `4dab074`). DONE 2026-11-05: 23 hand-calculated rupee tests run without OpenAlgo (`tests/unit/test_cost_owner_rules.py`); side and product strings are now validated (a lowercase "sell" used to be charged as a buy); two tautological asserts removed from `test_phase0_wrappers.py` and `test_phase1_research.py`. Rates checked 2026-11-05 against NSE "First time investor" pages (updated 17/04/2026): STT, stamp duty, SEBI turnover fee and GST all match. 2026-11-06: exchange transaction charge updated from 0.00322% to 0.00307% per side (NSE circular FA73061, dated 27 Feb 2026, effective 1 Mar 2026: Rs 307 per crore incl. Rs 0.01 IPFT). Cost tests re-derived by hand; all pass. DONE.
 - **X-6** End-to-end paper run with `scripts/run_paper.py` (P1-5). Needs: `openalgo` (owner).
 - **X-7** Kill-and-restart test mid-run: no duplicate paper orders (P1 exit check 5). Needs: none for ledger-level; full process needs `openalgo`.
 - **X-8** Event blackout wired into entry checks in `risk/controls.py`, with a test that blocks entries on blackout days and allows exits. DONE 2026-11-05: `check_intent` blocks entries on blackout days (per symbol, from `event_blackout_dates`), allows exits and protection orders, and fails closed when `trade_day` is missing for a symbol with a blackout (`tests/unit/test_event_blackout_gate.py`, 9 tests; two planted bugs caught). Open: no runner feeds blackout dates into `RiskState` yet (needs `scripts/run_paper.py`).
@@ -236,7 +236,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-9b** GAP FOUND by X-9: the trade path loads LLM client code indirectly. Any `blue_engine.core.*` import runs `core/__init__.py`, which imports `frontline_agent` and then `core/llm`. Any `blue_engine.portfolio.*` import runs `portfolio/__init__.py`, which imports `views/llm_note.py`. Not called on the trade path, but loaded in the same process. Fix: make these package imports lazy in Blue (the `core/__init__.py` file already has a lazy `__getattr__`). Needs: owner to run `pytest Blue_engine/tests` after the change, because Blue has 84 tests and `openalgo` is missing here. Tracked as an expected failure in the test file; the test fails once fixed, so its marker must then be removed.
 
 ### Tier B - research evidence (needs real data)
-- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). Needs: NSE bar data from owner; sandbox cannot reach NSE.
+- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). 2026-11-06: INFY bars are fetched by `Blue_engine/database/sample_data.py` to a git-ignored folder on the owner machine (not in repo; source host unreachable from sandbox). License: personal, non-commercial research only; commercial automated trading needs written permission. PENDING: owner runs the fetch on own machine and confirms the use is personal research.
 - **X-11** Out-of-sample conviction calibration report (P2-6). Needs: X-10 data.
 - **X-12** Trial log entry for every optimisation run (AGENTS rule: sampler, trial count, bounds, folds, cost model version). DONE 2026-11-05 (wiring): with `EngineConfig.trial_log_path` set, Blue writes one row per trial (failed ones too) and one run row; `TrialLog` reads them (`tests/unit/test_trial_log_optimizer.py`). Default is OFF, so the research runner (X-6/X-10) must set the path. Owner to decide if the default should be on.
 - **X-13** Survivorship-free universe and corporate-action review (P1-7). Needs: owner data source for delisted symbols.
@@ -255,8 +255,8 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-20** Rewrite `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done) (D-1). Needs: owner approval.
 - **X-21** Review `docs/My_trading_system_SOP/SOP.md` against reality (D-3). Needs: none.
 - **X-22** Delete stale remote branches `main` (`76f21af`) and `docs/status-2026-11-05`. Needs: owner (sandbox cannot delete branches).
-- **X-23** Verify the 2026 holiday list against the NSE circular (P0-4). Needs: owner.
-- **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
+- **X-23** Verify the 2026 holiday list against the NSE circular (P0-4). 2026-11-06: checked against NSE circular CD71962; 4 dates differ (see P0-4). Needs: owner decision on the 4 dates.
+- **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). 2026-11-06: owner confirmed "algo is permitted" (scope: algo trading allowed). Checklist still required before live capital. Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Tier F - Blue_engine follow-ups from the Phase 0 audit (added 2026-11-05)
 These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an item before this pass.
@@ -286,8 +286,8 @@ These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as
 
 ## Open gaps and assumptions
 
-- Expiry days and lot sizes are not handled by the calendar loader.
-- Risk limit values are starter paper values, not owner-approved.
+- Expiry days and lot sizes: rules done 2026-11-06 (X-1). SME lot table still empty (owner to fill).
+- Risk limit values: owner approved the starter minimums for PAPER on 2026-11-06. Live values are not approved.
 - Paper period length, parity tolerance and starting capital are not set.
 - Event blackout uses the NSE board-meeting feed. It is a blocking input only, not a signal. The sandbox cannot reach NSE from code; the sample used in tests is a saved fixture.
 - Blue_engine reuse targets are named by path. Read and confirm each before wrapping.

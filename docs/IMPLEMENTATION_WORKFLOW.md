@@ -20,7 +20,7 @@ Why first: 70 unit tests cannot run in the sandbox. Without a baseline, no later
 
 Flow lane: research validation.
 Work, in order:
-1. X-5 cost model tests (STT, brokerage, exchange charges, GST, stamp duty, impact). Rule tests DONE 2026-11-05. Owner to confirm the rates. Exchange transaction charge rate still open (X-5). Impact is still flat 5 bps (X-30).
+1. X-5 cost model tests (STT, brokerage, exchange charges, GST, stamp duty, impact). Rule tests DONE 2026-11-05. Owner to confirm the rates. Exchange transaction charge rate DONE 2026-11-06 (0.00307%, NSE circular FA73061). Impact is still flat 5 bps (X-30).
 2. X-4 point-in-time test: features and conviction read only past bars. DONE 2026-11-05.
 3. P1-7 / X-13 survivorship-free universe and corporate actions (`data/universe.py`, `data/corp_actions.py`).
 4. P1-6 / X-10 real-data backtest with costs and walk-forward (`research/backtest.py`, `research/walk_forward.py`).
@@ -70,7 +70,7 @@ Flow lane: portfolio risk, session guards.
 Work, in order:
 1. `portfolio/portfolio_risk.py`: sector, cluster, beta caps, stress scenarios, CVaR.
 2. `risk/controls.py`: halt handler, event blackout (X-8 DONE: the gate blocks entries on blackout days and allows exits), overnight gap.
-3. `risk/exits.py`, `risk/squareoff.py`: stop, trailing, time exit; MIS cutoff; rollover (X-1 for expiry and lot size).
+3. `risk/exits.py`, `risk/squareoff.py`: stop, trailing, time exit; MIS cutoff; rollover (X-1: expiry and lot-size rules DONE 2026-11-06; SME lot table pending owner).
 Gate: tests show that entries are blocked and exits still allowed during blackout and halt.
 
 ## Step 6 - Safety gate (the only path to orders)

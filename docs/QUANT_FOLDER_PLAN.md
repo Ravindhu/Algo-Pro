@@ -23,7 +23,7 @@ Partly.
 - Point-in-time test for conviction inputs (X-4), layout test that keeps LLM out of the trade path (X-9)
 
 **Wrapped but still partial:**
-- Cost model: `research/costs.py` (rule tests done; exchange charge rate still open)
+- Cost model: `research/costs.py` (rule tests done; exchange charge rate 0.00307% from NSE circular FA73061, 2026-11-06)
 - Backtest, walk-forward, trial log, DSR and PBO, lineage: `research/*` (need real NSE data)
 - Queue, ledger, risk gate, kill switch, safe mode: `execution/*`, `monitor/*`, `risk/*`
 
@@ -51,7 +51,7 @@ Each folder has a `README.md` with its purpose and status.
 
 | Folder | Flow lane | Done | Partial | Pending |
 |---|---|---|---|---|
-| `core/` | shared basics | `calendar.py` (2026 holidays) | `blue_bridge.py`, `config.py`, `types.py` | expiry-day rules (X-1) |
+| `core/` | shared basics | `calendar.py` (2026 holidays), `expiry_rules.py` (delivery/intraday expiry, SME-only lot size; 2026-11-06) | `blue_bridge.py`, `config.py`, `types.py` | expiry-day rules (X-1) |
 | `data/` | market inputs | `market_inputs.py` (NSE event parser, blackout dates) | `qa.py`, `feature_store.py`, `universe.py`, `corp_actions.py` | `ingest.py` live feed; bulk/block deals (P2-8) |
 | `research/` | research validation | cost rule tests | `backtest.py`, `walk_forward.py`, `trial_log.py`, `validation.py`, `lineage.py` | `capacity.py` |
 | `models/` | signal and conviction | `conviction.py`, `events/scoring.py` (keyword fallback, X-17) | `calibration.py`, `factors.py` | `regime.py`, `signal.py`, `meta_label.py` |

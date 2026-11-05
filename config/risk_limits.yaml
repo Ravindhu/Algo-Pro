@@ -1,4 +1,5 @@
 # Hard limits (INR). Minimum starter values set on 2026-11-04 for PAPER trading.
+# 2026-11-06: owner approved these minimums for PAPER only (decision 0015). Live values not approved.
 # Change only after a human review. Any null value makes the gate reject entries
 # (fail closed). Mirrors RiskGate keys in Blue_engine/core/risk_gate.py.
 max_order_quantity: 10          # shares per order
