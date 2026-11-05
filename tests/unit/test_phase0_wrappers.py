@@ -135,20 +135,14 @@ def test_sharpe_numbers_unchanged_after_wrap():
     assert sharpe([0.01, -0.005, 0.02, 0.0, 0.007]) == pytest.approx(10.574976083972865, rel=1e-12)
 
 
-def test_sharpe_delegates_to_blue(monkeypatch):
+def test_sharpe_matches_blue_result():
+    """Stage 1 of docs/DECOUPLING_PLAN.md: validation.sharpe uses the local copy; it must still match Blue."""
     metrics = _blue_or_skip("ml.evaluation.metrics")
     from quant.research import validation
 
-    calls = []
-    real = metrics.sharpe
-
-    def spy(returns, **kwargs):
-        calls.append(kwargs)
-        return real(returns, **kwargs)
-
-    monkeypatch.setattr(metrics, "sharpe", spy)
-    validation.sharpe([0.01, -0.005, 0.02])
-    assert calls and calls[0]["periods_per_year"] == 252.0
+    rets = [0.01, -0.005, 0.02]
+    assert validation.sharpe(rets, periods=252) == pytest.approx(
+        metrics.sharpe(rets, periods_per_year=252.0))
 
 
 def test_sharpe_constant_series_is_zero_not_noise():

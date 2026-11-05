@@ -18,9 +18,9 @@ EULER_GAMMA = 0.5772156649015329
 
 def sharpe(returns, periods: int = 252) -> float:
     """Annualised Sharpe. Delegates to Blue_engine; 0.0 when undefined (kept from the old contract)."""
-    from quant.core.blue_bridge import load
+    from quant.research.perf_metrics import sharpe as _sharpe
 
-    value = load("ml.evaluation.metrics").sharpe(list(returns), periods_per_year=float(periods))
+    value = _sharpe(list(returns), periods_per_year=float(periods))
     return 0.0 if value is None else float(value)
 
 

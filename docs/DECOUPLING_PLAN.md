@@ -1,0 +1,94 @@
+# Implementation plan: staged decoupling of src/quant from Blue_engine
+
+Status: STAGE 1 DONE (local copy, awaiting commit). Stages 2-5 planned.
+Started: 2026-11-05. Owner decision: "Staged decoupling" (docs/decisions/0011-decouple-from-blue-engine.md).
+
+## 1. Goal
+`src/quant/` runs without importing `Blue_engine/`. Then `Blue_engine/` can move to `Temp/archive/` (git keeps history).
+Every replacement must match Blue's results. Nothing trading-related changes behaviour silently.
+
+## 2. Scope
+In scope: the 14 call sites in section 4 (13 Blue functions + 1 env loader).
+Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine. They are Blue-only features. Their fate is an owner decision (section 8, D2).
+
+## 3. Constraints that shape the plan
+- The cloud sandbox cannot install `openalgo`. 6 of 13 Blue functions only load on the owner machine.
+- Fix: **golden fixtures**. The owner runs one script on the owner machine. It runs each Blue function on fixed inputs and saves the outputs to JSON. The sandbox then tests the local code against those JSON files, with no Blue import needed.
+- Hand-checked tests run everywhere. Parity tests run wherever Blue loads. Golden tests run everywhere after fixtures exist.
+
+## 4. Inventory
+| # | quant call site | Blue function | Sandbox loads? | Stage | Method |
+|---|---|---|---|---|---|
+| 1 | research/validation.py | ml.evaluation.metrics.sharpe | yes | 1 | local + parity (done) |
+| 2 | monitor/live_monitor.py | ml.evaluation.metrics.max_drawdown | yes | 1 | local + parity (done) |
+| 3 | research/costs.py | backtest.costs.CostModel | yes | 2 | local + parity |
+| 4 | research/walk_forward.py | ml.evaluation.splits.walk_forward | yes | 2 | local + parity |
+| 5 | models/factors.py | ml.features.engineering.momentum | yes | 2 | local + parity |
+| 6 | reporting/dashboard.py | backtest.metrics.profit_factor | no | 3 | local + golden |
+| 7 | portfolio/covariance.py | portfolio.risk.covariance.ledoit_wolf_cov | no | 3 | local + golden |
+| 8 | portfolio/optimizer.py | portfolio.optim.hrp.hrp_weights | no | 3 | local + golden (see note: ours already matches Lopez de Prado; decision 0009) |
+| 9 | portfolio/portfolio_risk.py | portfolio.risk.tail.cvar | no | 3 | local + golden |
+| 10 | portfolio/rebalance.py | portfolio.optim.cost_aware.should_rebalance | no | 3 | local + golden |
+| 11 | portfolio/sizing.py | portfolio.sizing.kelly.kelly_leverage | no | 3 | local + golden |
+| 12 | portfolio/sizing.py | portfolio.sizing.vol_target.vol_target_scale | no | 3 | local + golden |
+| 13 | execution/openalgo_client.py | core.client.load_env_file | no | 4 | local .env loader; owner review |
+| 14 | risk/blue_risk_gate.py | core.risk_gate.RiskGate (money checks) | no | 4 | owner review (risk-critical) |
+
+## 5. Stages
+
+### Stage 1 — metrics (items 1-2). Status: DONE (local, not yet committed)
+- Added `src/quant/research/perf_metrics.py` (sharpe, max_drawdown; same formulas and edge cases as Blue).
+- Switched validation.py and live_monitor.py to it.
+- Tests: `test_perf_metrics.py` (hand-checked, 6 tests), `test_perf_metrics_parity.py` (40 parity cases vs live Blue; passes here). `test_phase0_wrappers.py::test_sharpe_delegates_to_blue` replaced by `test_sharpe_matches_blue_result` (the old test asserted the Blue call happens, which is no longer the design).
+- Exit check: all 51 new/affected tests pass here; no new unit failures vs baseline (to be re-checked before commit).
+
+### Stage 2 — loadable-here items (3-5). Status: PLANNED
+- 3 CostModel: port `backtest/costs.py` rules into `research/costs.py` (currently a wrapper). Parity test on a grid of trades (BUY/SELL, delivery/intraday, value bands). Hand-checked STT/stamp/GST cases already exist (X-5); keep them.
+- 4 walk_forward splitter: port `ml/evaluation/splits.py::walk_forward` (purged, embargoed folds). Parity on fold boundaries and purge sizes. Look-ahead rule must hold (test_point_in_time tests stay green).
+- 5 momentum: port `ml/features/engineering.py::momentum`. Parity on random series + NaN handling.
+- Exit check: each item has local code, hand-checked test, parity test (runs here), wrapper removed from call site.
+
+### Stage 3 — openalgo-dependent portfolio/risk items (6-12). Status: PLANNED
+- Owner-machine step (one script, `scripts/ops/export_blue_goldens.py`, to write): runs each Blue function on fixed inputs (seeded), writes `tests/fixtures/blue_goldens/<name>.json`. Commit fixtures.
+- Sandbox step: local implementation + golden test reads the JSON. Tolerance: rel 1e-9 unless the function is an optimiser (then exact weights within 1e-6).
+- Item 8 note: our HRP already matches the published algorithm (decision 0009, owner still to choose). Stage 3 must not change HRP output without owner choice.
+- Exit check: 7 goldens committed; local code passes them; call sites switched.
+
+### Stage 4 — risk-critical items (13-14). Status: NOT STARTED (needs owner review)
+- 13 `load_env_file`: small. Local loader reads `.env` (git-ignored). Test: missing file, comments, quotes, no overwrite of existing env vars.
+- 14 RiskGate money checks: higher risk. Must keep: fail-closed on unset limits, exits never blocked by entry limits, duplicate-ID block, daily loss and exposure caps. Golden tests from Blue's RiskGate on ~50 fixed intents, including edge cases (qty 0, notional at the cap, loss at the limit). Owner signs off the diff before merge.
+- Exit check: golden diff = 0 on the fixture set, owner sign-off recorded in docs/decisions/.
+
+### Stage 5 — remove Blue_engine from the quant path. Status: PLANNED
+Steps:
+1. grep: no `blue_bridge` calls and no `blue_engine` imports under `src/quant/` or `tests/unit/` (except the parity tests, which move to a `tests/parity/` folder that the owner runs with Blue present).
+2. Installers: remove Blue from `requirements.txt`, `install.bat`, `install_ubuntu.sh` if no other owner feature needs it (see D2).
+3. Move `Blue_engine/` to `Temp/archive/<date>/Blue_engine/` (git history keeps it).
+4. Update AGENTS.md reuse map and layout tree; update SOP and README.
+5. Full unit suite must be no worse than the pre-stage baseline.
+Exit check: `pytest tests/unit` passes except tests that need owner-only data; quant runs paper mode from a clean checkout with Blue removed.
+
+## 6. Test strategy (per item)
+| Kind | Where it runs | Purpose |
+|---|---|---|
+| Hand-checked | everywhere | fixed numbers worked out by hand |
+| Parity (live Blue) | where Blue loads (sandbox for items 1-5) | exact match to Blue |
+| Golden (JSON from Blue) | everywhere, after fixtures exist | match to Blue without openalgo |
+
+## 7. Risk register
+| Risk | Effect | Control |
+|---|---|---|
+| Silent numeric drift | wrong sizing or P&L | parity or golden test per item; tolerance written down |
+| Risk gate changes behaviour | unsafe orders | stage 4 owner review; golden diff = 0 |
+| Golden fixtures stale | false passes | fixture file records Blue git SHA; script refuses to run on a dirty tree |
+| Owner machine not run | stage 3 blocked | stage 2 is independent; stage 3 waits |
+| Deleting Blue too early | optimizer/screener break | stage 5 only after D2 decision |
+
+## 8. Owner decisions needed
+- D2: fate of the optimizer, screener, economics, agent pipeline and POV engine: keep (move into src/quant), archive, or keep as a separate package?
+- D3: confirm stage 4 review (who signs off RiskGate port).
+- D4: owner machine time to run `export_blue_goldens.py` (stage 3).
+- D1 (earlier): HRP choice (decision 0009) before stage 3 item 8.
+
+## 9. Work log
+- 2026-11-05: inventory and decision 0011. Stage 1 local (metrics + parity tests). Obsolete delegation test replaced.

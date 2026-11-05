@@ -2,7 +2,7 @@
 
 Flow stage: Live monitor
 Status: PHASE 3 IMPLEMENTED (Phase 0 wrap: max_drawdown wrapped; excursions kept local)
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/evaluation/metrics.py (max_drawdown)
+Existing code to reuse or wrap (do not copy): none for max_drawdown (local copy in research/perf_metrics.py since 2026-11-05)
 """
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ import numpy as np
 
 
 def max_drawdown(equity: Sequence[float]) -> float:
-    """Largest peak-to-trough fall as a positive fraction. 0.0 when undefined. Delegates to Blue_engine.
+    """Largest peak-to-trough fall as a positive fraction. 0.0 when undefined. Local copy (research/perf_metrics.py).
 
     Blue skips non-positive peaks. The old local version divided by zero there and returned NaN.
     """
-    from quant.core.blue_bridge import load
+    from quant.research.perf_metrics import max_drawdown as _max_dd
 
-    value = load("ml.evaluation.metrics").max_drawdown([float(x) for x in equity])
+    value = _max_dd([float(x) for x in equity])
     return 0.0 if value is None else float(value)
 
 
