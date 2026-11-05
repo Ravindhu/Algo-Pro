@@ -204,6 +204,50 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 
 ---
 
+## Additional priority tasks (added 2026-11-05)
+
+Order: work top to bottom inside each tier. Tier A comes before any capital decision.
+Each task ends with tests, a doc update, and a commit. "Needs" says what blocks it.
+
+### Tier A - safety and evidence (before any capital)
+- **X-1** Expiry-day and lot-size handling in the calendar loader (`core/calendar.py`, `config/calendar/`). Needs: owner-verified expiry and lot-size list.
+- **X-2** Gate-level duplicate-order block after restart (P1-4 remainder). Needs: `openalgo` installed (owner).
+- **X-3** Idempotent retry test in the order state machine (P1-3 remainder). Needs: none.
+- **X-4** Point-in-time test: conviction inputs and feature store read only past bars (P2-1 exit check, A4). Needs: none.
+- **X-5** Cost-model tests for STT, brokerage, exchange charges, GST, stamp duty and impact, using the owner's cost rules (commit `4dab074`). Needs: none for the test; owner to confirm rates.
+- **X-6** End-to-end paper run with `scripts/run_paper.py` (P1-5). Needs: `openalgo` (owner).
+- **X-7** Kill-and-restart test mid-run: no duplicate paper orders (P1 exit check 5). Needs: none for ledger-level; full process needs `openalgo`.
+- **X-8** Event blackout wired into entry checks in `risk/controls.py`, with a test that blocks entries on blackout days and allows exits. Needs: none.
+- **X-9** Layout test: no import of `core/llm` from `risk/`, `execution/`, `portfolio/` (P2-7). Needs: none.
+
+### Tier B - research evidence (needs real data)
+- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). Needs: NSE bar data from owner; sandbox cannot reach NSE.
+- **X-11** Out-of-sample conviction calibration report (P2-6). Needs: X-10 data.
+- **X-12** Trial log entry for every optimisation run (AGENTS rule: sampler, trial count, bounds, folds, cost model version). Needs: none for the wiring; real runs need X-10.
+- **X-13** Survivorship-free universe and corporate-action review (P1-7). Needs: owner data source for delisted symbols.
+
+### Tier C - dashboard
+- **X-14** Rule-compliance panel and strategy deviation alerts (PB-3 remainder). Needs: none.
+- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). Needs: none.
+- **X-16** Upcoming NSE board meetings shown on the dashboard, with blackout status per symbol. Needs: none for the parser (done); the live fetch runs on owner machine.
+
+### Tier D - signal build-out (paper only)
+- **X-17** Event scoring, advice only, with a deterministic fallback when the LLM is off (P2 events). Needs: none for the fallback; LLM provider is optional.
+- **X-18** Regime detector and factor models (P2-4). Needs: X-10 data to validate.
+- **X-19** Model registry with human sign-off record (P2-5). Needs: owner sign-off process.
+
+### Tier E - governance and docs (owner actions)
+- **X-20** Rewrite `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done) (D-1). Needs: owner approval.
+- **X-21** Review `docs/My_trading_system_SOP/SOP.md` against reality (D-3). Needs: none.
+- **X-22** Delete stale remote branches `main` (`76f21af`) and `docs/status-2026-11-05`. Needs: owner (sandbox cannot delete branches).
+- **X-23** Verify the 2026 holiday list against the NSE circular (P0-4). Needs: owner.
+- **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
+
+### Next to start without the owner
+X-3, X-4, X-5, X-8, X-9, X-14, X-15. These need no data, no install, and no decision.
+
+---
+
 ## Open gaps and assumptions
 
 - Expiry days and lot sizes are not handled by the calendar loader.
