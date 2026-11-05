@@ -1,26 +1,26 @@
 date,day,name,equity_holiday,note,source
 2026-01-01,Thursday,New Year,no,Commodity derivatives only,bajajbroking.in/nse-holidays
-2026-01-15,Thursday,Municipal Corporation Election - Maharashtra,disputed,Broker lists it as equity holiday; NSE circular 172/2025 (cited in tests) does not. Not loaded. Owner to confirm.,bajajbroking.in/nse-holidays
-2026-01-26,Monday,Republic Day,yes,,both
+2026-01-15,Thursday,Municipal Corporation Election - Maharashtra,yes,Capital Market segment holiday (municipal election). Amends NSE/CMTR/71775.,NSE circular 07/2026 (12 Jan 2026)
+2026-01-26,Monday,Republic Day,yes,,NSE/CMTR/71775 (12 Dec 2025)
 2026-02-15,Sunday,Mahashivratri,no,Weekend,NSE circular CD71962
-2026-02-19,Thursday,Chhatrapati Shivaji Maharaj Jayanti,no,In circular only; not in broker equity list - owner to confirm,NSE circular CD71962
-2026-03-03,Tuesday,Holi,yes,,both
-2026-03-19,Thursday,Gudi Padwa,no,In circular only; not in broker equity list - owner to confirm,NSE circular CD71962
+2026-02-19,Thursday,Chhatrapati Shivaji Maharaj Jayanti,no,Not in NSE/CMTR/71775 Capital Market holiday list. Not an equity holiday.,NSE circular CD71962 only
+2026-03-03,Tuesday,Holi,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-03-19,Thursday,Gudi Padwa,no,Not in NSE/CMTR/71775 Capital Market holiday list. Not an equity holiday.,NSE circular CD71962 only
 2026-03-21,Saturday,Id-Ul-Fitr (Ramadan Eid),no,Weekend,NSE circular CD71962
-2026-03-26,Thursday,Shri Ram Navami,yes,,both
-2026-03-31,Tuesday,Shri Mahavir Jayanti,yes,,both
-2026-04-01,Wednesday,Annual Bank Closing,no,In circular only; not in broker equity list - owner to confirm,NSE circular CD71962
-2026-04-03,Friday,Good Friday,yes,,both
-2026-04-14,Tuesday,Dr. Baba Saheb Ambedkar Jayanti,yes,,both
-2026-05-01,Friday,Maharashtra Day,yes,,both
-2026-05-28,Thursday,Bakri Id,yes,,both
-2026-06-26,Friday,Muharram,yes,,both
+2026-03-26,Thursday,Shri Ram Navami,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-03-31,Tuesday,Shri Mahavir Jayanti,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-04-01,Wednesday,Annual Bank Closing,no,Not in NSE/CMTR/71775 Capital Market holiday list. Not an equity holiday.,NSE circular CD71962 only
+2026-04-03,Friday,Good Friday,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-04-14,Tuesday,Dr. Baba Saheb Ambedkar Jayanti,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-05-01,Friday,Maharashtra Day,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-05-28,Thursday,Bakri Id,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-06-26,Friday,Muharram,yes,,NSE/CMTR/71775 (12 Dec 2025)
 2026-08-15,Saturday,Independence Day,no,Weekend,bajajbroking.in/nse-holidays
-2026-08-26,Wednesday,Id-E-Milad,no,In circular only; not in broker equity list - owner to confirm,NSE circular CD71962
-2026-09-14,Monday,Ganesh Chaturthi,yes,,both
-2026-10-02,Friday,Mahatma Gandhi Jayanti,yes,,both
-2026-10-20,Tuesday,Dussehra,yes,,both
+2026-08-26,Wednesday,Id-E-Milad,no,Not in NSE/CMTR/71775 Capital Market holiday list. Not an equity holiday.,NSE circular CD71962 only
+2026-09-14,Monday,Ganesh Chaturthi,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-10-02,Friday,Mahatma Gandhi Jayanti,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-10-20,Tuesday,Dussehra,yes,,NSE/CMTR/71775 (12 Dec 2025)
 2026-11-08,Sunday,Diwali Laxmi Pujan (Muhurat trading session),no,Special session on a weekend; not a holiday,bajajbroking.in/nse-holidays
-2026-11-10,Tuesday,Diwali-Balipratipada,yes,,both
-2026-11-24,Tuesday,Prakash Gurpurb Sri Guru Nanak Dev,yes,,both
-2026-12-25,Friday,Christmas,yes,,both
+2026-11-10,Tuesday,Diwali-Balipratipada,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-11-24,Tuesday,Prakash Gurpurb Sri Guru Nanak Dev,yes,,NSE/CMTR/71775 (12 Dec 2025)
+2026-12-25,Friday,Christmas,yes,,NSE/CMTR/71775 (12 Dec 2025)

@@ -1,6 +1,6 @@
 """Checks the filled NSE 2026 holiday file (data integrity, plan item 2).
 
-Source: NSE circular No. 172/2025, Download Ref. NSE/CMTR/71775 (issued 2025-12-12).
+Source: NSE/CMTR/71775 (12 Dec 2025, Capital Market holidays 2026), amended by NSE circular 07/2026 (12 Jan 2026, adds 2026-01-15).
 """
 import pathlib
 from datetime import date
@@ -22,8 +22,9 @@ def test_calendar_is_verified_now(cal):
     assert cal.verified is True
 
 
-def test_row_count_matches_circular_weekday_holidays(cal):
-    assert len(cal.holidays) == 15
+def test_row_count_matches_official_weekday_holidays(cal):
+    # NSE/CMTR/71775 (15) + circular 07/2026 adds 2026-01-15 = 16
+    assert len(cal.holidays) == 16
 
 
 def test_loader_csv_equals_reference_equity_rows():
