@@ -14,3 +14,6 @@
 # Windows-only launchers keep CRLF
 *.bat     text eol=crlf
 *.ps1     text eol=crlf
+# Vendored upstream OpenAlgo platform (decision 0013): keep bytes identical to
+# upstream so the pin matches (openalgo.UPSTREAM_PIN). No line-ending conversion.
+src/quant/openalgo_platform/** -text
