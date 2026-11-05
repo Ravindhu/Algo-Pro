@@ -186,7 +186,7 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 - **P2-2** Size tiers (`portfolio/tiers.py`, `config/conviction_tiers.yaml`), disabled by default. DONE: tests pass.
 - **P2-3** Wire tiers into sizing with min-of-caps and an audit record. DONE: tests pass (cap binding and de-risking tested).
 - **P2-4** Signal, meta-labeler, regime detector, factor models. PENDING.
-- **P2-5** Model registry with human sign-off record. PENDING.
+- **P2-5** Model registry with human sign-off record. DONE 2026-11-06: `feedback/champion_challenger.py` (sign-off required before promotion); test `test_registry_requires_signoff_and_dss_rule` passes here.
 - **P2-6** Conviction calibration report (out-of-sample only). PENDING (needs real data).
 - **P2-7** Test that `risk/`, `execution/`, `portfolio/` never import `core/llm`. DONE (X-9). Package-level import chain still open (X-9b).
 - **P2-8** Market inputs for flow, bulk/block deals, filings. PARTIAL: NSE board-meeting event parser and blackout dates DONE. Flow and bulk/block PENDING.
@@ -224,7 +224,7 @@ Order: work top to bottom inside each tier. Tier A comes before any capital deci
 Each task ends with tests, a doc update, and a commit. "Needs" says what blocks it.
 
 ### Tier A - safety and evidence (before any capital)
-- **X-1** Expiry-day and lot-size rules. DONE 2026-11-06 (owner rules): delivery has no expiry; intraday expires the same trading day; lot size applies only to SME stocks (non-SME = 1 share). SME symbol with no lot in `config/calendar/sme_lot_sizes.csv` is refused (fail closed). Code: `core/expiry_rules.py`; tests: `tests/unit/test_expiry_lot_rules.py` (9 pass). Still needs: owner to fill the SME lot table.
+- **X-1** Expiry-day and lot-size rules. DONE 2026-11-06 (owner rules, decision 0016): delivery has no expiry; intraday expires the same trading day; lot size applies only to SME stocks (non-SME = 1 share). SME lot is read from the broker (`lotsize`); orders are whole lots only; missing lot = refused (fail closed). Code: `core/expiry_rules.py`; tests: `tests/unit/test_expiry_lot_rules.py` (9 pass). Still needs: owner to fill the SME lot table.
 - **X-2** Gate-level duplicate-order block after restart (P1-4 remainder). Needs: `openalgo` installed (owner).
 - **X-3** Idempotent retry test in the order state machine (P1-3 remainder). DONE 2026-11-05: repeated reports are no-ops, conflicting or stale fills are refused, and a refused move changes nothing (`tests/unit/test_order_fsm_retry.py`). Fixed a bug where a refused FILLED report still changed the fill quantity.
 - **X-4** Point-in-time test: conviction inputs and feature store read only past bars (P2-1 exit check, A4). DONE 2026-11-05: late writes, out-of-order writes, inclusive release time, no forward API, and conviction-from-store unchanged by future data (`tests/unit/test_point_in_time_conviction.py`). Store was already correct; tests catch a leaky store (checked with a mutant).
@@ -236,7 +236,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-9b** GAP FOUND by X-9: the trade path loads LLM client code indirectly. Any `blue_engine.core.*` import runs `core/__init__.py`, which imports `frontline_agent` and then `core/llm`. Any `blue_engine.portfolio.*` import runs `portfolio/__init__.py`, which imports `views/llm_note.py`. Not called on the trade path, but loaded in the same process. Fix: make these package imports lazy in Blue (the `core/__init__.py` file already has a lazy `__getattr__`). Needs: owner to run `pytest Blue_engine/tests` after the change, because Blue has 84 tests and `openalgo` is missing here. Tracked as an expected failure in the test file; the test fails once fixed, so its marker must then be removed.
 
 ### Tier B - research evidence (needs real data)
-- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). 2026-11-06: INFY bars are fetched by `Blue_engine/database/sample_data.py` to a git-ignored folder on the owner machine (not in repo; source host unreachable from sandbox). License: personal, non-commercial research only; commercial automated trading needs written permission. PENDING: owner runs the fetch on own machine and confirms the use is personal research.
+- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). 2026-11-06: owner confirmed personal use (decision 0016). Owner runs `python Blue_engine/database/sample_data.py` on the owner machine, then the backtest runs on that data. Sandbox cannot fetch it (403 / host unreachable). 2026-11-06: INFY bars are fetched by `Blue_engine/database/sample_data.py` to a git-ignored folder on the owner machine (not in repo; source host unreachable from sandbox). License: personal, non-commercial research only; commercial automated trading needs written permission. PENDING: owner runs the fetch on own machine and confirms the use is personal research.
 - **X-11** Out-of-sample conviction calibration report (P2-6). Needs: X-10 data.
 - **X-12** Trial log entry for every optimisation run (AGENTS rule: sampler, trial count, bounds, folds, cost model version). DONE 2026-11-05 (wiring): with `EngineConfig.trial_log_path` set, Blue writes one row per trial (failed ones too) and one run row; `TrialLog` reads them (`tests/unit/test_trial_log_optimizer.py`). Default is OFF, so the research runner (X-6/X-10) must set the path. Owner to decide if the default should be on.
 - **X-13** Survivorship-free universe and corporate-action review (P1-7). Needs: owner data source for delisted symbols.
@@ -249,7 +249,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 ### Tier D - signal build-out (paper only)
 - **X-17** Event scoring, advice only, with a deterministic fallback when the LLM is off (P2 events). Needs: none for the fallback; LLM provider is optional. DONE 2026-11-05: `score_filing_advice` uses an optional LLM callable, falls back to the keyword scorer on error or non-finite output (WARNING logged), clamps to [-1, 1], records `source`, and never sets size (`tests/unit/test_event_advice_fallback.py`).
 - **X-18** Regime detector and factor models (P2-4). Needs: X-10 data to validate.
-- **X-19** Model registry with human sign-off record (P2-5). Needs: owner sign-off process.
+- **X-19** Model registry with human sign-off record (P2-5). DONE 2026-11-06 (code and sign-off test exist; see P2-5). Champion/challenger on real data still needs X-10.
 
 ### Tier E - governance and docs (owner actions)
 - **X-20** Rewrite `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done) (D-1). Needs: owner approval.
@@ -286,7 +286,7 @@ These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as
 
 ## Open gaps and assumptions
 
-- Expiry days and lot sizes: rules done 2026-11-06 (X-1). SME lot table still empty (owner to fill).
+- Expiry days and lot sizes: rules done 2026-11-06 (X-1). SME lot size comes from the broker at order time (decision 0016).
 - Risk limit values: owner approved the starter minimums for PAPER on 2026-11-06. Live values are not approved.
 - Paper period length, parity tolerance and starting capital are not set.
 - Event blackout uses the NSE board-meeting feed. It is a blocking input only, not a signal. The sandbox cannot reach NSE from code; the sample used in tests is a saved fixture.

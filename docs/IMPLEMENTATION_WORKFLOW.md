@@ -70,7 +70,7 @@ Flow lane: portfolio risk, session guards.
 Work, in order:
 1. `portfolio/portfolio_risk.py`: sector, cluster, beta caps, stress scenarios, CVaR.
 2. `risk/controls.py`: halt handler, event blackout (X-8 DONE: the gate blocks entries on blackout days and allows exits), overnight gap.
-3. `risk/exits.py`, `risk/squareoff.py`: stop, trailing, time exit; MIS cutoff; rollover (X-1: expiry and lot-size rules DONE 2026-11-06; SME lot table pending owner).
+3. `risk/exits.py`, `risk/squareoff.py`: stop, trailing, time exit; MIS cutoff; rollover (X-1: expiry and lot-size rules DONE 2026-11-06; SME lot read from the broker, decision 0016).
 Gate: tests show that entries are blocked and exits still allowed during blackout and halt.
 
 ## Step 6 - Safety gate (the only path to orders)
