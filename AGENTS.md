@@ -304,7 +304,7 @@ No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage
 5. Only approved models enter production: Model registry → factor models. A person signs off (Human sign-off).
 6. Kill switch and Safe mode controller can block entries from any stage. Kill switch feeds back to the Risk gate.
 7. Every signal, intent, gate result, and override writes to the Audit log.
-8. Dashboard shows P&L hidden by default. EV, MAE/MFE, and rule compliance should remove from dashboard
+8. Dashboard shows P&L  by default. EV, MAE/MFE, and rule compliance should remove from dashboard
 9. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
 
 ### v5 build phases (from `docs/IMPLEMENTATION_PLAN.md`)
