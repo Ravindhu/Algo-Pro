@@ -16,16 +16,16 @@ Status: DECIDED by owner. Supersedes item 10 lot-table wording in decision 0015.
    (`config/risk_limits.yaml`) is used. Live trading stays blocked by the Phase 3 gate until
    the other exit checks pass.
 
-3. **Holiday reference CSV.** `config/calendar/nse_holidays_2026.csv` lists every 2026 date
-   from the broker equity list and NSE circular CD71962, with source and an `equity_holiday`
-   flag (yes / no / disputed). Loader file `config/calendar/holidays.csv` = the 15 equity
-   weekday holidays from NSE circular 172/2025 (already cited in the repo). A test keeps the
-   two in step.
-   - 2026-01-15 (Municipal Corporation Election, Maharashtra): broker lists it as an equity
-     holiday; NSE circular 172/2025 does not. Marked `disputed`, not loaded. Owner to confirm.
-   - 2026-02-19, 2026-03-19, 2026-04-01, 2026-08-26: in circular CD71962 only; not in the broker
-     equity list. Marked `no` pending owner confirmation.
+3. **Holiday source = NSE circulars (owner instruction, 2026-11-06).**
+   - Base list: NSE/CMTR/71775 (12 Dec 2025), Capital Market holidays 2026: 15 weekday holidays.
+   - Amendment: NSE circular 07/2026 (12 Jan 2026) declares 2026-01-15 (Municipal Corporation
+     Election, Maharashtra) a Capital Market holiday. Official list = 16 weekday holidays.
+   - Not holidays: 2026-02-19, 2026-03-19, 2026-04-01, 2026-08-26. They appear only in NSE
+     circular CD71962, which does not name a segment, and not in the Capital Market list.
    - 2026-11-08 (Muhurat, Sunday): special session, not a holiday.
+   - `config/calendar/holidays.csv` (loader) = the 16 official weekday holidays.
+   - `config/calendar/nse_holidays_2026.csv` = full reference with source and equity flag per row.
+     Test `test_loader_csv_equals_reference_equity_rows` keeps the two in step.
 
 4. **Personal use.** Owner confirmed the INFY historical data is for personal use only. The
    source licence allows personal, non-commercial research. The data is not in this repo; the
