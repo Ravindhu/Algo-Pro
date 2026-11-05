@@ -103,7 +103,7 @@ decrypts, and runs the smoke gate.
 │   ├── db/            SQLite DBs — broker session tokens, encrypted
 │   ├── keys/          Fernet / oauth key material
 │   └── download/      master-contract symbol cache
-├── blue_engine/        the engine, installed editable with [dashboard] extras
+├── blue_engine/        the engine, installed editable with [charts] extras; FastAPI dashboard via uvicorn
 ├── scripts/           grouped by job (see scripts/README.md)
 │   ├── run/           run_pov, run_screener_bridge, run_economic_engine
 │   ├── ops/           start_openalgo, upgrade_openalgo, scheduled tasks, QA

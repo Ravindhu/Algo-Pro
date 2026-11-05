@@ -533,34 +533,16 @@ class MacroPipeline:
             self.save_memory()
             report["agent_memory"] = self.memory.summary()
         report["shift"] = self.agent_team.run_shift(report).to_dict()
-        # Hand the ledger to the dashboard (in-process mirror + one JSON file).
-        # Best-effort: a dashboard handoff must never fail a trading run.
-        try:
-            from ..dashboard.state import publish_shift
-
-            published = publish_shift(report["shift"])
-            if not published.get("ok"):
-                report["warnings"].append(
-                    f"shift not published to the dashboard: "
-                    f"{published.get('reason')}")
-        except Exception as exc:  # noqa: BLE001 - never break a run for a view
-            report["warnings"].append(f"shift publish skipped: {exc!r}")
         # LLM token/cost telemetry for this run. Pure read of the governor's
         # counters - the numbers were already collected during the calls, so
-        # this adds no compute. Best-effort, exactly like the shift handoff.
+        # this adds no compute. Best-effort: telemetry never fails a run.
+        # (The terminal dashboard that used to read it was removed 2026-11-05.)
         try:
-            from ..dashboard.state import publish_token_usage
-
             tokens = self.frontline_agent.client.status().get("tokens")
             if isinstance(tokens, dict):
                 report["llm_tokens"] = tokens
-                published = publish_token_usage(tokens)
-                if not published.get("ok"):
-                    report["warnings"].append(
-                        f"token usage not published to the dashboard: "
-                        f"{published.get('reason')}")
-        except Exception as exc:  # noqa: BLE001 - never break a run for a view
-            report["warnings"].append(f"token publish skipped: {exc!r}")
+        except Exception as exc:  # noqa: BLE001 - never break a run for telemetry
+            report["warnings"].append(f"token telemetry skipped: {exc!r}")
         return report
 
 

@@ -12,7 +12,7 @@ The owner reviewed this and asked that P&L show on the dashboard.
 
 ## Decision
 
-- Terminal dashboard (`Blue_engine/dashboard/render.py`): `reveal_pnl` defaults to `True`.
+- Terminal dashboard (`Blue_engine/dashboard/render.py`): `reveal_pnl` defaulted to `True`. REMOVED 2026-11-05 (docs/DASHBOARD_REMOVAL_PLAN.md).
 - Web dashboard (`dashboard/index.html`): starts with P&L visible. The button reads "Hide ₹".
 - Quant dashboard (`src/quant/reporting/dashboard.py`): already shows total P&L (commit `f3e28da`). No change.
 - A toggle still hides money figures on screen. Callers can pass `reveal_pnl=False`.

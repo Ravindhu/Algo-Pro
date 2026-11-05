@@ -22,7 +22,7 @@ if not defined PY (
     echo   [FAIL] No virtual environment found.
     echo          Create one first:   python -m venv .venv
     echo          Then install:       .venv\Scripts\python.exe -m pip install -r requirements.txt
-    echo          Then the engine:    .venv\Scripts\python.exe -m pip install -e "Blue_engine[dashboard]"
+    echo          Then the engine:    .venv\Scripts\python.exe -m pip install -e "Blue_engine[charts]"
     echo.
     pause
     exit /b 1

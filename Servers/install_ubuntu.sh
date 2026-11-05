@@ -315,8 +315,9 @@ fi
 # ------------------------------------------------------------------ engine
 step "Installing blue_engine (editable, SDK-only)"
 if [[ -f "$INSTALL_ROOT/Blue_engine/pyproject.toml" ]]; then
-  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/Blue_engine[dashboard]"
-  ok "blue_engine installed editable with [dashboard] extras"
+  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/Blue_engine[charts]"
+  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q fastapi uvicorn
+  ok "blue_engine installed editable with [charts] extras; fastapi + uvicorn installed for the dashboard"
 
   # The engine must not import from the OpenAlgo tree. Assert that here so a
   # regression is caught at install time rather than at 09:15 on a trading day.
@@ -399,7 +400,7 @@ UNIT
 
 cat > "/etc/systemd/system/pov-dash.service" <<UNIT
 [Unit]
-Description=POV Plotly dashboard (port ${DASH_PORT})
+Description=POV FastAPI dashboard (port ${DASH_PORT})
 After=network-online.target
 Wants=network-online.target
 
@@ -408,7 +409,7 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_ROOT}
 Environment=OPENALGO_URL=${OPENALGO_URL}
-ExecStart=${OA_VENV}/bin/python -m blue_engine.dashboard.cli --host 127.0.0.1 --port ${DASH_PORT}
+ExecStart=${OA_VENV}/bin/python -m uvicorn --app-dir ${INSTALL_ROOT}/dashboard app:create_app --factory --host 127.0.0.1 --port ${DASH_PORT}
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${INSTALL_ROOT}/log/pov-dash.out.log

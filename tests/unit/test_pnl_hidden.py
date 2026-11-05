@@ -1,9 +1,8 @@
-"""P&L shown by default on both dashboards; a toggle can hide it (decision 0007).
+"""P&L shown by default on the web dashboard; a toggle can hide it (decision 0007).
 
-Terminal tests need ``rich`` and ``Blue_engine``. They skip when those are missing.
+The Blue terminal console was removed 2026-11-05, so only the web page (dashboard/index.html) is checked here.
 Web tests are text checks plus a Node syntax check, so they run without extra packages.
 """
-import io
 import pathlib
 import re
 import shutil
@@ -13,72 +12,6 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HTML = ROOT / "dashboard" / "index.html"
-
-
-# --- terminal dashboard ----------------------------------------------------
-
-def _render_module():
-    pytest.importorskip("rich")
-    from quant.core.blue_bridge import load
-    return load("dashboard.render")
-
-
-def _to_text(renderable) -> str:
-    from rich.console import Console
-    buf = io.StringIO()
-    Console(file=buf, width=220, record=True, color_system=None).print(renderable)
-    return buf.getvalue()
-
-
-ROW = {
-    "symbol": "RELIANCE", "exchange": "NSE", "ltp": 2500.0, "change_pct": 1.2,
-    "position": 10, "avg_price": 2400.0, "unrealized_pnl": 1234.0, "state": "HOLDING",
-}
-
-
-def test_universe_table_shows_pnl_by_default():
-    mod = _render_module()
-    text = _to_text(mod.render_universe_table([ROW]))
-    assert "+1,234" in text
-
-
-def test_universe_table_hides_pnl_when_turned_off():
-    mod = _render_module()
-    text = _to_text(mod.render_universe_table([ROW], reveal_pnl=False))
-    assert "hidden" in text
-    assert "+1,234" not in text
-
-
-def test_universe_table_shows_pnl_when_revealed():
-    mod = _render_module()
-    text = _to_text(mod.render_universe_table([ROW], reveal_pnl=True))
-    assert "+1,234" in text
-
-
-def test_detail_panel_shows_pnl_by_default():
-    mod = _render_module()
-    text = _to_text(mod.render_detail_panel(ROW, []))
-    assert "Unrealized P&L" in text
-    assert "+1,234" in text
-
-
-def test_detail_panel_hides_pnl_when_turned_off():
-    mod = _render_module()
-    text = _to_text(mod.render_detail_panel(ROW, [], reveal_pnl=False))
-    assert "hidden" in text
-    assert "+1,234" not in text
-
-
-def test_detail_panel_shows_pnl_when_revealed():
-    mod = _render_module()
-    text = _to_text(mod.render_detail_panel(ROW, [], reveal_pnl=True))
-    assert "+1,234" in text
-
-
-def test_position_size_stays_visible_when_pnl_hidden():
-    mod = _render_module()
-    text = _to_text(mod.render_detail_panel(ROW, []))
-    assert "10 @ 2,400.00" in text
 
 
 # --- web dashboard ----------------------------------------------------------

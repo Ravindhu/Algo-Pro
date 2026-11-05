@@ -1330,3 +1330,18 @@ EV, MAE/MFE and rule compliance are not in the payload (AGENTS rule 8). No POST 
 
 **Not verified in the cloud sandbox:** FastAPI routes and the page in a browser (FastAPI cannot be installed there).
 Profit factor with closed trades needs `openalgo` (Blue_engine). The test for it skips until `openalgo` is installed.
+
+## 21. Blue terminal console removed (2026-11-05)
+
+Plain-English summary: the `rich` terminal console (`Blue_engine/dashboard/`, command
+`python -m blue_engine.dashboard.cli`) is removed from the repo. Copies are in `Temp/archive/2026-11-05/`
+(git-ignored) and in git history. Plan: `docs/DASHBOARD_REMOVAL_PLAN.md`.
+
+**What operators must know:**
+- VPS: the `pov-dash` service now runs the FastAPI dashboard (`uvicorn ... dashboard/app.py`) on the same port. The nginx route `/pov-dash/` is unchanged. Run `install_ubuntu.sh` again (or `sudo systemctl daemon-reload && sudo systemctl restart pov-dash`) to apply the new unit.
+- Installers: `Blue_engine[dashboard]` is now `Blue_engine[charts]` (plotly, pandas, numpy). `rich` is no longer installed. `fastapi` and `uvicorn` are installed.
+- Run data files `data/last_shift.json` and `data/last_token_usage.json` are no longer written. Token usage is still in the run report as `llm_tokens`.
+- `Blue_engine/Dockerfile` (image for the terminal console) is removed. If a compose file outside this repo still builds it, update that file.
+- Preset watchlists: `resolve_watchlist` moved to `Blue_engine/screener/watchlist.py` unchanged. Known gap: `blue_engine/screener/presets.py` is not in the repo, so a preset name returns no rows (this was already true before).
+
+**Not run here:** the Blue_engine test suite (needs `openalgo`), the VPS installer, the Windows installers, and Docker.

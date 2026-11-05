@@ -8,7 +8,7 @@ Owner rule (AGENTS rule 8, decision 0008, 2026-11-05):
 
 Flow stage: Dashboard
 Status: PHASE 3 IMPLEMENTED (profit factor delegated to Blue backtest.metrics; rest local)
-Existing code to reuse or wrap (do not copy): Blue_engine/dashboard/app.py, Blue_engine/backtest/metrics.py
+Existing code to reuse or wrap (do not copy): Blue_engine/backtest/metrics.py (the Blue terminal console was removed 2026-11-05)
 """
 from __future__ import annotations
 

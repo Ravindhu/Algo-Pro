@@ -31,7 +31,6 @@ blue_engine/
   infrastructure/   Infrastructure engine (OpenAlgo, brokers, servers)
   core/             Shared kernel (SDK client, config, pipeline, runner, utils)
     risk_engine.py    Deterministic emergency-veto stage before POV
-  dashboard/        Dash/Plotly operating console (pages/...)
   input/            User-editable JSON configs (no Python needed to edit)
 ```
 

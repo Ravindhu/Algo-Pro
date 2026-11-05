@@ -142,7 +142,7 @@ Status: PENDING for the live path. Risk control modules exist (controls, exits, 
 | Post-trade | Live monitor | `monitor/live_monitor.py` | PENDING |
 | Post-trade | Strategy health | `monitor/strategy_health.py` | PENDING |
 | Post-trade | TCA to cost model | `monitor/tca.py` | PENDING |
-| Reporting | Dashboard (P&L shown by default) | `reporting/dashboard.py`, `Blue_engine/dashboard/render.py`, `dashboard/index.html` | DONE for P&L visibility (decision 0007). EV, MAE/MFE and rule compliance removed (decision 0008). |
+| Reporting | Dashboard (P&L shown by default) | `reporting/dashboard.py`, `reporting/dashboard_data.py`, `dashboard/app.py` (Blue terminal console removed 2026-11-05), `dashboard/index.html` | DONE for P&L visibility (decision 0007). EV, MAE/MFE and rule compliance removed (decision 0008). |
 | Reporting | Accounting view (password-gated) | `reporting/accounting.py`, `scripts/set_accounting_password.py` | DONE: password lockout tested (`test_accounting_password.py`) |
 | Notify | Alerts | `notify/alerts.py` | PENDING |
 
@@ -151,7 +151,7 @@ Reuse (wrap, do not copy):
 - `Blue_engine/core/quote_health.py`, `Blue_engine/core/throttle.py`
 - `Blue_engine/core/exit_engine.py`, `Blue_engine/core/protective_orders.py`, `Blue_engine/core/auction_windows.py`
 - `Blue_engine/core/live_monitor.py`, `Blue_engine/core/lot.py`
-- `Blue_engine/dashboard/app.py`. Check `pov_state_machine.py` first: it is dashboard state, not an order router.
+- ~~`Blue_engine/dashboard/app.py`~~ removed 2026-11-05 (see docs/DASHBOARD_REMOVAL_PLAN.md). Dashboard is `dashboard/app.py` (FastAPI).
 
 Exit checks (all required before real capital):
 1. Live paper fills match the replayed backtest within a tolerance the owner sets. PENDING.

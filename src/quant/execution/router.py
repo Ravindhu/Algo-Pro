@@ -2,8 +2,7 @@
 
 Flow stage: Algo router
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/dashboard/pov_state_machine.py
-NOTE: the POV state machine in Blue_engine is dashboard state. Check before reuse.
+Existing code to reuse or wrap (do not copy): none. The Blue POV state machine was dashboard state and was removed 2026-11-05.
 """
 from __future__ import annotations
 

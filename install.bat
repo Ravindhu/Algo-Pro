@@ -48,7 +48,7 @@ echo [3/6] Dependencies (first run takes several minutes)
 if errorlevel 1 goto fail
 "%VPY%" -m pip install -q -r requirements.txt
 if errorlevel 1 goto fail
-"%VPY%" -m pip install -q -e "Blue_engine[dashboard]"
+"%VPY%" -m pip install -q -e "Blue_engine[charts]"
 if errorlevel 1 goto fail
 echo   [ok] dependencies installed
 
