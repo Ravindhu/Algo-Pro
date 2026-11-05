@@ -149,6 +149,25 @@ def test_never_adverse_long_has_zero_mae():
     assert mfe == pytest.approx(0.02)
 
 
+def test_payload_shows_average_mae_and_mfe_in_percent():
+    # Per-trade MAE/MFE as fractions: MAE 1%, 3%; MFE 2%, 4% -> averages 2% and 3%
+    trades = [
+        {"ret": 0.01, "pnl": 100.0, "mae": 0.01, "mfe": 0.02},
+        {"ret": -0.01, "pnl": -50.0, "mae": 0.03, "mfe": 0.04},
+    ]
+    p = build_payload(trades, risk_used=0.0, rule_breaches=0)
+    assert p["avg_mae_pct"] == pytest.approx(2.0)
+    assert p["avg_mfe_pct"] == pytest.approx(3.0)
+
+
+def test_mae_mfe_are_none_when_trades_lack_them():
+    # Partial data must not give a misleading average
+    trades = [{"ret": 0.01, "pnl": 100.0, "mae": 0.01}, {"ret": 0.02, "pnl": 200.0}]
+    p = build_payload(trades, risk_used=0.0, rule_breaches=0)
+    assert p["avg_mae_pct"] is None
+    assert p["avg_mfe_pct"] is None
+
+
 def test_never_favourable_long_has_zero_mfe():
     mae, mfe = excursions(100, [99, 98], side=1)
     assert mae == pytest.approx(0.02)

@@ -229,7 +229,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 
 ### Tier C - dashboard
 - **X-14** NOT NEEDED (owner, 2026-11-05). Was: rule-compliance panel and strategy deviation alerts (PB-3 remainder).
-- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). DONE 2026-11-05: 10 tests with hand-worked numbers (EV 0.6%, win rate 60%, PF 2.0, net P&L 3000, MAE 4%, MFE 10%, short-side flip, edge cases) in `tests/unit/test_dashboard_metrics_handchecked.py`. Four planted bugs caught. Open (owner decision, not a bug): `reporting/dashboard.py` says MAE and MFE are not shown on the dashboard, but AGENTS rule 8 and PB-3 say they must stay visible. Also: win rate uses the return sign and profit factor uses the rupee sign; they could disagree if costs flip a trade.
+- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). DONE 2026-11-05: 10 tests with hand-worked numbers (EV 0.6%, win rate 60%, PF 2.0, net P&L 3000, MAE 4%, MFE 10%, short-side flip, edge cases) in `tests/unit/test_dashboard_metrics_handchecked.py`. Four planted bugs caught. MAE/MFE visibility fixed 2026-11-05: `build_payload` now shows `avg_mae_pct` and `avg_mfe_pct` (AGENTS rule 8). Trades without `mae`/`mfe` show None. Also: win rate uses the return sign and profit factor uses the rupee sign; they could disagree if costs flip a trade.
 - **X-16** NOT NEEDED (owner, 2026-11-05). Was: upcoming NSE board meetings on the dashboard. The parser and blackout helper stay, because X-8 uses them.
 
 ### Tier D - signal build-out (paper only)
