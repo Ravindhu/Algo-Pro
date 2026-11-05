@@ -94,6 +94,7 @@ def fingerprint(oa: Path) -> dict:
     """Compute a fingerprint of the watched files in oa/."""
     if not oa.is_dir():
         raise FileNotFoundError(f"openalgo dir not found: {oa}")
+    # The folder path is reported but NOT hashed: a path-dependent pin can never match on another machine.
     fp: dict = {"openalgo_dir": str(oa.resolve())}
     for name in WATCHED:
         p = oa / name
@@ -103,7 +104,8 @@ def fingerprint(oa: Path) -> dict:
     # Roll up to one short hash for the pin file (12 hex chars is plenty
     # for collision detection here - 2^48 is enormous vs the ~once-a-year
     # rate of upstream releases we expect).
-    rolled = hashlib.sha256(repr(sorted(fp.items())).encode("utf-8")).hexdigest()[:12]
+    content = sorted((k, v) for k, v in fp.items() if k != "openalgo_dir")
+    rolled = hashlib.sha256(repr(content).encode("utf-8")).hexdigest()[:12]
     fp["_rolled"] = rolled
     return fp
 

@@ -24,3 +24,8 @@ Copy: `src/quant/openalgo_platform/`, tracked files at upstream commit recorded 
 
 ## Pin mismatch
 `openalgo.UPSTREAM_PIN` (018a1dd4b9bc) does not match the copied commit. Reconcile before production use.
+
+## Pin reconciled (2026-11-05)
+- Old pin 018a1dd4b9bc was path-dependent: the roll-up hashed the absolute folder path, so it could never match another folder. Fixed in scripts/verify/upgrade_check.py (path reported, not hashed).
+- New pin: content-only 9a075af0d435 = upstream commit e2797fd. Matches the vendored copy and the upstream clone.
+- Owner to verify: run `python scripts/verify/upgrade_check.py --openalgo-dir <your openalgo folder>` on the running install. If it prints 9a075af0d435, the running code is the same content as the vendored copy. If not, the running install is a different version.
