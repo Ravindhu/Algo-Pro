@@ -20,7 +20,7 @@ Why first: 70 unit tests cannot run in the sandbox. Without a baseline, no later
 
 Flow lane: research validation.
 Work, in order:
-1. X-5 cost model tests (STT, brokerage, exchange charges, GST, stamp duty, impact).
+1. X-5 cost model tests (STT, brokerage, exchange charges, GST, stamp duty, impact). DONE; owner to confirm the rates.
 2. X-4 point-in-time test: features and conviction read only past bars.
 3. P1-7 / X-13 survivorship-free universe and corporate actions (`data/universe.py`, `data/corp_actions.py`).
 4. P1-6 / X-10 real-data backtest with costs and walk-forward (`research/backtest.py`, `research/walk_forward.py`).
@@ -144,5 +144,5 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-Start in this order: X-5, X-8, X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3 and X-4 are done.
+Start in this order: X-8, X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3, X-4 and X-5 are done.
 Owner items first when available: P0-2, P0-3, P0-4.

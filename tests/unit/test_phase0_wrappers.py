@@ -73,9 +73,8 @@ def test_delivery_has_no_brokerage_and_intraday_is_capped():
     m = CostModel()
     # Delivery brokerage is zero: only STT, txn, SEBI, GST, stamp and impact remain.
     assert m.trade_cost(1e9, "SELL", "delivery") == pytest.approx(_expected_inr(1e9, "SELL", "delivery"))
-    # Intraday brokerage stops at Rs 20 for large orders.
-    small = m.trade_cost(1_000.0, "SELL", "intraday") - m.trade_cost(1_000.0, "SELL", "intraday")
-    assert small == 0
+    # Intraday brokerage is 0.03% for a small order (no cap yet) and stops at Rs 20 for large ones.
+    assert m.trade_cost(1_000.0, "SELL", "intraday") == pytest.approx(_expected_inr(1_000.0, "SELL", "intraday"))
     big_one = _expected_inr(1e9, "SELL", "intraday")
     assert m.trade_cost(1e9, "SELL", "intraday") == pytest.approx(big_one)
 

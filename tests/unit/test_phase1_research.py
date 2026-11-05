@@ -27,11 +27,10 @@ def test_delivery_stt_on_both_legs_and_stamp_on_buy_only():
 
 
 def test_brokerage_is_capped():
+    # Rs 100 crore intraday buy: brokerage 20 + txn 32200 + SEBI 1000 + GST 5979.6
+    # + stamp 30000 + impact 500000 = 569199.6 (brokerage cap binds; 0.03% would be 3e5).
     cm = CostModel()
-    small = cm.trade_cost(1e8, "SELL", "intraday") - cm.trade_cost(1e8, "SELL", "intraday")
-    assert small == 0
-    capped = cm.brokerage_cap + cm.gst_pct * (cm.brokerage_cap + cm.exchange_txn_pct * 1e9 + cm.sebi_fee_pct * 1e9)
-    assert cm.trade_cost(1e9, "BUY", "intraday") >= cm.brokerage_cap
+    assert cm.trade_cost(1e9, "BUY", "intraday") == pytest.approx(569199.6, rel=1e-9)
 
 
 def _bars():

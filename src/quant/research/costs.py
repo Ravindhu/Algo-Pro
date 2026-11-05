@@ -56,9 +56,14 @@ class CostModel:
 
     def trade_cost(self, notional: float, side: str, product: str = "delivery") -> float:
         """Total statutory cost plus flat impact for one fill, in currency units."""
+        # Refuse unknown strings: a typo like "sell" must not be charged as a buy.
+        if side not in ("BUY", "SELL"):
+            raise ValueError(f"side must be 'BUY' or 'SELL', got {side!r}")
+        if product not in ("delivery", "intraday"):
+            raise ValueError(f"product must be 'delivery' or 'intraday', got {product!r}")
         if notional < 0:
             raise ValueError("notional must be >= 0")
-        is_buy = side != "SELL"
+        is_buy = side == "BUY"
         intraday = product == "intraday"
         return notional * self._blue(notional, is_buy, intraday).total_bps(is_buy=is_buy) / 10_000.0
 
