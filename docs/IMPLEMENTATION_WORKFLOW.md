@@ -55,7 +55,7 @@ Gate: no model enters production without a registry record and human sign-off (P
 
 Flow lane: sizing and portfolio.
 Work, in order:
-1. Conviction score (DONE, P2-1). Verify X-4 still holds.
+1. Conviction score (DONE, P2-1). Point-in-time check DONE (X-4).
 2. Size tiers (DONE, disabled). Owner approves values only after Step 1 evidence.
 3. `portfolio/sizing.py`: fractional Kelly, vol target, hard caps. Final size = min(all caps).
 4. `portfolio/allocator.py`: strategy budget (PARTIAL, finish).
@@ -144,5 +144,5 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-Start in this order: X-4, X-5, X-8, X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3 is done.
+Start in this order: X-5, X-8, X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3 and X-4 are done.
 Owner items first when available: P0-2, P0-3, P0-4.

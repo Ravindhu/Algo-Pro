@@ -213,7 +213,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-1** Expiry-day and lot-size handling in the calendar loader (`core/calendar.py`, `config/calendar/`). Needs: owner-verified expiry and lot-size list.
 - **X-2** Gate-level duplicate-order block after restart (P1-4 remainder). Needs: `openalgo` installed (owner).
 - **X-3** Idempotent retry test in the order state machine (P1-3 remainder). DONE 2026-11-05: repeated reports are no-ops, conflicting or stale fills are refused, and a refused move changes nothing (`tests/unit/test_order_fsm_retry.py`). Fixed a bug where a refused FILLED report still changed the fill quantity.
-- **X-4** Point-in-time test: conviction inputs and feature store read only past bars (P2-1 exit check, A4). Needs: none.
+- **X-4** Point-in-time test: conviction inputs and feature store read only past bars (P2-1 exit check, A4). DONE 2026-11-05: late writes, out-of-order writes, inclusive release time, no forward API, and conviction-from-store unchanged by future data (`tests/unit/test_point_in_time_conviction.py`). Store was already correct; tests catch a leaky store (checked with a mutant).
 - **X-5** Cost-model tests for STT, brokerage, exchange charges, GST, stamp duty and impact, using the owner's cost rules (commit `4dab074`). Needs: none for the test; owner to confirm rates.
 - **X-6** End-to-end paper run with `scripts/run_paper.py` (P1-5). Needs: `openalgo` (owner).
 - **X-7** Kill-and-restart test mid-run: no duplicate paper orders (P1 exit check 5). Needs: none for ledger-level; full process needs `openalgo`.
@@ -244,7 +244,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Next to start without the owner
-X-4, X-5, X-8, X-9, X-15 (X-3 done 2026-11-05). These need no data, no install, and no decision.
+X-5, X-8, X-9, X-15 (X-3 and X-4 done 2026-11-05). These need no data, no install, and no decision.
 
 ---
 
