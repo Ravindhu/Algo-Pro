@@ -17,7 +17,7 @@ RULES (owner-confirmed 2026-11-03)
   sell leg only.
 - Stamp duty applies on the buy leg only (delivery and intraday rates differ).
 - ``impact_bps`` is a flat per-side cost, mapped to Blue's slippage term. Blue's
-  square-root impact model is not used yet (see docs/PHASE0_REUSE_AUDIT.md).
+  square-root impact model is not used yet (see docs/audits/PHASE0_REUSE_AUDIT.md).
 
 WHAT THIS FILE TRANSLATES (only this)
 -------------------------------------

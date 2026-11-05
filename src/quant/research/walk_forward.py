@@ -4,7 +4,7 @@ Flow stage: Walk-forward + purged CV
 Status: PHASE 1 IMPLEMENTED (Phase 0 wrap: wrapper: fold geometry comes from Blue_engine)
 Existing code to reuse or wrap (do not copy): Blue_engine/ml/evaluation/splits.py (walk_forward)
 
-WHAT CHANGED IN THE WRAP (API change, flagged in docs/PHASE0_REUSE_AUDIT.md)
+WHAT CHANGED IN THE WRAP (API change, flagged in docs/audits/PHASE0_REUSE_AUDIT.md)
 -----------------------------------------------------------------------------
 - Blue derives the test-block size from ``n`` and ``n_splits``. The old function
   took ``test_size``. Blue has no such input, so the parameter is removed.

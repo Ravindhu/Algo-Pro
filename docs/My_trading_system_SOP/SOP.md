@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-29 (rev 2 - supervisor)
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
-**Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
+**Companion document:** `docs/audits/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
 > **Path note (resolved 2026-10-23).** `docs\My trading system SOP` used to be a
 > 30 KB **file**, which shadowed the directory path and made every SOP write fail.
@@ -1282,3 +1282,32 @@ have a disk cache; two caches would only add ambiguity). Opt in with
 ```powershell
 .\.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_llm_site_migration.py -q
 ```
+
+## 19. Repo layout pass (2026-11-05)
+
+Plain-English summary: folders now follow the tree in `AGENTS.md`. No trading logic changed.
+Full plan and open decisions: `docs/REPO_LAYOUT_PLAN.md`.
+
+**What moved (operators: update any bookmark or script that uses the old path):**
+
+| Old path | New path |
+|---|---|
+| `dashboard/algo_pro/index.html` | `dashboard/index.html` |
+| `dashboard/algo_pro/flow_svg.js` | `dashboard/assets/flow_svg.js` |
+| `dashboard/algo_pro/make_flow_svg.py` | `scripts/ops/make_flow_svg.py` (same output, verified byte-identical) |
+| `src/quant/models/events.py` | `src/quant/models/events/scoring.py` (`quant.models.events` import still works) |
+| `docs/PHASE0_REUSE_AUDIT.md`, `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`, `docs/ML_SKILL_DIAGNOSIS.md` | `docs/audits/` |
+| `Blue_engine/skills/` | `docs/skills/` (documentation only; code defines its skills in Python) |
+| `strategies/.gitkeep` (root) | removed; real strategy configs stay in `config/strategies/` |
+
+**What was added:** `pyproject.toml` (metadata and pytest test paths), `src/quant/strategies/` (scaffold).
+
+**Not moved (waiting for owner decision, see `docs/REPO_LAYOUT_PLAN.md` section 5):**
+`Servers/` (live VPS keeps `deploy.env` there), `quant_system_flow_v5.svg` location,
+this SOP's location, `scripts/diagnostics/` and `scripts/verify/` (depth-based paths).
+
+**Pre-session checks reality (sandbox, 2026-11-05):**
+- `pytest tests/unit` → 239 passed, 70 failed, 34 skipped, 1 xfailed. Same 70 failures before and after the pass; all are `No module named 'openalgo'`.
+- `pytest Blue_engine/tests --collect-only` → 176 collected.
+- `tests/unit/test_layout.py` → 4 passed.
+- The OpenAlgo package cannot be installed in the cloud sandbox (package installs are off). Full regression must run on the owner's machine.

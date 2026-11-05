@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "quant_system_flow_v5.svg"
-OUT = Path(__file__).resolve().parent / "flow_svg.js"
+OUT = ROOT / "dashboard" / "assets" / "flow_svg.js"
 
 BOX = re.compile(
     r'<rect x="(\d+)" y="(\d+)" width="210" height="58" rx="10"([^>]*)/>'

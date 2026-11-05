@@ -33,7 +33,7 @@ Partly.
 - Deflated Sharpe: do not use Blue's `deflated_sharpe` in any gate (X-26)
 - Impact: code uses a flat 5 bps; Blue has a square-root model not used yet (X-30)
 
-**Event scoring with keyword fallback (done 2026-11-05, X-17):** `models/events.py`
+**Event scoring with keyword fallback (done 2026-11-05, X-17):** `models/events/scoring.py`
 
 **Still new code, not started:**
 - Signal, meta-labeler: `models/signal.py`, `models/meta_label.py`
@@ -54,7 +54,7 @@ Each folder has a `README.md` with its purpose and status.
 | `core/` | shared basics | `calendar.py` (2026 holidays) | `blue_bridge.py`, `config.py`, `types.py` | expiry-day rules (X-1) |
 | `data/` | market inputs | `market_inputs.py` (NSE event parser, blackout dates) | `qa.py`, `feature_store.py`, `universe.py`, `corp_actions.py` | `ingest.py` live feed; bulk/block deals (P2-8) |
 | `research/` | research validation | cost rule tests | `backtest.py`, `walk_forward.py`, `trial_log.py`, `validation.py`, `lineage.py` | `capacity.py` |
-| `models/` | signal and conviction | `conviction.py`, `events.py` (keyword fallback, X-17) | `calibration.py`, `factors.py` | `regime.py`, `signal.py`, `meta_label.py` |
+| `models/` | signal and conviction | `conviction.py`, `events/scoring.py` (keyword fallback, X-17) | `calibration.py`, `factors.py` | `regime.py`, `signal.py`, `meta_label.py` |
 | `portfolio/` | sizing and allocation | `sizing.py`, `tiers.py`, `rebalance.py`, `covariance.py` | `allocator.py`, `optimizer.py`, `portfolio_risk.py` | HRP decision (X-25) |
 | `risk/` | safety gate | `controls.py` entry blackout (X-8) | `gate.py`, `pretrade.py`, `price_band.py`, `liquidity.py`, `loss_breaker.py`, `kill_switch.py`, `exits.py`, `squareoff.py`, `blue_risk_gate.py` | expiry and rollover (X-1) |
 | `execution/` | orders (Phase 3 only) | `order_fsm.py` retry-safe (X-3) | `queue.py`, `openalgo_client.py` (refuses in paper) | `router.py`, `protection.py` |
@@ -97,13 +97,13 @@ The owner answered on 2026-11-05: P&L shown; EV, MAE/MFE and rule compliance rem
 | `AGENTS.md` rule 8 (commit `a0c7847`, latest on master) | Hidden | Remove from dashboard | Remove |
 | Operating brief in the project preferences | Hidden | Show (EV, profit factor, MAE, MFE, risk-to-reward) | Show (rule compliance) |
 
-Done: `reporting/dashboard.py`, `dashboard/algo_pro/index.html`, the SVG, the flow doc and AGENTS rule 8 are updated together. Still open for the owner: the trial-log default path and MAE/MFE search bounds (see `IMPLEMENTATION_PLAN.md`).
+Done: `reporting/dashboard.py`, `dashboard/index.html`, the SVG, the flow doc and AGENTS rule 8 are updated together. Still open for the owner: the trial-log default path and MAE/MFE search bounds (see `IMPLEMENTATION_PLAN.md`).
 
 ---
 
 ## 5. Done without owner input (2026-11-05)
 
-1. DONE: X-17 fallback in `models/events.py`.
+1. DONE: X-17 fallback in `models/events/scoring.py`.
 2. DONE: X-12 trial-log wiring (default off).
 3. DONE: X-29 case check and one real path fix.
 4. DONE: decision notes 0009 (HRP) and 0010 (impact), both PROPOSED.

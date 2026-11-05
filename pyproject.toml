@@ -1,0 +1,19 @@
+# Package metadata and pytest settings. Layout rule: AGENTS.md "Project layout".
+# Code lives in src/quant/ (package "quant") and Blue_engine/ (existing engine, wrapped).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "algo-pro"
+version = "0.1.0"
+description = "Quant trading system for NSE/BSE. Paper and disabled live only. See AGENTS.md."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["quant*"]
+
+[tool.pytest.ini_options]
+# Same two paths AGENTS.md uses for the regression run.
+testpaths = ["tests/unit", "Blue_engine/tests"]

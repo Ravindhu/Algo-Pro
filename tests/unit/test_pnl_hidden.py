@@ -12,7 +12,7 @@ import subprocess
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-HTML = ROOT / "dashboard" / "algo_pro" / "index.html"
+HTML = ROOT / "dashboard" / "index.html"
 
 
 # --- terminal dashboard ----------------------------------------------------

@@ -24,7 +24,7 @@ The branch held earlier work that was never on `master`. It was merged in this u
 | Size tiers (disabled by default) | `src/quant/portfolio/tiers.py`, `config/conviction_tiers.yaml` | Present. `enabled: false`. Tests pass. |
 | Cap wiring (tier multiplier, then min-of-caps) | `src/quant/portfolio/tiers.py` | Present. Tests in `test_conviction_tiers.py` (pass). |
 | Trading calendar loader | `src/quant/core/calendar.py`, `config/calendar/holidays.csv` | Present. 2026 NSE holidays filled. Tests pass. |
-| P&L hidden by default | `render.py`, `reporting/dashboard.py`, `dashboard/algo_pro/index.html` | Present. **Reversed by this update** (see section 3). |
+| P&L hidden by default | `render.py`, `reporting/dashboard.py`, `dashboard/index.html` | Present. **Reversed by this update** (see section 3). |
 | Accounting password lockout | `src/quant/reporting/accounting.py`, `scripts/set_accounting_password.py` | Present. Kept as the authorised accounting view. Tests pass. |
 
 Known test state: 79 passed, 5 skipped on the new branch test files. 70 unit tests fail only because `openalgo` is not installed in this sandbox (PyPI blocked). These are the same pre-existing failures, not regressions.

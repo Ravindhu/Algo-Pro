@@ -192,8 +192,8 @@ uses real quotes. See the SOP pre-session checklist for the full gating list.
 | [`docs/quant_system_flow_v5.md`](docs/quant_system_flow_v5.md) | Flow stages by lane |
 | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phases, reuse map, exit checks |
 | [`docs/My_trading_system_SOP/SOP.md`](docs/My_trading_system_SOP/SOP.md) | Pre-session checklist, operations |
-| [`docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`](docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md) | Pipeline audit |
-| [`docs/ML_SKILL_DIAGNOSIS.md`](docs/ML_SKILL_DIAGNOSIS.md) | ML stage diagnosis |
+| [`docs/audits/Economic_to_POV_Pipeline_Audit_2026-10-22.md`](docs/audits/Economic_to_POV_Pipeline_Audit_2026-10-22.md) | Pipeline audit |
+| [`docs/audits/ML_SKILL_DIAGNOSIS.md`](docs/audits/ML_SKILL_DIAGNOSIS.md) | ML stage diagnosis |
 | [`docs/decisions/`](docs/decisions/) | One note per design decision |
 | [`AGENTS.md`](AGENTS.md) | Engineering rules for this repo |
 | [`INSTALL.md`](INSTALL.md) | Environment setup |

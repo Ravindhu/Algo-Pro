@@ -35,7 +35,7 @@ THE FOUR THINGS THAT GO WRONG WITH LABELS (and what we do about each)
    *above that base rate* rather than raw accuracy.
 
 4. **The target can simply be the wrong one.** Measured on real NIFTY daily
-   bars (see `docs/ML_SKILL_DIAGNOSIS.md`), the SIGN of a 5-day index return is
+   bars (see `docs/audits/ML_SKILL_DIAGNOSIS.md`), the SIGN of a 5-day index return is
    not predictable from standard price features — even in-sample, no feature
    beat the 54.25% majority class by more than 0.6 percentage points. That is a
    statement about the TARGET, not the model. So this module also offers:
@@ -273,7 +273,7 @@ def vol_ratio_label(closes: Sequence[Optional[float]], *,
     --------------------------------
     Predicting the sign of an index return is close to the hardest available
     target: measured on real NIFTY daily bars, standard price features could
-    not beat a 54.25% majority class (docs/ML_SKILL_DIAGNOSIS.md). Volatility
+    not beat a 54.25% majority class (docs/audits/ML_SKILL_DIAGNOSIS.md). Volatility
     is a different problem. Volatility clusters — today's vol is informative
     about tomorrow's — so a model has a genuine, well-documented signal to
     find (Engle 1982; Bollerslev 1986).

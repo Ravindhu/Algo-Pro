@@ -6,7 +6,7 @@ Existing code to reuse or wrap (do not copy): Blue_engine/portfolio/sizing/kelly
 Blue_engine/portfolio/sizing/vol_target.py (vol_target_scale)
 
 Equivalence checked before wrapping: 180 Kelly cases and 24 vol-target cases match the
-pre-wrap formulas exactly (see docs/PHASE0_REUSE_AUDIT.md, step 7).
+pre-wrap formulas exactly (see docs/audits/PHASE0_REUSE_AUDIT.md, step 7).
 """
 from __future__ import annotations
 

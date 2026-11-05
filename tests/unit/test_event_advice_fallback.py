@@ -1,6 +1,6 @@
 """X-17: event scoring works without an LLM. LLM output is advice only.
 
-Flow stage: Event scoring (models/events.py). Status: TEST.
+Flow stage: Event scoring (models/events/scoring.py). Status: TEST.
 Hand check: "order win" (+1.0) and "buyback" (+0.5) sum to 1.5, clamped to 1.0.
 """
 import logging

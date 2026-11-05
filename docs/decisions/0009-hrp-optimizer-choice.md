@@ -6,7 +6,7 @@ Tracks: X-25 in `docs/IMPLEMENTATION_PLAN.md`.
 
 ## Facts (checked in the repo)
 
-- Our HRP: `src/quant/portfolio/optimizer.py`. Matches the published Lopez de Prado algorithm on 25 random covariance matrices (Phase 0 audit, `docs/PHASE0_REUSE_AUDIT.md`).
+- Our HRP: `src/quant/portfolio/optimizer.py`. Matches the published Lopez de Prado algorithm on 25 random covariance matrices (Phase 0 audit, `docs/audits/PHASE0_REUSE_AUDIT.md`).
 - Blue HRP: `Blue_engine/portfolio/optim/hrp.py`. On the same covariance it gives different weights from ours.
 - Phase 2 exit checks depend on this choice (`docs/IMPLEMENTATION_PLAN.md`, Phase 2).
 

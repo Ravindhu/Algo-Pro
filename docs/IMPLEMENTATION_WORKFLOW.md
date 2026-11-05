@@ -49,7 +49,7 @@ Work, in order:
 3. `models/signal.py`: direction, stop, time limit.
 4. `models/meta_label.py`: take or skip, bet size.
 5. `models/calibration.py`: Platt or isotonic. Out-of-sample report (P2-6 / X-11).
-6. `models/events.py` (X-17): advice only. Deterministic fallback when the LLM is off. DONE 2026-11-05: `score_filing_advice`, `source` field, `advice_score` and `advice_source` properties.
+6. `models/events/scoring.py` (X-17): advice only. Deterministic fallback when the LLM is off. DONE 2026-11-05: `score_filing_advice`, `source` field, `advice_score` and `advice_source` properties.
 Gate: no model enters production without a registry record and human sign-off (P2-5 / X-19).
 
 ## Step 4 - Conviction, sizing and allocation

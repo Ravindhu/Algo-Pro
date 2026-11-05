@@ -218,7 +218,7 @@ These src modules have no row above and were not compared line by line. Each nee
 
 **Blue finding (not changed):** `portfolio/attribution/perf.py::sharpe` and `ml/evaluation/metrics.py::sharpe` use different definitions. Two Sharpe ratios in one codebase will disagree in reports. Decide on one definition and label the other.
 
-**Still not compared (section 8, reduced):** `models/events.py`, `models/factors.py`, `models/meta_label.py`, `data/ingest.py`, `data/market_inputs.py`, `data/feature_store.py`, `data/universe.py`, `risk/controls.py`, `execution/router.py`, `monitor/session.py`, `feedback/champion_challenger.py`, `feedback/reopt.py`, `reporting/dashboard.py`, `reporting/accounting.py`, `notify/alerts.py`. These have a declared target but no line-by-line comparison yet.
+**Still not compared (section 8, reduced):** `models/events/scoring.py`, `models/factors.py`, `models/meta_label.py`, `data/ingest.py`, `data/market_inputs.py`, `data/feature_store.py`, `data/universe.py`, `risk/controls.py`, `execution/router.py`, `monitor/session.py`, `feedback/champion_challenger.py`, `feedback/reopt.py`, `reporting/dashboard.py`, `reporting/accounting.py`, `notify/alerts.py`. These have a declared target but no line-by-line comparison yet.
 
 ## 10. Step 10: remaining 15 modules decided (2026-11-04)
 

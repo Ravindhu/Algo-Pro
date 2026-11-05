@@ -13,7 +13,7 @@ Three sources disagreed on the dashboard (see `docs/QUANT_FOLDER_PLAN.md`, secti
 
 ## Decision
 
-Dashboard (`src/quant/reporting/dashboard.py`, `dashboard/algo_pro/index.html`):
+Dashboard (`src/quant/reporting/dashboard.py`, `dashboard/index.html`):
 - Shown: total P&L (toggle can hide it), win rate, profit factor, risk utilisation, trade count.
 - Removed: expectancy / EV per trade, average MAE, average MFE, rule-breach count and rule-compliance panel.
 - Pass-through: `build_payload(trades, risk_used)`. The `rule_breaches` argument is gone.
@@ -26,7 +26,7 @@ Optimizer (`Blue_engine/optimizer/objective.py`, `engine.py`):
 - Both weights are written to `Objective.stats()` and to the trial-log run row, so each run records the values it used.
 - Automatic search over the two weights is NOT on. It needs approved search bounds and out-of-sample checks first (see Open below).
 
-Diagrams and docs: `quant_system_flow_v5.svg`, `dashboard/algo_pro/flow_svg.js`, `docs/quant_system_flow_v5.md`, `AGENTS.md` rule 8 are updated to match.
+Diagrams and docs: `quant_system_flow_v5.svg`, `dashboard/assets/flow_svg.js`, `docs/quant_system_flow_v5.md`, `AGENTS.md` rule 8 are updated to match.
 
 ## Why
 

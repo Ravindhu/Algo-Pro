@@ -3,7 +3,7 @@
 Flow stage: OpenAlgo
 Status: PHASE 1 IMPLEMENTED
 Existing code to reuse or wrap (do not copy): Blue_engine/core/client.py (.env loader wrapped).
-Kept local on purpose: the injected-transport order path and PaperBroker. See docs/PHASE0_REUSE_AUDIT.md step 6.
+Kept local on purpose: the injected-transport order path and PaperBroker. See docs/audits/PHASE0_REUSE_AUDIT.md step 6.
 """
 from __future__ import annotations
 

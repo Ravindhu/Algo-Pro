@@ -1,7 +1,7 @@
 # 0005: Decisions for the 15 remaining undecided modules
 
 Date: 2026-11-04
-Stages: Phase 2 and Phase 3 modules (see docs/PHASE0_REUSE_AUDIT.md, step 9)
+Stages: Phase 2 and Phase 3 modules (see docs/audits/PHASE0_REUSE_AUDIT.md, step 9)
 Status: accepted. Each row was compared against the Blue file read in this session.
 
 Rule: WRAP when Blue has a function with the same inputs and outputs (checked numerically).
@@ -15,7 +15,7 @@ policy, or is a different metric. A KEEP always names the reason.
 | risk/controls.py | core/auction_windows.py | KEEP | Blue file is PCAS call-auction time windows. Our file is index-halt freeze, event blackout and overnight gap check. No overlap. |
 | execution/router.py | pov/slicers/pov.py, core/liquidity.py | KEEP | Blue child size is computed inline inside a live stateful loop (volume delta x pct). `vwap_schedule` splits a total by a profile; no Blue function does that as a pure call. |
 | monitor/session.py | core/broker_auth.py | KEEP | Blue does headless TOTP login. Our class only tracks token age. Blue `login_guard` is about attempt limits, a different policy. |
-| models/events.py | economics/nlp/event_calendar.py | KEEP | Blue file is an expiry and macro-event calendar, not filing-phrase scoring. |
+| models/events/scoring.py | economics/nlp/event_calendar.py | KEEP | Blue file is an expiry and macro-event calendar, not filing-phrase scoring. |
 | models/meta_label.py | alpha/confirm/state.py | KEEP | Blue ConfirmMachine is a confirmation state machine, not a take/skip meta-labeller. |
 | data/ingest.py `FeedHealth` | core/quote_health.py `QuoteHealthMonitor` | KEEP | Blue counts consecutive quote failures. Ours measures heartbeat gaps. Different question. |
 | data/ingest.py `normalize_fill_event` | core/order_updates.py `parse_order_update` | KEEP | Blue returns a tuple and is tied to ledger side effects. Ours returns the ledger dict and raises on bad input. |

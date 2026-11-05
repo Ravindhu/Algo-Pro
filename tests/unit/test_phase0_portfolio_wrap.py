@@ -2,7 +2,7 @@
 
 Needs the OpenAlgo SDK (Blue_engine imports it). Skips with the reason when absent.
 Equivalence with the pre-wrap formulas was checked on 180 Kelly, 24 vol-target and
-3 CVaR cases (see docs/PHASE0_REUSE_AUDIT.md, step 7).
+3 CVaR cases (see docs/audits/PHASE0_REUSE_AUDIT.md, step 7).
 """
 import itertools
 

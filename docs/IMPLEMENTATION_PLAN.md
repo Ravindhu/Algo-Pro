@@ -12,7 +12,7 @@ Current state and open decisions: `docs/STATUS_2026-11-05.md`. P&L decision: `do
 - `docs/IMPLEMENTATION_PLAN.md` (this file): phase status and the item list. Item status lives here.
 - `docs/PRIORITY_IMPLEMENTATION_PLAN.md`: detail for conviction sizing and dashboard P&L items.
 - `docs/IMPLEMENTATION_WORKFLOW.md`: order of work from start to end, in money-flow order.
-- `docs/PHASE0_REUSE_AUDIT.md`: decision for each module that wraps or keeps `Blue_engine/` code.
+- `docs/audits/PHASE0_REUSE_AUDIT.md`: decision for each module that wraps or keeps `Blue_engine/` code.
 - `docs/STATUS_2026-11-05.md`: latest plain-English state of the repo.
 - `docs/decisions/`: owner and design decisions (0001 to 0010; 0009 and 0010 are proposals).
 - `docs/quant_system_flow_v5.md` and `quant_system_flow_v5.svg`: stage design (source of truth).
@@ -89,7 +89,7 @@ Status: PARTIAL. Conviction score, size tiers, and cap wiring are on `master` (m
 | Market inputs | India flow data, bulk/block deals, relative strength, microstructure, global cues | `data/market_inputs.py` | PARTIAL (relative strength and order-book helpers exist; flow and bulk/block PENDING) |
 | Models | Regime detector | `models/regime.py` | PENDING (Blue comparison DONE: decision 0005, KEEP local) |
 | Models | Factor and alpha models | `models/factors.py` | PARTIAL (momentum and profit factor wrapped) |
-| Signal | Event scoring (advice only) | `models/events.py` | PARTIAL: keyword fallback DONE (X-17, `score_filing_advice`); optional LLM scorer not wired to a caller yet |
+| Signal | Event scoring (advice only) | `models/events/scoring.py` | PARTIAL: keyword fallback DONE (X-17, `score_filing_advice`); optional LLM scorer not wired to a caller yet |
 | Signal | Signal (direction, stop, time limit) | `models/signal.py` | PENDING |
 | Signal | Meta-labeler | `models/meta_label.py` | PENDING |
 | Signal | Conviction score (six conditions) | `models/conviction.py` | DONE: tests pass (`test_conviction.py`) |
@@ -142,7 +142,7 @@ Status: PENDING for the live path. Risk control modules exist (controls, exits, 
 | Post-trade | Live monitor | `monitor/live_monitor.py` | PENDING |
 | Post-trade | Strategy health | `monitor/strategy_health.py` | PENDING |
 | Post-trade | TCA to cost model | `monitor/tca.py` | PENDING |
-| Reporting | Dashboard (P&L shown by default) | `reporting/dashboard.py`, `Blue_engine/dashboard/render.py`, `dashboard/algo_pro/index.html` | DONE for P&L visibility (decision 0007). EV, MAE/MFE and rule compliance removed (decision 0008). |
+| Reporting | Dashboard (P&L shown by default) | `reporting/dashboard.py`, `Blue_engine/dashboard/render.py`, `dashboard/index.html` | DONE for P&L visibility (decision 0007). EV, MAE/MFE and rule compliance removed (decision 0008). |
 | Reporting | Accounting view (password-gated) | `reporting/accounting.py`, `scripts/set_accounting_password.py` | DONE: password lockout tested (`test_accounting_password.py`) |
 | Notify | Alerts | `notify/alerts.py` | PENDING |
 
@@ -259,7 +259,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Tier F - Blue_engine follow-ups from the Phase 0 audit (added 2026-11-05)
-These come from `docs/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an item before this pass.
+These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an item before this pass.
 - **X-25** Blue HRP (`portfolio/optim/hrp.py`) gives different weights from our HRP (`portfolio/optimizer.py`) on the same covariance. Ours matches the published Lopez de Prado algorithm on 25 random covariances, so ours stays local for now. Needs: owner decision (keep local, or fix Blue). A Phase 2 exit check depends on it. Decision note drafted: `docs/decisions/0009-hrp-optimizer-choice.md` (PROPOSED, owner to choose).
 - **X-26** Blue `ml/evaluation/metrics.py::deflated_sharpe` mis-scales the threshold (no cross-trial variance). It rejects almost every strategy at N >= 10. Decision 0001 applies: do not use Blue's `deflated_sharpe` in any gate. Needs: owner to fix Blue or confirm local-only; then add a test that gates never import it.
 - **X-27** Two Sharpe definitions in Blue: `portfolio/attribution/perf.py::sharpe` (annualised compound return over vol) and `ml/evaluation/metrics.py::sharpe` (arithmetic mean over std). They disagree on the same window, so reports can conflict. Our `strategy_health.rolling_sharpe` is a third definition. Needs: owner to pick one definition for reports and label the others.
