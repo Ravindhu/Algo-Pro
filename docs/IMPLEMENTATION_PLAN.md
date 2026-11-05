@@ -229,7 +229,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 
 ### Tier C - dashboard
 - **X-14** NOT NEEDED (owner, 2026-11-05). Was: rule-compliance panel and strategy deviation alerts (PB-3 remainder).
-- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). Needs: none.
+- **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). DONE 2026-11-05: 10 tests with hand-worked numbers (EV 0.6%, win rate 60%, PF 2.0, net P&L 3000, MAE 4%, MFE 10%, short-side flip, edge cases) in `tests/unit/test_dashboard_metrics_handchecked.py`. Four planted bugs caught. Open (owner decision, not a bug): `reporting/dashboard.py` says MAE and MFE are not shown on the dashboard, but AGENTS rule 8 and PB-3 say they must stay visible. Also: win rate uses the return sign and profit factor uses the rupee sign; they could disagree if costs flip a trade.
 - **X-16** NOT NEEDED (owner, 2026-11-05). Was: upcoming NSE board meetings on the dashboard. The parser and blackout helper stay, because X-8 uses them.
 
 ### Tier D - signal build-out (paper only)
@@ -245,7 +245,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Next to start without the owner
-X-15 (X-3, X-4, X-5, X-8 and X-9 done 2026-11-05). X-9b needs owner test run. These need no data, no install, and no decision.
+None left. X-3, X-4, X-5, X-8, X-9 and X-15 are done (2026-11-05). X-9b needs an owner test run. The next items need owner input (P0-2, P0-3, P0-4).
 
 ---
 
