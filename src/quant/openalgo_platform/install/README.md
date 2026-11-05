@@ -1,0 +1,448 @@
+# OpenAlgo Installation Guide
+
+## Prerequisites
+
+### System Requirements
+- **Supported Linux Distributions:**
+  - **Debian-based:** Ubuntu (22.04+ LTS), Debian, Raspbian, Pop!_OS, Linux Mint, Zorin OS
+  - **RHEL-based:** CentOS, RHEL, Fedora, Rocky Linux, AlmaLinux, Amazon Linux, Oracle Linux
+  - **Arch-based:** Arch Linux, Manjaro, EndeavourOS, CachyOS
+- Minimum 2GB RAM (script will configure swap if needed)
+- Clean installation recommended
+
+### Domain and DNS Setup (Required)
+1. **Cloudflare Account Setup**
+   - Create a Cloudflare account if you don't have one
+   - Add your domain to Cloudflare
+   - Update your domain's nameservers to Cloudflare's nameservers
+
+2. **DNS Configuration**
+   - Add an A record pointing to your server's IP address
+     ```
+     Type: A
+     Name: yourdomain.com
+     Content: YOUR_SERVER_IP
+     Proxy status: Proxied
+     ```
+   - Add a CNAME record for www subdomain
+     ```
+     Type: CNAME
+     Name: www
+     Content: yourdomain.com
+     Proxy status: Proxied
+     ```
+
+3. **SSL/TLS Configuration in Cloudflare**
+   - Go to SSL/TLS section
+   - Set encryption mode to "Full (strict)"
+
+### Broker Setup (After Installation)
+The installer does not ask for your broker. After installation, sign in to
+OpenAlgo, open **Broker Configuration**, choose your broker and add its keys.
+The redirect URL to register in your broker's developer console is
+`https://<your-domain>/<broker>/callback` (for example `/zerodha/callback`);
+Broker Configuration shows it when you choose the broker.
+
+- Supported brokers:
+  ```
+  fivepaisa, fivepaisaxts, aliceblue, angel, arrow, compositedge, definedge, deltaexchange, dhan, dhan_sandbox,
+  firstock, flattrade, fyers, groww, hdfcsky, ibulls, iifl, iiflcapital, indmoney, jainamxts, kotak, motilal,
+  mstock, nubra, paytm, pocketful, rmoney, rupeezy, sahi, samco, shoonya, tradejini, tradesmart, upstox, wisdom, zebu, zerodha
+  ```
+- Keep your broker's API key and secret at hand for that step. XTS brokers also need market data credentials:
+  - `fivepaisaxts`, `compositedge`, `ibulls`, `iifl`, `jainamxts`, `rmoney`, `wisdom`
+
+## Installation Steps
+
+### 1. Download Installation Script
+```bash
+# Connect to your Linux server via SSH
+ssh user@your_server_ip
+
+# Create a directory for installation
+mkdir -p ~/openalgo-install
+cd ~/openalgo-install
+
+# Download the installation script
+wget https://raw.githubusercontent.com/marketcalls/openalgo/main/install/install.sh
+
+# Or using curl
+curl -O https://raw.githubusercontent.com/marketcalls/openalgo/main/install/install.sh
+
+# Make the script executable
+chmod +x install.sh
+```
+
+### 2. Run Installation Script
+```bash
+# Execute the installation script
+sudo ./install.sh
+```
+
+The script will interactively prompt you for:
+- Your domain name (supports both root domains and subdomains)
+- Whether to enable Remote MCP (optional)
+- Whether to set up fail2ban (optional, default No; see Security Notes)
+
+It does not ask for your broker. If OpenAlgo is already installed, the script
+asks whether to back up the existing folder:
+- **Yes:** the running `openalgo` service is stopped, the folder is moved to
+  `/var/python/openalgo_backup_<date>`, and its `.env` (security keys, broker
+  settings), `db/` (your data), `strategies/` (your scripts, their settings,
+  indicators and OpenScript files) and `keys/` are copied unchanged into the new
+  installation. Files that ship with OpenAlgo come from the new copy; logs stay
+  in the backup folder. The service is restarted on the new code at the end.
+- **No:** the script warns that the folder's `.env` and `db/` are deleted with it
+  and cannot be recovered, and deletes it only if you type `DELETE`. Anything else
+  stops the installation without changing anything.
+
+The installation process will:
+- **Detect your Linux distribution** and use appropriate package managers
+- Install required packages (Python, Nginx, Git, Certbot, UV)
+- Configure system swap memory if needed (for systems with <2GB RAM)
+- Set timezone to IST (optional)
+- Configure firewall (UFW for Debian/Arch, firewalld for RHEL)
+- **Auto-configure SELinux** on RHEL-based systems
+- Obtain and install Let's Encrypt SSL certificate
+- Configure Nginx with SSL and WebSocket support
+- Set up the OpenAlgo application with unique deployment name
+- Create systemd service with unique name based on domain and broker
+- Generate detailed installation logs in the logs directory
+
+#### Multi-Domain Deployment
+The installation script supports deploying multiple instances on the same server:
+- Each deployment gets a unique service name (e.g., openalgo-yourdomain-broker)
+- Separate configuration files and directories for each deployment
+- Individual log files for each installation in the logs directory
+- Independent SSL certificates for each domain
+- Isolated Python virtual environments
+
+Example of running multiple deployments:
+```bash
+# First deployment
+sudo ./install.sh
+# Enter domain: trading1.yourdomain.com
+
+# Second deployment
+sudo ./install.sh
+# Enter domain: trading2.yourdomain.com
+```
+
+Each deployment will:
+- Have its own systemd service
+- Use separate configuration files
+- Store logs in unique timestamped files
+- Run independently of other deployments
+
+### 3. Verify Installation
+
+After installation completes, verify each deployment:
+
+1. **Check Service Status**
+   ```bash
+   # Example for Fyers deployment
+   sudo systemctl status openalgo-fyers-yourdomain-fyers
+   
+   # Example for Zerodha deployment
+   sudo systemctl status openalgo-zerodha-yourdomain-zerodha
+   ```
+
+2. **Verify Nginx Configuration**
+   ```bash
+   # Test overall Nginx configuration
+   sudo nginx -t
+
+   # Check specific site configurations
+   # For Debian/Ubuntu (sites-enabled):
+   ls -l /etc/nginx/sites-enabled/
+   cat /etc/nginx/sites-enabled/fyers.yourdomain.com
+
+   # For RHEL/CentOS/Arch (conf.d):
+   ls -l /etc/nginx/conf.d/
+   cat /etc/nginx/conf.d/fyers.yourdomain.com.conf
+   ```
+
+3. **Access Web Interfaces**
+   Test each deployment in your web browser:
+   ```
+   https://fyers.yourdomain.com
+   https://zerodha.yourdomain.com
+   ```
+
+4. **Check Installation Logs**
+   ```bash
+   # View the installation log for your deployment
+   cat install/logs/install_YYYYMMDD_HHMMSS.log
+   ```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **SSL Certificate Issues**
+   ```bash
+   # Check Certbot logs
+   sudo journalctl -u certbot
+   
+   # Example: Manually run certificate installation for trading.yourdomain.com
+   sudo certbot --nginx -d trading.yourdomain.com
+   
+   # Example: Manually run certificate installation for multiple subdomains
+   sudo certbot --nginx -d fyers.yourdomain.com -d zerodha.yourdomain.com
+   ```
+
+2. **Application Not Starting**
+   Example scenario: Managing multiple broker deployments
+   ```bash
+   # Example 1: Fyers deployment on fyers.yourdomain.com
+   sudo journalctl -u openalgo-fyers-yourdomain-fyers    # View logs
+   sudo systemctl restart openalgo-fyers-yourdomain-fyers # Restart service
+   
+   # Example 2: Zerodha deployment on zerodha.yourdomain.com
+   sudo journalctl -u openalgo-zerodha-yourdomain-zerodha # View logs
+   sudo systemctl restart openalgo-zerodha-yourdomain-zerodha # Restart service
+   ```
+
+3. **Nginx Issues**
+   ```bash
+   # Check Nginx error logs for all deployments
+   sudo tail -f /var/log/nginx/error.log
+   
+   # Check access logs for specific domains
+   sudo tail -f /var/log/nginx/fyers.yourdomain.com.access.log
+   sudo tail -f /var/log/nginx/zerodha.yourdomain.com.access.log
+   ```
+
+4. **Installation Logs**
+   Example: Checking installation logs for multiple deployments
+   ```bash
+   # List all installation logs
+   ls -l install/logs/
+   
+   # View latest installation log
+   cat install/logs/$(ls -t install/logs/ | head -1)
+   
+   # Example: View specific deployment logs
+   cat install/logs/install_20240101_120000.log  # Fyers installation
+   cat install/logs/install_20240101_143000.log  # Zerodha installation
+   ```
+
+5. **Telegram /chart Says "Failed to generate charts"**
+   The chart images are drawn by a headless Chrome or Chromium running as the OpenAlgo
+   service account. A snap browser cannot run as that account (it needs a home the account
+   can write), and Ubuntu packages Chromium only as a snap. Older installs set up that snap,
+   so /chart never drew. Running `update.sh` installs a browser that works; to check by hand:
+   ```bash
+   # The log line names the cause
+   sudo journalctl -u openalgo-fyers-yourdomain-fyers | grep -i "browser seemed to close"
+
+   # On amd64, Google Chrome works (it adds Google's apt source, so it updates with the system)
+   wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+   sudo apt-get install -y /tmp/chrome.deb fonts-liberation
+   ```
+   No restart is needed. On arm64 Ubuntu no packaged Chromium can run as a service; use
+   Debian, Raspberry Pi OS or the Docker install for /chart.
+
+### Distribution-Specific Troubleshooting
+
+#### Arch Linux
+
+1. **Nginx not listening on port 443**
+   ```bash
+   # Check if conf.d is included in nginx.conf
+   grep "conf.d" /etc/nginx/nginx.conf
+
+   # If missing, add it manually
+   sudo sed -i '/http {/a\    include /etc/nginx/conf.d/*.conf;' /etc/nginx/nginx.conf
+   sudo systemctl restart nginx
+   ```
+
+2. **UV installation issues**
+   ```bash
+   # Install via pacman
+   sudo pacman -Sy python-uv
+
+   # Or use pip with system packages override
+   sudo python -m pip install --break-system-packages uv
+   ```
+
+#### RHEL/CentOS/Fedora
+
+1. **SELinux blocking Nginx**
+   ```bash
+   # Check SELinux status
+   getenforce
+
+   # View SELinux denials
+   sudo ausearch -m avc -ts recent
+
+   # The script auto-configures SELinux, but if issues persist:
+   sudo setsebool -P httpd_can_network_connect on
+   sudo semanage fcontext -a -t httpd_sys_rw_content_t "/var/python/openalgo-flask(/.*)?"
+   sudo restorecon -Rv /var/python/openalgo-flask
+   ```
+
+2. **Firewalld not configured**
+   ```bash
+   # Check firewall status
+   sudo firewall-cmd --list-all
+
+   # Manually add rules if needed
+   sudo firewall-cmd --permanent --add-service=http
+   sudo firewall-cmd --permanent --add-service=https
+   sudo firewall-cmd --reload
+   ```
+
+#### Cloudflare 521 Error
+
+1. **Set SSL/TLS mode to "Full (strict)"**
+   - Go to Cloudflare Dashboard → SSL/TLS → Overview
+   - Change encryption mode from "Flexible" to "Full (strict)"
+
+2. **Temporarily disable proxy for testing**
+   - Go to DNS tab
+   - Click orange cloud icon → turns grey (DNS only)
+   - Test your site directly
+   - Re-enable proxy after confirming server works
+
+### Managing Multiple Deployments
+
+1. **Service Management Examples**
+   ```bash
+   # List all OpenAlgo services
+   systemctl list-units "openalgo-*"
+   
+   # Example outputs:
+   # openalgo-fyers-yourdomain-fyers.service    loaded active running
+   # openalgo-zerodha-yourdomain-zerodha.service loaded active running
+   
+   # Restart specific deployment
+   sudo systemctl restart openalgo-fyers-yourdomain-fyers
+   
+   # Check status of specific deployment
+   sudo systemctl status openalgo-zerodha-yourdomain-zerodha
+   ```
+
+2. **Log Management Examples**
+   ```bash
+   # View real-time logs for Fyers deployment
+   sudo journalctl -f -u openalgo-fyers-yourdomain-fyers
+   
+   # View last 100 lines of Zerodha deployment logs
+   sudo journalctl -n 100 -u openalgo-zerodha-yourdomain-zerodha
+   
+   # View logs since last hour for specific deployment
+   sudo journalctl --since "1 hour ago" -u openalgo-fyers-yourdomain-fyers
+   ```
+
+3. **Nginx Configuration Examples**
+   ```bash
+   # View Nginx configs for different deployments
+   sudo nano /etc/nginx/sites-available/fyers.yourdomain.com
+   sudo nano /etc/nginx/sites-available/zerodha.yourdomain.com
+   
+   # Test Nginx configuration
+   sudo nginx -t
+   
+   # Reload Nginx after config changes
+   sudo systemctl reload nginx
+   ```
+
+4. **Installation Directory Examples**
+   ```bash
+   # List deployment directories
+   ls -l /var/python/openalgo-flask/
+   
+   # Example structure:
+   # /var/python/openalgo-flask/fyers-yourdomain-fyers/
+   # /var/python/openalgo-flask/zerodha-yourdomain-zerodha/
+   
+   # Check specific deployment files
+   ls -l /var/python/openalgo-flask/fyers-yourdomain-fyers/
+   ```
+
+## Security Notes
+
+1. **Firewall**
+   - **Debian/Ubuntu/Arch:** Configures UFW to allow only HTTP, HTTPS, and SSH
+   - **RHEL/CentOS/Fedora:** Configures firewalld to allow only HTTP, HTTPS, and SSH
+   - Additional ports can be opened if needed:
+     ```bash
+     # For UFW (Debian/Ubuntu/Arch)
+     sudo ufw allow <port_number>
+
+     # For firewalld (RHEL/CentOS/Fedora)
+     sudo firewall-cmd --permanent --add-port=<port_number>/tcp
+     sudo firewall-cmd --reload
+     ```
+
+2. **SELinux (RHEL-based systems)**
+   - The installation script **automatically configures SELinux** for OpenAlgo
+   - Sets correct contexts for application directories
+   - Enables httpd network connections
+   - Creates custom policies if needed
+   - No manual SELinux configuration required!
+
+3. **SSL/TLS**
+   - Certificates are automatically renewed by Certbot
+   - The installation configures modern SSL parameters
+   - Regular updates are recommended:
+     ```bash
+     # For Debian/Ubuntu
+     sudo apt update && sudo apt upgrade -y
+
+     # For RHEL/CentOS/Fedora
+     sudo dnf update -y
+     # or on older systems
+     sudo yum update -y
+
+     # For Arch Linux
+     sudo pacman -Syu
+     ```
+
+4. **fail2ban (optional)**
+   - On Debian and Ubuntu servers, `install.sh`, `install-multi.sh`, `install-docker.sh`
+     and `install-docker-multi-custom-ssl.sh` ask once: "Set up fail2ban to block
+     repeated failed logins on this server? [y/N]". The default is No, and an
+     unattended run is No. Updates never ask. Servers without `apt-get` skip it.
+   - On yes, the installer writes `/etc/fail2ban/jail.d/openalgo.conf` with the
+     `sshd` jail only. An address is banned for 1 hour after 5 failed SSH logins
+     within 10 minutes. Running the installer again rewrites the same file, so
+     nothing is duplicated.
+   - No nginx jails are enabled: the nginx rate limit also covers the webhook
+     paths, so a burst of TradingView alerts or a busy dashboard would get the
+     sender banned for an hour.
+   - `127.0.0.1/8` and `::1` are never banned. The SSH address you install from is
+     exempt too when the installer can detect it as a real IP address; the summary
+     says whether it did. When it cannot (for example inside tmux, or at a local
+     console), add your address to the `ignoreip` line yourself, or a run of failed
+     SSH logins from it can still get it banned.
+   - fail2ban protects the server's SSH only. OpenAlgo bans abusive addresses for
+     the app on its own. If fail2ban fails to install or start, the installer
+     prints a warning and carries on.
+   - Useful commands:
+     ```bash
+     sudo fail2ban-client status
+     sudo fail2ban-client status sshd
+     sudo fail2ban-client set sshd unbanip <ip>
+     ```
+
+## Post-Installation
+
+1. Configure your broker settings in the web interface
+2. Set up monitoring and alerts if needed
+3. Regularly check logs for any issues
+4. Keep the system updated with security patches
+
+## Support
+
+For issues and support:
+- Check the [GitHub repository](https://github.com/marketcalls/openalgo)
+- Review the logs using commands provided above
+- Contact support with relevant log information
+
+Remember to:
+- Regularly backup your configuration
+- Monitor system resources
+- Keep the system updated
+- Review security best practices

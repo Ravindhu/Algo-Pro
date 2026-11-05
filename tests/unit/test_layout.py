@@ -15,13 +15,22 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 
+# Vendored OpenAlgo platform (decision 0013). It is upstream code, not our stage modules,
+# so the stage rules below do not apply to it.
+VENDOR_DIR = "openalgo_platform"
+
+
+def _our_py_files():
+    return [p for p in (SRC / "quant").rglob("*.py") if VENDOR_DIR not in p.relative_to(SRC / "quant").parts]
+
+
 def _stage_files():
-    """Stage modules only: package __init__ files are excluded."""
-    return [p for p in (SRC / "quant").rglob("*.py") if p.name != "__init__.py"]
+    """Stage modules only: package __init__ files and the vendored platform are excluded."""
+    return [p for p in _our_py_files() if p.name != "__init__.py"]
 
 
 def test_every_module_imports():
-    for path in (SRC / "quant").rglob("*.py"):
+    for path in _our_py_files():
         rel = path.relative_to(SRC).with_suffix("")
         name = ".".join(rel.parts)
         if name.endswith(".__init__"):
@@ -35,7 +44,7 @@ def test_stage_modules_are_marked_scaffold():
 
 
 def test_only_openalgo_client_names_the_order_client():
-    """The order client may be named only in execution/openalgo_client.py."""
+    """The order client may be named only in execution/openalgo_client.py (the vendored platform is exempt; decision 0013)."""
     for path in _stage_files():
         if path.name == "openalgo_client.py":
             continue

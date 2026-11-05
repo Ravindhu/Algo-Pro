@@ -13,6 +13,7 @@ requires-python = ">=3.10"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["quant*"]
+exclude = ["quant.openalgo_platform*"]  # vendored upstream platform, not an installable package (decision 0013)
 
 [tool.pytest.ini_options]
 # Same two paths AGENTS.md uses for the regression run.
