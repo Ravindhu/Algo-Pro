@@ -48,7 +48,7 @@ def _expected_inr(notional, side, product):
     else:
         stt = 0.001 * notional
         stamp = 0.00015 * notional if buy else 0.0
-    txn = 0.0000322 * notional
+    txn = 0.0000307 * notional
     sebi = 0.000001 * notional
     gst = 0.18 * (brokerage + txn + sebi)
     impact = 0.0005 * notional

@@ -12,7 +12,7 @@ Rules (see src/quant/research/costs.py):
 - Delivery: brokerage 0. STT 0.1% on both legs. Stamp 0.015% on buy only.
 - Intraday: brokerage 0.03% capped at Rs 20 per order. STT 0.025% on sell only.
   Stamp 0.003% on buy only.
-- All: exchange 0.00322%, SEBI 0.0001%, GST 18% on brokerage+exchange+SEBI only,
+- All: exchange 0.00307% (NSE circular FA73061, eff. 1 Mar 2026), SEBI 0.0001%, GST 18% on brokerage+exchange+SEBI only,
   flat impact 5 bps per side.
 """
 import importlib.util
@@ -76,17 +76,17 @@ def cm(cost_class):
 # Hand-calculated totals in rupees (notional, side, product, expected).
 HAND_TOTALS = [
     # Delivery buy: STT 100 + txn 3.22 + SEBI 0.1 + GST 0.5976 + stamp 15 + impact 50
-    (100_000, "BUY", "delivery", 168.9176),
+    (100_000, "BUY", "delivery", 168.7406),
     # Delivery sell: no stamp; STT still charged on sell
-    (100_000, "SELL", "delivery", 153.9176),
+    (100_000, "SELL", "delivery", 153.7406),
     # Intraday buy, brokerage cap binds (0.03% = Rs 30 > Rs 20): 20 + 3.22 + 0.1 + 4.1976 + 3 + 50
-    (100_000, "BUY", "intraday", 80.5176),
+    (100_000, "BUY", "intraday", 80.3406),
     # Intraday sell: brokerage 20 + STT 25 (sell only) + txn + SEBI + GST + impact
-    (100_000, "SELL", "intraday", 102.5176),
+    (100_000, "SELL", "intraday", 102.3406),
     # Intraday buy, cap does not bind (0.03% = Rs 18): brokerage 18 + ... + stamp 1.8 + impact 30
-    (60_000, "BUY", "intraday", 55.39056),
+    (60_000, "BUY", "intraday", 55.28436),
     # Intraday buy, small order, no cap: 0.3 + 0.0322 + 0.001 + 0.059976 + 0.03 + 0.5
-    (1_000, "BUY", "intraday", 0.923176),
+    (1_000, "BUY", "intraday", 0.921406),
     # Zero notional costs nothing
     (0, "BUY", "delivery", 0.0),
 ]
@@ -112,15 +112,15 @@ def test_intraday_stt_is_on_sell_leg_only(cm):
 def test_brokerage_cap_is_exactly_twenty_rupees(cm):
     # Rs 1 crore intraday buy: brokerage stays at Rs 20 (0.03% would be Rs 3000).
     # 20 + 322 (txn) + 10 (SEBI) + 63.36 (GST on 20+322+10) + 300 (stamp) + 5000 (impact)
-    assert cm.trade_cost(10_000_000.0, "BUY", "intraday") == pytest.approx(5715.36, rel=REL, abs=ABS)
+    assert cm.trade_cost(10_000_000.0, "BUY", "intraday") == pytest.approx(5697.66, rel=REL, abs=ABS)
 
 
 def test_gst_applies_to_brokerage_txn_and_sebi_only(cm):
     # Delivery sell has no brokerage. GST = 18% of (txn + SEBI), not of STT or impact.
     notional = 100_000
     total = cm.trade_cost(notional, "SELL", "delivery")
-    without_gst = notional * (0.001 + 0.0000322 + 0.000001 + 0.0005)
-    assert total - without_gst == pytest.approx(0.18 * notional * (0.0000322 + 0.000001), rel=REL, abs=ABS)
+    without_gst = notional * (0.001 + 0.0000307 + 0.000001 + 0.0005)
+    assert total - without_gst == pytest.approx(0.18 * notional * (0.0000307 + 0.000001), rel=REL, abs=ABS)
 
 
 def test_impact_is_flat_five_bps_per_side(cost_class):

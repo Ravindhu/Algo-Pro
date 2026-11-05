@@ -28,9 +28,11 @@ RATE SOURCE (checked 2026-11-05): NSE "First time investor" pages, updated 17/04
 (STT, turnover fees and stamp duty). Matches the defaults below: STT delivery 0.1% both
 legs, STT intraday sell 0.025%, stamp delivery buy 0.015%, stamp intraday buy 0.003%,
 SEBI turnover fee 0.0001%, GST 18%.
-OPEN: exchange transaction charge (0.00322%) is NOT on those pages. Verify it on NSE's
-transaction-charges page before live use. GST on exchange and SEBI charges is the standard
-practice, not stated on those pages. Brokerage (0.03%, Rs 20 cap) is the owner's rule, not an exchange rate.
+EXCHANGE CHARGE (updated 2026-11-06): 0.00307% per side for NSE cash (delivery and intraday),
+from NSE circular FA73061 (dated 27 Feb 2026, effective 1 Mar 2026): Rs 307 per crore, of which
+Rs 306.99 transaction charge and Rs 0.01 IPFT contribution. Replaces the old 0.00322% note.
+GST on exchange and SEBI charges is the standard practice, not stated on those pages.
+Brokerage (0.03%, Rs 20 cap) is the owner's rule, not an exchange rate.
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ class CostModel:
     delivery_brokerage_pct: float = 0.0    # delivery brokerage is zero
     stt_delivery: float = 0.001            # delivery, both legs
     stt_intraday_sell: float = 0.00025     # intraday, sell leg only
-    exchange_txn_pct: float = 0.0000322
+    exchange_txn_pct: float = 0.0000307   # NSE circular FA73061, eff. 1 Mar 2026
     sebi_fee_pct: float = 0.000001
     stamp_buy_delivery: float = 0.00015
     stamp_buy_intraday: float = 0.00003
