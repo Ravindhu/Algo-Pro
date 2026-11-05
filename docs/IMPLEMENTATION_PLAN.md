@@ -182,7 +182,7 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 ### PB - Priority B: dashboard P&L and panels
 - **PB-1** P&L shown by default on terminal and web dashboards. DONE (reversed from hidden; decision 0007).
 - **PB-2** Toggle hides money figures on screen. DONE: tests pass.
-- **PB-3** Execution panels: EV, profit factor, risk-to-reward, MAE, MFE, win rate, rule compliance, deviation alerts. PARTIAL (EV, profit factor, MAE/MFE in quant dashboard; rule compliance and deviation alerts PENDING).
+- **PB-3** Execution panels: EV, profit factor, risk-to-reward, MAE, MFE, win rate, rule compliance, deviation alerts. PARTIAL (EV, profit factor, MAE/MFE in quant dashboard; rule-compliance panel and deviation alerts NOT NEEDED, owner 2026-11-05).
 - **PB-4** Accounting view behind an authorised action. DONE (password lockout; tested). Owner to confirm the method.
 - **PB-5** Hand-checked tests for EV, profit factor, MAE/MFE. PARTIAL (quant dashboard tests exist; check values once `openalgo` is installed).
 
@@ -227,9 +227,9 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-13** Survivorship-free universe and corporate-action review (P1-7). Needs: owner data source for delisted symbols.
 
 ### Tier C - dashboard
-- **X-14** Rule-compliance panel and strategy deviation alerts (PB-3 remainder). Needs: none.
+- **X-14** NOT NEEDED (owner, 2026-11-05). Was: rule-compliance panel and strategy deviation alerts (PB-3 remainder).
 - **X-15** Hand-checked tests for EV, profit factor, MAE/MFE on a fixed trade list (PB-5). Needs: none.
-- **X-16** Upcoming NSE board meetings shown on the dashboard, with blackout status per symbol. Needs: none for the parser (done); the live fetch runs on owner machine.
+- **X-16** NOT NEEDED (owner, 2026-11-05). Was: upcoming NSE board meetings on the dashboard. The parser and blackout helper stay, because X-8 uses them.
 
 ### Tier D - signal build-out (paper only)
 - **X-17** Event scoring, advice only, with a deterministic fallback when the LLM is off (P2 events). Needs: none for the fallback; LLM provider is optional.
@@ -244,7 +244,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Next to start without the owner
-X-3, X-4, X-5, X-8, X-9, X-14, X-15. These need no data, no install, and no decision.
+X-3, X-4, X-5, X-8, X-9, X-15. These need no data, no install, and no decision.
 
 ---
 
