@@ -1,6 +1,6 @@
 # Priority Implementation Plan: Conviction Sizing and Dashboard P&L
 
-Status: items 1-7 and the P&L change implemented 2026-11-05. Plan was written before implementation (project rule). Owner items remain (section 6).
+Status: items 1-7 and the P&L change implemented 2026-11-05. Plan was written before implementation (project rule). Status column updated in the 2026-11-05 doc sync pass. Owner items remain (section 6).
 Last updated: 2026-11-05.
 
 Companion to `docs/IMPLEMENTATION_PLAN.md`. Item IDs (P0-*, P1-*, P2-*, PB-*, D-*) map to that file.
@@ -32,19 +32,19 @@ Known test state: 79 passed, 5 skipped on the new branch test files. 70 unit tes
 
 ## 2. Items to implement now (numbered, in order)
 
-| # | Item | Plan ID | Status before this update | Action |
+| # | Item | Plan ID | Status before this update | Status now (2026-11-05) |
 |---|---|---|---|---|
 | 1 | Check `feat/conviction-score-v2` | (new) | Not checked | DONE: merged into `master`. |
-| 2 | Conviction score | P2-1 | Branch only | DONE by merge. Verify tests pass. |
-| 3 | Size tiers (disabled by default) | P2-2 | Branch only | DONE by merge. Verify disabled by default. |
-| 4 | Wire tiers into sizing with min-of-caps and audit record | P2-3 | Branch only | DONE by merge. Verify caps still bind. |
-| 5 | Calendar loader | P1-1 | Present on `master` | Fix stale docstring on `is_trading_day`. Add test for holiday and weekend cases if missing. |
-| 6 | Verify safe mode, audit log, override log, queue, order FSM, ledger | P1-2, P1-3, P1-4 | Partly tested | Add tests for `override_log` (none existed) and ledger restart duplicate detection (`seen_intent_ids` after reload). |
-| 7 | Review flow doc and `ALGO_FLOW.md` | D-2 | Not reviewed | Fix stale P&L line and event-blackout source. Record what was not reviewed. |
-| A | P&L shown by default in all three dashboards | PB-1 (reversed) | Hidden on branch | Flip defaults; keep toggle; update tests. |
-| B | NSE event-calendar parser (offline) | P2-8 (partial) | Not present | New parser in `src/quant/data/market_inputs.py` for the NSE JSON format, with a small fixture from the sample records. No network call in code. |
-| C | Event blackout uses NSE board-meeting dates | P1 (controls) | `in_event_blackout(day, days)` exists | Add helper that turns parsed events into blackout dates for a symbol. |
-| D | Docs: plan, status, flow doc, decision 0007 | D-2 | Stale | Update in the same commit as the code. |
+| 2 | Conviction score | P2-1 | Branch only | DONE: merged; tests pass. |
+| 3 | Size tiers (disabled by default) | P2-2 | Branch only | DONE: merged; `enabled: false` confirmed. |
+| 4 | Wire tiers into sizing with min-of-caps and audit record | P2-3 | Branch only | DONE: merged; cap binding tested. |
+| 5 | Calendar loader | P1-1 | Present on `master` | DONE: docstring fixed; holiday and weekend tests present. Expiry-day cases still open (X-1). |
+| 6 | Verify safe mode, audit log, override log, queue, order FSM, ledger | P1-2, P1-3, P1-4 | Partly tested | DONE for override log and ledger restart (`test_phase1_gaps.py`). Gate-level duplicate block still open (X-2). |
+| 7 | Review flow doc and `ALGO_FLOW.md` | D-2 | Not reviewed | DONE: P&L line and event-blackout source fixed; `ALGO_FLOW.md` is a pointer only. |
+| A | P&L shown by default in all three dashboards | PB-1 (reversed) | Hidden on branch | DONE: defaults flipped; toggle kept; tests updated. |
+| B | NSE event-calendar parser (offline) | P2-8 (partial) | Not present | DONE: parser and fixture in `src/quant/data/market_inputs.py`. No network call in code. |
+| C | Event blackout uses NSE board-meeting dates | P1 (controls) | `in_event_blackout(day, days)` exists | DONE: `event_blackout_dates` helper. Entry block in `risk/controls.py` DONE (X-8). Runner wiring still open (X-6). |
+| D | Docs: plan, status, flow doc, decision 0007 | D-2 | Stale | DONE for flow doc and decision 0007. Doc sync pass DONE 2026-11-05 (D-5). |
 
 Not in this round (need owner action or data the sandbox cannot reach):
 - P0-2 test baseline with `openalgo` installed.
@@ -78,7 +78,7 @@ Guardrails unchanged: EV, MAE/MFE, profit factor, and rule compliance stay visib
 
 ---
 
-## 5. Order of work
+## 5. Order of work (status 2026-11-05: steps 1-9 done; step 10 is this doc commit)
 
 1. Merge branch (done).
 2. Verify conviction, tiers, calendar tests (done: pass).
@@ -99,3 +99,4 @@ Guardrails unchanged: EV, MAE/MFE, profit factor, and rule compliance stay visib
 - "Authorised" accounting view: current design is a password (set via `scripts/set_accounting_password.py`). Owner to confirm.
 - AGENTS.md still says "P&L hidden by default" (rule 8) and "Phase 0 pending". Full rewrite needed. Not done in this round.
 - Remote `main` (`76f21af`) and `docs/status-2026-11-05` still exist. Owner to delete on GitHub.
+- SEBI checklist scope, HRP choice, impact model and Sharpe definition: see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions" and Tier F (X-25 to X-30).

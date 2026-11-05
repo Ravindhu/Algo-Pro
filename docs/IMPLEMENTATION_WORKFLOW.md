@@ -20,12 +20,13 @@ Why first: 70 unit tests cannot run in the sandbox. Without a baseline, no later
 
 Flow lane: research validation.
 Work, in order:
-1. X-5 cost model tests (STT, brokerage, exchange charges, GST, stamp duty, impact). DONE; owner to confirm the rates.
-2. X-4 point-in-time test: features and conviction read only past bars.
+1. X-5 cost model tests (STT, brokerage, exchange charges, GST, stamp duty, impact). Rule tests DONE 2026-11-05. Owner to confirm the rates. Exchange transaction charge rate still open (X-5). Impact is still flat 5 bps (X-30).
+2. X-4 point-in-time test: features and conviction read only past bars. DONE 2026-11-05.
 3. P1-7 / X-13 survivorship-free universe and corporate actions (`data/universe.py`, `data/corp_actions.py`).
 4. P1-6 / X-10 real-data backtest with costs and walk-forward (`research/backtest.py`, `research/walk_forward.py`).
 5. X-12 trial log entry for every run (`research/trial_log.py`). No trial log entry, no evidence.
-6. DSR and PBO (`research/validation.py`).
+6. DSR and PBO (`research/validation.py`). Keep local. Do not use Blue's `deflated_sharpe` in any gate (X-26).
+7. Pick one Sharpe definition for reports and label the others (X-27).
 Gate (P1 exit checks 3 and 4): costs included, look-ahead test passes, DSR and PBO reported out of sample.
 Blocked by: NSE bar data from owner (sandbox cannot reach NSE).
 
@@ -59,7 +60,7 @@ Work, in order:
 2. Size tiers (DONE, disabled). Owner approves values only after Step 1 evidence.
 3. `portfolio/sizing.py`: fractional Kelly, vol target, hard caps. Final size = min(all caps).
 4. `portfolio/allocator.py`: strategy budget (PARTIAL, finish).
-5. `portfolio/optimizer.py`, `covariance.py`, `rebalance.py` (DONE, wrapped from `Blue_engine`).
+5. `portfolio/covariance.py` and `rebalance.py`: DONE (wrapped from `Blue_engine`). `portfolio/optimizer.py` HRP stays local; Blue HRP differs (X-25).
 6. `research/capacity.py`: max capital per strategy (PENDING).
 Gate: a test proves conviction never raises size past a hard cap. A test proves no module in `risk/`, `execution/`, `portfolio/` imports `core/llm` (X-9).
 
@@ -87,7 +88,7 @@ Gate (P1 exit check 1): each hard limit in `config/risk_limits.yaml` has a test 
 Flow lane: execution.
 Work, in order:
 1. `scripts/run_paper.py` end-to-end paper run (P1-5 / X-6). Comes first, before any live code.
-2. `execution/queue.py` and `execution/order_fsm.py`: idempotent retries (X-3, no dependencies).
+2. `execution/queue.py` and `execution/order_fsm.py`: idempotent retries. X-3 DONE 2026-11-05 (`tests/unit/test_order_fsm_retry.py`).
 3. Gate-level duplicate block after restart (X-2) and kill-and-restart test (X-7).
 4. `execution/openalgo_client.py`: the only file that may call `.placeorder(`. Refuses in paper mode.
 5. `execution/router.py`, `execution/protection.py` (P3-3). Stop placed at fill.
@@ -144,5 +145,6 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-No items left that need no owner input. X-3, X-4, X-5, X-8, X-9 and X-15 are done. X-9b (lazy Blue package imports) needs an owner test run before it can be merged. Owner first: P0-2, P0-3, P0-4.
-Owner items first when available: P0-2, P0-3, P0-4.
+Items that need no owner input: X-29 (test-only fix for the checkout-name dependency). X-25 and X-30 can get decision notes drafted, but the choice is the owner's.
+Done 2026-11-05: X-3, X-4, X-5, X-8, X-9 and X-15. X-9b (lazy Blue package imports) needs an owner test run before it can be merged.
+Owner items first when available: P0-2, P0-3, P0-4, and the SEBI scope question (see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions").
