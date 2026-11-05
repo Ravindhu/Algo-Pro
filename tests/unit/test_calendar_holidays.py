@@ -26,6 +26,16 @@ def test_row_count_matches_circular_weekday_holidays(cal):
     assert len(cal.holidays) == 15
 
 
+def test_loader_csv_equals_reference_equity_rows():
+    """holidays.csv must equal the equity weekday rows of nse_holidays_2026.csv."""
+    import csv
+    ref = pathlib.Path(ROOT / "config" / "calendar" / "nse_holidays_2026.csv")
+    eq = {r["date"] for r in csv.DictReader(ref.open(encoding="utf-8"))
+          if r["equity_holiday"] == "yes" and date.fromisoformat(r["date"]).weekday() < 5}
+    loaded = {r["date"] for r in csv.DictReader(CSV.open(encoding="utf-8"))}
+    assert loaded == eq
+
+
 @pytest.mark.parametrize("day", [date(2026, 1, 26), date(2026, 10, 2), date(2026, 12, 25)])
 def test_known_holidays_are_closed(cal, day):
     assert cal.is_trading_day(day) is False
