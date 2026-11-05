@@ -1,2 +1,6 @@
 # Global settings: modes, paths. Scaffold placeholder.
 mode: paper   # paper | live
+
+dashboard:
+  # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.
+  pnl_visible_default: true

@@ -1311,3 +1311,22 @@ this SOP's location, `scripts/diagnostics/` and `scripts/verify/` (depth-based p
 - `pytest Blue_engine/tests --collect-only` → 176 collected.
 - `tests/unit/test_layout.py` → 4 passed.
 - The OpenAlgo package cannot be installed in the cloud sandbox (package installs are off). Full regression must run on the owner's machine.
+
+## 20. FastAPI dashboard (2026-11-05)
+
+Plain-English summary: a read-only web page served by FastAPI. It shows mode, kill switch,
+risk limits, positions, realized and unrealized P&L, win rate, profit factor, risk use,
+safety events and rule-based "AI insight" lines. It never sends orders.
+
+**How to run (owner machine, after `pip install -r requirements.txt` with FastAPI and uvicorn):**
+```
+python dashboard/app.py
+```
+Open `http://127.0.0.1:8050`. Data is read from `data/paper/` (ledger, audit log, kill switch) and `config/risk_limits.yaml`.
+Missing files show an empty, safe state.
+
+**Rules built in:** P&L is shown by default (`config/settings.yaml`, key `dashboard.pnl_visible_default`).
+EV, MAE/MFE and rule compliance are not in the payload (AGENTS rule 8). No POST routes. Feed status says "not connected" (no live feed exists).
+
+**Not verified in the cloud sandbox:** FastAPI routes and the page in a browser (FastAPI cannot be installed there).
+Profit factor with closed trades needs `openalgo` (Blue_engine). The test for it skips until `openalgo` is installed.
