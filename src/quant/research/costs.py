@@ -24,7 +24,13 @@ WHAT THIS FILE TRANSLATES (only this)
 - Currency brokerage cap -> bps for one trade, so Blue's percentage brokerage matches.
 - Per-product rules (delivery vs intraday) -> one Blue config per leg.
 
-NOTE: default rates are placeholders. Verify against current NSE, BSE and SEBI schedules before use.
+RATE SOURCE (checked 2026-11-05): NSE "First time investor" pages, updated 17/04/2026
+(STT, turnover fees and stamp duty). Matches the defaults below: STT delivery 0.1% both
+legs, STT intraday sell 0.025%, stamp delivery buy 0.015%, stamp intraday buy 0.003%,
+SEBI turnover fee 0.0001%, GST 18%.
+OPEN: exchange transaction charge (0.00322%) is NOT on those pages. Verify it on NSE's
+transaction-charges page before live use. GST on exchange and SEBI charges is the standard
+practice, not stated on those pages. Brokerage (0.03%, Rs 20 cap) is the owner's rule, not an exchange rate.
 """
 from __future__ import annotations
 
