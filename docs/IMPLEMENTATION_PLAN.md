@@ -217,7 +217,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-5** Cost-model tests for STT, brokerage, exchange charges, GST, stamp duty and impact, using the owner's cost rules (commit `4dab074`). DONE 2026-11-05: 23 hand-calculated rupee tests run without OpenAlgo (`tests/unit/test_cost_owner_rules.py`); side and product strings are now validated (a lowercase "sell" used to be charged as a buy); two tautological asserts removed from `test_phase0_wrappers.py` and `test_phase1_research.py`. Rates checked 2026-11-05 against NSE "First time investor" pages (updated 17/04/2026): STT, stamp duty, SEBI turnover fee and GST all match. Still open: exchange transaction charge (0.00322%) is not on those pages; verify on NSE's transaction-charges page before live use.
 - **X-6** End-to-end paper run with `scripts/run_paper.py` (P1-5). Needs: `openalgo` (owner).
 - **X-7** Kill-and-restart test mid-run: no duplicate paper orders (P1 exit check 5). Needs: none for ledger-level; full process needs `openalgo`.
-- **X-8** Event blackout wired into entry checks in `risk/controls.py`, with a test that blocks entries on blackout days and allows exits. Needs: none.
+- **X-8** Event blackout wired into entry checks in `risk/controls.py`, with a test that blocks entries on blackout days and allows exits. DONE 2026-11-05: `check_intent` blocks entries on blackout days (per symbol, from `event_blackout_dates`), allows exits and protection orders, and fails closed when `trade_day` is missing for a symbol with a blackout (`tests/unit/test_event_blackout_gate.py`, 9 tests; two planted bugs caught). Open: no runner feeds blackout dates into `RiskState` yet (needs `scripts/run_paper.py`).
 - **X-9** Layout test: no import of `core/llm` from `risk/`, `execution/`, `portfolio/` (P2-7). Needs: none.
 
 ### Tier B - research evidence (needs real data)
@@ -244,7 +244,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Next to start without the owner
-X-8, X-9, X-15 (X-3, X-4 and X-5 done 2026-11-05). These need no data, no install, and no decision.
+X-9, X-15 (X-3, X-4, X-5 and X-8 done 2026-11-05). These need no data, no install, and no decision.
 
 ---
 

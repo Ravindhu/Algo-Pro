@@ -7,6 +7,7 @@ Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_context.py
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal, Optional, Tuple
 
 Side = Literal["BUY", "SELL"]
@@ -29,6 +30,7 @@ class TradeIntent:
     circuit_pct: Optional[float] = None
     adv_shares: Optional[float] = None
     asm_gsm: bool = False
+    trade_day: Optional[date] = None  # needed for the event-blackout check on entries
 
     @property
     def notional(self) -> float:

@@ -68,7 +68,7 @@ Gate: a test proves conviction never raises size past a hard cap. A test proves 
 Flow lane: portfolio risk, session guards.
 Work, in order:
 1. `portfolio/portfolio_risk.py`: sector, cluster, beta caps, stress scenarios, CVaR.
-2. `risk/controls.py`: halt handler, event blackout (X-8: blocks entries on blackout days, allows exits), overnight gap.
+2. `risk/controls.py`: halt handler, event blackout (X-8 DONE: the gate blocks entries on blackout days and allows exits), overnight gap.
 3. `risk/exits.py`, `risk/squareoff.py`: stop, trailing, time exit; MIS cutoff; rollover (X-1 for expiry and lot size).
 Gate: tests show that entries are blocked and exits still allowed during blackout and halt.
 
@@ -144,5 +144,5 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ## Next priorities without owner input
 
-Start in this order: X-8, X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3, X-4 and X-5 are done.
+Start in this order: X-9, X-15 (from `docs/IMPLEMENTATION_PLAN.md`). X-3, X-4, X-5 and X-8 are done.
 Owner items first when available: P0-2, P0-3, P0-4.

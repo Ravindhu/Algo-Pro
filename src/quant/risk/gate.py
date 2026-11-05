@@ -7,12 +7,14 @@ Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (val
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Set
+from datetime import date
+from typing import Dict, List, Set
 
 from quant.core.config import RiskLimits
 from quant.core.types import GateDecision, TradeIntent
 from quant.monitor.safe_mode import Mode, SafeMode
 from quant.risk.blue_risk_gate import entry_breaches
+from quant.risk.controls import in_event_blackout
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.liquidity import liquidity_checks
 from quant.risk.loss_breaker import loss_checks
@@ -26,6 +28,8 @@ class RiskState:
     daily_pnl: float = 0.0
     strategy_pnl: dict = field(default_factory=dict)
     seen_ids: Set[str] = field(default_factory=set)
+    # Symbol -> dates when new entries are blocked (from event_blackout_dates).
+    blackout_dates: Dict[str, Set[date]] = field(default_factory=dict)
 
 
 def check_intent(
@@ -48,6 +52,14 @@ def check_intent(
         reasons.append("safe mode: reduce-only")
     if intent.intent_id in state.seen_ids:
         reasons.append("duplicate intent id")
+    if is_entry:
+        # Fail closed: no trade date while a blackout exists means we cannot check it.
+        blocked = state.blackout_dates.get(intent.symbol, set())
+        if intent.trade_day is None:
+            if blocked:
+                reasons.append(f"event blackout unchecked for {intent.symbol}: trade_day missing")
+        elif in_event_blackout(intent.trade_day, blocked):
+            reasons.append(f"event blackout on {intent.trade_day.isoformat()} for {intent.symbol}")
 
     reasons += pretrade_checks(intent, limits)
     reasons += price_band_checks(intent)
