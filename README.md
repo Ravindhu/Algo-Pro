@@ -61,51 +61,63 @@ flowchart LR
 
 ## Repository layout
 
-```
-Algo Pro/
-├── quant_system_flow_v5.svg     # architecture diagram (source of truth)
-├── src/quant/                   # v5 flow scaffolding — one package per lane
-│   ├── core/                    #   shared types, config loader, clock, logging
-│   ├── research/                #   backtest, walk-forward, DSR/PBO, trial log,
-│   │                            #   costs, capacity, lineage
-│   ├── models/                  #   regime, factors, signal, meta-label,
-│   │                            #   calibration, events (advice only)
-│   ├── portfolio/               #   sizing, allocator, covariance, HRP optimizer,
-│   │                            #   rebalance, portfolio risk
-│   ├── risk/                    #   gate, pretrade, price band, liquidity,
-│   │                            #   loss breaker, kill switch, controls, exits,
-│   │                            #   squareoff            ← only path to orders
-│   ├── execution/               #   queue, router, order FSM, OpenAlgo client,
-│   │                            #   protection
-│   ├── monitor/                 #   ledger, TCA, live monitor, strategy health,
-│   │                            #   drift, parity, safe mode, throttle, session
-│   ├── feedback/                #   champion/challenger, re-optimization
-│   ├── audit/                   #   append-only audit log, override log
-│   ├── reporting/               #   dashboard data, accounting (P&L gated)
-│   └── notify/                  #   alerts by severity
-├── Blue_engine/                 # existing working engine (405 files, 84 tests)
-│   ├── core/                    #   runner, risk_gate, supervisor, exit_engine,
-│   │                            #   paper_broker, ledger, client, broker_auth
-│   ├── backtest/                #   engine, loops, costs, blueprints
-│   ├── portfolio/               #   optimizer, risk models, optim_policy
-│   ├── economics/               #   regime, providers, event calendar, LLM scorer
-│   ├── screener/ sectors/       #   frontline screening engines
-│   ├── alpha/ market/ ml/       #   factors, market data, models + registry
-│   ├── pov/                     #   POV execution + state machine
-│   ├── dashboard/               #   operations dashboard (app.py)
-│   ├── database/ infrastructure/ jobs/ optimizer/
-│   ├── skills/                  #   per-stage agent skill docs
-│   └── tests/                   #   engine test suite
-├── strategies/                  # strategy classes, registered by name
-├── config/                      # settings, risk_limits, strategies/, calendar/
-├── scripts/                     # planned: run_backtest.py, run_paper.py,
-│                                #   run_live.py + run/ verify/ research/ train/ ops/
-├── dashboard/                   # dashboard UI assets
-├── Servers/                     # platform services (OpenAlgo, dashboard)
-├── tests/                       # unit / integration / replay / fixtures
-├── docs/                        # flow doc, plan, SOP, decisions, audits
-└── rules/ patches/              # project rules and upstream patches
-```
+`Algo-Pro/
+├── README.md                    # entry point: status, quick start, doc links
+├── AGENTS.md                    # engineering rules (keep)
+├── INSTALL.md
+├── requirements.txt
+├── pyproject.toml               # package metadata, pytest config (new, replaces ad-hoc setup)
+├── .env.example                 # template only; real .env is gitignored
+├── .gitignore  .gitattributes  .gitmodules
+├── install.sh  install.bat
+│
+├── config/
+│   ├── settings.yaml
+│   ├── risk_limits.yaml         # values stay null until a human sets them
+│   ├── strategies/              # one YAML per strategy
+│   └── calendar/                # NSE/BSE holidays
+│
+├── src/quant/                   # ALL trading code lives here
+│   ├── core/                    # types, config loader, clock, logging, db helpers
+│   ├── data/                    # market inputs, providers, feature store, QA
+│   ├── models/                  # regime, factors, signal, meta-label, calibration
+│   │   └── events/              # LLM/event scoring (advice only, never on trade path)
+│   ├── strategies/              # strategy classes, registered by name
+│   ├── portfolio/               # sizing, Kelly, allocator, covariance, HRP, rebalance
+│   ├── risk/                    # gate (only path to orders), pretrade, liquidity,
+│   │                            #   loss breaker, kill switch, exits, squareoff
+│   ├── execution/               # order queue, router, FSM, OpenAlgo client, POV
+│   ├── research/                # backtest, walk-forward, DSR/PBO, trial log, costs
+│   ├── monitor/                 # ledger, TCA, strategy health, drift, session
+│   ├── feedback/                # champion/challenger, re-optimization
+│   ├── audit/                   # append-only audit and override logs
+│   ├── reporting/               # dashboard data, accounting (P&L-gated view)
+│   └── notify/                  # alerts by severity
+│
+├── scripts/
+│   ├── run/                     # run_paper.py, run_live.py, run_supervised.py
+│   ├── research/                # backtest, optimize
+│   ├── train/                   # model training
+│   └── ops/                     # maintenance, recon
+│
+├── dashboard/                   # the ONE dashboard (app.py + assets)
+│
+├── tests/
+│   ├── unit/                    # includes test_layout.py (order-path rule)
+│   ├── integration/
+│   ├── replay/
+│   └── fixtures/
+│
+├── docs/
+│   ├── quant_system_flow_v5.md  + .svg
+│   ├── IMPLEMENTATION_PLAN.md
+│   ├── SOP.md
+│   ├── decisions/               # one note per design decision
+│   ├── audits/                  # dated audit reports
+│   └── skills/                  # per-stage agent skill docs (moved from Blue_engine)
+│
+├── rules/                       # project rules
+└── patches/                     # upstream OpenAlgo patches
 
 **Lane → package map**
 
