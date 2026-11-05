@@ -8,9 +8,26 @@ with a feedback loop back into research.
 - **Build order:** [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
 - **Operating procedure:** [`docs/My_trading_system_SOP/SOP.md`](docs/My_trading_system_SOP/SOP.md)
 
-> **Status: proposed design, not live.** Every module under `src/quant/` is a scaffold
-> (~5 lines, `Status: SCAFFOLD`). Working code lives in `Blue_engine/`. No stage in the
-> v5 flow is production-live until its code, unit tests and exit checks pass.
+> **Status (2026-11-06): paper and research only. Nothing is live.** Most `src/quant/` modules
+> now carry code and unit tests (`Status: PHASE n IMPLEMENTED`). The live path (Phase 3 runner,
+> broker feed, router) is not enabled. No stage is production-live until its exit checks pass.
+> Latest state: [`docs/STATUS_2026-11-06.md`](docs/STATUS_2026-11-06.md).
+
+## Current status (2026-11-06)
+
+| Area | State |
+|---|---|
+| Trading-day calendar | 2026 NSE equity holidays from official circulars (NSE/CMTR/71775 + circular 07/2026): 16 weekdays. Loader: `config/calendar/holidays.csv`. Reference with sources: `config/calendar/nse_holidays_2026.csv`. |
+| Expiry and lot size | Delivery: no expiry. Intraday: same-day expiry. Lot size only for SME, read from the broker at order time; whole lots only; fail closed. `src/quant/core/expiry_rules.py`. |
+| Costs | Indian cost model; exchange charge 0.00307% per side (NSE circular FA73061). Hand-checked tests. |
+| Risk limits | Starter minimums approved for paper. Live values = same values; live still blocked. `config/risk_limits.yaml`. |
+| Model registry | Human sign-off required before promotion. `src/quant/feedback/champion_challenger.py`. |
+| Dashboard | FastAPI, read-only. P&L shown by default. |
+| Tests | Sandbox: 70 failed, 325 passed. All 70 failures are the missing `httpx` package. Owner machine run pending. |
+| Data | Backtest data (INFY) is fetched on the owner machine with `python Blue_engine/database/sample_data.py` (personal use only). Not in this repo. |
+
+**Next steps and owner follow-ups:** see [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), section "Follow-ups after 2026-11-06".
+**Decisions:** [`docs/decisions/`](docs/decisions/) (0015 owner answers, 0016 lots, calendar, live limits).
 
 ---
 
@@ -75,10 +92,10 @@ flowchart LR
 │   ├── settings.yaml
 │   ├── risk_limits.yaml         # values stay null until a human sets them
 │   ├── strategies/              # one YAML per strategy
-│   └── calendar/                # NSE/BSE holidays
+│   └── calendar/                # NSE holidays (holidays.csv = loader; nse_holidays_2026.csv = reference)
 │
 ├── src/quant/                   # ALL trading code lives here
-│   ├── core/                    # types, config loader, clock, logging, db helpers
+│   ├── core/                    # types, config loader, clock, logging, db helpers, calendar, expiry/lot rules
 │   ├── data/                    # market inputs, providers, feature store, QA
 │   ├── models/                  # regime, factors, signal, meta-label, calibration
 │   │   └── events/              # LLM/event scoring (advice only, never on trade path)

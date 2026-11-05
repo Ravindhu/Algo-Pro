@@ -1,11 +1,11 @@
 # Implementation plan: quant system flow v5
 
-Status: updated 2026-11-06 (owner answers and first fixes; see `docs/STATUS_2026-11-06.md` and `docs/decisions/0015-owner-answers-2026-11-06.md`). Earlier: 2026-11-05 doc sync.
+Status: updated 2026-11-06 (second pass: holidays from official NSE circulars, broker-based SME lots, follow-up list). See `docs/STATUS_2026-11-06.md`. Decisions: `docs/decisions/0015-owner-answers-2026-11-06.md`, `docs/decisions/0016-lot-source-calendar-and-live-limits-2026-11-06.md`. Earlier: 2026-11-05 doc sync.
 Phases 1-3 have code and unit tests. Phase 3 live path is NOT enabled.
 No live trading path exists. Nothing reaches OpenAlgo from Phase 1 or 2.
 Source of truth: `docs/quant_system_flow_v5.md` and `quant_system_flow_v5.svg`.
 Layout: `AGENTS.md` (project layout) and `src/quant/`.
-Current state and open decisions: `docs/STATUS_2026-11-05.md`. P&L decision: `docs/decisions/0007-pnl-shown-by-default.md`. Dashboard panels and MAE/MFE: `docs/decisions/0008-dashboard-metrics-and-optimizer-excursion-weights.md`.
+Current state and open decisions: `docs/STATUS_2026-11-06.md` (latest). `docs/STATUS_2026-11-05.md` (previous). P&L decision: `docs/decisions/0007-pnl-shown-by-default.md`. Dashboard panels and MAE/MFE: `docs/decisions/0008-dashboard-metrics-and-optimizer-excursion-weights.md`.
 
 ## Doc map (which file owns what)
 
@@ -24,7 +24,7 @@ Rules for every phase:
 - Only `execution/openalgo_client.py` may call the order API.
 - Item status: DONE (code + tests pass here), PARTIAL (code exists, some checks missing), PENDING (not started or needs owner/data/network).
 
-Test state (2026-11-05, after the dashboard and optimizer change): `pytest tests/unit Blue_engine/tests` gives 378 passed, 112 skipped, 107 failed, 1 xfailed. The 107 failures are the same set as before the change (checked by stashing the change and re-running). Most are `ModuleNotFoundError: openalgo` (PyPI blocked here). X-28 lists the real Blue logic failures.
+Test state now (2026-11-06): `pytest tests/unit` 70 failed, 325 passed; all 70 failures are the missing `httpx` package. Earlier (2026-11-05, after the dashboard and optimizer change): `pytest tests/unit Blue_engine/tests` gives 378 passed, 112 skipped, 107 failed, 1 xfailed. The 107 failures are the same set as before the change (checked by stashing the change and re-running). Most are `ModuleNotFoundError: openalgo` (PyPI blocked here). X-28 lists the real Blue logic failures.
 The owner-machine baseline (P0-2) is still needed to confirm the full suite.
 
 ---
@@ -224,7 +224,7 @@ Order: work top to bottom inside each tier. Tier A comes before any capital deci
 Each task ends with tests, a doc update, and a commit. "Needs" says what blocks it.
 
 ### Tier A - safety and evidence (before any capital)
-- **X-1** Expiry-day and lot-size rules. DONE 2026-11-06 (owner rules, decision 0016): delivery has no expiry; intraday expires the same trading day; lot size applies only to SME stocks (non-SME = 1 share). SME lot is read from the broker (`lotsize`); orders are whole lots only; missing lot = refused (fail closed). Code: `core/expiry_rules.py`; tests: `tests/unit/test_expiry_lot_rules.py` (9 pass). Still needs: owner to fill the SME lot table.
+- **X-1** Expiry-day and lot-size rules. DONE 2026-11-06 (owner rules, decision 0016): delivery has no expiry; intraday expires the same trading day; lot size applies only to SME stocks (non-SME = 1 share). SME lot size is read from the broker (`lotsize`) at order time; orders are whole lots only; a missing or failed lookup refuses the order (fail closed). Code: `core/expiry_rules.py`; tests: `tests/unit/test_expiry_lot_rules.py` (22 pass). Broker lookup is tested with a fake client; a real lookup needs the broker connection (Phase 3).
 - **X-2** Gate-level duplicate-order block after restart (P1-4 remainder). Needs: `openalgo` installed (owner).
 - **X-3** Idempotent retry test in the order state machine (P1-3 remainder). DONE 2026-11-05: repeated reports are no-ops, conflicting or stale fills are refused, and a refused move changes nothing (`tests/unit/test_order_fsm_retry.py`). Fixed a bug where a refused FILLED report still changed the fill quantity.
 - **X-4** Point-in-time test: conviction inputs and feature store read only past bars (P2-1 exit check, A4). DONE 2026-11-05: late writes, out-of-order writes, inclusive release time, no forward API, and conviction-from-store unchanged by future data (`tests/unit/test_point_in_time_conviction.py`). Store was already correct; tests catch a leaky store (checked with a mutant).
@@ -236,7 +236,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-9b** GAP FOUND by X-9: the trade path loads LLM client code indirectly. Any `blue_engine.core.*` import runs `core/__init__.py`, which imports `frontline_agent` and then `core/llm`. Any `blue_engine.portfolio.*` import runs `portfolio/__init__.py`, which imports `views/llm_note.py`. Not called on the trade path, but loaded in the same process. Fix: make these package imports lazy in Blue (the `core/__init__.py` file already has a lazy `__getattr__`). Needs: owner to run `pytest Blue_engine/tests` after the change, because Blue has 84 tests and `openalgo` is missing here. Tracked as an expected failure in the test file; the test fails once fixed, so its marker must then be removed.
 
 ### Tier B - research evidence (needs real data)
-- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). 2026-11-06: owner confirmed personal use (decision 0016). Owner runs `python Blue_engine/database/sample_data.py` on the owner machine, then the backtest runs on that data. Sandbox cannot fetch it (403 / host unreachable). 2026-11-06: INFY bars are fetched by `Blue_engine/database/sample_data.py` to a git-ignored folder on the owner machine (not in repo; source host unreachable from sandbox). License: personal, non-commercial research only; commercial automated trading needs written permission. PENDING: owner runs the fetch on own machine and confirms the use is personal research.
+- **X-10** Real-data OCL backtest with costs, walk-forward, DSR and PBO (P1-6). PENDING (owner). Owner confirmed personal use only (decision 0016). INFY bars are fetched by `Blue_engine/database/sample_data.py` to a git-ignored folder on the owner machine; the sandbox cannot reach the source (403 / host unreachable). Owner runs `python Blue_engine/database/sample_data.py`, then the backtest runs on that data. Real broker data comes after the broker API is connected.
 - **X-11** Out-of-sample conviction calibration report (P2-6). Needs: X-10 data.
 - **X-12** Trial log entry for every optimisation run (AGENTS rule: sampler, trial count, bounds, folds, cost model version). DONE 2026-11-05 (wiring): with `EngineConfig.trial_log_path` set, Blue writes one row per trial (failed ones too) and one run row; `TrialLog` reads them (`tests/unit/test_trial_log_optimizer.py`). Default is OFF, so the research runner (X-6/X-10) must set the path. Owner to decide if the default should be on.
 - **X-13** Survivorship-free universe and corporate-action review (P1-7). Needs: owner data source for delisted symbols.
@@ -248,14 +248,14 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 
 ### Tier D - signal build-out (paper only)
 - **X-17** Event scoring, advice only, with a deterministic fallback when the LLM is off (P2 events). Needs: none for the fallback; LLM provider is optional. DONE 2026-11-05: `score_filing_advice` uses an optional LLM callable, falls back to the keyword scorer on error or non-finite output (WARNING logged), clamps to [-1, 1], records `source`, and never sets size (`tests/unit/test_event_advice_fallback.py`).
-- **X-18** Regime detector and factor models (P2-4). Needs: X-10 data to validate.
-- **X-19** Model registry with human sign-off record (P2-5). DONE 2026-11-06 (code and sign-off test exist; see P2-5). Champion/challenger on real data still needs X-10.
+- **X-18** Regime detector and factor models (P2-4). PENDING: needs X-10 data to validate. Not built yet, on purpose: an unvalidated model is not a model.
+- **X-19** Model registry with human sign-off record (P2-5). DONE 2026-11-06: `feedback/champion_challenger.py` refuses promotion without a named sign-off; test `test_registry_requires_signoff_and_dss_rule` passes in the sandbox. Champion/challenger on real data still needs X-10.
 
 ### Tier E - governance and docs (owner actions)
 - **X-20** Rewrite `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done) (D-1). Needs: owner approval.
 - **X-21** Review `docs/My_trading_system_SOP/SOP.md` against reality (D-3). Needs: none.
 - **X-22** Delete stale remote branches `main` (`76f21af`) and `docs/status-2026-11-05`. Needs: owner (sandbox cannot delete branches).
-- **X-23** Verify the 2026 holiday list against the NSE circular (P0-4). DONE 2026-11-06: follows NSE/CMTR/71775 and circular 07/2026 (decision 0016). BSE dates still open.
+- **X-23** Verify the 2026 holiday list against the NSE circulars (P0-4). DONE 2026-11-06: `holidays.csv` = NSE/CMTR/71775 (15) + circular 07/2026 (adds 2026-01-15) = 16 weekday holidays (decision 0016). Not holidays: 2026-02-19, 03-19, 04-01, 08-26. BSE dates still open.
 - **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). 2026-11-06: owner confirmed "algo is permitted" (scope: algo trading allowed). Checklist still required before live capital. Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Tier F - Blue_engine follow-ups from the Phase 0 audit (added 2026-11-05)
@@ -267,16 +267,30 @@ These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as
 - **X-29** `test_skill_writer::test_default_sandbox_is_under_the_project_data_dir` expects the folder name `my-trading-system`, so it fails in a checkout named `Algo-Pro`. Fix the test so it does not depend on the checkout name. DONE 2026-11-05 for the checkout-name part: the test now checks only that the sandbox is `<repo>/data/agent_stage`. It is skipped in the sandbox (no `openalgo`), so the owner run must confirm it. DONE 2026-11-05: `tests/unit/test_case_paths.py` blocks quoted lowercase `blue_engine/` path literals in `src/` and `Blue_engine/` code. The one real code path (`Blue_engine/core/runner.py`, `DEFAULT_CONFIG`) and two docstring paths were fixed.
 - **X-30** Impact: the code uses a flat 5 bps. Blue has a square-root impact model (`impact_coefficient`), which is not used. Phase 1 exit check 3 wants impact included. Switching changes backtest results, so it needs its own commit and test update. Needs: owner decision. Decision note drafted: `docs/decisions/0010-impact-model-choice.md` (PROPOSED).
 
-### Next to start without the owner
-- Done 2026-11-05 without owner input: X-12 (wiring), X-17 (fallback), X-29 (case check), PB-6 (MAE/MFE optimizer parameters), decision notes 0009 and 0010 (PROPOSED).
-- Still needs the owner: P0-2, P0-3, P0-4, X-9b test run, X-10 data, the 0009/0010 choices, the trial-log default, and the MAE/MFE search bounds.
+### Follow-ups after 2026-11-06 (consolidated)
+
+Owner items (blocking, in order):
+1. **P0-2:** install `openalgo` and `httpx`/`websocket-client` on the owner machine; run `pytest tests/unit Blue_engine/tests`; record counts. Sandbox: 70 failed, 325 passed; all failures are `httpx` missing. PyPI is blocked here (403).
+2. **X-10 data:** run `python Blue_engine/database/sample_data.py` on the owner machine (personal use only). Then X-10 backtest.
+3. **SME lots:** no table to fill. The broker lot is used at order time. Owner to confirm the broker connection before Phase 3.
+4. **BSE holidays:** confirm BSE dates (P0-4 / X-23).
+5. **Muhurat 2026-11-08:** special session on a Sunday. Loader cannot model it. Decide how to handle it before that day.
+6. **SEBI checklist scope:** owner said algo trading is permitted; checklist (P3-8 / X-24) still required before live capital.
+7. **Items 12-14 target:** owner to confirm the next target after X-10.
+
+Code items (sandbox, no owner input needed):
+- Broker lot-size lookup wired to the vendored SDK `symbol()` call behind an interface, tested with a fake client. Done (`core/expiry_rules.py`).
+- Next: X-2 gate-level duplicate-order block and X-7 restart test need `openalgo` for the full run; ledger-level part can be extended now.
+- Next: X-11 calibration report, X-18 regime and factor models, P2-4 signal and meta-labeler: all wait for X-10 data.
+
+Done 2026-11-06 without owner input (see sections above): X-1, X-5 exchange rate, X-19 registry check, P0-3 paper limits, P0-4 holiday list, decision notes 0015 and 0016.
 
 ---
 
 ## Open owner decisions
 
 - **SEBI checklist scope (conflict to resolve).** `docs/STATUS_2026-11-04.md` says SEBI algo-rule verification was "removed from scope at your request". The 2026-11-05 plan still requires P3-8 and X-24 (SEBI checks) before any real capital. Owner to say which one applies. Until then, the plan keeps the checks as required.
-- Risk limit values (P0-3). Starter values only.
+- Risk limit values (P0-3). Paper: approved 2026-11-06. Live: same values (decision 0016); live stays blocked by the Phase 3 gate.
 - Tier values and weights (`config/conviction_tiers.yaml`). Placeholders until out-of-sample evidence exists.
 - BSE holiday dates (P0-4, X-23). NSE list is set from the official circulars.
 - "Authorised" accounting view method (PB-4).
@@ -292,4 +306,4 @@ These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as
 - Event blackout uses the NSE board-meeting feed. It is a blocking input only, not a signal. The sandbox cannot reach NSE from code; the sample used in tests is a saved fixture.
 - Blue_engine reuse targets are named by path. Read and confirm each before wrapping.
 - `AGENTS.md` rule 8 updated 2026-11-05 (decision 0008). The full rewrite (X-20) is still pending.
-- The 107 current failures are the same set as before this change. Most are `openalgo` missing. The Blue_engine logic failures in X-28 are real and not yet fixed.
+- Sandbox test state (2026-11-06): 70 failed, 325 passed. All 70 failures are the missing `httpx` package (PyPI blocked here). The Blue_engine logic failures in X-28 still need the owner's run.
