@@ -59,14 +59,21 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 - 14 RiskGate money checks: higher risk. Must keep: fail-closed on unset limits, exits never blocked by entry limits, duplicate-ID block, daily loss and exposure caps. Golden tests from Blue's RiskGate on ~50 fixed intents, including edge cases (qty 0, notional at the cap, loss at the limit). Owner signs off the diff before merge.
 - Exit check: golden diff = 0 on the fixture set, owner sign-off recorded in docs/decisions/.
 
-### Stage 5 — remove Blue_engine from the quant path. Status: PLANNED
+### Stage 5 — remove Blue_engine from the quant path. Status: PLANNED (after stage 6)
 Steps:
 1. grep: no `blue_bridge` calls and no `blue_engine` imports under `src/quant/` or `tests/unit/` (except the parity tests, which move to a `tests/parity/` folder that the owner runs with Blue present).
 2. Installers: remove Blue from `requirements.txt`, `install.bat`, `install_ubuntu.sh` if no other owner feature needs it (see D2).
-3. Move `Blue_engine/` to `Temp/archive/<date>/Blue_engine/` (git history keeps it).
+3. Move the remaining `Blue_engine/` folder to `Temp/archive/<date>/Blue_engine/` (git history keeps it). Only after stage 6 is done.
 4. Update AGENTS.md reuse map and layout tree; update SOP and README.
 5. Full unit suite must be no worse than the pre-stage baseline.
 Exit check: `pytest tests/unit` passes except tests that need owner-only data; quant runs paper mode from a clean checkout with Blue removed.
+
+### Stage 6 — migrate the Blue-only features into src/quant (D2). Status: NOT STARTED
+Features: optimizer, screener, economics, agent pipeline, POV engine (see docs/decisions/0012).
+- One feature per sub-stage. Order: screener (smallest) -> economics -> optimizer -> POV engine -> agent pipeline (last; advice only).
+- Each sub-stage: move code into the owned src/quant package, re-structure to the layout, add tests (move the matching Blue tests), update the Flow stage line and SVG mapping, and keep behaviour (parity or golden where Blue loads).
+- Exit check per sub-stage: tests pass (or owner-only data noted), no import of blue_engine from that feature.
+- OpenAlgo SDK stays a pinned pip dependency (decision 0012).
 
 ## 6. Test strategy (per item)
 | Kind | Where it runs | Purpose |
@@ -84,11 +91,11 @@ Exit check: `pytest tests/unit` passes except tests that need owner-only data; q
 | Owner machine not run | stage 3 blocked | stage 2 is independent; stage 3 waits |
 | Deleting Blue too early | optimizer/screener break | stage 5 only after D2 decision |
 
-## 8. Owner decisions needed
-- D2: fate of the optimizer, screener, economics, agent pipeline and POV engine: keep (move into src/quant), archive, or keep as a separate package?
+## 8. Owner decisions
+- D2 RESOLVED (2026-11-05): keep the optimizer, screener, economics, agent pipeline and POV engine inside src/quant/. See docs/decisions/0012-keep-blue-features-inside-quant.md. New stage 6 below.
 - D3: confirm stage 4 review (who signs off RiskGate port).
 - D4: owner machine time to run `export_blue_goldens.py` (stage 3).
 - D1 (earlier): HRP choice (decision 0009) before stage 3 item 8.
 
 ## 9. Work log
-- 2026-11-05: inventory and decision 0011. Stage 1 local (metrics + parity tests). Obsolete delegation test replaced.
+- 2026-11-05: inventory and decision 0011. Stage 1 done and pushed (5df227f). D2 resolved: decision 0012, stage 6 added.
