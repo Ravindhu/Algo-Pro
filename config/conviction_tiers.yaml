@@ -1,0 +1,21 @@
+# Conviction size tiers (Priority A, steps A2-A3).
+#
+# PLACEHOLDER VALUES. Not validated. Do not enable until out-of-sample evidence
+# (step A4: backtest with costs and calibration report) supports them.
+#
+# enabled: false  -> conviction does NOT change size. Flat sizing, multiplier 1.0.
+# enabled: true   -> score picks a multiplier from the bands below.
+#
+# Bands: the highest band whose min_score is <= the score applies.
+# A score below the lowest min_score means no trade (multiplier 0).
+# Hard caps in the sizing code always win. Conviction never raises size above them.
+
+enabled: false
+max_multiplier: 2.0
+bands:
+  - min_score: 0.50
+    multiplier: 1.0
+  - min_score: 0.70
+    multiplier: 1.5
+  - min_score: 0.85
+    multiplier: 2.0

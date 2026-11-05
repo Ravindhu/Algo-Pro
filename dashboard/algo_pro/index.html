@@ -120,7 +120,7 @@ th:first-child,td:first-child,th.l,td.l{text-align:left}
 
 <main class="grid">
  <section class="pn c8" data-v="ov"><h3>Portfolio &amp; P&amp;L <span>all accounts · simulated · ₹</span></h3><div class="bd">
-  <div class="d">Today</div><div class="big" id="pnl">+₹0</div>
+  <div class="d">Today <button id="rev" type="button">Hide ₹</button></div><div class="big" id="pnl">—</div>
   <div class="kv">
    <div><span>Equity</span><b id="eqv">—</b></div>
    <div><span>Total P&amp;L</span><b id="totp">—</b></div>
@@ -254,7 +254,7 @@ function close(t,ex,why){
  t.sy.tr++;
  trades.unshift({tc:ist().t.slice(0,8),sy:t.sy,side:t.side,qty:t.qty,entry:t.entry,exit:ex,why,r:move/t.sd,net,cost});
  if(trades.length>40)trades.length=40;
- logm(`${t.id} closed ${why} ${money(net,true)} (cost ${money(cost)})`,net>0?'g':'r');
+ logm(`${t.id} closed ${why} ${MM(net,true)} (cost ${MM(cost)})`,net>0?'g':'r');
 }
 function kill(why){
  if(killed)return;
@@ -288,16 +288,20 @@ function step(){
 }
 
 /* ---------- UI ---------- */
+let revealPnl=true,lastEq=0,lastDd=0;
+const MM=(n,sign)=>revealPnl?money(n,sign):'••••';
+document.addEventListener('click',e=>{if(e.target.id==='rev'){revealPnl=!revealPnl;e.target.textContent=revealPnl?'Hide ₹':'Show ₹';ui(lastEq,lastDd)}});
 function ui(eq,dd){
+ lastEq=eq;lastDd=dd;
  const day=eq-dayStart,tot=eq-START,n=rets.length,expo=open.reduce((a,t)=>a+t.risk,0),grossAbs=Math.abs(grossTot);
  const mean=n?rets.reduce((a,b)=>a+b,0)/n:0,sd=n>1?Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/(n-1)):0,sh=n>=5&&sd>0?mean/sd:null;
- const p=$('pnl');p.textContent=money(day,true);p.className='big '+sgn(day);
- setT('eqv',money(eq));setT('totp',money(tot,true),sgn(tot));setT('tr',(tot/START*100).toFixed(2)+'%',sgn(tot));
+ const p=$('pnl');p.textContent=revealPnl?money(day,true):'••••';p.className='big '+(revealPnl?sgn(day):'');
+ setT('eqv',revealPnl?money(eq):'••••');setT('totp',revealPnl?money(tot,true):'••••',revealPnl?sgn(tot):'');setT('tr',revealPnl?(tot/START*100).toFixed(2)+'%':'••••',revealPnl?sgn(tot):'');
  setT('mdd',(mdd*100).toFixed(2)+'%',mdd>.04?'a':'');
  setT('sh',sh==null?'—':sh.toFixed(2),sh==null?'':sh>=0?'g':'r');
  setT('wr',n?Math.round(wins/n*100)+'%':'—');
  setT('pf',gl?(gw/gl).toFixed(2):'—',gl?(gw/gl>=1?'g':'r'):'');
- setT('ex',n?money((gw-gl)/n,true):'—',n?sgn(gw-gl):'');
+ setT('ex',n?MM((gw-gl)/n,true):'—',n&&revealPnl?sgn(gw-gl):'');
  setT('costp',grossAbs?(costTot/grossAbs*100).toFixed(1)+'%':'—',grossAbs&&costTot/grossAbs>.5?'a':'');
  setT('op',String(open.length));setT('ntr',String(n));
  setT('mtfr',scrTotal?Math.round(scrPass/scrTotal*100)+'%':'—');
@@ -351,7 +355,7 @@ scrPass=pass;scrTotal=SYM.length;
 
  const tradeRows=trades.slice(0,12).map(t=>{
   const tr=el('tr');
-  tr.append(el('td','l',t.tc),el('td','l',t.sy.n),el('td','l '+(t.side==='BUY'?'g':'r'),t.side),el('td','',String(t.qty)),el('td','',px2(t.entry)),el('td','',px2(t.exit)),el('td','l d',t.why),el('td',t.r>0?'g':'r',t.r.toFixed(2)),el('td',sgn(t.net),money(t.net,true)),el('td','a',money(t.cost)));
+  tr.append(el('td','l',t.tc),el('td','l',t.sy.n),el('td','l '+(t.side==='BUY'?'g':'r'),t.side),el('td','',String(t.qty)),el('td','',px2(t.entry)),el('td','',px2(t.exit)),el('td','l d',t.why),el('td',t.r>0?'g':'r',t.r.toFixed(2)),el('td',revealPnl?sgn(t.net):'',MM(t.net,true)),el('td','a',MM(t.cost)));
   return tr;
  });
  $('tb').replaceChildren(...(tradeRows.length?tradeRows:[emptyRow(10,'No closed trades yet')]));
@@ -370,14 +374,15 @@ function drawEq(){
  if(!$('ce').clientWidth)return;
  const [x,w,h]=fit($('ce')),q=eqh,last=q[q.length-1],lo=Math.min(START,...q)-2000,hi=Math.max(START,...q)+2000;
  x.strokeStyle='#10283b';x.lineWidth=1;for(let i=1;i<4;i++){x.beginPath();x.moveTo(0,h*i/4);x.lineTo(w,h*i/4);x.stroke()}
+ if(!revealPnl){x.fillStyle='#5d7b94';x.textAlign='center';x.fillText('equity curve hidden · press Show ₹',w/2,h/2);return}
  const col=last>=START?'#2ee6a6':'#ff4d6d';
  x.beginPath();q.forEach((v,i)=>{const X=i/(q.length-1||1)*w,Y=h-4-(v-lo)/(hi-lo)*(h-8);i?x.lineTo(X,Y):x.moveTo(X,Y)});
  x.strokeStyle=col;x.lineWidth=1.6;x.stroke();
  x.lineTo(w,h);x.lineTo(0,h);x.fillStyle=col+'22';x.fill();
  const by=h-4-(START-lo)/(hi-lo)*(h-8);
  x.setLineDash([4,4]);x.strokeStyle='#5d7b94';x.beginPath();x.moveTo(0,by);x.lineTo(w,by);x.stroke();x.setLineDash([]);
- x.font=F;x.fillStyle='#5d7b94';x.textAlign='left';x.fillText('start '+money(START),4,by-4);
- x.textAlign='right';x.fillStyle='#c3d8e8';x.fillText('equity '+money(last),w-4,12);
+ x.font=F;x.fillStyle='#5d7b94';x.textAlign='left';x.fillText('start '+MM(START),4,by-4);
+ x.textAlign='right';x.fillStyle='#c3d8e8';x.fillText('equity '+MM(last),w-4,12);
 }
 
 /* neural shell: topology follows the attached Algo Pro diagram */
@@ -414,8 +419,8 @@ function sub(id){
   case 'opt':return 'report only';
   case 'kill':return killed?'ON':'OFF';
   case 'risk':return 'open '+open.length+'/'+MAXO;
-  case 'port':return money(equity());
-  case 'ledger':return money(grossTot-costTot,true);
+  case 'port':return MM(equity());
+  case 'ledger':return MM(grossTot-costTot,true);
   case 'exec':return fills+' fills';
   case 'bridge':return 'DRY_RUN';
   case 'broker':return 'simulated';

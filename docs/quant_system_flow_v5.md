@@ -105,7 +105,7 @@ Support inputs to backtest and risk:
 | Stage | What it does |
 |---|---|
 | Market-halt handler | Index circuit freeze and resume |
-| Event blackout | Blocks entries around results, RBI, Budget, Fed |
+| Event blackout | Blocks entries around results (NSE board-meeting calendar, `event_blackout_dates`), RBI, Budget, Fed |
 | Overnight gap check | Carry rules by gap size and liquidity |
 | Exit manager | Stop, trailing, time and volatility exits |
 | Square-off and rollover | MIS cutoff, futures roll |
@@ -165,7 +165,7 @@ Support inputs to backtest and risk:
 | Feed health monitor | Latency, heartbeats, gaps |
 | Trading calendar | Holidays, expiries, lot sizes |
 | Beta limits | Nifty beta, index exposure |
-| Dashboard | P&L hidden by default. EV, MAE/MFE |
+| Dashboard | P&L shown by default (decision 0007; a toggle can hide it). EV, MAE/MFE |
 | Alerts | Errors by level |
 | Audit log | Immutable, every decision |
 | Broker feeds | Orders, fills, quotes |

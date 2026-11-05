@@ -3,9 +3,9 @@
 Flow stage: Trading calendar
 Status: PHASE 3 IMPLEMENTED
 Existing code to reuse or wrap (do not copy): Blue_engine/core/time_utils.py
-NOTE: config/calendar/holidays.csv is empty until you fill it from the NSE/BSE holiday list.
-Empty means no holidays are known, so is_trading_day() returns False for weekends only and the
-caller must treat any date as unverified. Do not trade on unverified dates.
+NOTE: config/calendar/holidays.csv holds the 2026 NSE holidays. An empty file means no holidays
+are known. Then is_trading_day() returns True for every weekday, so the caller must treat such
+dates as unverified (TradingCalendar.verified is False). Do not trade on unverified dates.
 """
 from __future__ import annotations
 
