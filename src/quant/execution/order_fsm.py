@@ -42,13 +42,22 @@ class OrderFSM:
         self.state = OrderState.NEW
 
     def move(self, new: OrderState, filled_qty: int = None) -> None:
+        # Retry-safe: validate everything first, change nothing on refusal.
         new = OrderState(new)
+        if filled_qty is not None and not 0 <= filled_qty <= self.qty:
+            raise ValueError("filled_qty out of range")
+        fill = self.filled_qty if filled_qty is None else filled_qty
+        if fill < self.filled_qty:
+            raise ValueError(f"{self.intent_id}: fill cannot go down (stale report)")
+        if new is self.state:
+            # Repeated report. Same fill is a no-op; a changed fill is refused, except PARTIAL progress.
+            if fill != self.filled_qty and new is not OrderState.PARTIAL:
+                raise ValueError(f"{self.intent_id}: conflicting repeat of {new.value}")
+            self.filled_qty = fill
+            return
         if new not in _ALLOWED[self.state]:
             raise InvalidTransition(f"{self.intent_id}: {self.state.value} -> {new.value}")
-        if filled_qty is not None:
-            if not 0 <= filled_qty <= self.qty:
-                raise ValueError("filled_qty out of range")
-            self.filled_qty = filled_qty
-        if new is OrderState.FILLED and self.filled_qty != self.qty:
+        if new is OrderState.FILLED and fill != self.qty:
             raise ValueError("FILLED needs filled_qty == qty")
+        self.filled_qty = fill
         self.state = new
