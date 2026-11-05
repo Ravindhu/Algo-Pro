@@ -162,7 +162,7 @@ def test_only_broker_adapter_and_scripts_import_openalgo_client():
     for py in list((root / "src/quant").rglob("*.py")) + list((root / "scripts").glob("*.py")):
         if py in allowed or py.name == "run_paper.py" or py.parent.name == "scripts":
             continue
-        if "openalgo_platform" in py.parts:  # vendored upstream platform (decision 0013)
+        if {"openalgo_platform", "vendor"} & set(py.parts):  # vendored upstream code (decisions 0013, 0014)
             continue
         assert "openalgo_client" not in py.read_text(), py
 

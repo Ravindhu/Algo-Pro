@@ -14,6 +14,7 @@ Production code had no such mapping, so this module adds it once, for everyone.
 RULES
 -----
 - Only this file may import ``blue_engine``. Other src/quant modules call ``load()``.
+- The vendored OpenAlgo SDK is a fallback on sys.path (decision 0014).
 - If the OpenAlgo SDK is missing, ``load()`` raises ``BlueEngineUnavailable`` with the
   reason. It never returns a half-loaded module.
 """
@@ -36,8 +37,19 @@ class BlueEngineUnavailable(ImportError):
     """Blue_engine (or its OpenAlgo SDK dependency) cannot be imported here."""
 
 
+#: Vendored OpenAlgo SDK (src/quant/vendor/openalgo, MIT; decision 0014).
+_VENDOR_DIR = Path(__file__).resolve().parents[1] / "vendor"
+
+
+def _ensure_sdk_on_path() -> None:
+    """Add the vendored SDK as a FALLBACK. Appended, so a pip-installed SDK still wins."""
+    if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
+        sys.path.append(str(_VENDOR_DIR))
+
+
 def _ensure_package() -> None:
     """Make ``blue_engine`` importable: installed package first, else the source folder."""
+    _ensure_sdk_on_path()
     if "blue_engine" in sys.modules:
         return
     try:

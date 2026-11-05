@@ -74,6 +74,9 @@ plotly==7.1.0
 # pandas 3.x needs python >= 3.11 and numpy >= 2.25's C-API. Keep this trio
 # consistent: pandas 3.x + numpy 2.4 will build but fail at runtime.
 
+# OpenAlgo SDK runtime deps (vendored SDK in src/quant/vendor/openalgo, decision 0014).
+httpx>=0.27.0,<1.0
+websocket-client>=1.8.0,<2.0
 pandas==3.0.6
 numpy==2.5.3
 pyarrow==25.0.1

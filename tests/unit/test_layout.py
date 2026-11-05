@@ -17,11 +17,12 @@ sys.path.insert(0, str(SRC))
 
 # Vendored OpenAlgo platform (decision 0013). It is upstream code, not our stage modules,
 # so the stage rules below do not apply to it.
-VENDOR_DIR = "openalgo_platform"
+# Vendored code: the OpenAlgo platform (decision 0013) and the OpenAlgo SDK (decision 0014).
+VENDOR_DIRS = {"openalgo_platform", "vendor"}
 
 
 def _our_py_files():
-    return [p for p in (SRC / "quant").rglob("*.py") if VENDOR_DIR not in p.relative_to(SRC / "quant").parts]
+    return [p for p in (SRC / "quant").rglob("*.py") if not VENDOR_DIRS & set(p.relative_to(SRC / "quant").parts)]
 
 
 def _stage_files():
