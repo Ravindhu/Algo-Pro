@@ -29,3 +29,13 @@ min sell. Both rules need code.
 ## Not wired yet
 Neither module is connected to the gate or the POV loop. Wiring is the next step, after the owner
 confirms items 1 to 4.
+
+## Update 2026-11-06 (owner answers)
+- Order type: LIMIT only in PCAS. Market orders are refused. Decided by the owner.
+  Implemented in `src/quant/risk/pcas_check.py` (`pcas_order_check`): timing, limit-only, self-cross, all reasons returned.
+  Tests: `tests/unit/test_pcas_check.py` (11).
+- Eligibility list: NSE publishes it as an .xls file
+  (nsearchives.nseindia.com/web/mediaattachment/2026-10/contract_mas_illiquid_sec_12102026_20261009162829.xls).
+  The fetch tool cannot open it (not on the allowlist), and no broker connection exists in this environment.
+  The NSE page says "Updated on 09/10/2026" but the file name says 12102026, so the date needs checking.
+  Owner to send the file, or to confirm the list from the broker. No stock is marked PCAS until then.
