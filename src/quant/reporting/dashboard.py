@@ -7,8 +7,8 @@ Owner rule (AGENTS rule 8, decision 0008, 2026-11-05):
   (see Blue_engine/optimizer/objective.py and engine.py EngineConfig).
 
 Flow stage: Dashboard
-Status: PHASE 3 IMPLEMENTED (profit factor delegated to Blue backtest.metrics; rest local)
-Existing code to reuse or wrap (do not copy): Blue_engine/backtest/metrics.py (the Blue terminal console was removed 2026-11-05)
+Status: PHASE 3 IMPLEMENTED (stage 3 port 2026-11-06: profit factor is local; no Blue import)
+Ported from: Blue_engine/backtest/metrics.py (profit_factor). Parity: tests/parity/test_stage3_parity.py
 """
 from __future__ import annotations
 
@@ -16,12 +16,13 @@ from typing import Dict, Optional, Sequence
 
 import numpy as np
 
-from quant.core.blue_bridge import load
 
 
 def profit_factor(gross_profit: float, gross_loss: float) -> Optional[float]:
-    """Blue backtest.metrics.profit_factor: None when there are no losses."""
-    return load("backtest.metrics").profit_factor(gross_profit, gross_loss)
+    """Total winning rupees / total losing rupees. None when there are no losses."""
+    if gross_loss == 0:
+        return None
+    return gross_profit / abs(gross_loss)
 
 
 def build_payload(trades: Sequence[dict], risk_used: float) -> Dict[str, object]:

@@ -58,17 +58,3 @@ def test_drift_just_outside_band_trades_with_correct_sign():
     assert trades["A"] == pytest.approx(-0.0201, abs=1e-6) and trades["A"] < 0
 
 
-def test_decision_is_delegated_to_blue(monkeypatch):
-    cost = blue_bridge.load("portfolio.optim.cost_aware")
-    calls = []
-    real = cost.should_rebalance
-
-    def spy(*args, **kwargs):
-        calls.append(kwargs)
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(cost, "should_rebalance", spy)
-    from quant.portfolio.rebalance import rebalance_trades
-
-    rebalance_trades({"A": 0.3, "B": 0.7}, {"A": 0.3, "B": 0.7}, band=0.02)
-    assert calls and calls[0]["band"] == {"A": 0.02, "B": 0.02}

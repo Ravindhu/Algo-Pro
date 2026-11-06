@@ -65,17 +65,6 @@ def test_historical_cvar_matches_tail_formula():
         assert historical_cvar(pnl, alpha=alpha) == pytest.approx(-x[:k].mean(), abs=1e-12)
 
 
-def test_kelly_delegates_to_blue(monkeypatch):
-    kl = blue_bridge.load("portfolio.sizing.kelly")
-    calls = []
-    real = kl.kelly_leverage
-    monkeypatch.setattr(kl, "kelly_leverage", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
-    from quant.portfolio.sizing import fractional_kelly
-
-    fractional_kelly(0.01, 0.2)
-    assert calls and calls[0] == (0.01, 0.0, 0.2)
-
-
 def test_max_drawdown_matches_blue_on_random_paths():
     from quant.monitor.live_monitor import max_drawdown
 

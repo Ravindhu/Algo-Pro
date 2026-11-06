@@ -1,8 +1,8 @@
 """Drift check and no-trade bands. Trades only when weights drift outside the band.
 
 Flow stage: Drift check, Rebalancer
-Status: PHASE 2 IMPLEMENTED (no-trade decision delegated to Blue_engine; boundary policy kept here)
-Existing code to reuse or wrap (do not copy): Blue_engine/portfolio/optim/cost_aware.py (should_rebalance)
+Status: PHASE 2 IMPLEMENTED (stage 3 port 2026-11-06: no-trade decision is local; no Blue import)
+Ported from: Blue_engine/portfolio/optim/cost_aware.py (should_rebalance). Parity: tests/parity/test_stage3_parity.py
 
 WHAT THIS FILE KEEPS
 --------------------
@@ -16,8 +16,6 @@ from __future__ import annotations
 
 from typing import Dict
 
-from quant.core.blue_bridge import load
-
 
 def drift(current: Dict[str, float], target: Dict[str, float]) -> Dict[str, float]:
     keys = set(current) | set(target)
@@ -30,8 +28,12 @@ def rebalance_trades(current: Dict[str, float], target: Dict[str, float], band: 
     Positive = buy weight, negative = sell weight.
     """
     exact = drift(current, target)
-    names = list(exact)
-    moves = load("portfolio.optim.cost_aware").should_rebalance(
-        target, current, band={name: band for name in names})["moves"]
-    # Keep the strict boundary: trade only when |drift| is above the band.
-    return {k: v for k, v in moves.items() if abs(exact[k]) > band}
+    # Trade only when |drift| is STRICTLY above the band (Blue uses >= here; we keep >).
+    # Value = target - current, rounded to 6 dp, as Blue's should_rebalance reports it.
+    out: Dict[str, float] = {}
+    for k in set(target) | set(current):
+        t = float(target.get(k, 0.0))
+        c = float(current.get(k, 0.0))
+        if abs(exact[k]) > band:
+            out[k] = round(t - c, 6)
+    return out

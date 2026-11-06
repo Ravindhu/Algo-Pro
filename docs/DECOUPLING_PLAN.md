@@ -1,6 +1,6 @@
 # Implementation plan: staged decoupling of src/quant from Blue_engine
 
-Status: STAGE 1 DONE (local copy, awaiting commit). Stages 2-5 planned.
+Status (2026-11-06): stages 1-2 DONE; stage 3 PARTIAL (items 6, 7, 9-12 local and parity-tested; item 8 HRP still via Blue bridge); stages 4, 5, 6 NOT STARTED (owner review / decision needed).
 Started: 2026-11-05. Owner decision: "Staged decoupling" (docs/decisions/0011-decouple-from-blue-engine.md).
 
 ## 1. Goal
@@ -24,13 +24,13 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 | 3 | research/costs.py | backtest.costs.CostModel | yes | 2 | local + parity |
 | 4 | research/walk_forward.py | ml.evaluation.splits.walk_forward | yes | 2 | local + parity |
 | 5 | models/factors.py | ml.features.engineering.momentum | yes | 2 | local + parity |
-| 6 | reporting/dashboard.py | backtest.metrics.profit_factor | no | 3 | local + golden |
-| 7 | portfolio/covariance.py | portfolio.risk.covariance.ledoit_wolf_cov | no | 3 | local + golden |
-| 8 | portfolio/optimizer.py | portfolio.optim.hrp.hrp_weights | no | 3 | local + golden (see note: ours already matches Lopez de Prado; decision 0009) |
-| 9 | portfolio/portfolio_risk.py | portfolio.risk.tail.cvar | no | 3 | local + golden |
-| 10 | portfolio/rebalance.py | portfolio.optim.cost_aware.should_rebalance | no | 3 | local + golden |
-| 11 | portfolio/sizing.py | portfolio.sizing.kelly.kelly_leverage | no | 3 | local + golden |
-| 12 | portfolio/sizing.py | portfolio.sizing.vol_target.vol_target_scale | no | 3 | local + golden |
+| 6 | reporting/dashboard.py | backtest.metrics.profit_factor | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
+| 7 | portfolio/covariance.py | portfolio.risk.covariance.ledoit_wolf_cov | no | 3 | DONE: local + parity (rel 1e-9, abs floor 1e-8 x max entry) |
+| 8 | portfolio/optimizer.py | portfolio.optim.hrp.hrp_weights | no | 3 | PENDING: still via blue_bridge; local + golden (see note: decision 0009) |
+| 9 | portfolio/portfolio_risk.py | portfolio.risk.tail.cvar | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
+| 10 | portfolio/rebalance.py | portfolio.optim.cost_aware.should_rebalance | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
+| 11 | portfolio/sizing.py | portfolio.sizing.kelly.kelly_leverage | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
+| 12 | portfolio/sizing.py | portfolio.sizing.vol_target.vol_target_scale | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
 | 13 | execution/openalgo_client.py | core.client.load_env_file | no | 4 | local .env loader; owner review |
 | 14 | risk/blue_risk_gate.py | core.risk_gate.RiskGate (money checks) | no | 4 | owner review (risk-critical) |
 
@@ -54,18 +54,22 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 - 5 momentum: port `ml/features/engineering.py::momentum`. Parity on random series + NaN handling.
 - Exit check: each item has local code, hand-checked test, parity test (runs here), wrapper removed from call site.
 
-### Stage 3 — openalgo-dependent portfolio/risk items (6-12). Status: PLANNED
+### Stage 3 — openalgo-dependent portfolio/risk items (6-12). Status: PARTIAL (2026-11-06)
+- Done here: items 6, 7, 9, 10, 11, 12. Local code, checked against Blue by isolated-loader parity (runs in sandbox; owner goldens not needed for these).
+- Deviation from the plan: the sandbox could load these Blue leaves via the stub loader, so parity replaced golden fixtures. Golden export script is still needed for item 8 and for owner-machine regression.
+- Pending: item 8 HRP (optimizer still calls blue_bridge). Owner goldens (`scripts/ops/export_blue_goldens.py`) not written.
+- Note: the earlier Kelly/vol-target floor quirk (Blue returns 1.0 for 0 < vol <= 1e-6) is kept on purpose; owner to review.
 - Owner-machine step (one script, `scripts/ops/export_blue_goldens.py`, to write): runs each Blue function on fixed inputs (seeded), writes `tests/fixtures/blue_goldens/<name>.json`. Commit fixtures.
 - Sandbox step: local implementation + golden test reads the JSON. Tolerance: rel 1e-9 unless the function is an optimiser (then exact weights within 1e-6).
 - Item 8 note: our HRP already matches the published algorithm (decision 0009, owner still to choose). Stage 3 must not change HRP output without owner choice.
 - Exit check: 7 goldens committed; local code passes them; call sites switched.
 
-### Stage 4 — risk-critical items (13-14). Status: NOT STARTED (needs owner review)
+### Stage 4 — risk-critical items (13-14). Status: NOT STARTED (needs owner review; not ported in this pass)
 - 13 `load_env_file`: small. Local loader reads `.env` (git-ignored). Test: missing file, comments, quotes, no overwrite of existing env vars.
 - 14 RiskGate money checks: higher risk. Must keep: fail-closed on unset limits, exits never blocked by entry limits, duplicate-ID block, daily loss and exposure caps. Golden tests from Blue's RiskGate on ~50 fixed intents, including edge cases (qty 0, notional at the cap, loss at the limit). Owner signs off the diff before merge.
 - Exit check: golden diff = 0 on the fixture set, owner sign-off recorded in docs/decisions/.
 
-### Stage 5 — remove Blue_engine from the quant path. Status: PLANNED (after stage 6)
+### Stage 5 — remove Blue_engine from the quant path. Status: NOT STARTED (blocked by stages 3-4 and stage 6)
 Steps:
 1. grep: no `blue_bridge` calls and no `blue_engine` imports under `src/quant/` or `tests/unit/` (except the parity tests, which move to a `tests/parity/` folder that the owner runs with Blue present).
 2. Installers: remove Blue from `requirements.txt`, `install.bat`, `install_ubuntu.sh` if no other owner feature needs it (see D2).
@@ -74,7 +78,7 @@ Steps:
 5. Full unit suite must be no worse than the pre-stage baseline.
 Exit check: `pytest tests/unit` passes except tests that need owner-only data; quant runs paper mode from a clean checkout with Blue removed.
 
-### Stage 6 — migrate the Blue-only features into src/quant (D2). Status: NOT STARTED
+### Stage 6 — migrate the Blue-only features into src/quant (D2). Status: NOT STARTED (needs owner D2 decision first)
 Features: optimizer, screener, economics, agent pipeline, POV engine (see docs/decisions/0012).
 - One feature per sub-stage. Order: screener (smallest) -> economics -> optimizer -> POV engine -> agent pipeline (last; advice only).
 - Each sub-stage: move code into the owned src/quant package, re-structure to the layout, add tests (move the matching Blue tests), update the Flow stage line and SVG mapping, and keep behaviour (parity or golden where Blue loads).

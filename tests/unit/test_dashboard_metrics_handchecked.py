@@ -11,56 +11,17 @@ Expected numbers are worked out by hand in the comments. Trade list (return, rup
   T1 ( +2%, +2000)   T2 ( -1%, -1000)   T3 ( +3%, +3000)
   T4 ( -2%, -2000)   T5 ( +1%, +1000)
 """
-import importlib.util
-import sys
-import types
 from pathlib import Path
 
 import pytest
 
-from quant.core import blue_bridge
-from quant.core.blue_bridge import BlueEngineUnavailable
 from quant.monitor.live_monitor import excursions
-from quant.reporting import dashboard as dashboard_mod
 from quant.reporting.dashboard import build_payload
 
-METRICS_SRC = Path(__file__).resolve().parents[2] / "Blue_engine" / "backtest" / "metrics.py"
 
 #: Keys the dashboard must NOT show (decision 0008).
 REMOVED_KEYS = ("ev_pct_per_trade", "avg_mae_pct", "avg_mfe_pct", "rule_breaches")
 
-
-@pytest.fixture(autouse=True)
-def blue_profit_factor(monkeypatch):
-    """Blue's backtest.metrics: the real one if it loads, else loaded in isolation.
-
-    metrics.py imports two other Blue modules at load time (ml.evaluation.metrics,
-    portfolio.risk.tail). Those pull in OpenAlgo, so they are stubbed here. The
-    profit_factor function does not use them.
-    """
-    try:
-        blue_bridge.load("backtest.metrics").profit_factor(1.0, -1.0)
-        return
-    except (BlueEngineUnavailable, ImportError):
-        pass
-    noop = lambda *a, **k: None  # noqa: E731
-    stubs = {
-        "blue_engine.backtest": types.SimpleNamespace(logger=types.SimpleNamespace(
-            info=noop, warning=noop, debug=noop)),
-        "blue_engine.ml": types.ModuleType("blue_engine.ml"),
-        "blue_engine.ml.evaluation": types.ModuleType("blue_engine.ml.evaluation"),
-        "blue_engine.ml.evaluation.metrics": types.ModuleType("blue_engine.ml.evaluation.metrics"),
-        "blue_engine.portfolio": types.ModuleType("blue_engine.portfolio"),
-        "blue_engine.portfolio.risk": types.ModuleType("blue_engine.portfolio.risk"),
-        "blue_engine.portfolio.risk.tail": types.ModuleType("blue_engine.portfolio.risk.tail"),
-    }
-    for name, mod in stubs.items():
-        monkeypatch.setitem(sys.modules, name, mod)
-    spec = importlib.util.spec_from_file_location("blue_engine.backtest.metrics", METRICS_SRC)
-    mod = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, spec.name, mod)
-    spec.loader.exec_module(mod)
-    monkeypatch.setattr(dashboard_mod, "load", lambda name: mod)
 
 TRADES = [
     {"ret": 0.02, "pnl": 2000.0},
