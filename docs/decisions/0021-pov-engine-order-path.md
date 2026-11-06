@@ -10,7 +10,14 @@ Status: ACCEPTED 2026-11-06 (owner chose option A). Implementation in progress, 
 - Cancel guard choice: a cancel has no `GateDecision`, because it reduces risk. It still needs live mode,
   a recorded approval and an unchanged limits file. Owner to confirm this in review.
 - PEG orders: not supported. Need their own note.
-- TODO (next steps): read-only adapter; executor skeleton; port the POV loop and the pure helpers.
+- DONE: read-only adapter `src/quant/execution/readonly_client.py` (quotes, depth, orderbook; no order
+  methods; tests in `tests/unit/test_readonly_client.py`).
+- DONE: executor skeleton `src/quant/execution/pov_executor.py`. Order path per child: duplicate-id check ->
+  gate -> `ApprovedOrderQueue` -> `place_child` -> audit. Tests in `tests/unit/test_pov_executor.py`
+  (uses the real gate for the kill switch, safe mode and quantity cases).
+- Note: the gate's `RiskState` (seen ids, open exposure, P&L) is owned by the caller. The executor's own
+  duplicate-id check is a second, local guard.
+- TODO: port the POV loop (timing, stale cancels, reconciliation through the read adapter) and the pure helpers.
 
 ## The problem
 
