@@ -28,7 +28,7 @@ def test_old_simulated_page_is_gone():
 
 def test_page_has_no_order_code_or_simulated_data():
     text = PAGE.read_text(encoding="utf-8")
-    for banned in ("placeorder", "Math.random", "open.push", "/api/kill"):
+    for banned in ("placeorder", "Math.random", "open.push"):
         assert banned not in text, banned
 
 
@@ -38,11 +38,20 @@ def test_page_loads_the_flow_asset_from_the_app():
     assert FLOW_JS.exists()
 
 
-def test_page_reads_overview_and_writes_limits_only():
+def test_page_reads_overview_and_writes_only_known_routes():
     text = PAGE.read_text(encoding="utf-8")
     assert 'fetch("/api/overview"' in text
-    assert text.count('fetch("/api/limits"') == 1
-    assert 'method: "POST"' in text and '"X-Dashboard-Token"' in text
+    routes = set(re.findall(r'"(/api/[\w/]+)"', text))
+    assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset"}
+    assert text.count('method: "POST"') == 2  # saveLimits and postKill only
+    assert '"X-Dashboard-Token"' in text
+
+
+def test_page_has_kill_switch_controls():
+    text = PAGE.read_text(encoding="utf-8")
+    for element_id in ("killtrip", "killreset", "killreason", "killmsg", "token"):
+        assert f'id="{element_id}"' in text, element_id
+    assert "confirm(" in text  # both kill actions ask first
 
 
 def test_page_never_stores_the_token():

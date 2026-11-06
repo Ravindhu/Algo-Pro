@@ -94,3 +94,31 @@ def test_limits_write_bad_value_is_422(write_client):
     r = client.post("/api/limits", json={"max_daily_loss": -5},
                     headers={"X-Dashboard-Token": "test-token-123"})
     assert r.status_code == 422
+
+
+def test_kill_status_is_read_only_and_starts_off(write_client):
+    client, _, _ = write_client
+    assert client.get("/api/kill").json() == {"active": False, "reason": ""}
+
+
+def test_kill_trip_needs_token_and_reason(write_client):
+    client, _, audit = write_client
+    body = {"reason": "manual stop"}
+    assert client.post("/api/kill/trip", json=body).status_code == 401
+    good = {"X-Dashboard-Token": "test-token-123"}
+    assert client.post("/api/kill/trip", json={}, headers=good).status_code == 422
+    assert client.post("/api/kill/trip", json={"reason": "  "}, headers=good).status_code == 422
+    assert client.get("/api/kill").json()["active"] is False
+
+
+def test_kill_trip_then_reset_is_audited(write_client):
+    client, _, audit = write_client
+    good = {"X-Dashboard-Token": "test-token-123"}
+    tripped = client.post("/api/kill/trip", json={"reason": "manual stop"}, headers=good)
+    assert tripped.status_code == 200 and tripped.json()["active"] is True
+    assert client.get("/api/kill").json()["active"] is True
+    assert client.post("/api/kill/reset", json={}, headers=good).status_code == 422
+    reset = client.post("/api/kill/reset", json={"reason": "checked"}, headers=good)
+    assert reset.status_code == 200 and reset.json()["active"] is False
+    text = audit.read_text(encoding="utf-8")
+    assert '"kill_switch"' in text and "kill_switch_reset" in text

@@ -17,6 +17,8 @@
   .chip.bad { color: var(--bad); border-color: var(--bad); }
   button { font: inherit; background: transparent; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
   button.go { color: var(--ok); border-color: var(--ok); }
+  button.stop { color: var(--bad); border-color: var(--bad); }
+  header input { width: 200px; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
   .banner { display: none; margin: 8px 16px 0; padding: 8px 12px; border: 1px solid var(--bad); color: var(--bad); border-radius: 3px; }
   .banner.on { display: block; }
   main { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; padding: 8px 16px 16px; }
@@ -39,7 +41,7 @@
   li { margin: 2px 0; }
   form .row { display: grid; grid-template-columns: 1fr 160px; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
   form label { color: var(--dim); }
-  input[type=number], input[type=password] { width: 100%; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  input[type=number], input[type=password], input[type=text] { width: 100%; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
   .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   #msg { min-height: 1.4em; }
   details summary { cursor: pointer; color: var(--cyan); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
@@ -60,6 +62,7 @@
   <span class="chip" id="conn">connecting…</span>
   <span class="sp"></span>
   <button id="toggle" type="button">Hide ₹</button>
+  <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
 </header>
 <div class="banner" id="killbanner"></div>
 
@@ -96,6 +99,16 @@
       <tbody id="limits"></tbody></table></div>
   </section>
 
+  <section class="w4"><h2>Kill switch <span class="d">backend state</span></h2>
+    <p class="d">Trip blocks new entries now. Open positions are closed by the next paper run; this page sends no orders. Needs the token (header) and a reason. Both actions are audited.</p>
+    <input type="text" id="killreason" maxlength="200" placeholder="reason (required)" autocomplete="off">
+    <div class="actions">
+      <button class="stop" id="killtrip" type="button">Trip kill switch</button>
+      <button class="go" id="killreset" type="button">Reset kill switch</button>
+      <span id="killmsg"></span>
+    </div>
+  </section>
+
   <section class="w4"><h2>Set limits</h2>
     <form id="limitform" autocomplete="off">
       <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
@@ -112,8 +125,6 @@
         <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
       <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
         <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
-      <div class="row"><label for="token">dashboard token</label>
-        <input type="password" id="token" placeholder="kept in memory only"></div>
       <div class="actions">
         <button class="go" type="submit">Save limits</button>
         <span id="msg"></span>
@@ -253,6 +264,42 @@
     }
   }
 
+  function setKillMsg(text, cls) { const m = $("killmsg"); m.textContent = text; m.className = cls || ""; }
+
+  async function postKill(url, reason, okText) {
+    const token = $("token").value;
+    if (!token) return setKillMsg("Enter the dashboard token in the header.", "r");
+    setKillMsg("Sending…", "d");
+    try {
+      const r = await fetch(url, {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({reason})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setKillMsg(okText, "g"); refresh(); }
+      else if (r.status === 401) setKillMsg("Token rejected.", "r");
+      else if (r.status === 503) setKillMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setKillMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setKillMsg("Failed: " + e.message, "r");
+    }
+  }
+
+  function tripKill() {
+    const reason = $("killreason").value.trim();
+    if (!reason) return setKillMsg("Enter a reason first.", "r");
+    if (!confirm("Trip the kill switch? New entries stop. Open positions are closed by the next paper run.")) return;
+    postKill("/api/kill/trip", reason, "Kill switch tripped.");
+  }
+
+  function resetKill() {
+    const reason = $("killreason").value.trim();
+    if (!reason) return setKillMsg("Enter a reason first.", "r");
+    if (!confirm("Reset the kill switch? New entries can start again.")) return;
+    postKill("/api/kill/reset", reason, "Kill switch reset.");
+  }
+
+  $("killtrip").onclick = tripKill;
+  $("killreset").onclick = resetKill;
   $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
   $("limitform").addEventListener("submit", saveLimits);
   if (window.FLOW_SVG) $("flow").innerHTML = window.FLOW_SVG;

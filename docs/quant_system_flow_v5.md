@@ -138,7 +138,7 @@ Support inputs to backtest and risk:
 | TCA to cost model | Slippage vs arrival price, fed back to cost model |
 | Live monitor | Drawdown and fill quality |
 | Strategy health | Sharpe, CUSUM drift |
-| Kill switch | Blocks new entries and closes all open positions (`src/quant/risk/kill_close.py`, decision 0020). Trips by hand or automatically on a daily realized loss at `max_daily_loss` (`src/quant/risk/auto_kill.py`). Kill closes pass halt-all while the switch is on. Backend only; the dashboard shows the state and the close |
+| Kill switch | Blocks new entries and closes all open positions (`src/quant/risk/kill_close.py`, decision 0020). Trips by hand or automatically on a daily realized loss at `max_daily_loss` (`src/quant/risk/auto_kill.py`). Kill closes pass halt-all while the switch is on. The dashboard can trip and reset it (token, reason required, audited). The dashboard sends no orders; the paper runner does the closes on its next run |
 
 ### 2.11 Improvement loop
 
@@ -165,7 +165,7 @@ Support inputs to backtest and risk:
 | Feed health monitor | Latency, heartbeats, gaps |
 | Trading calendar | Holidays, expiries, lot sizes |
 | Beta limits | Nifty beta, index exposure |
-| Dashboard | Read and write. Page `/ui` (`src/quant/index.html`) reads `/api/overview` every 2 s and writes limits through `POST /api/limits` (token, decision 0020). `/` is the JSON index. P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
+| Dashboard | Read and write. Page `/ui` (`src/quant/index.html`) reads `/api/overview` every 2 s and writes limits through `POST /api/limits`, and trips or resets the kill switch through `POST /api/kill/trip` and `POST /api/kill/reset` (token, decision 0020). `/` is the JSON index. P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
 | Alerts | Errors by level |
 | Audit log | Immutable, every decision |
 | Broker feeds | Orders, fills, quotes |
@@ -226,7 +226,7 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 5. Retry rules for the order state machine (idempotent)
 6. Auto square-off retry if an order fails
 7. Index circuit freeze and resume handling
-8. Manual kill-switch button, plus automatic triggers
+8. Manual kill-switch button (dashboard, token, done), plus automatic triggers (daily loss, done)
 9. Session rules: pre-open, auction, closing orders
 10. Funds check: T+1 cash availability
 11. Scheduled reconciliation: broker vs OpenAlgo vs ledger

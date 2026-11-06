@@ -41,6 +41,26 @@ This conflicts with AGENTS.md: one dashboard only, no parallel order path, and l
 - Cannot be tested in the sandbox (`httpx`, `openalgo` missing). Owner test run required before live use.
 - The SVG contains a C2PA manifest. Editing it removes that signature. Owner accepted this trade-off only if confirmed.
 
+## Round 4 (2026-11-07): kill switch button and kill routes
+
+- Owner request: a kill switch button on the page, and a dashboard API. This reverses the
+  round 1 reading of "works in background only" for the page: the page can now trip and reset the switch.
+  Owner to confirm this reading.
+- Routes (same token rules as limits: header `X-Dashboard-Token`; 503 no server token; 401 wrong token):
+  - `GET /api/kill`: read `active` and `reason`. No token.
+  - `POST /api/kill/trip` with `{"reason": "..."}`: sets the switch, writes a `kill_switch` audit record.
+  - `POST /api/kill/reset` with `{"reason": "..."}`: clears the switch, writes an override record (`kill_switch_reset`).
+  - Reason: required, 1 to 200 characters. Missing or bad reason is 422.
+- Trip does NOT close positions. The dashboard sends no orders (AGENTS rule 2). The paper runner
+  closes open positions on its next run (`_flatten_if_killed`). Gap: no supervised loop runs it
+  between runs, so an open position stays open until the next run. Owner decision needed: accept this,
+  or build the supervised loop first.
+- Code fix: `dashboard/app.py` no longer uses `from __future__ import annotations`. FastAPI reads route
+  annotations from module globals, and `Request` is local to `create_app`.
+- Code fix: the token check compares UTF-8 bytes, so a non-ASCII header no longer raises.
+- Tests: `tests/unit/test_kill_switch_store.py` runs in the sandbox. Kill route tests in
+  `tests/unit/test_dashboard_app.py` need FastAPI (owner run).
+
 ## Round 3 (2026-11-06 late): page wired to the backend
 
 - The page is served at `/ui` (FastAPI). `/` stays the JSON index, as in item 1 of round 1.
