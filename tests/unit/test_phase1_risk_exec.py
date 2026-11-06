@@ -132,15 +132,25 @@ def test_order_fsm_rejects_bad_transitions():
         f.move(OrderState.CANCELLED)
 
 
-def test_openalgo_refuses_in_paper_and_without_approval():
+def test_openalgo_refuses_in_paper_and_without_approval(tmp_path):
+    """Full live-guard check. Detailed cases live in test_live_guard.py."""
+    from quant.execution.openalgo_client import LiveApproval, file_sha256
+
+    limits = tmp_path / "risk_limits.yaml"
+    limits.write_text("max_order_quantity: 10\n", encoding="utf-8")
+    approval = LiveApproval("owner", __import__("datetime").date(2026, 11, 6), file_sha256(limits))
+    ok = GateDecision("I1", True, ())
     calls = []
     transport = lambda url, payload: calls.append((url, payload)) or {"status": "ok"}
     with pytest.raises(PermissionError):
-        OpenAlgoClient("http://x", transport, mode="paper", live_approval="ok").place(intent(), "k")
+        OpenAlgoClient("http://x", transport, mode="paper", live_approval=approval,
+                       limits_path=limits).place(intent(), "k", ok)
     with pytest.raises(PermissionError):
-        OpenAlgoClient("http://x", transport, mode="live", live_approval=None).place(intent(), "k")
+        OpenAlgoClient("http://x", transport, mode="live", live_approval=None,
+                       limits_path=limits).place(intent(), "k", ok)
     assert calls == []
-    OpenAlgoClient("http://x", transport, mode="live", live_approval="ravi-2026-11-03").place(intent(), "k")
+    OpenAlgoClient("http://x", transport, mode="live", live_approval=approval,
+                   limits_path=limits).place(intent(), "k", ok)
     assert calls and calls[0][0].endswith("/api/v1/placeorder")
 
 

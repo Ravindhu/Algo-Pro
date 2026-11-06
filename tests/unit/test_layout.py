@@ -45,11 +45,16 @@ def test_stage_modules_are_marked_scaffold():
 
 
 def test_only_openalgo_client_names_the_order_client():
-    """The order client may be named only in execution/openalgo_client.py (the vendored platform is exempt; decision 0013)."""
+    """The order call may be named only in execution/openalgo_client.py (vendored code is exempt; decision 0013).
+
+    Checks both the method call and the raw endpoint path, so a transport call cannot hide the order route.
+    """
     for path in _stage_files():
         if path.name == "openalgo_client.py":
             continue
-        assert ".placeorder(" not in path.read_text(), path
+        text = path.read_text()
+        assert ".placeorder(" not in text, path
+        assert "placeorder" not in text.lower(), path
 
 
 # SVG blocks with no module yet. Shrink this list as each gap gets a home. Empty = no gaps.

@@ -1,0 +1,14 @@
+# Data sources and licence status (decision 0017).
+# live_allowed: false = research or test use only. Never used for live orders.
+# A source may be live only if it has a licence note and the owner has approved it.
+sources:
+  infy_sample:
+    description: "INFY daily bars from Blue_engine/database/sample_data.py (owner machine only)"
+    purpose: test_only
+    live_allowed: false
+    licence: "personal, non-commercial, educational research only; commercial automated trading needs written permission"
+  live_feed:
+    description: "Not chosen. Owner must pick a licensed live market-data source."
+    purpose: none
+    live_allowed: false
+    licence: null
