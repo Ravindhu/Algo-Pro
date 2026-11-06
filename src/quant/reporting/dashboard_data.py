@@ -49,6 +49,14 @@ def fifo_pnl(fills: Iterable[Mapping]) -> Dict[str, object]:
     return {"closed": closed, "open": open_pos}
 
 
+def risk_utilisation(open_pos: Mapping[str, Mapping], max_open_exposure: Optional[float]) -> float:
+    """Open exposure (abs qty x avg price) as a share of max_open_exposure. 0.0 when the limit is unset."""
+    if not max_open_exposure:
+        return 0.0
+    exposure = sum(abs(p["qty"]) * p["avg_price"] for p in open_pos.values())
+    return exposure / max_open_exposure
+
+
 def unrealized(open_pos: Mapping[str, Mapping], last_prices: Mapping[str, float]) -> Dict[str, Optional[float]]:
     """Unrealized P&L per open symbol. None when no price is known (never guessed)."""
     out: Dict[str, Optional[float]] = {}
@@ -105,9 +113,11 @@ def build_overview(
     kill: Mapping,
     limits: Mapping[str, object],
     last_prices: Mapping[str, float],
-    risk_used: float = 0.0,
+    risk_used: Optional[float] = None,
 ) -> Dict[str, object]:
     pnl = fifo_pnl(fills)
+    if risk_used is None:
+        risk_used = risk_utilisation(pnl["open"], limits.get("max_open_exposure"))
     perf = build_payload(
         [{"ret": t["ret"], "pnl": t["pnl"]} for t in pnl["closed"]], risk_used
     )

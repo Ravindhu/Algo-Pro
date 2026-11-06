@@ -11,7 +11,7 @@ Status: IN PROGRESS. D1, D2, D6 and the flow-doc part of D8 are done in the comm
 | D4 | Risk per trade 0.25% (config default) | `config/risk_limits.yaml` or `config/settings.yaml`, `src/quant/core/config.py` | PENDING (read config first) |
 | D5 | Authenticated POST saves user limits to `config/risk_limits.yaml`; audit record; null stays fail-closed | `dashboard/app.py`, `src/quant/audit/`, tests | PENDING |
 | D6 | Kill switch closes all open positions, blocks entries (backend) | `src/quant/risk/kill_close.py`, `scripts/run_paper.py`, `src/quant/reporting/dashboard_data.py`, `tests/unit/test_kill_close.py` | DONE for the paper runner. Automatic triggers are not wired yet (no production code calls `KillSwitch.trip`). Halt-all safe mode and `risk_limits.blocked` still stop exits (existing policy) |
-| D7 | `risk_used` gets real value from ledger (today always 0.0) | `dashboard/app.py`, `src/quant/reporting/dashboard_data.py` | PENDING |
+| D7 | `risk_used` = open exposure / `max_open_exposure` (0.0 when the limit is unset) | `src/quant/reporting/dashboard_data.py`, `tests/unit/test_risk_used.py` | DONE (6 tests) |
 | D8 | Kill-switch wording in SVG, flow doc, AGENTS rule 8 | `quant_system_flow_v5.svg`, `docs/quant_system_flow_v5.md`, `AGENTS.md` | Flow doc DONE. SVG and AGENTS PENDING (owner confirm: C2PA signature lost) |
 
 Open questions:
