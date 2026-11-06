@@ -43,3 +43,48 @@ def test_terminal_page_is_removed():
 def test_no_write_routes(client):
     for method in ("post", "put", "delete"):
         assert getattr(client, method)("/api/overview").status_code in (404, 405)
+
+
+@pytest.fixture
+def write_client(tmp_path, monkeypatch):
+    from app import create_app
+
+    limits = tmp_path / "risk_limits.yaml"
+    limits.write_text("blocked: false\nmax_daily_loss: null\n", encoding="utf-8")
+    paths = {"ledger": tmp_path / "l.jsonl", "audit": tmp_path / "a.jsonl",
+             "kill": tmp_path / "k.json", "limits": limits, "settings": tmp_path / "none.yaml"}
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "test-token-123")
+    return testclient.TestClient(create_app(paths)), limits, tmp_path / "a.jsonl"
+
+
+def test_limits_write_refused_without_server_token(write_client, monkeypatch):
+    client, limits, _ = write_client
+    monkeypatch.delenv("DASHBOARD_API_TOKEN", raising=False)
+    r = client.post("/api/limits", json={"max_daily_loss": 500}, headers={"X-Dashboard-Token": "x"})
+    assert r.status_code == 503
+    assert "max_daily_loss: null" in limits.read_text(encoding="utf-8")
+
+
+def test_limits_write_needs_the_right_token(write_client):
+    client, limits, _ = write_client
+    assert client.post("/api/limits", json={"max_daily_loss": 500}).status_code == 401
+    bad = client.post("/api/limits", json={"max_daily_loss": 500}, headers={"X-Dashboard-Token": "nope"})
+    assert bad.status_code == 401
+    assert "max_daily_loss: null" in limits.read_text(encoding="utf-8")
+
+
+def test_limits_write_saves_and_audits(write_client):
+    client, limits, audit = write_client
+    r = client.post("/api/limits", json={"max_daily_loss": 500},
+                    headers={"X-Dashboard-Token": "test-token-123"})
+    assert r.status_code == 200 and r.json()["changed"]["new"] == {"max_daily_loss": 500}
+    assert "max_daily_loss: 500" in limits.read_text(encoding="utf-8")
+    records = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines()]
+    assert records[-1]["kind"] == "limits_changed"
+
+
+def test_limits_write_bad_value_is_422(write_client):
+    client, _, _ = write_client
+    r = client.post("/api/limits", json={"max_daily_loss": -5},
+                    headers={"X-Dashboard-Token": "test-token-123"})
+    assert r.status_code == 422

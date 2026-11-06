@@ -1,6 +1,7 @@
-"""P&L shown by default on the web dashboard; a toggle can hide it (decision 0007).
+"""P&L shown by default (decision 0007). The flow page is a static diagram (decision 0020).
 
-The Blue terminal console was removed 2026-11-05, so only the web page (dashboard/index.html) is checked here.
+The old simulated dashboard page (dashboard/index.html) was moved out of the served app.
+Its simulated order engine is removed; the file now lives at src/quant/index.html.
 Web tests are text checks plus a Node syntax check, so they run without extra packages.
 """
 import pathlib
@@ -9,47 +10,43 @@ import shutil
 import subprocess
 
 import pytest
+import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-HTML = ROOT / "dashboard" / "index.html"
+PAGE = ROOT / "src" / "quant" / "index.html"
+FLOW_JS = ROOT / "dashboard" / "assets" / "flow_svg.js"
 
 
-# --- web dashboard ----------------------------------------------------------
-
-def _html() -> str:
-    return HTML.read_text(encoding="utf-8")
-
-
-def test_web_daily_pnl_shown_by_default():
-    s = _html()
-    assert "let revealPnl=true" in s
-    assert "revealPnl?money(day,true):'••••'" in s
-    assert 'id="rev" type="button">Hide ₹<' in s
+def test_pnl_visible_by_default_in_settings():
+    data = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
+    assert data["dashboard"]["pnl_visible_default"] is True
 
 
-def test_web_equity_and_total_gated_by_flag():
-    s = _html()
-    assert "setT('eqv',revealPnl?money(eq):'••••')" in s
-    assert "setT('totp',revealPnl?money(tot,true):'••••'" in s
-    assert "setT('tr',revealPnl?" in s
+def test_old_simulated_page_is_gone():
+    assert not (ROOT / "dashboard" / "index.html").exists()
 
 
-def test_web_money_never_written_without_reveal_check():
-    # Every money write in ui() must sit behind the reveal flag.
-    s = _html()
-    for match in re.finditer(r"setT\('(eqv|totp|tr)',([^)]*)", s):
-        assert "revealPnl" in match.group(0), match.group(0)
+def test_flow_page_has_no_order_code_or_simulated_data():
+    text = PAGE.read_text(encoding="utf-8")
+    for banned in ("placeorder", "Math.random", "setInterval", "open.push", "KILL SWITCH"):
+        assert banned not in text, banned
 
 
-def test_web_has_show_toggle():
-    s = _html()
-    assert 'id="rev"' in s
-    assert "revealPnl=!revealPnl" in s
+def test_flow_page_loads_the_flow_asset():
+    text = PAGE.read_text(encoding="utf-8")
+    assert "../../dashboard/assets/flow_svg.js" in text
+    assert FLOW_JS.exists()
+
+
+def test_flow_asset_shows_new_kill_switch_wording():
+    js = FLOW_JS.read_text(encoding="utf-8")
+    assert "Blocks entries, closes all" in js
+    assert "Blocks entries at risk gate" not in js
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-def test_web_script_parses(tmp_path):
-    scripts = re.findall(r"<script[^>]*>(.*?)</script>", _html(), re.S)
+def test_flow_page_script_parses(tmp_path):
+    scripts = re.findall(r"<script>(.*?)</script>", PAGE.read_text(encoding="utf-8"), re.S)
     assert scripts
     for i, sc in enumerate(scripts):
         f = tmp_path / f"s{i}.js"

@@ -42,3 +42,17 @@ def vol_target_scale(realized_vol: float, target_vol: float, max_leverage: float
     raw = target_vol / realized_vol
     scale = min(max(raw, 0.0), float(max_leverage))
     return float(round(scale, 6))
+
+
+def risk_budget_qty(equity: float, risk_fraction: float, entry: float, stop: float, lot_size: int = 1) -> int:
+    """Shares so that a stop-out loses at most risk_fraction of equity. Rounds down to whole lots.
+
+    Returns 0 when any input is missing or not positive. Used by the signal stage (not built yet).
+    """
+    per_share = abs(entry - stop)
+    if not (math.isfinite(equity) and math.isfinite(entry) and math.isfinite(stop)):
+        return 0
+    if equity <= 0 or risk_fraction <= 0 or per_share <= 0 or lot_size <= 0:
+        return 0
+    shares = math.floor(equity * risk_fraction / per_share)
+    return (shares // lot_size) * lot_size

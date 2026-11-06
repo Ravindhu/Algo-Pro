@@ -32,6 +32,22 @@ class RiskLimits:
             raise ValueError(f"unknown risk keys: {sorted(unknown)}")
         return cls(**{k: v for k, v in data.items() if v is not None})
 
+    @staticmethod
+    def risk_per_trade(path=None, default: float = 0.0025) -> float:
+        """Risk per trade as a share of equity from settings.yaml (sizing). Default 0.25%.
+
+        Missing file or key gives the default. Values outside (0, 0.05] raise ValueError.
+        """
+        import yaml as _yaml
+
+        if path is None or not Path(path).exists():
+            return default
+        data = _yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        value = (data.get("sizing") or {}).get("risk_per_trade", default)
+        if not isinstance(value, (int, float)) or not 0 < float(value) <= 0.05:
+            raise ValueError(f"sizing.risk_per_trade must be in (0, 0.05], got {value!r}")
+        return float(value)
+
     def unset(self) -> List[str]:
         """Names of numeric limits that are still None."""
         return [f.name for f in fields(self) if f.name != "blocked" and getattr(self, f.name) is None]

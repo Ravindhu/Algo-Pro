@@ -138,7 +138,7 @@ Support inputs to backtest and risk:
 | TCA to cost model | Slippage vs arrival price, fed back to cost model |
 | Live monitor | Drawdown and fill quality |
 | Strategy health | Sharpe, CUSUM drift |
-| Kill switch | When on: blocks entries at the Risk gate and sends an exit for every open position (`src/quant/risk/kill_close.py`, decision 0020). Backend only; the dashboard shows the state and the close |
+| Kill switch | Blocks new entries and closes all open positions (`src/quant/risk/kill_close.py`, decision 0020). Trips by hand or automatically on a daily realized loss at `max_daily_loss` (`src/quant/risk/auto_kill.py`). Kill closes pass halt-all while the switch is on. Backend only; the dashboard shows the state and the close |
 
 ### 2.11 Improvement loop
 

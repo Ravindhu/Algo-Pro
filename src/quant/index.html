@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Algo Pro flow</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; background: #04070d; color: #c3d8e8; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  header { padding: 8px 12px; border-bottom: 1px solid #17344d; color: #3fd0ff; font-weight: 600; }
+  header em { color: #5d7b94; font-style: normal; font-weight: 400; margin-left: 8px; }
+  main { padding: 8px; }
+  main svg { display: block; width: 100%; height: auto; }
+  .note { color: #5d7b94; padding: 4px 12px 8px; }
+</style>
+</head>
+<body>
+<header>QUANT SYSTEM FLOW · v5 <em>paper only · nothing live</em></header>
+<p class="note">Static design diagram. It shows no orders and no simulated data. Live state comes from the dashboard JSON API (<code>/api/overview</code>).</p>
+<main id="flow"><p class="note">flow_svg.js not loaded. Run <code>scripts/ops/make_flow_svg.py</code>.</p></main>
+<script src="../../dashboard/assets/flow_svg.js"></script>
+<script>
+  if (window.FLOW_SVG) document.getElementById("flow").innerHTML = window.FLOW_SVG;
+</script>
+</body></html>

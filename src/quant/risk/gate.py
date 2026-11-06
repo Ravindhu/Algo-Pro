@@ -15,6 +15,7 @@ from quant.core.types import GateDecision, TradeIntent
 from quant.monitor.safe_mode import Mode, SafeMode
 from quant.risk.money_checks import entry_breaches
 from quant.risk.controls import in_event_blackout
+from quant.risk.kill_close import KILL_STRATEGY_ID
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.liquidity import liquidity_checks
 from quant.risk.loss_breaker import loss_checks
@@ -41,12 +42,14 @@ def check_intent(
 ) -> GateDecision:
     reasons: List[str] = []
     is_entry = intent.kind == "entry"
+    # Kill closes pass halt-all, but only while the kill switch is on (decision 0020).
+    is_kill_close = kill.active and intent.kind == "exit" and intent.strategy_id == KILL_STRATEGY_ID
 
     if limits.blocked:
         reasons.append("risk_limits.blocked is set")
     if kill.active and is_entry:
         reasons.append(f"kill switch: {kill.reason}")
-    if safe.mode is Mode.HALT_ALL:
+    if safe.mode is Mode.HALT_ALL and not is_kill_close:
         reasons.append("safe mode: halt-all")
     if safe.mode is Mode.REDUCE_ONLY and is_entry:
         reasons.append("safe mode: reduce-only")

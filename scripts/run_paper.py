@@ -38,6 +38,8 @@ from quant.execution.order_fsm import OrderFSM, OrderState  # noqa: E402
 from quant.execution.queue import ApprovedOrderQueue  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
+from quant.reporting.dashboard_data import fifo_pnl  # noqa: E402
+from quant.risk.auto_kill import daily_loss_breach  # noqa: E402
 from quant.risk.gate import RiskState, check_intent  # noqa: E402
 from quant.risk.kill_close import kill_exit_intents  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
@@ -98,7 +100,7 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
     if broker is None:
         broker = PaperBroker()
     summary = {"approved": 0, "blocked": 0, "filled": 0, "rejected": 0, "unknown": 0, "skipped_duplicates": 0,
-               "kill_closes": 0}
+               "kill_closes": 0, "auto_kill": None}
     flattened = False
 
     def _submit(intent: TradeIntent) -> None:
@@ -125,6 +127,7 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
             summary["filled"] += 1
             flow = order.notional if order.kind == "entry" else -order.notional
             state.open_notional = max(0.0, state.open_notional + flow)
+            _check_auto_kill()
         elif status == "REJECTED":
             fsm.move(OrderState.REJECTED)
             summary["rejected"] += 1
@@ -151,6 +154,18 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
         for intent in intents:
             _submit(intent)
 
+    def _check_auto_kill() -> None:
+        """Trip the kill switch on a daily realized-loss breach (decision 0020)."""
+        if kill.active:
+            return
+        fills = [e for e in ledger.events() if e.get("event") == "fill"]
+        realized = sum(t["pnl"] for t in fifo_pnl(fills)["closed"])
+        reason = daily_loss_breach(realized, limits.max_daily_loss)
+        if reason:
+            kill.trip(reason, source="automatic")
+            audit.append("kill_switch", {"reason": reason, "source": "automatic"})
+            summary["auto_kill"] = reason
+
     _flatten_if_killed()
     for row in pd.read_csv(signals_csv, dtype={"intent_id": str}).to_dict("records"):
         _flatten_if_killed()
@@ -159,6 +174,7 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
             summary["skipped_duplicates"] += 1
             continue
         _submit(intent)
+    _flatten_if_killed()  # a trip on the last fill still closes positions
 
     summary["positions"] = ledger.positions()
     summary["audit_verified"] = audit.verify()

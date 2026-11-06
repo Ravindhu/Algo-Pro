@@ -1,7 +1,8 @@
 # Decision 0020: Dashboard API-only, user-set limits, kill switch closes positions
 
 Date: 2026-11-06
-Status: APPROVED by owner (chat, 2026-11-06). Code not yet changed.
+Status: APPROVED by owner (chat, 2026-11-06, two rounds). Answers below are final.
+Implemented in: 8fd0d4f (kill close), c8b29a0 (risk_used), and the commit that adds this line (items 1-6 below).
 
 ## Context
 
@@ -40,7 +41,21 @@ This conflicts with AGENTS.md: one dashboard only, no parallel order path, and l
 - Cannot be tested in the sandbox (`httpx`, `openalgo` missing). Owner test run required before live use.
 - The SVG contains a C2PA manifest. Editing it removes that signature. Owner accepted this trade-off only if confirmed.
 
-## Open
+## Owner answers (2026-11-06, second round)
 
-- Confirm the kill-switch reading (item 5).
-- Confirm the SVG edit is acceptable (item 7).
+1. Yes: move `dashboard/index.html` to `src/quant/index.html`; remove its simulated engine.
+   Done: the new page is a static flow diagram that loads `dashboard/assets/flow_svg.js`. It shows no orders.
+2. Yes: risk per trade 0.25% of equity. Setting: `config/settings.yaml` `sizing.risk_per_trade`.
+   Helper: `risk_budget_qty` in `src/quant/portfolio/sizing.py`.
+   Gap: the paper runner takes qty from the signals file. The signal stage that would use this is not built yet.
+3. Yes: user-set limits through `POST /api/limits`. Needs header `X-Dashboard-Token` = env `DASHBOARD_API_TOKEN`.
+   No token set = writes refused (503). Bad token = 401. Bad value = 422. Each save writes a `limits_changed` audit record.
+   Saved YAML keeps the header comment; inline comments are not kept.
+4. Yes: automatic kill on a daily realized-loss breach of `max_daily_loss`. Unrealized losses do not trip it.
+   Limit: "daily" is the whole ledger file for one paper run (fills have no date yet).
+5. Yes: a kill close passes halt-all. Only while the kill switch is on.
+6. "Kill switch should block both": wording now reads "Blocks entries, closes all" (SVG, flow asset, flow doc, AGENTS rule 6).
+   Reading used: it blocks new entries AND closes all open positions. Closing is the only exit it sends.
+   It does NOT block normal exits (stop, time, manual) from other stages, because blocking those would leave positions open.
+   If "both" meant blocking those exits too, this needs a new decision.
+   The C2PA signature on `quant_system_flow_v5.svg` is now invalid (owner accepted this).

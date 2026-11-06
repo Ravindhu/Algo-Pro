@@ -14,7 +14,8 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from quant.reporting.dashboard import build_payload
 
-SEVERITY = {"kill_switch": "CRITICAL", "kill_close": "CRITICAL", "safe_mode": "WARNING", "override": "WARNING"}
+SEVERITY = {"kill_switch": "CRITICAL", "kill_close": "CRITICAL", "safe_mode": "WARNING", "override": "WARNING",
+            "limits_changed": "WARNING"}
 
 
 def fifo_pnl(fills: Iterable[Mapping]) -> Dict[str, object]:
