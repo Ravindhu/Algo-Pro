@@ -14,7 +14,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from quant.reporting.dashboard import build_payload
 
-SEVERITY = {"kill_switch": "CRITICAL", "safe_mode": "WARNING", "override": "WARNING"}
+SEVERITY = {"kill_switch": "CRITICAL", "kill_close": "CRITICAL", "safe_mode": "WARNING", "override": "WARNING"}
 
 
 def fifo_pnl(fills: Iterable[Mapping]) -> Dict[str, object]:
@@ -86,7 +86,7 @@ def ai_insight(overview: Mapping) -> List[str]:
     """Rule-based sentences from the numbers. Advice only: no LLM, no trade path."""
     lines: List[str] = []
     if overview["kill_switch"]["active"]:
-        lines.append("Entries are blocked by the kill switch. Exits still allowed.")
+        lines.append("Entries blocked and open positions closed by the kill switch.")
     if overview["unset_limits"]:
         lines.append(f"Limits not set: {', '.join(overview['unset_limits'])}. Entries fail closed.")
     pf = overview["performance"]["profit_factor"]

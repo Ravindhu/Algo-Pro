@@ -138,7 +138,7 @@ Support inputs to backtest and risk:
 | TCA to cost model | Slippage vs arrival price, fed back to cost model |
 | Live monitor | Drawdown and fill quality |
 | Strategy health | Sharpe, CUSUM drift |
-| Kill switch | Blocks entries at the Risk gate |
+| Kill switch | When on: blocks entries at the Risk gate and sends an exit for every open position (`src/quant/risk/kill_close.py`, decision 0020). Backend only; the dashboard shows the state and the close |
 
 ### 2.11 Improvement loop
 
@@ -165,7 +165,7 @@ Support inputs to backtest and risk:
 | Feed health monitor | Latency, heartbeats, gaps |
 | Trading calendar | Holidays, expiries, lot sizes |
 | Beta limits | Nifty beta, index exposure |
-| Dashboard | P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
+| Dashboard | JSON API only (`dashboard/app.py`); the HTML page was removed (decision 0020). P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
 | Alerts | Errors by level |
 | Audit log | Immutable, every decision |
 | Broker feeds | Orders, fills, quotes |

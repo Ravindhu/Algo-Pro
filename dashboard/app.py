@@ -29,7 +29,12 @@ DEFAULT_PATHS = {
     "kill": ROOT / "data" / "paper" / "kill_switch.json",
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
-    "page": ROOT / "dashboard" / "assets" / "terminal.html",
+}
+
+API_INDEX = {
+    "service": "Algo-Pro dashboard",
+    "mode": "API only (no HTML page)",
+    "endpoints": ["/api/overview", "/api/positions", "/api/events", "/api/health"],
 }
 
 
@@ -65,14 +70,14 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
 def create_app(paths: Optional[Dict[str, Path]] = None):
     """Build the FastAPI app. Import happens here so the module loads without FastAPI installed."""
     from fastapi import FastAPI
-    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.responses import JSONResponse
 
     paths = {**DEFAULT_PATHS, **(paths or {})}
     app = FastAPI(title="Algo-Pro dashboard", version="0.1.0")
 
     @app.get("/")
     def index():
-        return FileResponse(paths["page"])
+        return JSONResponse(API_INDEX)
 
     @app.get("/api/overview")
     def overview():

@@ -16,12 +16,10 @@ testclient = pytest.importorskip("fastapi.testclient")
 def client(tmp_path):
     from app import create_app
 
-    page = tmp_path / "terminal.html"
-    page.write_text("<html>ok</html>", encoding="utf-8")
     paths = {
         "ledger": tmp_path / "ledger.jsonl", "audit": tmp_path / "audit.jsonl",
         "kill": tmp_path / "kill.json", "limits": tmp_path / "none.yaml",
-        "settings": tmp_path / "none.yaml", "page": page,
+        "settings": tmp_path / "none.yaml",
     }
     return testclient.TestClient(create_app(paths))
 
@@ -32,8 +30,14 @@ def test_overview_and_health(client):
     assert h["feed"]["status"] == "not connected"
 
 
-def test_index_serves_page(client):
-    assert "ok" in client.get("/").text
+def test_index_is_api_only(client):
+    body = client.get("/").json()
+    assert "/api/overview" in body["endpoints"]
+    assert "<html" not in client.get("/").text.lower()
+
+
+def test_terminal_page_is_removed():
+    assert not (ROOT / "dashboard" / "assets" / "terminal.html").exists()
 
 
 def test_no_write_routes(client):

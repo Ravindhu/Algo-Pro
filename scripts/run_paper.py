@@ -4,14 +4,15 @@ No capital. Default broker is the in-process paper broker (no network).
 --broker analyze sends through OpenAlgo analyzer mode (sandbox). The client refuses unless
 OpenAlgo confirms analyze mode is on (docs/ANALYZER_MODE_PLAN.md).
 Restarting with the same --out folder does not resend old intents.
+If the kill switch is on, every open position gets an exit intent (src/quant/risk/kill_close.py).
 
 Usage:
   python scripts/run_paper.py --signals signals.csv --out data/paper
   python scripts/run_paper.py --signals signals.csv --broker analyze --base-url <OpenAlgo URL> --out data/analyze
   (analyze needs OPENALGO_API_KEY in the environment or the repo-root .env)
 
-Flow stage: Paper trading stage
-Status: PHASE 1 IMPLEMENTED; analyze broker added 2026-11-06 (decision 0026, AZ2)
+Flow stage: Paper trading stage, Kill switch
+Status: PHASE 1 IMPLEMENTED; analyze broker added 2026-11-06 (decision 0026, AZ2); kill close added 2026-11-06 (decision 0020)
 Existing code to reuse or wrap (do not copy): Blue_engine/core/paper_broker.py
 """
 from __future__ import annotations
@@ -38,6 +39,7 @@ from quant.execution.queue import ApprovedOrderQueue  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
 from quant.risk.gate import RiskState, check_intent  # noqa: E402
+from quant.risk.kill_close import kill_exit_intents  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 
 OPTIONAL_NUMERIC = ("prev_close", "circuit_pct", "adv_shares")
@@ -63,6 +65,22 @@ def _intent_from_row(row: dict) -> TradeIntent:
     return TradeIntent(**clean)
 
 
+def _last_fill_prices(ledger: Ledger) -> dict:
+    """Last filled price per symbol. Used as the reference price for kill closes (paper only)."""
+    prices = {}
+    for e in ledger.events():
+        if e.get("event") == "fill":
+            prices[e["symbol"]] = float(e["price"])
+    return prices
+
+
+def _close_reason(closed: list, skipped: list) -> str:
+    text = f"closed {len(closed)} position(s): {', '.join(closed) or 'none'}"
+    if skipped:
+        text += "; not closed: " + ", ".join(f"{s} ({why})" for s, why in skipped)
+    return text
+
+
 def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
     """Run one signals file. broker: any object with place(intent, decision) -> result dict.
 
@@ -79,19 +97,17 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
     queue = ApprovedOrderQueue()
     if broker is None:
         broker = PaperBroker()
-    summary = {"approved": 0, "blocked": 0, "filled": 0, "rejected": 0, "unknown": 0, "skipped_duplicates": 0}
+    summary = {"approved": 0, "blocked": 0, "filled": 0, "rejected": 0, "unknown": 0, "skipped_duplicates": 0,
+               "kill_closes": 0}
+    flattened = False
 
-    for row in pd.read_csv(signals_csv, dtype={"intent_id": str}).to_dict("records"):
-        intent = _intent_from_row(row)
-        if intent.intent_id in state.seen_ids:
-            summary["skipped_duplicates"] += 1
-            continue
+    def _submit(intent: TradeIntent) -> None:
         decision = check_intent(intent, state, limits, kill, safe)
         audit.append("decision", {"intent_id": intent.intent_id, "approved": decision.approved,
                                   "reasons": list(decision.reasons)})
         if not decision.approved:
             summary["blocked"] += 1
-            continue
+            return
         summary["approved"] += 1
         state.seen_ids.add(intent.intent_id)
         ledger.append("intent", intent_id=intent.intent_id, symbol=intent.symbol, side=intent.side,
@@ -118,6 +134,31 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
         audit.append("broker_result", {"intent_id": order.intent_id, "order_id": result.get("order_id", ""),
                                        "status": status, "state": fsm.state.value,
                                        "reason": result.get("reason", "")})
+
+    def _flatten_if_killed() -> None:
+        """Once per run: when the kill switch is on, send an exit for every open position."""
+        nonlocal flattened
+        if flattened or not kill.active:
+            return
+        flattened = True
+        intents, skipped = kill_exit_intents(ledger.positions(), _last_fill_prices(ledger),
+                                             ledger.seen_intent_ids())
+        closed = [i.symbol for i in intents]
+        audit.append("kill_close", {"reason": _close_reason(closed, skipped), "closed": closed,
+                                    "skipped": [{"symbol": s, "why": w} for s, w in skipped],
+                                    "kill_reason": kill.reason})
+        summary["kill_closes"] = len(intents)
+        for intent in intents:
+            _submit(intent)
+
+    _flatten_if_killed()
+    for row in pd.read_csv(signals_csv, dtype={"intent_id": str}).to_dict("records"):
+        _flatten_if_killed()
+        intent = _intent_from_row(row)
+        if intent.intent_id in state.seen_ids:
+            summary["skipped_duplicates"] += 1
+            continue
+        _submit(intent)
 
     summary["positions"] = ledger.positions()
     summary["audit_verified"] = audit.verify()
