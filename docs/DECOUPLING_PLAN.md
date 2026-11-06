@@ -31,7 +31,7 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 | 10 | portfolio/rebalance.py | portfolio.optim.cost_aware.should_rebalance | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
 | 11 | portfolio/sizing.py | portfolio.sizing.kelly.kelly_leverage | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
 | 12 | portfolio/sizing.py | portfolio.sizing.vol_target.vol_target_scale | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
-| 13 | execution/openalgo_client.py | core.client.load_env_file | no | 4 | local .env loader; owner review |
+| 13 | execution/openalgo_client.py | core.client.load_env_file | yes (python-dotenv) | 4 | DONE: `core/env.py`, tests `test_dotenv_loading.py` (decision 0019); owner sign-off pending |
 | 14 | risk/money_checks.py (was blue_risk_gate.py) | core.risk_gate.RiskGate (money checks) | yes (pure, no stubs) | 4 | DONE: ported + parity (`test_money_checks_parity.py`); owner sign-off pending (D3) |
 
 ## 5. Stages
@@ -64,8 +64,8 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 - Item 8 note: our HRP already matches the published algorithm (decision 0009, owner still to choose). Stage 3 must not change HRP output without owner choice.
 - Exit check: 7 goldens committed; local code passes them; call sites switched.
 
-### Stage 4 — risk-critical items (13-14). Status: PARTIAL (2026-11-06). Item 14 ported; item 13 pending; owner sign-off pending.
-- 13 `load_env_file`: NOT DONE. `openalgo_client.api_key_from_env()` still calls Blue's loader. Local loader reads `.env` (git-ignored). Test: missing file, comments, quotes, no overwrite of existing env vars.
+### Stage 4 — risk-critical items (13-14). Status: CODE DONE (2026-11-06). Owner sign-off pending.
+- 13 `load_env_file`: DONE. `src/quant/core/env.py` (decision 0019). `api_key_from_env()` no longer calls Blue. Tests: missing file, comments, quotes, export prefix, no overwrite of existing variables.
 - 14 RiskGate money checks: DONE (code + parity), decision 0018. Ported to `src/quant/risk/money_checks.py` with no Blue import. The old Blue-backed wrapper moved to `Temp/Staging Workspace/`. Kept: fail-closed on unset limits (pretrade, loss breaker), exits never blocked by entry limits, duplicate-ID block, daily loss and exposure caps. Parity test: `tests/parity/test_money_checks_parity.py` (34,560 grid cases + edge cases, zero differences against Blue's real RiskGate, exact breach text).
 - Exit check: golden/parity diff = 0 (met for item 14). Owner sign-off recorded in docs/decisions/ is STILL PENDING (decision 0018, D3).
 

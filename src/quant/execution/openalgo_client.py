@@ -2,7 +2,7 @@
 
 Flow stage: OpenAlgo
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/client.py (.env loader wrapped).
+Existing code to reuse or wrap (do not copy): Blue_engine/core/client.py load_env_file (ported to quant/core/env.py; no Blue import).
 Kept local on purpose: the injected-transport order path and PaperBroker. See docs/audits/PHASE0_REUSE_AUDIT.md step 6.
 
 Live order guard (decision 0017, docs/HARDENING_PLAN_2026-11-06.md):
@@ -77,13 +77,13 @@ class OpenAlgoClient:
 
     @staticmethod
     def api_key_from_env() -> str:
-        """Read OPENALGO_API_KEY. Loads the repo-root .env first, using Blue_engine's loader.
+        """Read OPENALGO_API_KEY. Loads the repo-root .env first (quant.core.env, no Blue import).
 
         Does NOT call Blue's resolve_api_key: that also decrypts keys from the OpenAlgo
         database. This path reads the environment only, so no stored secret is opened.
         """
-        from quant.core.blue_bridge import load
-        load("core.client").load_env_file()
+        from quant.core.env import load_env_file
+        load_env_file()
         key = os.environ.get("OPENALGO_API_KEY", "")
         if not key:
             raise RuntimeError("OPENALGO_API_KEY is not set")
