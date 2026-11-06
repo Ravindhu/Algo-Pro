@@ -137,6 +137,8 @@ Each step is one commit. The step list is updated before each commit.
 
 `risk/blue_risk_gate.py` is the only place src/quant calls Blue's RiskGate. `gate.py`, `pretrade.py` and `loss_breaker.py` keep only the null-limit policy. Blue's live acknowledgement is not used (no live mode yet). Exits never reach Blue.
 
+> Update 2026-11-06 (decision 0018): this wrapper is REPLACED. The monetary checks are now ported to `risk/money_checks.py` with no Blue import. Parity zero diff on the grid. The old wrapper is in `Temp/Staging Workspace/`. Owner sign-off pending.
+
 ### Step 6 (OpenAlgo client, 2026-11-03)
 
 `OpenAlgoClient.api_key_from_env` now loads the repo-root `.env` through Blue's `load_env_file`. It reads only the environment and never calls Blue's `resolve_api_key`, which can decrypt keys from the OpenAlgo database. The order path stays the injected transport. Layout test still enforces that only `openalgo_client.py` may send orders.

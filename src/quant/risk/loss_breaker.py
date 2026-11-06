@@ -2,7 +2,7 @@
 
 Flow stage: Loss budget breaker
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (daily value via risk/blue_risk_gate.py)
+Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (daily value in risk/money_checks.py)
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from quant.core.types import TradeIntent
 
 
 def loss_checks(intent: TradeIntent, daily_pnl: float, strategy_pnl: float, limits: RiskLimits) -> List[str]:
-    """Policy for daily and strategy loss budgets. The daily VALUE check is in risk/blue_risk_gate.py."""
+    """Policy for daily and strategy loss budgets. The daily VALUE check is in risk/money_checks.py."""
     if intent.kind != "entry":
         return []
     reasons: List[str] = []

@@ -2,7 +2,7 @@
 
 Flow stage: Pre-trade checks
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (values via risk/blue_risk_gate.py)
+Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (values in risk/money_checks.py)
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def pretrade_checks(intent: TradeIntent, limits: RiskLimits) -> List[str]:
     if intent.kind != "entry":
         return reasons  # exits and protection orders reduce risk; per-order caps do not apply
     # Policy only: an entry needs its per-order caps configured. Values are checked by
-    # risk/blue_risk_gate.py (Blue_engine RiskGate), not here.
+    # risk/money_checks.py, not here.
     if limits.max_order_quantity is None:
         reasons.append("limit not set: max_order_quantity")
     if limits.max_order_notional is None:

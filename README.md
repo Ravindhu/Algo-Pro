@@ -23,7 +23,8 @@ with a feedback loop back into research.
 | Risk limits | Starter minimums approved for paper. Live values = same values; live still blocked. `config/risk_limits.yaml`. |
 | Model registry | Human sign-off required before promotion. `src/quant/feedback/champion_challenger.py`. |
 | Dashboard | FastAPI, read-only. P&L shown by default. |
-| Tests | Sandbox: `pytest tests/unit` 36 failed, 398 passed. The 36 failures are the same on the untouched commit (missing `httpx` and HRP tests). `pytest tests/parity` 38 passed. Owner machine run pending. |
+| Tests | Sandbox: `pytest tests/unit` 27 failed, 424 passed, 18 skipped. All 27 failures are the missing `httpx` package (HRP via Blue bridge). `pytest tests/parity` passes, including the money-check parity (34,560 cases, zero differences). Owner machine run pending. |
+| Risk money checks | Ported out of Blue_engine (decision 0018). `src/quant/risk/money_checks.py`. Owner sign-off pending. |
 | Live order guard | Live orders need a human `LiveApproval` tied to the current risk limits file, and an approved gate decision for the same intent. Still not enabled. `src/quant/execution/openalgo_client.py`. |
 | Data | INFY is test-only (`config/data_sources.yaml`). Fetched on the owner machine with `python Blue_engine/database/sample_data.py`. Not in this repo. No live data source is chosen yet. |
 
