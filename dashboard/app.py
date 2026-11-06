@@ -37,11 +37,13 @@ DEFAULT_PATHS = {
     "kill": ROOT / "data" / "paper" / "kill_switch.json",
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
+    "page": ROOT / "src" / "quant" / "index.html",
+    "flow": ROOT / "dashboard" / "assets" / "flow_svg.js",
 }
 
 API_INDEX = {
     "service": "Algo-Pro dashboard",
-    "mode": "API only (no HTML page)",
+    "page": "/ui",
     "endpoints": ["/api/overview", "/api/positions", "/api/events", "/api/health", "POST /api/limits (token)"],
 }
 
@@ -78,7 +80,7 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
 def create_app(paths: Optional[Dict[str, Path]] = None):
     """Build the FastAPI app. Import happens here so the module loads without FastAPI installed."""
     from fastapi import FastAPI, Request
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import FileResponse, JSONResponse
 
     load_env_file()  # reads the repo-root .env without overriding shell variables
     paths = {**DEFAULT_PATHS, **(paths or {})}
@@ -87,6 +89,15 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.get("/")
     def index():
         return JSONResponse(API_INDEX)
+
+    @app.get("/ui")
+    def ui():
+        """The one page: reads /api/overview every 2 s, writes limits through POST /api/limits."""
+        return FileResponse(paths["page"], media_type="text/html")
+
+    @app.get("/assets/flow_svg.js")
+    def flow_asset():
+        return FileResponse(paths["flow"], media_type="application/javascript")
 
     @app.post("/api/limits")
     async def set_limits(request: Request):

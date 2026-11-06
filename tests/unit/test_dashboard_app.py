@@ -83,6 +83,12 @@ def test_limits_write_saves_and_audits(write_client):
     assert records[-1]["kind"] == "limits_changed"
 
 
+def test_ui_page_and_flow_asset_are_served(client):
+    ui = client.get("/ui")
+    assert ui.status_code == 200 and "ALGO PRO" in ui.text
+    assert client.get("/assets/flow_svg.js").status_code == 200
+
+
 def test_limits_write_bad_value_is_422(write_client):
     client, _, _ = write_client
     r = client.post("/api/limits", json={"max_daily_loss": -5},

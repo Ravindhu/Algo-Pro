@@ -41,6 +41,19 @@ This conflicts with AGENTS.md: one dashboard only, no parallel order path, and l
 - Cannot be tested in the sandbox (`httpx`, `openalgo` missing). Owner test run required before live use.
 - The SVG contains a C2PA manifest. Editing it removes that signature. Owner accepted this trade-off only if confirmed.
 
+## Round 3 (2026-11-06 late): page wired to the backend
+
+- The page is served at `/ui` (FastAPI). `/` stays the JSON index, as in item 1 of round 1.
+  The flow asset is served at `/assets/flow_svg.js`, so the page works from the app, not from disk.
+- Read: every field of `/api/overview` is shown (mode, kill switch, feed, P&L, performance,
+  positions, events, insight, limits). Polls every 2 s (AGENTS: not below 500 ms).
+- Write: the limits form posts only changed fields to `POST /api/limits`. Empty = null (not set).
+- Token: typed into the page, sent as `X-Dashboard-Token`, kept in JavaScript memory only.
+  Not written to localStorage, sessionStorage or cookies (a test checks this).
+- Not on the page, on purpose: kill switch control (owner: background only) and sizing settings
+  (`risk_per_trade` is not in the API).
+- Not run here: no FastAPI or browser in the sandbox. Owner must open `/ui` once and test a save.
+
 ## Owner answers (2026-11-06, second round)
 
 1. Yes: move `dashboard/index.html` to `src/quant/index.html`; remove its simulated engine.

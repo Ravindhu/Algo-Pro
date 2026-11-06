@@ -26,16 +26,42 @@ def test_old_simulated_page_is_gone():
     assert not (ROOT / "dashboard" / "index.html").exists()
 
 
-def test_flow_page_has_no_order_code_or_simulated_data():
+def test_page_has_no_order_code_or_simulated_data():
     text = PAGE.read_text(encoding="utf-8")
-    for banned in ("placeorder", "Math.random", "setInterval", "open.push", "KILL SWITCH"):
+    for banned in ("placeorder", "Math.random", "open.push", "/api/kill"):
         assert banned not in text, banned
 
 
-def test_flow_page_loads_the_flow_asset():
+def test_page_loads_the_flow_asset_from_the_app():
     text = PAGE.read_text(encoding="utf-8")
-    assert "../../dashboard/assets/flow_svg.js" in text
+    assert '<script src="/assets/flow_svg.js">' in text
     assert FLOW_JS.exists()
+
+
+def test_page_reads_overview_and_writes_limits_only():
+    text = PAGE.read_text(encoding="utf-8")
+    assert 'fetch("/api/overview"' in text
+    assert text.count('fetch("/api/limits"') == 1
+    assert 'method: "POST"' in text and '"X-Dashboard-Token"' in text
+
+
+def test_page_never_stores_the_token():
+    text = PAGE.read_text(encoding="utf-8")
+    for store in ("localStorage", "sessionStorage", "document.cookie"):
+        assert store not in text, store
+
+
+def test_page_has_an_input_for_every_risk_limit():
+    from dataclasses import fields
+
+    import sys
+
+    sys.path.insert(0, str(ROOT / "src"))
+    from quant.core.config import RiskLimits
+
+    text = PAGE.read_text(encoding="utf-8")
+    covered = set(re.findall(r'data-limit="(\w+)"', text))
+    assert covered == {f.name for f in fields(RiskLimits)}
 
 
 def test_flow_asset_shows_new_kill_switch_wording():

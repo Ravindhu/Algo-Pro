@@ -2,23 +2,261 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Algo Pro flow</title>
+<title>Algo Pro dashboard</title>
 <style>
-  :root { color-scheme: dark; }
-  html, body { margin: 0; background: #04070d; color: #c3d8e8; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
-  header { padding: 8px 12px; border-bottom: 1px solid #17344d; color: #3fd0ff; font-weight: 600; }
-  header em { color: #5d7b94; font-style: normal; font-weight: 400; margin-left: 8px; }
-  main { padding: 8px; }
-  main svg { display: block; width: 100%; height: auto; }
-  .note { color: #5d7b94; padding: 4px 12px 8px; }
+  :root { color-scheme: dark; --bg:#04070d; --panel:#08111c; --line:#17344d; --txt:#c3d8e8; --dim:#5d7b94;
+          --cyan:#3fd0ff; --ok:#2ee6a6; --warn:#ffb347; --bad:#ff4d6d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt); font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 14px; color: var(--cyan); }
+  header .sp { flex: 1; }
+  .chip { border: 1px solid var(--line); border-radius: 3px; padding: 1px 8px; color: var(--dim); white-space: nowrap; }
+  .chip.on { color: var(--ok); border-color: var(--ok); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.bad { color: var(--bad); border-color: var(--bad); }
+  button { font: inherit; background: transparent; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
+  button.go { color: var(--ok); border-color: var(--ok); }
+  .banner { display: none; margin: 8px 16px 0; padding: 8px 12px; border: 1px solid var(--bad); color: var(--bad); border-radius: 3px; }
+  .banner.on { display: block; }
+  main { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; padding: 8px 16px 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-width: 0; }
+  section h2 { margin: 0 0 6px; font-size: 11px; font-weight: 600; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
+  .w8 { grid-column: span 8; } .w4 { grid-column: span 4; } .w12 { grid-column: span 12; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 10px; }
+  .kv span { display: block; color: var(--dim); font-size: 10px; }
+  .kv b { font-size: 14px; }
+  .big { font-size: 22px; font-weight: 800; }
+  .g { color: var(--ok); } .r { color: var(--bad); } .a { color: var(--warn); } .d { color: var(--dim); }
+  .bar { height: 4px; background: #0d1d2d; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar i { display: block; height: 100%; background: var(--ok); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: right; padding: 3px 4px; border-bottom: 1px solid #0d1d2d; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--dim); font-weight: 400; }
+  .scroll { max-height: 220px; overflow: auto; }
+  ul { margin: 0; padding-left: 16px; }
+  li { margin: 2px 0; }
+  form .row { display: grid; grid-template-columns: 1fr 160px; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
+  form label { color: var(--dim); }
+  input[type=number], input[type=password] { width: 100%; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  #msg { min-height: 1.4em; }
+  details summary { cursor: pointer; color: var(--cyan); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  #flow svg { display: block; width: 100%; height: auto; margin-top: 6px; }
+  @media (max-width: 900px) {
+    main { display: block; padding: 8px 16px; }
+    section { margin-bottom: 8px; }
+    .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 </style>
 </head>
 <body>
-<header>QUANT SYSTEM FLOW · v5 <em>paper only · nothing live</em></header>
-<p class="note">Static design diagram. It shows no orders and no simulated data. Live state comes from the dashboard JSON API (<code>/api/overview</code>).</p>
-<main id="flow"><p class="note">flow_svg.js not loaded. Run <code>scripts/ops/make_flow_svg.py</code>.</p></main>
-<script src="../../dashboard/assets/flow_svg.js"></script>
+<header>
+  <h1>ALGO PRO · paper</h1>
+  <span class="chip" id="mode">mode —</span>
+  <span class="chip" id="kill">kill switch —</span>
+  <span class="chip" id="feed">feed —</span>
+  <span class="chip" id="conn">connecting…</span>
+  <span class="sp"></span>
+  <button id="toggle" type="button">Hide ₹</button>
+</header>
+<div class="banner" id="killbanner"></div>
+
+<main>
+  <section class="w8"><h2>Performance &amp; P&amp;L <span class="d">paper · ₹</span></h2>
+    <div class="big" id="pnl">—</div>
+    <div class="kv" style="margin-top:6px">
+      <div><span>Realized P&amp;L</span><b id="realized">—</b></div>
+      <div><span>Unrealized P&amp;L</span><b id="unrealized">—</b></div>
+      <div><span>Closed trades</span><b id="trades">—</b></div>
+      <div><span>Win rate</span><b id="winrate">—</b></div>
+      <div><span>Profit factor</span><b id="pf">—</b></div>
+      <div><span>Risk used</span><b id="risk">—</b>
+        <div class="bar"><i id="riskbar" style="width:0%"></i></div></div>
+    </div>
+  </section>
+
+  <section class="w4"><h2>Safety events <span class="d" id="evcount"></span></h2>
+    <div class="scroll"><table><thead><tr><th>Severity</th><th>Kind</th><th>Message</th></tr></thead>
+      <tbody id="events"></tbody></table></div>
+  </section>
+
+  <section class="w8"><h2>Positions</h2>
+    <div class="scroll"><table><thead><tr><th>Symbol</th><th>Qty</th><th>Avg price</th><th>Unrealized</th></tr></thead>
+      <tbody id="positions"></tbody></table></div>
+  </section>
+
+  <section class="w4"><h2>AI insight <span class="d">rules, advice only</span></h2>
+    <ul id="insight"></ul>
+  </section>
+
+  <section class="w8"><h2>Risk limits (saved to config) <span class="d" id="unset"></span></h2>
+    <div class="scroll"><table><thead><tr><th>Limit</th><th>Current value</th></tr></thead>
+      <tbody id="limits"></tbody></table></div>
+  </section>
+
+  <section class="w4"><h2>Set limits</h2>
+    <form id="limitform" autocomplete="off">
+      <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
+        <input type="checkbox" id="lim-blocked" data-limit="blocked"></div>
+      <div class="row"><label for="lim-max_order_quantity">max order quantity (shares)</label>
+        <input type="number" id="lim-max_order_quantity" data-limit="max_order_quantity" min="0" step="1"></div>
+      <div class="row"><label for="lim-max_order_notional">max order notional (₹)</label>
+        <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
+        <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
+        <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
+        <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
+        <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
+      <div class="row"><label for="token">dashboard token</label>
+        <input type="password" id="token" placeholder="kept in memory only"></div>
+      <div class="actions">
+        <button class="go" type="submit">Save limits</button>
+        <span id="msg"></span>
+      </div>
+      <p class="d">Empty = not set (entries fail closed). The token is not stored; reload the page to clear it.</p>
+    </form>
+  </section>
+
+  <section class="w12"><details><summary>Quant system flow (static design diagram)</summary>
+    <div id="flow"></div></details>
+  </section>
+</main>
+
+<script src="/assets/flow_svg.js"></script>
 <script>
-  if (window.FLOW_SVG) document.getElementById("flow").innerHTML = window.FLOW_SVG;
+  const $ = id => document.getElementById(id);
+  const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
+                        "max_daily_loss", "max_strategy_loss", "max_adv_pct"];
+  const POLL_MS = 2000;   // AGENTS: never below 500 ms
+  let showMoney = null;   // from settings.pnl_visible_default on first read
+  let last = null;        // last overview
+  let formLoaded = false; // fill the form once, and again after a save
+
+  const inr = v => v == null ? "—" : "₹" + Number(v).toLocaleString("en-IN", {maximumFractionDigits: 2});
+  const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+  const money = v => showMoney ? inr(v) : "••••";
+  const cell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
+  const sign = v => v == null ? "d" : v > 0 ? "g" : v < 0 ? "r" : "d";
+
+  function setChip(id, text, cls) { const e = $(id); e.textContent = text; e.className = "chip " + cls; }
+
+  function renderTable(body, rows, empty, cols) {
+    body.replaceChildren(...(rows.length ? rows : [emptyRow(cols, empty)]));
+  }
+  function emptyRow(cols, text) {
+    const tr = document.createElement("tr"), td = cell(text, "d");
+    td.colSpan = cols; td.style.textAlign = "left"; tr.append(td); return tr;
+  }
+
+  function render(o) {
+    last = o;
+    setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
+    setChip("kill", o.kill_switch.active ? "KILL SWITCH ON" : "kill switch off", o.kill_switch.active ? "bad" : "on");
+    setChip("feed", "feed " + o.feed.status, "warn");
+    $("killbanner").textContent = o.kill_switch.active ? "Kill switch on: " + o.kill_switch.reason : "";
+    $("killbanner").className = "banner" + (o.kill_switch.active ? " on" : "");
+
+    const p = o.performance, pnl = p.realized_pnl + (p.unrealized_pnl || 0);
+    $("pnl").textContent = money(pnl);
+    $("pnl").className = "big " + sign(pnl);
+    $("realized").textContent = money(p.realized_pnl);
+    $("unrealized").textContent = money(p.unrealized_pnl);
+    $("trades").textContent = String(p.trades);
+    $("winrate").textContent = pct(p.win_rate);
+    $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
+    $("risk").textContent = pct(p.risk_utilisation);
+    $("riskbar").style.width = Math.min(100, (p.risk_utilisation || 0) * 100) + "%";
+    $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
+
+    renderTable($("positions"), o.positions.map(x => {
+      const tr = document.createElement("tr");
+      tr.append(cell(x.symbol), cell(String(x.qty)), cell(inr(x.avg_price)), cell(money(x.unrealized_pnl), sign(x.unrealized_pnl)));
+      return tr;
+    }), "No open positions.", 4);
+
+    renderTable($("events"), o.events.map(e => {
+      const tr = document.createElement("tr");
+      tr.append(cell(e.severity, e.severity === "CRITICAL" ? "r" : e.severity === "WARNING" ? "a" : "d"), cell(e.kind), cell(e.message));
+      return tr;
+    }), "No safety events.", 3);
+    $("evcount").textContent = o.events.length ? o.events.length + " shown" : "";
+
+    $("insight").replaceChildren(...o.insight.map(t => { const li = document.createElement("li"); li.textContent = t; return li; }));
+
+    renderTable($("limits"), Object.entries(o.limits).filter(([k]) => k !== "blocked").map(([k, v]) => {
+      const tr = document.createElement("tr");
+      tr.append(cell(k), v == null ? cell("not set", "r") : cell(String(v)));
+      return tr;
+    }), "No limits.", 2);
+    $("unset").textContent = o.unset_limits.length ? "not set: " + o.unset_limits.join(", ") : "all set";
+
+    if (!formLoaded) fillForm(o.limits);
+  }
+
+  function fillForm(limits) {
+    for (const f of LIMIT_FIELDS) $("lim-" + f).value = limits[f] == null ? "" : String(limits[f]);
+    $("lim-blocked").checked = !!limits.blocked;
+    formLoaded = true;
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch("/api/overview", {cache: "no-store"});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const o = await r.json();
+      if (showMoney === null) showMoney = !!o.settings.pnl_visible_default;
+      render(o);
+      setChip("conn", "live · " + new Date().toLocaleTimeString("en-IN"), "on");
+    } catch (e) {
+      setChip("conn", "API offline (" + e.message + ")", "bad");
+    }
+  }
+
+  function setMsg(text, cls) { const m = $("msg"); m.textContent = text; m.className = cls || ""; }
+
+  async function saveLimits(ev) {
+    ev.preventDefault();
+    const token = $("token").value;
+    if (!token) return setMsg("Enter the dashboard token.", "r");
+    const body = {};
+    for (const f of LIMIT_FIELDS) {
+      const raw = $("lim-" + f).value.trim();
+      if (raw === "") { body[f] = null; continue; }
+      if (!Number.isFinite(Number(raw))) return setMsg(f + " must be a number.", "r");
+      body[f] = Number(raw);
+    }
+    body.blocked = $("lim-blocked").checked;
+    const current = last ? last.limits : {};
+    const changed = Object.keys(body).filter(k => body[k] !== current[k]);
+    if (!changed.length) return setMsg("Nothing to save.", "d");
+    const send = Object.fromEntries(changed.map(k => [k, body[k]]));
+    setMsg("Saving…", "d");
+    try {
+      const r = await fetch("/api/limits", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify(send)});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setMsg("Saved " + Object.keys(j.changed.new).length + " value(s).", "g");
+        formLoaded = false;
+        refresh();
+      } else if (r.status === 401) setMsg("Token rejected.", "r");
+      else if (r.status === 503) setMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setMsg("Save failed: " + e.message, "r");
+    }
+  }
+
+  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
+  $("limitform").addEventListener("submit", saveLimits);
+  if (window.FLOW_SVG) $("flow").innerHTML = window.FLOW_SVG;
+  refresh();
+  setInterval(refresh, POLL_MS);
 </script>
 </body></html>

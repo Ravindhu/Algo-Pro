@@ -165,7 +165,7 @@ Support inputs to backtest and risk:
 | Feed health monitor | Latency, heartbeats, gaps |
 | Trading calendar | Holidays, expiries, lot sizes |
 | Beta limits | Nifty beta, index exposure |
-| Dashboard | JSON API only (`dashboard/app.py`); the HTML page was removed (decision 0020). P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
+| Dashboard | Read and write. Page `/ui` (`src/quant/index.html`) reads `/api/overview` every 2 s and writes limits through `POST /api/limits` (token, decision 0020). `/` is the JSON index. P&L shown by default (decisions 0007, 0008; a toggle can hide it). EV, MAE/MFE and rule compliance removed. MAE/MFE feed the optimizer as parameters |
 | Alerts | Errors by level |
 | Audit log | Immutable, every decision |
 | Broker feeds | Orders, fills, quotes |
