@@ -39,3 +39,11 @@ confirms items 1 to 4.
   The fetch tool cannot open it (not on the allowlist), and no broker connection exists in this environment.
   The NSE page says "Updated on 09/10/2026" but the file name says 12102026, so the date needs checking.
   Owner to send the file, or to confirm the list from the broker. No stock is marked PCAS until then.
+
+## Update 2026-11-06 (eligibility source checked)
+- `Blue_engine/input/master.json` has no SME symbols. It only has a config flag.
+- Vendored OpenAlgo source has no SME exchange code. So the SME tag must be read from the live master data.
+- The OpenAlgo symbol table is `symtoken` (columns: symbol, brsymbol, exchange, brexchange, instrumenttype, lotsize, ...). No series column.
+- Owner query to run on the OpenAlgo machine (DATABASE_URL = sqlite:///db/openalgo.db):
+  `SELECT exchange, brexchange, instrumenttype, COUNT(*) FROM symtoken GROUP BY exchange, brexchange, instrumenttype ORDER BY 4 DESC;`
+  Send the output so the SME tag can be identified. Then the SME symbol list can be exported.
