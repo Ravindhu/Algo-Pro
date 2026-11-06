@@ -1,6 +1,16 @@
-# Decision 0021 (PROPOSED): how the POV engine sends orders (stage 6.5)
+# Decision 0021: how the POV engine sends orders (stage 6.5)
 
-Status: PROPOSED 2026-11-06. Not implemented. Owner approval needed before any code is written.
+Status: ACCEPTED 2026-11-06 (owner chose option A). Implementation in progress, step by step.
+
+## Implementation status (2026-11-06)
+
+- DONE: `OpenAlgoClient.place_child` (MARKET or LIMIT) and `OpenAlgoClient.cancel`, both in
+  `src/quant/execution/openalgo_client.py`. Shared session guard split out as `_check_session_guard`.
+  Tests: `tests/unit/test_live_guard.py` (48 cases in the file incl. older ones).
+- Cancel guard choice: a cancel has no `GateDecision`, because it reduces risk. It still needs live mode,
+  a recorded approval and an unchanged limits file. Owner to confirm this in review.
+- PEG orders: not supported. Need their own note.
+- TODO (next steps): read-only adapter; executor skeleton; port the POV loop and the pure helpers.
 
 ## The problem
 

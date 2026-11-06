@@ -17,6 +17,7 @@ Live order guard (decision 0017, docs/HARDENING_PLAN_2026-11-06.md):
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from dataclasses import dataclass
 from datetime import date
@@ -60,6 +61,7 @@ class OpenAlgoClient:
     """Sends orders to OpenAlgo. Refuses unless every live guard passes (see module doc)."""
 
     PLACE_PATH = "/api/v1/placeorder"
+    CANCEL_PATH = "/api/v1/cancelorder"
 
     def __init__(
         self,
@@ -89,8 +91,8 @@ class OpenAlgoClient:
             raise RuntimeError("OPENALGO_API_KEY is not set")
         return key
 
-    def _check_live_guard(self, intent: TradeIntent, decision: GateDecision) -> None:
-        """Raise PermissionError on the first failed guard. Pure checks, no I/O except the limits hash."""
+    def _check_session_guard(self) -> None:
+        """Session checks shared by every send: live mode, human approval, limits hash. No intent needed."""
         if self.mode != "live":
             raise PermissionError("OpenAlgoClient refuses to send orders unless mode is live")
         if not isinstance(self.live_approval, LiveApproval) or not self.live_approval.approver.strip():
@@ -99,6 +101,10 @@ class OpenAlgoClient:
             raise PermissionError("live trading needs the limits file path to check the approval")
         if file_sha256(self.limits_path) != self.live_approval.limits_sha256:
             raise PermissionError("risk_limits.yaml changed since approval; approval is void")
+
+    def _check_live_guard(self, intent: TradeIntent, decision: GateDecision) -> None:
+        """Raise PermissionError on the first failed guard. Pure checks, no I/O except the limits hash."""
+        self._check_session_guard()
         if not isinstance(decision, GateDecision) or not decision.approved:
             raise PermissionError("order refused: no approved gate decision")
         if decision.intent_id != intent.intent_id:
@@ -119,3 +125,51 @@ class OpenAlgoClient:
             "tag": intent.intent_id,
         }
         return self._transport(self.base_url + self.PLACE_PATH, payload)
+
+    def place_child(
+        self,
+        intent: TradeIntent,
+        api_key: str,
+        decision: GateDecision,
+        price_type: str = "MARKET",
+        limit_price: Optional[float] = None,
+    ) -> Dict:
+        """Send one child order from the POV engine (decision 0021). Same guard as place().
+
+        price_type is MARKET or LIMIT. LIMIT needs a finite, positive limit_price.
+        PEG is not supported yet: it needs its own design note.
+        """
+        if price_type not in ("MARKET", "LIMIT"):
+            raise ValueError(f"unsupported price_type: {price_type!r}")
+        if price_type == "LIMIT" and (limit_price is None or not math.isfinite(limit_price) or limit_price <= 0):
+            raise ValueError("LIMIT child order needs a finite, positive limit_price")
+        self._check_live_guard(intent, decision)
+        if not api_key:
+            raise PermissionError("order refused: empty API key")
+        payload = {
+            "apikey": api_key,
+            "symbol": intent.symbol,
+            "action": intent.side,
+            "quantity": intent.qty,
+            "pricetype": price_type,
+            "product": "MIS",
+            "strategy": intent.strategy_id,
+            "tag": intent.intent_id,
+        }
+        if price_type == "LIMIT":
+            payload["price"] = limit_price
+        return self._transport(self.base_url + self.PLACE_PATH, payload)
+
+    def cancel(self, order_id: str, strategy: str, api_key: str) -> Dict:
+        """Cancel one child order (decision 0021).
+
+        Cancels reduce risk, so there is no GateDecision here. The session guard still applies:
+        live mode, a recorded approval, and an unchanged limits file. Owner to confirm this choice.
+        """
+        self._check_session_guard()
+        if not api_key:
+            raise PermissionError("cancel refused: empty API key")
+        if not order_id:
+            raise ValueError("cancel needs an order_id")
+        payload = {"apikey": api_key, "orderid": str(order_id), "strategy": strategy}
+        return self._transport(self.base_url + self.CANCEL_PATH, payload)
