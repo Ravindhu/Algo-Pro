@@ -1,4 +1,4 @@
-"""P&L shown by default (decision 0007). The flow page is a static diagram (decision 0020).
+"""P&L shown by default (decisions 0007 and 0017). The flow page is a static diagram (decision 0020).
 
 The old simulated dashboard page (dashboard/index.html) was moved out of the served app.
 Its simulated order engine is removed; the file now lives at src/quant/index.html.
@@ -20,6 +20,18 @@ FLOW_JS = ROOT / "dashboard" / "assets" / "flow_svg.js"
 def test_pnl_visible_by_default_in_settings():
     data = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
     assert data["dashboard"]["pnl_visible_default"] is True
+
+
+def test_page_starts_from_the_settings_default():
+    text = PAGE.read_text(encoding="utf-8")
+    assert "showMoney = !!o.settings.pnl_visible_default" in text
+    assert "showMoney = false" not in text
+
+
+def test_page_has_a_hide_show_toggle_for_money():
+    text = PAGE.read_text(encoding="utf-8")
+    assert 'id="toggle"' in text
+    assert "showMoney = !showMoney" in text
 
 
 def test_old_simulated_page_is_gone():
