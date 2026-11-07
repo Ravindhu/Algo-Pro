@@ -40,6 +40,8 @@ def test_returns_transport_answer(ro):
     lambda c: c.quotes("", "INFY", "NSE"),
     lambda c: c.depth("", "INFY", "NSE"),
     lambda c: c.orderbook(""),
+    lambda c: c.funds(""),
+    lambda c: c.positionbook(""),
 ])
 def test_empty_key_refused_without_sending(ro, calls, call):
     with pytest.raises(ValueError, match="empty API key"):
@@ -50,7 +52,7 @@ def test_empty_key_refused_without_sending(ro, calls, call):
 def test_no_order_capable_method_exists():
     """Reads cannot place or cancel: no attribute name carries an order verb."""
     names = [n for n in dir(OpenAlgoReadOnly) if not n.startswith("_") and n.islower()]
-    assert sorted(names) == ["depth", "orderbook", "quotes"]
+    assert sorted(names) == ["depth", "funds", "orderbook", "positionbook", "quotes"]
     for name in names:
         assert not any(verb in name for verb in ("place", "cancel", "modify", "order_", "close", "exit"))
 
@@ -61,3 +63,10 @@ def test_module_names_no_order_route():
 
     src = inspect.getsource(mod).lower()
     assert "placeorder" not in src and "cancelorder" not in src and "modifyorder" not in src
+
+
+def test_funds_and_positionbook_hit_their_read_paths(ro, calls):
+    ro.funds("key")
+    ro.positionbook("key")
+    assert [u for u, _ in calls] == ["http://x/api/v1/funds", "http://x/api/v1/positionbook"]
+    assert calls[0][1] == {"apikey": "key"}

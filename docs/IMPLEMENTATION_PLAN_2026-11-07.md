@@ -62,3 +62,15 @@ Notes:
 - Item 7: no live halt-message field is wired. Only the index-move fallback and the gate check exist.
 - Item 10: `run_paper.py` does not pass funds yet. A live runner must pass funds, or entries are not checked.
 - Item 23: deferred, per owner.
+
+## Update: live read-side wiring
+What is wired now (read-only; no order is sent by these changes):
+- `execution/readonly_client.py`: adds `funds` and `positionbook` read paths (five read paths total).
+- `execution/live_inputs.py`: `LiveReaders` gives funds (fail closed to 0), position per symbol, and open-order check for exits (fail closed to "no retry").
+- `scripts/run_paper.py`: with `--broker analyze`, the gate gets live funds for entries, and exit retries use the live position and open-order readers.
+
+Not done, and why:
+- Live order placement: NOT enabled. It still needs the owner's `LiveApproval` and an approved risk limits file (decision 0017 and the live guard).
+- Halt message source (item 7): OpenAlgo's documented endpoints have no halt field. Only the index-move fallback and manual freeze exist.
+- Orderbook intent tag: not documented. Open-order match is by symbol and side (conservative).
+- The analyze-mode sandbox may return sandbox funds and positions, not the real account. Confirm on the owner machine.

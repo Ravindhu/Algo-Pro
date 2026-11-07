@@ -36,6 +36,8 @@ from quant.execution.openalgo_client import (  # noqa: E402
 )
 from quant.execution.order_fsm import OrderFSM, OrderState  # noqa: E402
 from quant.execution.queue import ApprovedOrderQueue  # noqa: E402
+from quant.execution.live_inputs import LiveReaders  # noqa: E402
+from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.notify.alerts import Alerts  # noqa: E402
 from quant.risk.controls import HaltHandler  # noqa: E402
@@ -94,7 +96,7 @@ def _close_reason(closed: list, skipped: list) -> str:
     return text
 
 
-def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
+def run(signals_csv, limits_path, out_dir, broker=None, readers=None) -> dict:
     """Run one signals file. broker: any object with place(intent, decision) -> result dict.
 
     Result dict keys: status (FILLED / REJECTED / UNKNOWN), order_id, filled_qty, avg_price, reason.
@@ -120,7 +122,8 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
 
     def _submit(intent: TradeIntent) -> None:
         state.open_symbols = _open_symbols(ledger)
-        decision = check_intent(intent, state, limits, kill, safe, halt=halt)
+        funds = readers.funds() if (readers is not None and intent.kind == "entry") else None
+        decision = check_intent(intent, state, limits, kill, safe, available_funds=funds, halt=halt)
         audit.append("decision", {"intent_id": intent.intent_id, "approved": decision.approved,
                                   "reasons": list(decision.reasons)})
         if not decision.approved:
@@ -211,8 +214,12 @@ def main() -> None:
         if not args.base_url:
             p.error("--broker analyze needs --base-url")
         client = OpenAlgoClient(args.base_url, http_transport, mode="analyze")
-        broker = AnalyzeBroker(client, OpenAlgoClient.api_key_from_env())
-    print(json.dumps(run(args.signals, args.limits, args.out, broker=broker), indent=2, default=str))
+        key = OpenAlgoClient.api_key_from_env()
+        readers = LiveReaders(OpenAlgoReadOnly(args.base_url, http_transport), key)
+        broker = AnalyzeBroker(client, key, order_not_placed=readers.not_placed,
+                               position_still_open=readers.still_open)
+    print(json.dumps(run(args.signals, args.limits, args.out, broker=broker,
+                         readers=readers if args.broker == "analyze" else None), indent=2, default=str))
 
 
 if __name__ == "__main__":

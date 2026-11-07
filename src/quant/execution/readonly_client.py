@@ -1,4 +1,4 @@
-"""Read-only OpenAlgo adapter: quotes, depth and orderbook. No order methods (decision 0021).
+"""Read-only OpenAlgo adapter: quotes, depth, orderbook, funds and positionbook. No order methods (decision 0021).
 
 Flow stage: OpenAlgo
 Status: PHASE 3 IMPLEMENTED (read-only; no order route in this module)
@@ -20,6 +20,8 @@ class OpenAlgoReadOnly:
     QUOTES_PATH = "/api/v1/quotes"
     DEPTH_PATH = "/api/v1/depth"
     ORDERBOOK_PATH = "/api/v1/orderbook"
+    FUNDS_PATH = "/api/v1/funds"
+    POSITIONBOOK_PATH = "/api/v1/positionbook"
 
     def __init__(self, base_url: str, transport: Transport) -> None:
         self.base_url = base_url.rstrip("/")
@@ -43,3 +45,11 @@ class OpenAlgoReadOnly:
     def orderbook(self, api_key: str) -> Dict:
         self._need_key(api_key)
         return self._transport(self.base_url + self.ORDERBOOK_PATH, {"apikey": api_key})
+
+    def funds(self, api_key: str) -> Dict:
+        self._need_key(api_key)
+        return self._transport(self.base_url + self.FUNDS_PATH, {"apikey": api_key})
+
+    def positionbook(self, api_key: str) -> Dict:
+        self._need_key(api_key)
+        return self._transport(self.base_url + self.POSITIONBOOK_PATH, {"apikey": api_key})
