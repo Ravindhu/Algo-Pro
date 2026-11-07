@@ -1,6 +1,6 @@
 # FastAPI Dashboard Plan
 
-Status: D1-D4 DONE; D5 (commit and push) in progress (2026-11-05)
+Status: D1-D5 DONE (2026-11-05). Later changes: decision 0020 (API only, limits, kill switch), decision 0027 (main dashboard at `/ui`), decision 0028 (paper and live mode). Current status: `docs/IMPLEMENTATION_PLAN_2026-11-07.md`.
 Owner request: "I need Make fast api ai dashboard".
 Rules: AGENTS.md "Use Fast api dashboard" (dashboard section), rule 8 (P&L shown by default; no EV, MAE/MFE, rule compliance), and the error-monitoring section.
 
@@ -35,3 +35,8 @@ The dashboard never sends orders. It only reads files.
 ## Work log
 - 2026-11-05: plan written. D1-D4 built. Tests: 248 passed, 70 failed (same openalgo set), 36 skipped.
 - Not verified here: FastAPI routes and the page in a browser (FastAPI not installed in the sandbox). Owner must run `python dashboard/app.py` and open http://127.0.0.1:8050.
+
+## Update 2026-11-07
+- The page is `dashboard/main_dashboard.html`, served at `/ui`. The old `src/quant/index.html` is deleted.
+- Done since 2026-11-05: wired page (overview, limits, kill switch, trade setup), realized equity curve, paper and live mode buttons (live refused), FLOW popup.
+- Still open: START/STOP, live neural shell, screener data, holiday-aware market hours, flow popup from the SVG.

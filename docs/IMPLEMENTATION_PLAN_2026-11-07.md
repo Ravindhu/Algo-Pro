@@ -114,3 +114,35 @@ Still open: START and STOP. They need a design decision first (see the chat).
 | Item | What | Where | Test |
 |---|---|---|---|
 | Mode buttons | PAPER and LIVE in the header. Backend: GET and POST `/api/trading-mode`. LIVE is always refused (409) | `src/quant/core/trading_mode.py`, `dashboard/app.py`, `dashboard/main_dashboard.html`, decision `0028` | `tests/unit/test_trading_mode.py`, `tests/unit/test_pnl_visible.py` |
+
+## Current status: dashboard (consolidated, 2026-11-07)
+
+Living status. Older sections above are the batch log.
+
+### What is live (served at `/ui`)
+- The page is `dashboard/main_dashboard.html` (decision 0027). The old page `src/quant/index.html` is deleted.
+- Reads `/api/overview` every 2 s: mode, kill switch, feed, realized and unrealized P&L (hidden by default from settings), win rate, profit factor, risk used, open positions, safety events, AI insight (rules only), current limits, realized equity curve with max drawdown.
+- Writes, each with the token in the header and an audit record: limits (`/api/limits`), kill switch trip and reset (`/api/kill/*`, reason required, confirm), trade setup (`/api/setup`), and paper or live mode (`/api/trading-mode`, decision 0028).
+- LIVE is always refused (409). Live needs LiveApproval (decision 0017), which the dashboard never creates.
+- Flow popup: hand-drawn v5 layout (decision 0027). Not generated from the SVG yet.
+
+### Not built or not live (open)
+| Item | Why | Needs |
+|---|---|---|
+| START / STOP (background paper loop) | No live signal source. Loop design needs two answers (signal input, paper-only) | Owner decision (option B) |
+| Neural shell values | Layout only | Backend feed for each node |
+| Screener table | Removed from the page; no backend data | Screener output wired to an endpoint |
+| Market hours | Hours only (09:15-15:30 IST, Mon-Fri). Exchange holidays not checked | Holiday list from `config/` |
+| Equity curve, unrealized | Realized only. Past prices are not stored | Price history store |
+| Flow popup from the SVG | Hand-drawn copy | Generate from `quant_system_flow_v5.svg` |
+| Live trading | Refused by design | Decision 0017 flow, owner approval |
+
+### Test state (this commit)
+- Passing in the sandbox: `test_dashboard_data`, `test_trading_mode`, `test_pnl_visible`, `test_main_dashboard`, `test_layout`.
+- Skipped here: FastAPI route tests (`test_dashboard_app.py`). FastAPI is not installed in the sandbox. Run them on the owner machine after `pip install -r requirements.txt`.
+- Full `tests/unit`: 27 failures in the HRP set, same as before this dashboard work.
+
+### Next decisions for the owner
+1. START / STOP: choose option A, B or C (see chat).
+2. Holiday list source for market hours.
+3. Screener and neural-shell data: which endpoint to add.

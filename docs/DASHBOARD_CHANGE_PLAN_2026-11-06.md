@@ -2,6 +2,7 @@
 
 Decision: `docs/decisions/0020-dashboard-api-only-user-limits-kill-switch.md` (owner answers in its "Owner answers" section).
 Status: items D1 to D10 are implemented. Owner test run on the owner machine is still needed (see test state).
+Update 2026-11-07: the page in D3 and D9 (`src/quant/index.html`) was replaced by `dashboard/main_dashboard.html` (decision 0027). `/ui` serves the main page. Mode buttons: decision 0028.
 
 | ID | Change | Files | Status |
 |---|---|---|---|
