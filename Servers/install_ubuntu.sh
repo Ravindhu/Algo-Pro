@@ -330,7 +330,7 @@ print('LEDGER_AVAILABLE=%s' % L._LEDGER_AVAILABLE)
   ok "engine import probe: $ENGINE_CHECK  (LEDGER_AVAILABLE=False is correct: in-memory authoritative)"
 else
   warn "Blue_engine/pyproject.toml not found - skipping engine install"
-  warn "clone the repo into $INSTALL_ROOT (install.sh does this), then re-run"
+  warn "clone the repo into $INSTALL_ROOT (launch_ubuntu_server.sh does this), then re-run"
 fi
 
 # ------------------------------------------------------------------ systemd

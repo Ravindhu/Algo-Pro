@@ -34,8 +34,20 @@
 #   AGENTS.md rule ("must not automatically resume live trading"), not an
 #   oversight - do not "fix" it by enabling the unit.
 #
+# THE ONE SCRIPT (install + update + start). Run it again any time - it is safe.
+#   * Repo missing at INSTALL_ROOT?  clones it there, then runs that copy.
+#   * Platform not installed?        installs it (stage 2).
+#   * Platform installed?            safe update: fast-forward only, refuses during
+#                                    NSE hours (09:15-15:30 IST) or while pov-runner
+#                                    runs, then restarts openalgo, openalgo-ws, pov-dash.
+#
+# FRESH SERVER (two lines)
+#   git clone https://github.com/Ravindhu/Algo-Pro.git /opt/my-trading-system
+#   sudo bash /opt/my-trading-system/Servers/launch_ubuntu_server.sh --domain trade.example.com --email you@example.com
+#
 # USAGE
-#   sudo bash Servers/launch_ubuntu_server.sh
+#   sudo bash Servers/launch_ubuntu_server.sh --domain trade.example.com --email you@example.com
+#   sudo bash Servers/launch_ubuntu_server.sh --allow-plain-http  # LAN lab only, no TLS
 #   sudo bash Servers/launch_ubuntu_server.sh --skip-platform     # remote only
 #   sudo bash Servers/launch_ubuntu_server.sh --skip-desktop
 #   sudo bash Servers/launch_ubuntu_server.sh --rdp-allow 203.0.113.7/32
@@ -69,6 +81,9 @@ DRY_RUN=0
 START_ENGINE=0
 RDP_ALLOW=""
 DESKTOP_ARGS=()
+PLATFORM_ARGS=()          # passed to install_ubuntu.sh (TLS, domain)
+REPO_URL="https://github.com/Ravindhu/Algo-Pro.git"
+ORIG_ARGS=("$@")          # kept for the bootstrap re-run below
 
 FAILURES=()
 
@@ -95,7 +110,10 @@ while [[ $# -gt 0 ]]; do
     --allow-any-rdp)  DESKTOP_ARGS+=("--allow-any-rdp"); shift ;;
     --no-chrome)      DESKTOP_ARGS+=("--no-chrome"); shift ;;
     --no-rdp)         DESKTOP_ARGS+=("--no-rdp"); shift ;;
-    -h|--help)        sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --domain)         PLATFORM_ARGS+=("--domain" "${2:-}"); shift 2 ;;
+    --email)          PLATFORM_ARGS+=("--email" "${2:-}"); shift 2 ;;
+    --allow-plain-http) PLATFORM_ARGS+=("--allow-plain-http"); shift ;;
+    -h|--help)        sed -n '2,70p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -119,6 +137,42 @@ if [[ -f "$SCRIPT_DIR/deploy.env" ]]; then
       MTS_WS_PORT)       [[ -n "$_v" ]] && WS_PORT="$_v" ;;
     esac
   done < <(grep -E '^[A-Z_]+=' "$SCRIPT_DIR/deploy.env" 2>/dev/null || true)
+fi
+
+# run a command as the service user when that user exists (git pulls, pip)
+as_service() {
+  if id -u "$SERVICE_USER" >/dev/null 2>&1; then sudo -u "$SERVICE_USER" "$@"; else "$@"; fi
+}
+
+# -----------------------------------------------------------------------------
+# BOOTSTRAP - make sure the repo lives at INSTALL_ROOT, then run that copy.
+# Replaces the old install.sh clone shim. MTS_REEXEC stops any loop.
+# -----------------------------------------------------------------------------
+if [[ "$REPO_ROOT" != "$INSTALL_ROOT" && -z "${MTS_REEXEC:-}" ]]; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    note "[dry-run] would clone or pull $REPO_URL into $INSTALL_ROOT and re-run from there"
+  else
+    if ! command -v git >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq && apt-get install -y -qq git ca-certificates >/dev/null \
+        || { echo "[ABORT] could not install git" >&2; exit 1; }
+    fi
+    if [[ -d "$INSTALL_ROOT/.git" ]]; then
+      as_service git -C "$INSTALL_ROOT" pull --ff-only \
+        || echo "[WARN] repo not updated in $INSTALL_ROOT - kept current code" >&2
+    elif [[ -e "$INSTALL_ROOT" && -n "$(ls -A "$INSTALL_ROOT" 2>/dev/null || true)" ]]; then
+      echo "[ABORT] $INSTALL_ROOT exists and is not a git checkout. Move it aside." >&2
+      exit 1
+    else
+      git clone --depth 1 "$REPO_URL" "$INSTALL_ROOT" \
+        || { echo "[ABORT] git clone failed" >&2; exit 1; }
+    fi
+    if [[ ! -f "$INSTALL_ROOT/Servers/deploy.env" && -f "$REPO_ROOT/Servers/deploy.env" ]]; then
+      install -m 600 "$REPO_ROOT/Servers/deploy.env" "$INSTALL_ROOT/Servers/deploy.env"
+    fi
+    export MTS_REEXEC=1
+    exec bash "$INSTALL_ROOT/Servers/launch_ubuntu_server.sh" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
+  fi
 fi
 
 printf '\n%s\n%s\n' "================================================================" \
@@ -171,17 +225,48 @@ elif [[ "$RUN_PLATFORM" -eq 1 ]]; then
   note "scp -r .\\_restored\\.env .\\_restored\\db user@<vps>:/tmp/mts-state/"
 fi
 
+# -----------------------------------------------------------------------------
+# UPDATE - used when the platform is already installed (stage 2 calls this).
+# Same gates as scripts/ops/upgrade_openalgo.ps1: no update in NSE hours, never
+# touch a running engine, fast-forward only. pov-runner is never restarted here.
+# Exchange holidays are not checked, so run it outside hours on any day.
+# -----------------------------------------------------------------------------
+update_platform() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then note "[dry-run] would update the platform"; return 0; fi
+  local dow hm oa_venv="$INSTALL_ROOT/openalgo/.venv"
+  dow="$(TZ=Asia/Kolkata date +%u)"
+  hm="$(TZ=Asia/Kolkata date +%H%M)"
+  if (( dow <= 5 )) && (( 10#$hm >= 915 && 10#$hm <= 1530 )); then
+    warn "update refused: NSE market hours (09:15-15:30 IST). Run it after 15:30."
+    return 0
+  fi
+  if systemctl is-active --quiet pov-runner; then
+    warn "update refused: pov-runner is running. Stop it first: sudo systemctl stop pov-runner"
+    return 0
+  fi
+  as_service git -C "$INSTALL_ROOT" pull --ff-only || warn "repo pull failed - kept current code"
+  as_service git -C "$INSTALL_ROOT/openalgo" pull --ff-only || warn "openalgo pull failed - kept current code"
+  as_service "$oa_venv/bin/python" -m pip install -q -r "$INSTALL_ROOT/openalgo/requirements.txt" \
+    || { fail "pip install (openalgo requirements) failed"; return 0; }
+  if [[ -f "$INSTALL_ROOT/Blue_engine/pyproject.toml" ]]; then
+    as_service "$oa_venv/bin/python" -m pip install -q -e "$INSTALL_ROOT/Blue_engine[charts]" \
+      || { fail "pip install (Blue_engine) failed"; return 0; }
+  fi
+  systemctl restart openalgo openalgo-ws pov-dash || warn "restart of platform units failed"
+  ok "platform updated and restarted (pov-runner untouched)"
+}
+
 # =============================================================================
 # STAGE 2 - Platform
 # =============================================================================
 step "2/6  Platform (OpenAlgo + blue_engine + nginx + systemd)"
 if [[ "$RUN_PLATFORM" -eq 1 ]]; then
-  # install_ubuntu.sh refuses a non-empty install root. If the layout is
-  # already there, the platform is already installed - skip rather than die.
   if [[ -d "$INSTALL_ROOT/openalgo/.git" ]]; then
-    ok "platform already installed at $INSTALL_ROOT - skipping installer"
+    ok "platform already installed at $INSTALL_ROOT - running the safe update"
+    update_platform
   else
     run env DEBIAN_FRONTEND=noninteractive bash "$SCRIPT_DIR/install_ubuntu.sh" \
+      "${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"}" \
       || fail "install_ubuntu.sh failed (stage 2)"
   fi
 else

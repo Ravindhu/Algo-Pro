@@ -88,7 +88,8 @@ flowchart LR
 ├── pyproject.toml               # package metadata, pytest config (new, replaces ad-hoc setup)
 ├── .env.example                 # template only; real .env is gitignored
 ├── .gitignore  .gitattributes  .gitmodules
-├── install.sh  install.bat
+├── install.bat                  # ONE Windows script (install, update, start)
+│   └── Servers/launch_ubuntu_server.sh  # ONE Ubuntu script
 │
 ├── config/
 │   ├── settings.yaml

@@ -63,8 +63,10 @@ sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
 ### Or ONE command (this section's recommended path)
 
 ```bash
-sudo bash Servers/launch_ubuntu_server.sh            # platform + desktop/remote + schedules
-sudo bash Servers/launch_ubuntu_server.sh --rdp-allow 203.0.113.7/32   # + RDP for your IP
+git clone https://github.com/Ravindhu/Algo-Pro.git /opt/my-trading-system   # once
+sudo bash /opt/my-trading-system/Servers/launch_ubuntu_server.sh --domain trade.example.com --email you@example.com
+# re-run the same command any time = safe update (see INSTALL.md)
+# RDP for your IP: add --rdp-allow 203.0.113.7/32
 ```
 
 `launch_ubuntu_server.sh` runs six stages: preflight, `install_ubuntu.sh`,

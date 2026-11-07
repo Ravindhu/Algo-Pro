@@ -123,8 +123,7 @@ left open — the services run detached and keep running after you close it.
 # Start everything
 .\.venv\Scripts\python.exe scripts\ops\start_all.py
 
-# ...or double-click:
-scripts\ops\START_ALL.cmd
+# ...or double-click install.bat (installs, updates and starts)
 ```
 
 | Port | Service | Needed for |
@@ -1345,3 +1344,16 @@ Plain-English summary: the `rich` terminal console (`Blue_engine/dashboard/`, co
 - Preset watchlists: `resolve_watchlist` moved to `Blue_engine/screener/watchlist.py` unchanged. Known gap: `blue_engine/screener/presets.py` is not in the repo, so a preset name returns no rows (this was already true before).
 
 **Not run here:** the Blue_engine test suite (needs `openalgo`), the VPS installer, the Windows installers, and Docker.
+
+## 22. One script per OS: install, update, start (2026-11-07)
+
+- **Windows:** `install.bat` (double-click). Updates the repo, installs what is
+  missing, runs the safe OpenAlgo upgrade when OpenAlgo exists, then starts the stack.
+- **Ubuntu:** `Servers/launch_ubuntu_server.sh`. Clones the repo if missing,
+  installs the platform, or does a gated update when it exists (refuses in NSE
+  hours or while `pov-runner` runs). Restarts `openalgo`, `openalgo-ws`, `pov-dash`
+  only.
+- Retired (moved to `Temp/archive/2026-11-07/installers/`): `install.sh`,
+  `scripts/ops/START_ALL.cmd`, `scripts/ops/START_OPENALGO.bat`.
+- Kept as shims for scheduled tasks: `scripts/start_openalgo.py`, `scripts/upgrade_openalgo.ps1`.
+- Not run here: the Windows `.bat` and a real Ubuntu install. Owner test pending.
