@@ -22,7 +22,7 @@ with a feedback loop back into research.
 | Costs | Indian cost model; exchange charge 0.00307% per side (NSE circular FA73061). Hand-checked tests. |
 | Risk limits | Starter minimums approved for paper. Live values = same values; live still blocked. `config/risk_limits.yaml`. |
 | Model registry | Human sign-off required before promotion. `src/quant/feedback/champion_challenger.py`. |
-| Dashboard | FastAPI, read-only. P&L shown by default. |
+| Dashboard | FastAPI, read and write (limits and kill switch, token-protected). P&L visible by default. |
 | Tests | Sandbox: `pytest tests/unit` 27 failed, 424 passed, 18 skipped. All 27 failures are the missing `httpx` package (HRP via Blue bridge). `pytest tests/parity` passes, including the money-check parity (34,560 cases, zero differences). Owner machine run pending. |
 | Risk money checks | Ported out of Blue_engine (decision 0018). `src/quant/risk/money_checks.py`. Owner sign-off pending. |
 | Live order guard | Live orders need a human `LiveApproval` tied to the current risk limits file, and an approved gate decision for the same intent. Still not enabled. `src/quant/execution/openalgo_client.py`. |
