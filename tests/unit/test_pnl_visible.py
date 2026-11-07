@@ -48,9 +48,10 @@ def test_page_has_no_order_code_or_simulated_data():
 def test_page_reads_overview_and_writes_only_known_routes():
     text = PAGE.read_text(encoding="utf-8")
     assert 'fetch("/api/overview"' in text
-    routes = set(re.findall(r'"(/api/[\w/]+)"', text))
-    assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup"}
-    assert text.count('method: "POST"') == 3  # saveLimits, postKill, saveSetup only
+    routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
+    assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup",
+                      "/api/trading-mode"}
+    assert text.count('method: "POST"') == 4  # saveLimits, postKill, saveSetup, postMode only
     assert '"X-Dashboard-Token"' in text
 
 

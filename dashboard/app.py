@@ -34,6 +34,7 @@ from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
+from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
 
 TOKEN_ENV = "DASHBOARD_API_TOKEN"
 TOKEN_HEADER = "X-Dashboard-Token"
@@ -57,7 +58,7 @@ API_INDEX = {
     "endpoints": [
         "/api/overview", "/api/positions", "/api/events", "/api/health", "/api/kill", "/api/setup",
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
-        "POST /api/setup (token)",
+        "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live refused)",
     ],
 }
 
@@ -88,6 +89,7 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     )
     overview["settings"] = read_settings(paths["settings"])
     overview["feed"] = {"status": "not connected", "note": "No live feed exists yet (paper data only)."}
+    overview["trading_mode"] = trading_mode_status()
     return overview
 
 
@@ -202,6 +204,28 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
                                             "new": {"max_symbols_per_portfolio": result["new"]["max_symbols_per_portfolio"]},
                                             "actor": ACTOR})
         return JSONResponse({"changed": result})
+
+    @app.get("/api/trading-mode")
+    def trading_mode():
+        return JSONResponse(trading_mode_status())
+
+    @app.post("/api/trading-mode")
+    async def set_trading_mode(request: Request):
+        """Select paper. Live is always refused here (decisions 0017 and 0028). Needs the token."""
+        denied = token_error(request)
+        if denied is not None:
+            return denied
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        mode = body.get("mode") if isinstance(body, dict) else None
+        accepted, message = request_mode(mode)
+        AuditLog(paths["audit"]).append("trading_mode_requested",
+                                        {"requested": mode, "accepted": accepted, "message": message, "actor": ACTOR})
+        if not accepted:
+            return JSONResponse({"error": message}, status_code=409 if mode == "live" else 422)
+        return JSONResponse({"mode": "paper", "message": message})
 
     @app.get("/api/overview")
     def overview():

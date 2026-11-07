@@ -14,6 +14,8 @@
   .chip.warn { color: var(--warn); border-color: var(--warn); }
   .chip.bad { color: var(--bad); border-color: var(--bad); }
   .sp { flex: 1; }
+  .modes button.on { background: var(--ok); color: #03140d; border-color: var(--ok); font-weight: 700; }
+  .modes button.off { color: var(--dim); border-color: var(--line); }
   button { font: inherit; background: transparent; color: var(--cyan); border: 1px solid var(--cyan); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
   button:disabled { color: var(--dim); border-color: var(--line); cursor: default; }
   button.kill { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
@@ -94,6 +96,11 @@
   <span class="chip" id="feed">feed —</span>
   <span class="chip" id="market">market —</span>
   <span class="chip" id="conn">connecting…</span>
+  <span class="modes">
+    <button id="mode-paper" type="button" class="on" title="Paper trading (simulated, no broker orders)">PAPER</button>
+    <button id="mode-live" type="button" class="off" title="Refused: live needs owner approval (decision 0017)">LIVE</button>
+  </span>
+  <span id="modemsg" class="d"></span>
   <span class="sp"></span>
   <button id="toggle" type="button">Hide ₹</button>
   <button id="flowbtn" type="button">FLOW</button>
@@ -329,8 +336,37 @@
     setChip("market", open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED", open ? "ok" : "d");
   }
 
+  function renderMode(m) {
+    const paper = $("mode-paper"), live = $("mode-live");
+    paper.className = m.mode === "paper" ? "on" : "off";
+    live.className = m.mode === "live" ? "on" : "off";
+    live.title = m.live_allowed ? "Live selected" : "Refused: " + m.reason;
+  }
+
+  function modeMsg(text, cls) { const m = $("modemsg"); m.textContent = text; m.className = "d " + (cls || ""); }
+
+  async function postMode(mode) {
+    const token = $("token").value;
+    if (!token) return modeMsg("Enter the dashboard token in the header.", "r");
+    try {
+      const r = await fetch("/api/trading-mode", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({mode})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { modeMsg(j.message, "g"); refresh(); }
+      else if (r.status === 401) modeMsg("Token rejected.", "r");
+      else if (r.status === 503) modeMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else modeMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      modeMsg("Failed: " + e.message, "r");
+    }
+  }
+  $("mode-paper").onclick = () => postMode("paper");
+  $("mode-live").onclick = () => postMode("live");
+
   function render(o) {
     last = o;
+    if (o.trading_mode) renderMode(o.trading_mode);
     setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
     setChip("kill", o.kill_switch.active ? "KILL SWITCH ON" : "kill switch off", o.kill_switch.active ? "bad" : "on");
     setChip("feed", "feed " + o.feed.status, "warn");

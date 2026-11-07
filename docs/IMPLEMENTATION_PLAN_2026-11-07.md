@@ -109,3 +109,8 @@ Open:
 | Equity curve | Realized P&L after each closed trade, from 0, with max drawdown. Shown on the main page | `src/quant/reporting/dashboard_data.py` (`equity_curve`), `dashboard/main_dashboard.html` | `tests/unit/test_dashboard_data.py` |
 
 Still open: START and STOP. They need a design decision first (see the chat).
+
+## Update: paper and live mode on the dashboard (2026-11-07)
+| Item | What | Where | Test |
+|---|---|---|---|
+| Mode buttons | PAPER and LIVE in the header. Backend: GET and POST `/api/trading-mode`. LIVE is always refused (409) | `src/quant/core/trading_mode.py`, `dashboard/app.py`, `dashboard/main_dashboard.html`, decision `0028` | `tests/unit/test_trading_mode.py`, `tests/unit/test_pnl_visible.py` |
