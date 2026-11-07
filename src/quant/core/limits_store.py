@@ -45,9 +45,9 @@ def validate_limit_updates(updates: Mapping[str, Any]) -> Dict[str, Any]:
                 raise ValueError(f"{key} must be zero or more")
             if key == "max_adv_pct" and value > 1:
                 raise ValueError("max_adv_pct must be between 0 and 1")
-            if key == "max_order_quantity":
+            if key in ("max_order_quantity", "max_symbols_per_portfolio"):
                 if float(value) != int(value):
-                    raise ValueError("max_order_quantity must be a whole number")
+                    raise ValueError(f"{key} must be a whole number")
                 value = int(value)
         clean[key] = value
     return clean

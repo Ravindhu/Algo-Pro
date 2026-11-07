@@ -88,7 +88,7 @@
       <button class="go" id="setupsave" type="submit">Save setup</button>
       <span id="setupmsg"></span>
     </div>
-    <p class="d">Risk per trade is read by the sizing code. Max symbols and strategy are saved only: the Risk gate does not enforce the trade cap yet, and no engine stage acts on the strategy yet.</p>
+    <p class="d">Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
   </form>
 </div>
 
@@ -151,6 +151,8 @@
         <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
       <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
         <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
+      <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
+        <input type="number" id="lim-max_symbols_per_portfolio" data-limit="max_symbols_per_portfolio" min="0" step="1"></div>
       <div class="actions">
         <button class="go" type="submit">Save limits</button>
         <span id="msg"></span>
@@ -168,7 +170,7 @@
 <script>
   const $ = id => document.getElementById(id);
   const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
-                        "max_daily_loss", "max_strategy_loss", "max_adv_pct"];
+                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio"];
   const POLL_MS = 2000;   // AGENTS: never below 500 ms
   let showMoney = null;   // from settings.pnl_visible_default on first read
   let last = null;        // last overview

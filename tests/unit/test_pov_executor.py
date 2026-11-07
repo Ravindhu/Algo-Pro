@@ -42,7 +42,7 @@ PARENT = TradeIntent(intent_id="P1", strategy_id="S1", symbol="INFY", side="BUY"
                      circuit_pct=20.0, adv_shares=1_000_000.0)
 
 LIMITS = RiskLimits(max_order_quantity=1000, max_order_notional=10_000_000.0,
-                    max_open_exposure=1e9, max_daily_loss=1e6, max_strategy_loss=1e6,
+                    max_symbols_per_portfolio=10, max_open_exposure=1e9, max_daily_loss=1e6, max_strategy_loss=1e6,
                     max_adv_pct=0.5)
 
 

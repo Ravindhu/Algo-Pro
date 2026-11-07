@@ -19,7 +19,7 @@ from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 
 FULL = RiskLimits(
-    max_order_quantity=1000, max_order_notional=5e6, max_open_exposure=2e7,
+    max_order_quantity=1000, max_order_notional=5e6, max_symbols_per_portfolio=10, max_open_exposure=2e7,
     max_daily_loss=1e5, max_strategy_loss=5e4, max_adv_pct=0.05,
 )
 RESULTS_DAY = date(2026, 11, 10)

@@ -21,6 +21,7 @@ from quant.risk.liquidity import liquidity_checks
 from quant.risk.loss_breaker import loss_checks
 from quant.risk.pretrade import pretrade_checks
 from quant.risk.price_band import price_band_checks
+from quant.risk.symbol_cap import symbol_cap_checks
 
 
 @dataclass
@@ -31,6 +32,8 @@ class RiskState:
     seen_ids: Set[str] = field(default_factory=set)
     # Symbol -> dates when new entries are blocked (from event_blackout_dates).
     blackout_dates: Dict[str, Set[date]] = field(default_factory=dict)
+    # Symbols with a non-zero net position in the ledger (for max_symbols_per_portfolio).
+    open_symbols: Set[str] = field(default_factory=set)
 
 
 def check_intent(
@@ -64,6 +67,8 @@ def check_intent(
         elif in_event_blackout(intent.trade_day, blocked):
             reasons.append(f"event blackout on {intent.trade_day.isoformat()} for {intent.symbol}")
 
+    if is_entry:
+        reasons += symbol_cap_checks(intent, state.open_symbols, limits)
     reasons += pretrade_checks(intent, limits)
     reasons += price_band_checks(intent)
     reasons += liquidity_checks(intent, limits)

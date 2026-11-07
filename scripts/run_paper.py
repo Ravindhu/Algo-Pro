@@ -76,6 +76,15 @@ def _last_fill_prices(ledger: Ledger) -> dict:
     return prices
 
 
+def _open_symbols(ledger: Ledger) -> set:
+    """Symbols with a non-zero net filled quantity. Used by the symbol cap in the Risk gate."""
+    net: dict = {}
+    for e in ledger.events():
+        if e.get("event") == "fill":
+            net[e["symbol"]] = net.get(e["symbol"], 0) + int(e["signed_qty"])
+    return {sym for sym, qty in net.items() if qty != 0}
+
+
 def _close_reason(closed: list, skipped: list) -> str:
     text = f"closed {len(closed)} position(s): {', '.join(closed) or 'none'}"
     if skipped:
@@ -104,6 +113,7 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
     flattened = False
 
     def _submit(intent: TradeIntent) -> None:
+        state.open_symbols = _open_symbols(ledger)
         decision = check_intent(intent, state, limits, kill, safe)
         audit.append("decision", {"intent_id": intent.intent_id, "approved": decision.approved,
                                   "reasons": list(decision.reasons)})

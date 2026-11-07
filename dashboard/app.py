@@ -182,7 +182,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.get("/api/setup")
     def setup_status():
-        return JSONResponse(read_setup(paths["settings"], paths["strategies"]))
+        return JSONResponse(read_setup(paths["settings"], paths["strategies"], paths["limits"]))
 
     @app.post("/api/setup")
     async def setup_save(request: Request):
@@ -192,10 +192,15 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             return denied
         try:
             body = await request.json()
-            result = apply_setup_updates(paths["settings"], paths["strategies"], body)
+            result = apply_setup_updates(paths["settings"], paths["strategies"], paths["limits"], body)
         except ValueError as exc:  # JSON errors are ValueError subclasses too
             return JSONResponse({"error": str(exc)}, status_code=422)
-        AuditLog(paths["audit"]).append("setup_changed", {**result, "actor": ACTOR})
+        audit = AuditLog(paths["audit"])
+        audit.append("setup_changed", {**result, "actor": ACTOR})
+        if "max_symbols_per_portfolio" in result["new"]:  # the cap is a risk limit
+            audit.append("limits_changed", {"old": {"max_symbols_per_portfolio": result["old"]["max_symbols_per_portfolio"]},
+                                            "new": {"max_symbols_per_portfolio": result["new"]["max_symbols_per_portfolio"]},
+                                            "actor": ACTOR})
         return JSONResponse({"changed": result})
 
     @app.get("/api/overview")

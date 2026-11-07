@@ -1,13 +1,14 @@
-"""Trade setup: risk per trade, max symbols per portfolio, strategy. Saved to config/settings.yaml.
+"""Trade setup from the dashboard panel: risk per trade, max symbols per portfolio, strategy.
 
 Owner request 2026-11-07. A person sets these through the dashboard API (token required).
-- sizing.risk_per_trade: read by RiskLimits.risk_per_trade(), so the saved value is used by code.
-- trade_setup.max_symbols_per_portfolio and trade_setup.strategy: saved only. The Risk gate does not
-  enforce the trade cap yet, and no engine stage acts on the strategy choice yet.
+- sizing.risk_per_trade in config/settings.yaml: read by RiskLimits.risk_per_trade().
+- max_symbols_per_portfolio: a risk limit in config/risk_limits.yaml. Saved through limits_store,
+  and enforced by the Risk gate (risk/symbol_cap.py). Null (not set) blocks new symbols.
+- trade_setup.strategy in config/settings.yaml: saved only. No engine stage uses it yet.
 Writes are atomic. Other keys are kept. Comments in settings.yaml are not kept on save.
 
-Flow stage: Dashboard
-Status: PHASE 3 IMPLEMENTED (config only)
+Flow stage: Risk gate
+Status: PHASE 3 IMPLEMENTED
 """
 from __future__ import annotations
 
@@ -18,8 +19,11 @@ from typing import Any, Dict, List, Mapping
 
 import yaml
 
+from quant.core.config import RiskLimits
+from quant.core.limits_store import apply_limit_updates
+
 HEADER = (
-    "# Global settings. trade_setup and sizing are set through the dashboard API (token required).\n"
+    "# Global settings. sizing and trade_setup are set through the dashboard API (token required).\n"
     "# Other keys are edited by hand.\n"
 )
 DEFAULT_RISK = 0.0025
@@ -42,15 +46,17 @@ def _load(path: Path) -> Dict[str, Any]:
     return dict(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
 
-def read_setup(settings_path, strategies_dir) -> Dict[str, Any]:
+def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
     """Current setup for the page. Unset values come back as null (risk falls back to the default)."""
     data = _load(Path(settings_path))
     risk = (data.get("sizing") or {}).get("risk_per_trade", DEFAULT_RISK)
-    trade = data.get("trade_setup") or {}
+    symbols = None
+    if Path(limits_path).exists():
+        symbols = RiskLimits.from_yaml(limits_path).max_symbols_per_portfolio
     return {
         "risk_per_trade": risk,
-        "max_symbols_per_portfolio": trade.get("max_symbols_per_portfolio"),
-        "strategy": trade.get("strategy"),
+        "max_symbols_per_portfolio": symbols,
+        "strategy": (data.get("trade_setup") or {}).get("strategy"),
         "strategies": strategy_names(strategies_dir),
     }
 
@@ -80,26 +86,30 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
     return clean
 
 
-def apply_setup_updates(settings_path, strategies_dir, updates: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """Merge validated updates into settings.yaml. Returns {"old": {...}, "new": {...}}."""
-    path = Path(settings_path)
+def apply_setup_updates(settings_path, strategies_dir, limits_path,
+                        updates: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Save validated updates. Returns {"old": {...}, "new": {...}} for the changed keys."""
+    settings = Path(settings_path)
     clean = validate_setup_updates(updates, strategy_names(strategies_dir))
-    current = _load(path)
-    sizing = dict(current.get("sizing") or {})
-    trade = dict(current.get("trade_setup") or {})
     old: Dict[str, Any] = {}
-    if "risk_per_trade" in clean:
-        old["risk_per_trade"] = sizing.get("risk_per_trade")
-        sizing["risk_per_trade"] = clean["risk_per_trade"]
-    for key in ("max_symbols_per_portfolio", "strategy"):
-        if key in clean:
-            old[key] = trade.get(key)
-            trade[key] = clean[key]
-    current["sizing"] = sizing
-    current["trade_setup"] = trade
-    body = HEADER + yaml.safe_dump(current, sort_keys=False)
-    tmp = path.with_name(path.name + ".tmp")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp.write_text(body, encoding="utf-8")
-    os.replace(tmp, path)
+    if "max_symbols_per_portfolio" in clean:
+        limit_result = apply_limit_updates(limits_path, {"max_symbols_per_portfolio": clean["max_symbols_per_portfolio"]})
+        old["max_symbols_per_portfolio"] = limit_result["old"]["max_symbols_per_portfolio"]
+    if "risk_per_trade" in clean or "strategy" in clean:
+        current = _load(settings)
+        sizing = dict(current.get("sizing") or {})
+        trade = dict(current.get("trade_setup") or {})
+        if "risk_per_trade" in clean:
+            old["risk_per_trade"] = sizing.get("risk_per_trade")
+            sizing["risk_per_trade"] = clean["risk_per_trade"]
+        if "strategy" in clean:
+            old["strategy"] = trade.get("strategy")
+            trade["strategy"] = clean["strategy"]
+        current["sizing"] = sizing
+        current["trade_setup"] = trade
+        body = HEADER + yaml.safe_dump(current, sort_keys=False)
+        tmp = settings.with_name(settings.name + ".tmp")
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, settings)
     return {"old": old, "new": clean}

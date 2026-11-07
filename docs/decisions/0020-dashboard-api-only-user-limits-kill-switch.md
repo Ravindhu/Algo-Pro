@@ -61,6 +61,19 @@ This conflicts with AGENTS.md: one dashboard only, no parallel order path, and l
 - Tests: `tests/unit/test_kill_switch_store.py` runs in the sandbox. Kill route tests in
   `tests/unit/test_dashboard_app.py` need FastAPI (owner run).
 
+## Round 5 (2026-11-07): trade setup panel and max symbols per portfolio
+
+- Owner request: a Trade setup panel on the page with risk per trade, max symbols per portfolio, and strategy.
+  "No of trades" means the maximum number of symbols held in the portfolio.
+- `max_symbols_per_portfolio` is a risk limit in `config/risk_limits.yaml`. The Risk gate
+  (`src/quant/risk/symbol_cap.py`) blocks a new symbol at the cap. A symbol already held can still be added to.
+  Unset (null) blocks new symbols, the same fail-closed rule as the other limits.
+  Held symbols come from net filled quantity in the ledger (`scripts/run_paper.py` `_open_symbols`).
+- `sizing.risk_per_trade` is saved in `config/settings.yaml` and read by `RiskLimits.risk_per_trade()`.
+- `trade_setup.strategy` is saved only. No engine stage uses the strategy yet.
+- Consequence: until the owner sets `max_symbols_per_portfolio`, paper entries are blocked. Set it on the page.
+- Owner approved the gate enforcement on 2026-11-07 ("Yes risk gate needed").
+
 ## Round 3 (2026-11-06 late): page wired to the backend
 
 - The page is served at `/ui` (FastAPI). `/` stays the JSON index, as in item 1 of round 1.

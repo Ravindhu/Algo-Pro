@@ -22,6 +22,7 @@ class RiskLimits:
     max_daily_loss: Optional[float] = None
     max_strategy_loss: Optional[float] = None
     max_adv_pct: Optional[float] = None
+    max_symbols_per_portfolio: Optional[int] = None  # distinct symbols held; null fails closed for new symbols
 
     @classmethod
     def from_yaml(cls, path) -> "RiskLimits":

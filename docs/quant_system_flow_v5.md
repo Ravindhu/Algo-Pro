@@ -118,7 +118,7 @@ Support inputs to backtest and risk:
 | Price band + ASM/GSM | Circuit limits and surveillance flags |
 | Liquidity cap | Max percent of ADV |
 | Loss budget breaker | Daily and per-strategy loss limits |
-| **Risk gate** | Every intent, hard limits. Only exit to execution |
+| **Risk gate** | Every intent, hard limits, including max symbols per portfolio (a new symbol is blocked at the cap; unset cap blocks new symbols). Only exit to execution |
 
 ### 2.9 Execution
 
