@@ -74,3 +74,12 @@ Not done, and why:
 - Halt message source (item 7): OpenAlgo's documented endpoints have no halt field. Only the index-move fallback and manual freeze exist.
 - Orderbook intent tag: not documented. Open-order match is by symbol and side (conservative).
 - The analyze-mode sandbox may return sandbox funds and positions, not the real account. Confirm on the owner machine.
+
+## Update: main dashboard (2026-11-07)
+| Item | What | Where | Test |
+|---|---|---|---|
+| Main dashboard | NSE/BSE main dashboard with header and FLOW popup (Flow v5 layout). Static placeholder values, not wired to the API yet | `dashboard/main_dashboard.html`, decision `docs/decisions/0027-main-dashboard.md`, AGENTS rule 10 | none (static page; open in a browser) |
+
+Notes:
+- `/ui` in `dashboard/app.py` still serves the older page until the owner approves the route switch.
+- The flow popup is hand-drawn and not generated from the SVG yet.

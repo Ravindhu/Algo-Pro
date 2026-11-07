@@ -83,7 +83,7 @@ Project layout
 │   ├── train/                   # model training
 │   └── ops/                     # maintenance, recon
 │
-├── dashboard/                   # the ONE dashboard (app.py + assets)
+├── dashboard/                   # the ONE dashboard: main_dashboard.html (decision 0027); app.py + assets
 │
 ├── tests/
 │   ├── unit/                    # includes test_layout.py (order-path rule)
@@ -249,6 +249,7 @@ No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage
 7. Every signal, intent, gate result, and override writes to the Audit log.
 8. Dashboard shows P&L by default. EV, MAE/MFE, and rule compliance are removed from the dashboard. MAE/MFE are optimizer parameters instead (decision 0008).
 9. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
+10. The main dashboard is `dashboard/main_dashboard.html` (decision 0027). Agents build and change dashboard UI only there. Do not create another dashboard page.
 
 ### v5 build phases (from `docs/IMPLEMENTATION_PLAN.md`)
 
