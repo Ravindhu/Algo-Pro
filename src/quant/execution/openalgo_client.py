@@ -33,6 +33,8 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from quant.core.types import GateDecision, TradeIntent
+from quant.execution.retry import retry_exit
+from quant.monitor.throttle import TokenBucket, acquire
 
 Transport = Callable[[str, Dict], Dict]
 MODES = ("live", "analyze")
@@ -242,15 +244,42 @@ class AnalyzeBroker:
       FILLED    OpenAlgo says "complete" with a positive average price.
       REJECTED  The guard refused, OpenAlgo returned an error, or the order was rejected/cancelled.
       UNKNOWN   Network error, timeout, or an order still open. The order may exist: do not resend.
+                An exit is retried only when the broker confirms no open order and the position is still open
+                (execution/retry.py). Orders are limited to 8 per second.
     """
 
-    def __init__(self, client: OpenAlgoClient, api_key: str) -> None:
+    ORDER_RATE_PER_SEC = 8  # 80% of OpenAlgo's documented 10 per second for placeorder
+
+    def __init__(self, client: OpenAlgoClient, api_key: str, alerts=None,
+                 order_not_placed=None, position_still_open=None) -> None:
         if not api_key:
             raise ValueError("AnalyzeBroker needs an API key")
         self._client = client
         self._api_key = api_key
+        self._alerts = alerts
+        self._order_not_placed = order_not_placed
+        self._position_still_open = position_still_open
+        self._bucket = TokenBucket(self.ORDER_RATE_PER_SEC, self.ORDER_RATE_PER_SEC)
+
+    def attach_alerts(self, alerts) -> None:
+        """Set where CRITICAL alerts go (run_paper sends them to the audit log)."""
+        self._alerts = alerts
 
     def place(self, intent: TradeIntent, decision: GateDecision) -> Dict:
+        if not acquire(self._bucket):
+            return {"order_id": "", "status": "REJECTED", "filled_qty": 0, "avg_price": None,
+                    "reason": "order-rate throttle: not sent (no token within 2 s)"}
+        result = self._place_once(intent, decision)
+        if intent.kind == "exit":
+            result = retry_exit(
+                lambda i, d: self._place_once(i, d), intent, decision,
+                order_not_placed=self._order_not_placed,
+                position_still_open=self._position_still_open,
+                alerts=self._alerts,
+            )
+        return result
+
+    def _place_once(self, intent: TradeIntent, decision: GateDecision) -> Dict:
         def out(status: str, order_id: str = "", reason: str = "", avg: Optional[float] = None, qty: int = 0) -> Dict:
             return {"order_id": order_id, "status": status, "filled_qty": qty, "avg_price": avg, "reason": reason}
 

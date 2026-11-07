@@ -26,6 +26,17 @@ class HaltHandler:
         return index in self.frozen
 
 
+def index_move_freezes(halt: "HaltHandler", index: str, prev_close: float, last: float,
+                       limit: float = 0.10) -> bool:
+    """Fallback freeze: if the index moved by the circuit limit (default 10%), freeze it (fail closed).
+
+    Used when no halt message arrives. Returns True when the index is frozen after this check.
+    """
+    if prev_close > 0 and abs(prev_close - last) / prev_close >= limit:
+        halt.freeze(index)
+    return halt.is_frozen(index)
+
+
 def in_event_blackout(day: date, blackout_days: Iterable[date]) -> bool:
     """Results, RBI policy, Budget and Fed days. No new entries on these dates."""
     return day in set(blackout_days)

@@ -37,6 +37,8 @@ from quant.execution.openalgo_client import (  # noqa: E402
 from quant.execution.order_fsm import OrderFSM, OrderState  # noqa: E402
 from quant.execution.queue import ApprovedOrderQueue  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
+from quant.notify.alerts import Alerts  # noqa: E402
+from quant.risk.controls import HaltHandler  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
 from quant.reporting.dashboard_data import fifo_pnl  # noqa: E402
 from quant.risk.auto_kill import daily_loss_breach  # noqa: E402
@@ -105,6 +107,10 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
     kill = KillSwitch(out / "kill_switch.json")
     safe = SafeMode(audit)
     state = RiskState(seen_ids=ledger.seen_intent_ids())
+    halt = HaltHandler()  # index circuit freezes; empty until a halt or index-move freeze is set
+    alerts = Alerts(on_critical=lambda msg: audit.append("critical", {"message": msg}))
+    if broker is not None and hasattr(broker, "attach_alerts"):
+        broker.attach_alerts(alerts)
     queue = ApprovedOrderQueue()
     if broker is None:
         broker = PaperBroker()
@@ -114,7 +120,7 @@ def run(signals_csv, limits_path, out_dir, broker=None) -> dict:
 
     def _submit(intent: TradeIntent) -> None:
         state.open_symbols = _open_symbols(ledger)
-        decision = check_intent(intent, state, limits, kill, safe)
+        decision = check_intent(intent, state, limits, kill, safe, halt=halt)
         audit.append("decision", {"intent_id": intent.intent_id, "approved": decision.approved,
                                   "reasons": list(decision.reasons)})
         if not decision.approved:

@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from quant.core.config import RiskLimits
 from quant.core.types import GateDecision, TradeIntent
 from quant.monitor.safe_mode import Mode, SafeMode
 from quant.risk.money_checks import entry_breaches
-from quant.risk.controls import in_event_blackout
+from quant.risk.controls import HaltHandler, in_event_blackout
 from quant.risk.kill_close import KILL_STRATEGY_ID
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.liquidity import liquidity_checks
@@ -42,9 +42,15 @@ def check_intent(
     limits: RiskLimits,
     kill: KillSwitch,
     safe: SafeMode,
+    available_funds: Optional[float] = None,
+    halt: Optional[HaltHandler] = None,
 ) -> GateDecision:
     reasons: List[str] = []
     is_entry = intent.kind == "entry"
+    if is_entry and halt is not None and halt.frozen:
+        reasons.append(f"index circuit freeze active: {sorted(halt.frozen)}")
+    if is_entry and available_funds is not None and intent.notional > available_funds:
+        reasons.append(f"insufficient funds: need {intent.notional:.2f}, available {available_funds:.2f}")
     # Kill closes pass halt-all, but only while the kill switch is on (decision 0020).
     is_kill_close = kill.active and intent.kind == "exit" and intent.strategy_id == KILL_STRATEGY_ID
 

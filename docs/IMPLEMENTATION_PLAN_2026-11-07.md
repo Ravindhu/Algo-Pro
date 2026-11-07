@@ -47,3 +47,18 @@ Notes:
 - Item 13: the owner runs a personal algo through OpenAlgo, hosted on a whitelisted IP. The owner has decided no compliance block for now. The gate does not pass `require_algo_id` yet. Wire it when you want the check on.
 - Item 1 (demerger): dropped by owner instruction.
 - Still deferred: 6, 7, 10, 15, 23, 24. See above.
+
+## Update: third batch (approved items 6, 7, 10, 24; item 15 dropped; item 23 deferred)
+| Item | What | Where | Test |
+|---|---|---|---|
+| 24 | Order-rate throttle: 8 per second (80% of OpenAlgo's documented 10/s for placeorder). Waits up to 2 s, then refuses (not sent) | `monitor/throttle.py` (`acquire`), `execution/openalgo_client.py` (`AnalyzeBroker`) | `tests/unit/test_order_rate.py` |
+| 6 | Exit retry. **Design change from the recommendation:** a retry happens only if the broker shows no open order for that intent AND the position still needs closing. Without both readers, no retry: a CRITICAL alert is raised. An order that exists is never resent | `execution/retry.py`, `AnalyzeBroker` | `tests/unit/test_exit_retry.py` |
+| 10 | Funds check in the gate: entry refused if notional > available funds. Not checked when funds are None (live runner must pass funds) | `risk/gate.py` (`available_funds`) | `tests/unit/test_gate_halt_funds.py` |
+| 7 | Circuit freeze in the gate: entries refused while an index is frozen. Freeze also on an index move of 10% or more from previous close (fail closed) | `risk/gate.py` (`halt`), `risk/controls.py` (`index_move_freezes`) | `tests/unit/test_gate_halt_funds.py` |
+
+Notes:
+- Item 24: the mStock-specific limit is not listed in the OpenAlgo docs. OpenAlgo's page says a 429 can also come from the broker. Confirm mStock's own per-second limit with the broker.
+- Item 6: the position reader and open-order reader are not built yet. Until they are passed in, exits never retry and always raise CRITICAL.
+- Item 7: no live halt-message field is wired. Only the index-move fallback and the gate check exist.
+- Item 10: `run_paper.py` does not pass funds yet. A live runner must pass funds, or entries are not checked.
+- Item 23: deferred, per owner.
