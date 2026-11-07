@@ -39,5 +39,14 @@ Plain English. Nothing here sends an order.
 - Windows update relies on `upgrade_openalgo.ps1`, which hard-codes `C:\Program Files\Git\cmd\git.exe`.
 - The live VPS must not be updated until Phase 4 passes.
 
+## Scheduled starts (added 2026-11-07, second batch)
+| Item | Where | Status |
+|---|---|---|
+| Windows: start at logon and Mon-Fri 08:40 (`install.bat --scheduled`) | `scripts/ops/register_start_jobs.ps1`, `install.bat` | Done in code. PowerShell not run here |
+| Ubuntu: start at boot (`--start-only`, unit `mts-boot-start.service`) | `Servers/launch_ubuntu_server.sh` | Done in code. `bash -n` passes. systemd not run here |
+| Ubuntu pre-open 08:45 | existing `pov-preopen.timer` | Already in place, not duplicated |
+
+Decision: scheduled runs never update code and never start the engine. Updates stay manual.
+
 ## Next priority
 Owner tests Phase 4 on a clean Windows PC, then a test VPS.

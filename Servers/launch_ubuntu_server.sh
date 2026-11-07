@@ -48,6 +48,7 @@
 # USAGE
 #   sudo bash Servers/launch_ubuntu_server.sh --domain trade.example.com --email you@example.com
 #   sudo bash Servers/launch_ubuntu_server.sh --allow-plain-http  # LAN lab only, no TLS
+#   sudo bash Servers/launch_ubuntu_server.sh --start-only        # boot job: start platform, no update, no engine
 #   sudo bash Servers/launch_ubuntu_server.sh --skip-platform     # remote only
 #   sudo bash Servers/launch_ubuntu_server.sh --skip-desktop
 #   sudo bash Servers/launch_ubuntu_server.sh --rdp-allow 203.0.113.7/32
@@ -79,6 +80,7 @@ RUN_SCHEDULE=1
 RUN_BACKUP=1
 DRY_RUN=0
 START_ENGINE=0
+START_ONLY=0             # boot job: start units, no code update, no engine
 RDP_ALLOW=""
 DESKTOP_ARGS=()
 PLATFORM_ARGS=()          # passed to install_ubuntu.sh (TLS, domain)
@@ -106,6 +108,7 @@ while [[ $# -gt 0 ]]; do
     --skip-backup)    RUN_BACKUP=0; shift ;;
     --dry-run)        DRY_RUN=1; shift ;;
     --start-engine)   START_ENGINE=1; shift ;;
+    --start-only)     START_ONLY=1; RUN_DESKTOP=0; RUN_SCHEDULE=0; RUN_BACKUP=0; shift ;;
     --rdp-allow)      RDP_ALLOW="${2:-}"; shift 2 ;;
     --allow-any-rdp)  DESKTOP_ARGS+=("--allow-any-rdp"); shift ;;
     --no-chrome)      DESKTOP_ARGS+=("--no-chrome"); shift ;;
@@ -262,8 +265,15 @@ update_platform() {
 step "2/6  Platform (OpenAlgo + blue_engine + nginx + systemd)"
 if [[ "$RUN_PLATFORM" -eq 1 ]]; then
   if [[ -d "$INSTALL_ROOT/openalgo/.git" ]]; then
-    ok "platform already installed at $INSTALL_ROOT - running the safe update"
-    update_platform
+    if [[ "$START_ONLY" -eq 1 ]]; then
+      ok "start-only run: no code update, no engine"
+      run systemctl start openalgo openalgo-ws pov-dash || fail "platform start failed (stage 2)"
+    else
+      ok "platform already installed at $INSTALL_ROOT - running the safe update"
+      update_platform
+    fi
+  elif [[ "$START_ONLY" -eq 1 ]]; then
+    fail "--start-only needs an installed platform. Run the launcher without it first."
   else
     run env DEBIAN_FRONTEND=noninteractive bash "$SCRIPT_DIR/install_ubuntu.sh" \
       "${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"}" \
@@ -365,7 +375,26 @@ CRON
   chmod 644 /etc/cron.d/mts-preopen
   ok "/etc/cron.d/mts-preopen written (commented - pick timer OR cron)"
 
+  # Boot job: start the platform at every boot. No code update, no engine.
+  cat > /etc/systemd/system/mts-boot-start.service <<UNIT
+[Unit]
+Description=My trading system: start platform at boot (no update, no engine)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash ${INSTALL_ROOT}/Servers/launch_ubuntu_server.sh --start-only
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target
+UNIT
   run systemctl daemon-reload
+  run systemctl enable mts-boot-start.service >/dev/null 2>&1 \
+    && ok "mts-boot-start.service enabled (platform starts at boot)" \
+    || fail "could not enable mts-boot-start.service"
   run systemctl enable pov-preopen.timer >/dev/null 2>&1 \
     && ok "pov-preopen.timer enabled" \
     || fail "could not enable pov-preopen.timer"

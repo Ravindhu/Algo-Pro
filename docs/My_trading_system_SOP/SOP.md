@@ -1357,3 +1357,13 @@ Plain-English summary: the `rich` terminal console (`Blue_engine/dashboard/`, co
   `scripts/ops/START_ALL.cmd`, `scripts/ops/START_OPENALGO.bat`.
 - Kept as shims for scheduled tasks: `scripts/start_openalgo.py`, `scripts/upgrade_openalgo.ps1`.
 - Not run here: the Windows `.bat` and a real Ubuntu install. Owner test pending.
+
+## 23. Scheduled starts (2026-11-07)
+
+- Windows: `scripts/ops/register_start_jobs.ps1` creates two Task Scheduler jobs for the
+  current user. "MTS - start at logon" and "MTS - pre-open start" (Mon-Fri 08:40, wake to run).
+  Both run `install.bat --scheduled`: start only, no code update, no engine.
+- Ubuntu: `mts-boot-start.service` runs `launch_ubuntu_server.sh --start-only` at every boot.
+  The existing `pov-preopen.timer` (08:45) remains the only scheduled engine start.
+- Scheduled runs never update code. Updates stay manual.
+- Not run here: the PowerShell script (no `pwsh` in the sandbox) and the boot unit (no systemd). Owner test pending.

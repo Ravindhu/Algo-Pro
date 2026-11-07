@@ -99,6 +99,32 @@ The smoke test must pass before you trade. Then open the UI (`https://<your
 domain>`), log in to your broker, and confirm the platform is in analyzer
 (paper) mode.
 
+## Start automatically (scheduled)
+
+| Machine | When | What runs | Set up by |
+|---|---|---|---|
+| Windows | When you sign in | `install.bat --scheduled` (start only) | `scripts\ops\register_start_jobs.ps1` (run once) |
+| Windows | Mon-Fri 08:40 IST, wakes the PC | `install.bat --scheduled` (start only) | same script |
+| Ubuntu | At every boot | `launch_ubuntu_server.sh --start-only` (start only) | the launcher (stage 4) |
+| Ubuntu | Mon-Fri 08:45 IST | `preopen_launch.sh`: clock, login, smoke test, then engine | the launcher (stage 4, existing timer) |
+
+Scheduled runs **never update code** and **never start the trading engine**
+at boot or on Windows. The Ubuntu 08:45 timer is the only scheduled path that
+starts the engine, and it runs behind the smoke gate.
+
+Windows setup, once, in the repo folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ops\register_start_jobs.ps1
+powershell -ExecutionPolicy Bypass -File scripts\ops\register_start_jobs.ps1 -Remove   # undo
+```
+
+Scheduled-run output: `Temp\run\scheduled_start.log` on Windows, and
+`journalctl -u mts-boot-start` on Ubuntu.
+
+Updates stay manual: run `install.bat` on Windows, or the launcher command on
+Ubuntu, when you want new code.
+
 ## Engine start and boot behaviour
 
 - The engine (`pov-runner`) is **not** enabled at boot. A reboot does not start

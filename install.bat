@@ -1,33 +1,38 @@
 @echo off
 REM ==========================================================================
-REM install.bat - THE ONE SCRIPT (Windows). Double-click it.
+REM install.bat - THE ONE SCRIPT (Windows).
 REM
-REM Safe to run again and again. Each run does:
-REM   1. update this repo (git pull --ff-only)
-REM   2. find Python 3.11+
-REM   3. create .venv and install dependencies
-REM   4. OpenAlgo: clone if missing, else safe upgrade (upgrade_openalgo.ps1)
-REM   5. create .env from .env.example if missing
-REM   6. start the stack (scripts\ops\start_all.py)
+REM   install.bat              manual run: update repo, install, upgrade, start
+REM   install.bat --scheduled  scheduled run (sign-in and pre-open jobs made by
+REM                            scripts\ops\register_start_jobs.ps1): start only.
+REM                            No code update, no OpenAlgo upgrade, no engine.
 REM
-REM It never places orders and never starts the trading engine.
+REM Safe to run again and again. Never places orders, never starts the engine.
 REM Stop everything:  .venv\Scripts\python.exe scripts\ops\start_all.py --stop
 REM ==========================================================================
 setlocal EnableExtensions
 cd /d "%~dp0"
 
+set "SCHED=0"
+if /i "%~1"=="--scheduled" set "SCHED=1"
+
 echo.
 echo   My Trading System - install, update and start
+if "%SCHED%"=="1" echo   scheduled run - start only, no code update
 echo   ==============================================
 
 echo.
 echo [1/6] Update this repo
+if "%SCHED%"=="1" goto repo_sched
 if not exist ".git" goto repo_skip
 where git >nul 2>&1
 if errorlevel 1 goto repo_skip
 git pull --ff-only
 if errorlevel 1 goto repo_pull_failed
 echo   [ok] repo up to date
+goto repo_done
+:repo_sched
+echo   [skip] scheduled run - code is not updated automatically
 goto repo_done
 :repo_pull_failed
 echo   [warn] repo not updated - local changes or diverged. Using the current code.
@@ -57,6 +62,7 @@ if exist ".venv\Scripts\python.exe" goto venv_ready
 if errorlevel 1 goto fail
 :venv_ready
 set "VPY=.venv\Scripts\python.exe"
+if "%SCHED%"=="1" goto deps_sched
 "%VPY%" -m pip install -q -U pip
 if errorlevel 1 goto fail
 "%VPY%" -m pip install -q -r requirements.txt
@@ -64,6 +70,12 @@ if errorlevel 1 goto fail
 "%VPY%" -m pip install -q -e "Blue_engine[charts]"
 if errorlevel 1 goto fail
 echo   [ok] dependencies installed
+goto deps_done
+:deps_sched
+"%VPY%" -m pip install -q -r requirements.txt >nul 2>&1
+if errorlevel 1 echo   [warn] dependency check failed - using the packages already installed
+echo   [ok] dependencies checked
+:deps_done
 
 echo.
 echo [4/6] OpenAlgo platform (openalgo\)
@@ -75,9 +87,12 @@ if errorlevel 1 goto fail
 echo   [ok] openalgo cloned
 goto openalgo_done
 :openalgo_present
-echo   openalgo present - running the safe upgrade
+if "%SCHED%"=="1" goto openalgo_kept
 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\ops\upgrade_openalgo.ps1"
 if errorlevel 1 echo   [warn] OpenAlgo not upgraded - a safety gate stopped it. Current version kept.
+goto openalgo_done
+:openalgo_kept
+echo   [ok] openalgo present - scheduled run keeps the current version
 :openalgo_done
 
 echo.
@@ -117,5 +132,7 @@ echo   [FAIL] Stopped. Read the message above, fix it, then run install.bat agai
 
 :done
 echo.
+if "%SCHED%"=="1" goto end_quiet
 pause
+:end_quiet
 endlocal
