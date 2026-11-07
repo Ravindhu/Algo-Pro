@@ -33,6 +33,7 @@ from quant.core.env import load_env_file  # noqa: E402
 from quant.core.limits_store import apply_limit_updates  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.reporting.dashboard_data import build_overview  # noqa: E402
+from quant.reporting.flow_status import node_statuses  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
@@ -103,6 +104,7 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     overview["market"] = {"open": is_open, "reason": reason, "verified": cal.verified,
                           "holidays_loaded": len(cal.holidays)}
     overview["loop"] = loop_status(Path(paths.get("loop", DEFAULT_PATHS["loop"])), time.time(), LOOP_INTERVAL_S)
+    overview["flow"] = node_statuses(overview)  # flow popup node colours (decision 0030)
     return overview
 
 

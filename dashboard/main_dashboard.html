@@ -68,6 +68,13 @@
   .sheet-b { padding: 12px 16px 18px; }
   .sheet-b h3 { margin: 0 0 4px; font-size: 18px; color: #d8e6f2; font-weight: 600; }
   .sheet-b p { margin: 0 0 12px; color: var(--dim); }
+  /* flow node colours from overview.flow: err blinks red, warn gets an amber border */
+  #flowbox g.stg.st-warn rect { stroke: var(--warn); stroke-width: 3; }
+  #flowbox g.stg.st-err rect { fill: #ff4d6d; stroke: #8f0f2a; stroke-width: 3; }
+  #flowbox g.stg.st-err text { fill: #ffffff; }
+  #flowbox g.stg.st-err { animation: flowblink 1s steps(2, start) infinite; }
+  @keyframes flowblink { to { opacity: .25; } }
+  #flowbox g.stg { cursor: default; }
   @media (max-width: 1000px) {
     .top, .mid, .two { grid-template-columns: minmax(0, 1fr); }
     .setup .fields { grid-template-columns: 1fr; }
@@ -279,13 +286,15 @@
 <div class="modal" id="flowmodal" hidden role="dialog" aria-modal="true" aria-labelledby="flowtitle">
   <div class="sheet">
     <div class="sheet-h">
-      <div><b id="flowtitle">QUANT SYSTEM FLOW · v5</b> <span>proposed design · not built</span></div>
+      <div><b id="flowtitle">QUANT SYSTEM FLOW · v5</b> <span>live node status · red blinks = error · amber = warning</span></div>
       <button type="button" id="flowclose">CLOSE ×</button>
     </div>
     <div class="sheet-b">
       <h3>Algo trading system: full flow, v5</h3>
-      <p>Source: quant_system_flow_v5.svg (via dashboard/assets/flow_svg.js). Proposed design, not built.</p>
+      <p>Source: quant_system_flow_v5.svg. Colours come from /api/overview (flow). Nodes not named below are ok.</p>
       <div id="flowbox" style="background:#f7f6f1;padding:8px;border-radius:4px;overflow:auto"></div>
+      <div class="ph" style="margin-top:10px">Node status <span id="flowsum"></span></div>
+      <ul id="flowissues"></ul>
     </div>
   </div>
 </div>
@@ -426,6 +435,7 @@
 
     if (o.equity) drawEquity(o.equity);
     if (!formLoaded) fillForm(o.limits);
+    paintFlow(o.flow);
   }
 
   // Realized P&L curve (closed trades only). Scale: min..max of the points.
@@ -462,6 +472,7 @@
       setChip("conn", "live · " + new Date().toLocaleTimeString("en-IN"), "on");
     } catch (e) {
       setChip("conn", "API offline (" + e.message + ")", "bad");
+      setFlowNode("Dashboard", "err", "API offline: " + e.message);
     }
   }
 
@@ -594,6 +605,42 @@
   $("setupform").addEventListener("submit", saveSetup);
   $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
   $("limitform").addEventListener("submit", saveLimits);
+
+  // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function paintNode(g, status, message) {
+    const cls = "stg st-" + status;
+    if (g.getAttribute("class") !== cls) g.setAttribute("class", cls); // same class = no animation restart
+    let t = g.querySelector("title");
+    if (!t) { t = document.createElementNS(SVG_NS, "title"); g.prepend(t); }
+    const label = g.getAttribute("data-label");
+    t.textContent = status === "ok" ? label + " · ok"
+      : label + " · " + (status === "err" ? "ERROR" : "WARNING") + " · " + message;
+  }
+  function setFlowNode(label, status, message) {
+    for (const g of document.querySelectorAll("#flowbox g.stg"))
+      if (g.getAttribute("data-label") === label) paintNode(g, status, message);
+  }
+  function paintFlow(flow) {
+    const nodes = flow || {}, issues = [];
+    let errs = 0, warns = 0;
+    for (const g of document.querySelectorAll("#flowbox g.stg")) {
+      const label = g.getAttribute("data-label"), n = nodes[label];
+      paintNode(g, n ? n.status : "ok", n ? n.message : "");
+      if (!n) continue;
+      if (n.status === "err") errs++; else warns++;
+      issues.push([label, n.status, n.message]);
+    }
+    issues.sort((a, b) => (a[1] === "err" ? 0 : 1) - (b[1] === "err" ? 0 : 1));
+    $("flowsum").textContent = errs || warns ? errs + " error · " + warns + " warning" : "all nodes ok";
+    $("flowsum").className = errs ? "r" : warns ? "a" : "g";
+    $("flowissues").replaceChildren(...issues.map(([label, st, msg]) => {
+      const li = document.createElement("li");
+      li.className = st === "err" ? "r" : "a";
+      li.textContent = label + " — " + (st === "err" ? "ERROR" : "WARNING") + ": " + msg;
+      return li;
+    }));
+  }
 
   // ---- Flow popup: the real v5 diagram from quant_system_flow_v5.svg (window.FLOW_SVG) ----
   $("flowbox").innerHTML = window.FLOW_SVG || "<p class='d'>Flow diagram not found: run scripts/ops/make_flow_svg.py.</p>";

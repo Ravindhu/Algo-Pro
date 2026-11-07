@@ -1,4 +1,4 @@
-"""P&L shown by default (decisions 0007 and 0017). The flow popup is a static diagram (decision 0020).
+"""P&L shown by default (decisions 0007 and 0017). The flow popup colours live node status (decisions 0020 and 0030).
 
 PAGE is the main dashboard served at /ui (decision 0027). The old page src/quant/index.html was
 removed on 2026-11-07; its checks now run on the main page.
