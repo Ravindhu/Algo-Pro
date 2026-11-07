@@ -78,11 +78,11 @@ Not done, and why:
 ## Update: main dashboard (2026-11-07)
 | Item | What | Where | Test |
 |---|---|---|---|
-| Main dashboard | NSE/BSE main dashboard with header and FLOW popup (Flow v5 layout). Static placeholder values, not wired to the API yet | `dashboard/main_dashboard.html`, decision `docs/decisions/0027-main-dashboard.md`, AGENTS rule 10 | none (static page; open in a browser) |
+| Main dashboard | NSE/BSE main dashboard with header and FLOW popup (the v5 SVG diagram). Static placeholder values, not wired to the API yet | `dashboard/main_dashboard.html`, decision `docs/decisions/0027-main-dashboard.md`, AGENTS rule 10 | none (static page; open in a browser) |
 
 Notes:
 - `/ui` in `dashboard/app.py` still serves the older page until the owner approves the route switch.
-- The flow popup is hand-drawn and not generated from the SVG yet.
+- The flow popup is generated from the SVG (`dashboard/assets/flow_svg.js`).
 
 ## Update: /ui switched to the main dashboard (2026-11-07)
 | Item | What | Where | Test |
@@ -124,7 +124,7 @@ Living status. Older sections above are the batch log.
 - Reads `/api/overview` every 2 s: mode, kill switch, feed, realized and unrealized P&L (hidden by default from settings), win rate, profit factor, risk used, open positions, safety events, AI insight (rules only), current limits, realized equity curve with max drawdown.
 - Writes, each with the token in the header and an audit record: limits (`/api/limits`), kill switch trip and reset (`/api/kill/*`, reason required, confirm), trade setup (`/api/setup`), and paper or live mode (`/api/trading-mode`, decision 0028).
 - LIVE is always refused (409). Live needs LiveApproval (decision 0017), which the dashboard never creates.
-- Flow popup: hand-drawn v5 layout (decision 0027). Not generated from the SVG yet.
+- Flow popup: the v5 SVG via `dashboard/assets/flow_svg.js` (decision 0027).
 
 ### Not built or not live (open)
 | Item | Why | Needs |
@@ -134,7 +134,6 @@ Living status. Older sections above are the batch log.
 | Screener table | Removed from the page; no backend data | Screener output wired to an endpoint |
 | Market hours | Hours only (09:15-15:30 IST, Mon-Fri). Exchange holidays not checked | Holiday list from `config/` |
 | Equity curve, unrealized | Realized only. Past prices are not stored | Price history store |
-| Flow popup from the SVG | Hand-drawn copy | Generate from `quant_system_flow_v5.svg` |
 | Live trading | Refused by design | Decision 0017 flow, owner approval |
 
 ### Test state (this commit)

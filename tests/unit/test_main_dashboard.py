@@ -53,3 +53,10 @@ def test_main_dashboard_script_parses(tmp_path):
         f.write_text(sc, encoding="utf-8")
         result = subprocess.run(["node", "--check", str(f)], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
+
+
+def test_flow_popup_uses_the_v5_svg_asset():
+    text = PAGE.read_text(encoding="utf-8")
+    assert '<script src="/assets/flow_svg.js"></script>' in text
+    assert 'id="flowbox"' in text and "window.FLOW_SVG" in text
+    assert "buildFlow" not in text  # the hand-drawn copy is gone

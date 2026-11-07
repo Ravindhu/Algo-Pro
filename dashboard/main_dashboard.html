@@ -68,23 +68,9 @@
   .sheet-b { padding: 12px 16px 18px; }
   .sheet-b h3 { margin: 0 0 4px; font-size: 18px; color: #d8e6f2; font-weight: 600; }
   .sheet-b p { margin: 0 0 12px; color: var(--dim); }
-  .flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 22px; }
-  .flow .lbl { grid-column: 1 / -1; color: var(--dim); font-size: 11px; margin-top: 4px; }
-  .node { position: relative; border: 1px solid; border-radius: 4px; padding: 7px 8px; text-align: center; min-width: 0; }
-  .node b { display: block; font-size: 12px; font-weight: 600; }
-  .node small { display: block; font-size: 10px; margin-top: 2px; opacity: .85; }
-  .node.n1 { background: #1e1e18; border-color: #6d6a4a; color: #d8d2b8; }
-  .node.n2 { background: #2a1414; border-color: #8a3a3a; color: #ff9a9a; }
-  .node.n3 { background: #14163a; border-color: #4a4fb0; color: #a9b6ff; }
-  .node.n4 { background: #0f2a22; border-color: #2e8a6a; color: #7ee8c4; }
-  .node.step::after { content: "→"; position: absolute; right: -17px; top: 50%; transform: translateY(-50%); color: #6a7f92; font-size: 14px; }
-  .node.step:nth-child(6n)::after { content: none; }
-
   @media (max-width: 1000px) {
     .top, .mid, .two { grid-template-columns: minmax(0, 1fr); }
     .setup .fields { grid-template-columns: 1fr; }
-    .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .node.step::after { content: none; }
     form .row { grid-template-columns: 1fr; }
   }
 </style>
@@ -298,13 +284,13 @@
     </div>
     <div class="sheet-b">
       <h3>Algo trading system: full flow, v5</h3>
-      <p>Proposed design, not built. Arrows show the order inside each row. Dashed red is feedback and kill switch. Dashed purple is the approved-model handoff.</p>
-      <div class="flow" id="flowgrid2"></div>
-      <div class="legend">Colour key: beige = data and records · red = safety and QA gates · blue = research and models · green = sizing, risk and execution.</div>
+      <p>Source: quant_system_flow_v5.svg (via dashboard/assets/flow_svg.js). Proposed design, not built.</p>
+      <div id="flowbox" style="background:#f7f6f1;padding:8px;border-radius:4px;overflow:auto"></div>
     </div>
   </div>
 </div>
 
+<script src="/assets/flow_svg.js"></script>
 <script>
   const $ = id => document.getElementById(id);
   const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
@@ -609,48 +595,8 @@
   $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
   $("limitform").addEventListener("submit", saveLimits);
 
-  // ---- Flow popup (proposed design, hand-drawn, not generated from the SVG yet) ----
-  const rows = [
-    ["Historical bars", "Cached OHLCV, costs", "n1"], ["Data QA gate", "Corp actions, stale and missing bars", "n2"],
-    ["Walk-forward + purged CV", "Embargoed folds, costs included", "n3"], ["Trial logger + DSR/PBO", "All trials counted, OOS gate", "n2"],
-    ["Paper trading stage", "Live feed, no capital", "n2"], ["Model registry", "Versioned, human approves", "n1"],
-    ["LBL:Research validation: inputs to backtest and risk, no trade path"],
-    ["Indian cost model", "STT, charges, GST, stamp, impact", "n3"], ["Bootstrap of trades", "Luck vs edge test", "n3"],
-    ["Covariance, shrinkage", "Feeds optimizer and cluster caps", "n3"], ["Capacity estimator", "Max capital per strategy", "n3"],
-    ["Experiment lineage", "Data, code, params per signal", "n1"], ["Replay simulator", "Same code path as backtest", "n3"],
-    ["LBL:Market inputs: flow, relative strength, microstructure, filings"],
-    ["India flow data", "FII/DII, delivery %, pledging", "n3"], ["Bulk and block deals", "Large-holder activity", "n3"],
-    ["Relative strength", "Vs Nifty and sector indices", "n3"], ["Intraday microstructure", "Order-book imbalance, volume profile", "n3"],
-    ["Filings and circulars", "NSE, BSE, SEBI parsed to events", "n3"], ["Global cues", "SGX/GIFT Nifty, USDINR, crude", "n3"],
-    ["Market data live", "Point-in-time tagged", "n1"], ["Feature store", "Values as known on each date", "n1"],
-    ["Universe and actions", "Delisted included, adjusted", "n1"], ["Regime detector", "HMM, volatility states", "n3"],
-    ["Factor and alpha models", "Momentum, value, quality", "n3"], ["Feed health monitor", "Latency, heartbeats, gaps", "n2"],
-    ["Liquidity screener", "ADV, ASM/GSM flags", "n3"], ["Event scoring", "Frontline AI, advice only", "n3"],
-    ["Signal", "Direction, stop, time limit", "n3"], ["Meta-labeler", "Take or skip, bet size", "n3"],
-    ["Calibrated conviction", "Platt or isotonic", "n4"], ["Trading calendar", "Holidays, expiries, lot sizes", "n1"],
-    ["Fractional Kelly", "Vol-targeted, hard caps", "n4"], ["Capital allocator", "Budget per strategy", "n4"],
-    ["HRP optimizer", "Target weights, CVaR aware", "n4"], ["Drift check", "Vs target weights", "n4"],
-    ["Cash and margin manager", "SPAN, exposure, T+1 funds", "n1"], ["Beta limits", "Nifty beta, index exposure", "n3"],
-    ["Rebalancer", "No-trade bands, trade diffs", "n4"], ["Portfolio risk", "Sector, cluster, beta caps", "n2"],
-    ["Stress and CVaR", "2008, COVID, circuit days", "n2"], ["Live intraday VaR/CVaR", "Tail risk during session", "n2"],
-    ["Trade intent", "One handoff per trade", "n4"], ["Dashboard", "P&L hidden, EV, MAE/MFE", "n1"]
-  ];
-  function buildFlow(target) {
-    for (const r of rows) {
-      if (r[0].startsWith("LBL:")) {
-        const l = document.createElement("div");
-        l.className = "lbl"; l.textContent = r[0].slice(4);
-        target.append(l); continue;
-      }
-      const d = document.createElement("div");
-      d.className = "node " + r[2] + " step";
-      d.innerHTML = "<b></b><small></small>";
-      d.querySelector("b").textContent = r[0];
-      d.querySelector("small").textContent = r[1];
-      target.append(d);
-    }
-  }
-  buildFlow($("flowgrid2"));
+  // ---- Flow popup: the real v5 diagram from quant_system_flow_v5.svg (window.FLOW_SVG) ----
+  $("flowbox").innerHTML = window.FLOW_SVG || "<p class='d'>Flow diagram not found: run scripts/ops/make_flow_svg.py.</p>";
 
   const modal = $("flowmodal");
   const openFlow = () => { modal.hidden = false; $("flowclose").focus(); };
