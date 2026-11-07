@@ -47,7 +47,7 @@ DEFAULT_PATHS = {
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
     "strategies": ROOT / "config" / "strategies",
-    "page": ROOT / "src" / "quant" / "index.html",
+    "page": ROOT / "dashboard" / "main_dashboard.html",  # main dashboard (decision 0027)
     "flow": ROOT / "dashboard" / "assets" / "flow_svg.js",
 }
 

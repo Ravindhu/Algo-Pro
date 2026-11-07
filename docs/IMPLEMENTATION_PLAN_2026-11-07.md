@@ -83,3 +83,12 @@ Not done, and why:
 Notes:
 - `/ui` in `dashboard/app.py` still serves the older page until the owner approves the route switch.
 - The flow popup is hand-drawn and not generated from the SVG yet.
+
+## Update: /ui switched to the main dashboard (2026-11-07)
+| Item | What | Where | Test |
+|---|---|---|---|
+| /ui route | `/ui` serves `dashboard/main_dashboard.html`. Trade setup copied from the old page (reads and saves `/api/setup`) | `dashboard/app.py`, `dashboard/main_dashboard.html` | `tests/unit/test_main_dashboard.py` |
+
+Notes:
+- Kill switch, START/STOP and limit inputs are not wired on the main page yet. The kill switch button does nothing. Do not rely on it.
+- `src/quant/index.html` is no longer served. Kept until its tests move.

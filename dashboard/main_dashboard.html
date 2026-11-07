@@ -41,6 +41,15 @@
   svg { width: 100%; height: auto; display: block; }
   .chart { height: 90px; }
 
+  /* trade setup panel */
+  .setup { margin: 8px 0 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; }
+  .setup[hidden] { display: none; }
+  .setup .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+  .setup label { display: block; color: var(--dim); margin-bottom: 3px; }
+  .setup select, input[type=number], input[type=password] { width: 100%; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  header input { width: 200px; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+
   /* flow modal */
   .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
   .modal[hidden] { display: none; }
@@ -68,6 +77,7 @@
     .top, .mid, .bot { grid-template-columns: minmax(0, 1fr); }
     .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .node.step::after { content: none; }
+    .setup .fields { grid-template-columns: 1fr; }
   }
 </style>
 
@@ -80,11 +90,32 @@
   <span class="sp"></span>
   <span class="chip">STOPPED</span>
   <button id="flowbtn" type="button">FLOW</button>
+  <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
+  <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
   <button class="go" type="button">START</button>
   <button type="button" disabled>STOP</button>
   <button class="kill" type="button">KILL SWITCH</button>
 </header>
 <div class="clock" id="clock"></div>
+
+<div class="setup" id="setup" hidden>
+  <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · token needed (header)</span></h2>
+  <form id="setupform" autocomplete="off">
+    <div class="fields">
+      <div><label for="su-risk">Risk per trade (% of equity)</label>
+        <input type="number" id="su-risk" min="0.001" max="5" step="0.001" placeholder="0.25"></div>
+      <div><label for="su-symbols">Max symbols per portfolio</label>
+        <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
+      <div><label for="su-strategy">Strategy</label>
+        <select id="su-strategy"></select></div>
+    </div>
+    <div class="actions">
+      <button class="go" id="setupsave" type="submit">Save setup</button>
+      <span id="setupmsg"></span>
+    </div>
+    <p class="d">Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
+  </form>
+</div>
 
 <div class="top">
   <section class="panel">
@@ -292,6 +323,62 @@
     grid.append(d);
     col++;
   }
+
+  // ---- Trade setup (copied from the old page; reads and writes /api/setup) ----
+  const $ = id => document.getElementById(id);
+
+  function setSetupMsg(text, cls) { const m = $("setupmsg"); m.textContent = text; m.className = cls || ""; }
+
+  function fillSetup(s) {
+    $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
+    $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
+    const sel = $("su-strategy");
+    const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
+    sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
+    sel.value = s.strategy || "";
+  }
+
+  async function loadSetup() {
+    try {
+      const r = await fetch("/api/setup", {cache: "no-store"});
+      if (r.ok) fillSetup(await r.json());
+    } catch (e) {
+      setSetupMsg("Could not load setup: " + e.message, "r");
+    }
+  }
+
+  async function saveSetup(ev) {
+    ev.preventDefault();
+    const token = $("token").value;
+    if (!token) return setSetupMsg("Enter the dashboard token in the header.", "r");
+    const pctVal = Number($("su-risk").value);
+    if (!Number.isFinite(pctVal) || pctVal <= 0 || pctVal > 5) return setSetupMsg("Risk per trade must be between 0 and 5 %.", "r");
+    const symbols = Number($("su-symbols").value);
+    if (!Number.isInteger(symbols) || symbols < 1 || symbols > 100) return setSetupMsg("Max symbols per portfolio must be a whole number 1-100.", "r");
+    const strategy = $("su-strategy").value;
+    if (!strategy) return setSetupMsg("Choose a strategy.", "r");
+    setSetupMsg("Saving…", "d");
+    try {
+      const r = await fetch("/api/setup", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({risk_per_trade: pctVal / 100, max_symbols_per_portfolio: symbols, strategy})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setSetupMsg("Saved.", "g"); loadSetup(); }
+      else if (r.status === 401) setSetupMsg("Token rejected.", "r");
+      else if (r.status === 503) setSetupMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setSetupMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setSetupMsg("Save failed: " + e.message, "r");
+    }
+  }
+
+  $("setupbtn").onclick = () => {
+    const panel = $("setup"), open = panel.hidden;
+    panel.hidden = !open;
+    $("setupbtn").setAttribute("aria-expanded", String(open));
+    if (open) loadSetup();
+  };
+  $("setupform").addEventListener("submit", saveSetup);
 
   const modal = document.getElementById("flowmodal");
   const openFlow = () => { modal.hidden = false; document.getElementById("flowclose").focus(); };

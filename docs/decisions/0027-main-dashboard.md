@@ -18,9 +18,17 @@ building UI in more than one place, and the flow diagram lived in a separate fil
 5. The page is read-only in this version. Its values are static placeholders. Wiring to the
    FastAPI endpoints (`dashboard/app.py`) is a later step with its own decision.
 
-## Open items (not done in this commit)
+## Done 2026-11-07 (owner approved the route switch)
 
-- `dashboard/app.py` still serves the older page `src/quant/index.html` at `/ui`. Switching
-  `/ui` to `main_dashboard.html` is a route change. It needs owner approval.
+- `/ui` in `dashboard/app.py` now serves `dashboard/main_dashboard.html`.
+- The Trade setup panel was copied from the old page. It reads and saves `/api/setup` with the token.
+- `src/quant/index.html` is no longer served. It stays in the repo because `tests/unit/test_pnl_visible.py`
+  still checks it. Delete it when those checks move to the main page.
+
+## Open items
+
+- The main page's START, STOP and KILL SWITCH buttons do nothing yet. The kill switch is not wired
+  to `/api/kill/*`. Do not rely on it until it is wired and tested.
+- Limit inputs and kill-switch controls from the old page are not on the main page yet.
 - The flow popup is hand-drawn. It is not generated from `quant_system_flow_v5.svg`.
   Connectors (feedback loop, kill switch) are not drawn yet.
