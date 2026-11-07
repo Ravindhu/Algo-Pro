@@ -92,3 +92,13 @@ Notes:
 Notes:
 - Kill switch, START/STOP and limit inputs are not wired on the main page yet. The kill switch button does nothing. Do not rely on it.
 - `src/quant/index.html` is no longer served. Kept until its tests move.
+
+## Update: main dashboard wired, old page removed (2026-11-07)
+| Item | What | Where | Test |
+|---|---|---|---|
+| Wire main page | Reads `/api/overview`; limits form, kill trip/reset (token, reason, confirm), trade setup. P&L hidden by default from settings | `dashboard/main_dashboard.html` | `tests/unit/test_pnl_visible.py`, `tests/unit/test_main_dashboard.py` |
+| Remove old page | Deleted `src/quant/index.html`; its checks moved to the main page | `tests/unit/test_pnl_visible.py` | `test_old_pages_are_gone` |
+| Remove Forex mock | Deleted the published preview artifact (chat only; not in repo) | none | none |
+
+Open:
+- START and STOP disabled. Equity curve and live neural shell not built.

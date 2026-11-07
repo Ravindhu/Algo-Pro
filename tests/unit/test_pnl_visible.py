@@ -1,7 +1,7 @@
-"""P&L shown by default (decisions 0007 and 0017). The flow page is a static diagram (decision 0020).
+"""P&L shown by default (decisions 0007 and 0017). The flow popup is a static diagram (decision 0020).
 
-The old simulated dashboard page (dashboard/index.html) was moved out of the served app.
-Its simulated order engine is removed; the file now lives at src/quant/index.html.
+PAGE is the main dashboard served at /ui (decision 0027). The old page src/quant/index.html was
+removed on 2026-11-07; its checks now run on the main page.
 Web tests are text checks plus a Node syntax check, so they run without extra packages.
 """
 import pathlib
@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-PAGE = ROOT / "src" / "quant" / "index.html"
+PAGE = ROOT / "dashboard" / "main_dashboard.html"
 FLOW_JS = ROOT / "dashboard" / "assets" / "flow_svg.js"
 
 
@@ -34,20 +34,15 @@ def test_page_has_a_hide_show_toggle_for_money():
     assert "showMoney = !showMoney" in text
 
 
-def test_old_simulated_page_is_gone():
+def test_old_pages_are_gone():
     assert not (ROOT / "dashboard" / "index.html").exists()
+    assert not (ROOT / "src" / "quant" / "index.html").exists()
 
 
 def test_page_has_no_order_code_or_simulated_data():
     text = PAGE.read_text(encoding="utf-8")
     for banned in ("placeorder", "Math.random", "open.push"):
         assert banned not in text, banned
-
-
-def test_page_loads_the_flow_asset_from_the_app():
-    text = PAGE.read_text(encoding="utf-8")
-    assert '<script src="/assets/flow_svg.js">' in text
-    assert FLOW_JS.exists()
 
 
 def test_page_reads_overview_and_writes_only_known_routes():
@@ -57,12 +52,6 @@ def test_page_reads_overview_and_writes_only_known_routes():
     assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup"}
     assert text.count('method: "POST"') == 3  # saveLimits, postKill, saveSetup only
     assert '"X-Dashboard-Token"' in text
-
-
-def test_page_has_trade_setup_panel():
-    text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("setupbtn", "setup", "setupform", "su-risk", "su-symbols", "su-strategy", "setupsave"):
-        assert f'id="{element_id}"' in text, element_id
 
 
 def test_page_has_kill_switch_controls():

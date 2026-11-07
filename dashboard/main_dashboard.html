@@ -1,4 +1,4 @@
-<!-- Flow stage: Dashboard. Status: MAIN DASHBOARD (decision 0027). Static placeholder values, not yet wired to /api. -->
+<!-- Flow stage: Dashboard. Status: MAIN DASHBOARD (decision 0027). Reads /api/* and writes only through token-protected routes. -->
 <title>Algo Pro NSE BSE Dashboard</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
@@ -10,7 +10,7 @@
   header { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .brand { color: var(--cyan); font-weight: 700; margin-right: 4px; }
   .chip { border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; color: var(--dim); white-space: nowrap; }
-  .chip.ok { color: var(--ok); border-color: var(--ok); }
+  .chip.on, .chip.ok { color: var(--ok); border-color: var(--ok); }
   .chip.warn { color: var(--warn); border-color: var(--warn); }
   .chip.bad { color: var(--bad); border-color: var(--bad); }
   .sp { flex: 1; }
@@ -18,16 +18,20 @@
   button:disabled { color: var(--dim); border-color: var(--line); cursor: default; }
   button.kill { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
   button.go { color: var(--ok); border-color: var(--ok); }
+  button.stop { color: var(--bad); border-color: var(--bad); }
   .clock { color: var(--dim); padding: 6px 0; }
+  .banner { display: none; margin: 4px 0 0; padding: 8px 12px; border: 1px solid var(--bad); color: var(--bad); border-radius: 3px; }
+  .banner.on { display: block; }
   .top { display: grid; gap: 8px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); padding-top: 8px; }
   .mid { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); padding-top: 8px; }
-  .bot { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 8px 0 16px; }
+  .two { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 8px; }
+  .bot { padding: 8px 0 16px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-width: 0; }
   .ph { display: flex; justify-content: space-between; gap: 8px; color: var(--cyan); font-weight: 700; margin-bottom: 6px; flex-wrap: wrap; }
   .ph span { color: var(--dim); font-weight: 400; }
   .kv { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .kv small { display: block; color: var(--dim); }
-  .big { font-size: 26px; font-weight: 700; color: var(--ok); }
+  .big { font-size: 26px; font-weight: 700; color: var(--ok); font-variant-numeric: tabular-nums; }
   .g { color: var(--ok); } .r { color: var(--bad); } .a { color: var(--warn); } .d { color: var(--dim); }
   .guard { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #0e1d2b; }
   .bar { height: 3px; background: #0d1d2d; border-radius: 3px; margin: 2px 0 6px; overflow: hidden; }
@@ -36,21 +40,23 @@
   th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid #0e1d2b; font-weight: 400; white-space: nowrap; font-variant-numeric: tabular-nums; }
   th { color: var(--dim); }
   td.n, th.n { text-align: right; }
-  .log { min-height: 140px; }
-  .log div { margin: 2px 0; }
+  .scroll { max-height: 220px; overflow: auto; }
+  ul { margin: 0; padding-left: 16px; }
+  li { margin: 2px 0; }
   svg { width: 100%; height: auto; display: block; }
-  .chart { height: 90px; }
-
-  /* trade setup panel */
+  input[type=number], input[type=password], input[type=text], select { width: 100%; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  header input { width: 200px; min-width: 0; }
   .setup { margin: 8px 0 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; }
   .setup[hidden] { display: none; }
   .setup .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
-  .setup label { display: block; color: var(--dim); margin-bottom: 3px; }
-  .setup select, input[type=number], input[type=password] { width: 100%; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
-  header input { width: 200px; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  .setup label, form label { display: block; color: var(--dim); margin-bottom: 3px; }
+  form .row { display: grid; grid-template-columns: 1fr 160px; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
+  form .row label { margin: 0; }
   .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .d p, p.d { margin: 0 0 6px; }
+  .legend { margin-top: 14px; color: var(--dim); font-size: 11px; }
 
-  /* flow modal */
+  /* flow popup */
   .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
   .modal[hidden] { display: none; }
   .sheet { background: #05080d; border: 1px solid var(--cyan); border-radius: 4px; width: min(1320px, 100%); max-height: 100%; overflow: auto; }
@@ -71,31 +77,33 @@
   .node.n4 { background: #0f2a22; border-color: #2e8a6a; color: #7ee8c4; }
   .node.step::after { content: "→"; position: absolute; right: -17px; top: 50%; transform: translateY(-50%); color: #6a7f92; font-size: 14px; }
   .node.step:nth-child(6n)::after { content: none; }
-  .legend { margin-top: 14px; color: var(--dim); font-size: 11px; }
 
   @media (max-width: 1000px) {
-    .top, .mid, .bot { grid-template-columns: minmax(0, 1fr); }
+    .top, .mid, .two { grid-template-columns: minmax(0, 1fr); }
+    .setup .fields { grid-template-columns: 1fr; }
     .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .node.step::after { content: none; }
-    .setup .fields { grid-template-columns: 1fr; }
+    form .row { grid-template-columns: 1fr; }
   }
 </style>
 
 <header>
   <span class="brand">ALGO PRO // NSE·BSE</span>
-  <span class="chip ok">DRY_RUN</span>
-  <span class="chip warn">SIMULATED FEED · NOT BROKER-CONNECTED</span>
-  <span class="chip ok">NSE OPEN · closes 15:30 IST</span>
-  <span class="chip">ignore market hours (demo)</span>
+  <span class="chip" id="mode">mode —</span>
+  <span class="chip" id="kill">kill switch —</span>
+  <span class="chip" id="feed">feed —</span>
+  <span class="chip" id="market">market —</span>
+  <span class="chip" id="conn">connecting…</span>
   <span class="sp"></span>
-  <span class="chip">STOPPED</span>
+  <button id="toggle" type="button">Hide ₹</button>
   <button id="flowbtn" type="button">FLOW</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
-  <button class="go" type="button">START</button>
-  <button type="button" disabled>STOP</button>
-  <button class="kill" type="button">KILL SWITCH</button>
+  <button class="go" type="button" disabled title="Not wired: paper runner is started from the owner machine">START</button>
+  <button class="stop" type="button" disabled title="Not wired yet">STOP</button>
+  <button class="kill" id="headkill" type="button">KILL SWITCH</button>
 </header>
+<div class="banner" id="killbanner"></div>
 <div class="clock" id="clock"></div>
 
 <div class="setup" id="setup" hidden>
@@ -119,71 +127,42 @@
 
 <div class="top">
   <section class="panel">
-    <div class="ph">Portfolio &amp; P&amp;L <span>all accounts · simulated · ₹</span></div>
-    <div class="d">Today</div>
-    <div class="big">+₹0</div>
+    <div class="ph">Portfolio &amp; P&amp;L <span>paper · ₹</span></div>
+    <div class="big" id="pnl">—</div>
     <div class="kv" style="margin-top:8px">
-      <div><small>Equity</small><b>₹10,00,000</b></div>
-      <div><small>Total P&amp;L</small><b>+₹0</b></div>
-      <div><small>Total return</small><b>0.00%</b></div>
-      <div><small>Max drawdown</small><b>0.00%</b></div>
-      <div><small>Sharpe (per trade)</small><b>–</b></div>
-      <div><small>Profit factor</small><b>–</b></div>
-      <div><small>Win rate</small><b>–</b></div>
-      <div><small>Expectancy / trade</small><b>–</b></div>
-      <div><small>Cost % of gross</small><b>–</b></div>
-      <div><small>Screener pass rate</small><b>20%</b></div>
-      <div><small>Open positions</small><b>0</b></div>
-      <div><small>Closed trades</small><b>0</b></div>
+      <div><small>Realized P&amp;L</small><b id="realized">—</b></div>
+      <div><small>Unrealized P&amp;L</small><b id="unrealized">—</b></div>
+      <div><small>Closed trades</small><b id="trades">—</b></div>
+      <div><small>Win rate</small><b id="winrate">—</b></div>
+      <div><small>Profit factor</small><b id="pf">—</b></div>
+      <div><small>Open positions</small><b id="openpos">—</b></div>
     </div>
-    <div class="d" style="text-align:right;margin-top:6px">equity ₹10,00,000</div>
-    <svg class="chart" viewBox="0 0 800 90" preserveAspectRatio="none">
-      <g stroke="#14283a"><line x1="0" y1="20" x2="800" y2="20"/><line x1="0" y1="45" x2="800" y2="45"/><line x1="0" y1="70" x2="800" y2="70"/></g>
-      <path d="M0 30 L800 30 L800 90 L0 90 Z" fill="#0e3a33" opacity=".6"/>
-      <line x1="0" y1="30" x2="800" y2="30" stroke="#2ee6a6" stroke-width="2"/>
-      <text x="6" y="24" fill="#5d7b94" font-size="11">start ₹10,00,000</text>
-    </svg>
+    <p class="d" style="margin-top:10px">Equity curve: not built yet. It needs an equity series from the backend.</p>
   </section>
 
   <section class="panel">
     <div class="ph">Risk <span>caps &amp; guards</span></div>
-    <div class="guard"><span>Trading state</span><b class="a">STOPPED</b></div>
-    <div class="guard"><span>Kill switch</span><b class="g">OFF</b></div>
-    <div class="guard"><span>Market</span><b class="g">OPEN · 09:15–15:30 IST</b></div>
-    <div class="guard"><span>Open risk 0/3</span><b class="g">0.00% · cap 1.50%</b></div>
-    <div class="guard"><span>Daily loss</span><b class="g">0.00% of 2%</b></div>
-    <div class="bar"><i></i></div>
-    <div class="guard"><span>Drawdown</span><b class="g">0.00% of 6%</b></div>
-    <div class="bar"><i></i></div>
-    <div class="guard"><span>Risk / trade · sq-off</span><b class="g">0.50% · 15:15 IST</b></div>
-    <div class="guard"><span>Feed</span><b class="a">SIMULATED · 0.7s</b></div>
+    <div class="guard"><span>Mode</span><b id="r-mode">—</b></div>
+    <div class="guard"><span>Kill switch</span><b id="r-kill">—</b></div>
+    <div class="guard"><span>Open exposure used</span><b id="r-risk">—</b></div>
+    <div class="bar"><i id="riskbar"></i></div>
+    <div class="guard"><span>Limits not set</span><b id="r-unset">—</b></div>
+    <div class="guard"><span>Feed</span><b id="r-feed">—</b></div>
   </section>
 </div>
 
 <div class="mid">
   <section class="panel">
-    <div class="ph">Screener <span>MTF ≥3/4 · 1h aligned · vol ≥1.2x</span></div>
-    <div class="d" style="margin-bottom:6px">2 of 10 stocks pass the screener · refreshed every 0.7s · simulated prices</div>
-    <table>
-      <thead><tr><th>Symbol</th><th class="n">LTP ₹</th><th class="n">Chg%</th></tr></thead>
-      <tbody>
-        <tr><td>RELIANCE</td><td class="n">2,952.10</td><td class="n g">+0.02</td></tr>
-        <tr><td>HDFCBANK</td><td class="n">1,681.15</td><td class="n g">+0.06</td></tr>
-        <tr><td>ICICIBANK</td><td class="n">1,281.50</td><td class="n g">+0.02</td></tr>
-        <tr><td style="color:var(--ok)">INFY</td><td class="n">1,533.95</td><td class="n g">+0.03</td></tr>
-        <tr><td>TCS</td><td class="n">3,878.85</td><td class="n">+0.00</td></tr>
-        <tr><td>SBIN</td><td class="n">820.15</td><td class="n r">-0.02</td></tr>
-        <tr><td>ITC</td><td class="n">428.65</td><td class="n g">+0.05</td></tr>
-        <tr><td>LT</td><td class="n">3,596.90</td><td class="n g">+0.03</td></tr>
-        <tr><td style="color:var(--ok)">AXISBANK</td><td class="n">1,135.35</td><td class="n g">+0.01</td></tr>
-        <tr><td>BHARTIARTL</td><td class="n">1,641.05</td><td class="n g">+0.06</td></tr>
-      </tbody>
-    </table>
+    <div class="ph">Open positions <span id="poscount"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
+      <tbody id="positions"></tbody>
+    </table></div>
   </section>
 
   <section class="panel">
-    <div class="ph">Neural shell <span>sources → screener → alpha → strategy → risk gate → execution → OpenAlgo bridge → broker / exchange</span></div>
-    <svg viewBox="0 0 940 300" role="img" aria-label="Neural shell">
+    <div class="ph">Neural shell <span>layout only, values not connected</span></div>
+    <svg viewBox="0 0 940 300" role="img" aria-label="Neural shell layout">
       <g stroke="#2a6f8f" stroke-width="1.2" fill="none">
         <line x1="74" y1="36" x2="200" y2="173"/><line x1="74" y1="89" x2="200" y2="120"/>
         <line x1="74" y1="142" x2="200" y2="173"/><line x1="74" y1="194" x2="200" y2="173"/>
@@ -210,24 +189,24 @@
         <circle cx="880" cy="79" r="8" stroke="#3fd0ff"/><circle cx="880" cy="225" r="8" stroke="#3fd0ff"/>
       </g>
       <g font-size="11" text-anchor="middle" fill="#c3d8e8">
-        <text x="74" y="22" fill="#3fd0ff">NSE/BSE quotes</text><text x="74" y="33" fill="#5d7b94" font-size="10">10 symbols</text>
+        <text x="74" y="22" fill="#3fd0ff">NSE/BSE quotes</text>
         <text x="74" y="106" fill="#3fd0ff">OpenAlgo WS feed</text>
         <text x="74" y="158" fill="#3fd0ff">Historical data</text>
         <text x="74" y="210" fill="#3fd0ff">Filings &amp; NLP</text>
         <text x="200" y="58" fill="#5d7b94">Sectors</text>
-        <text x="200" y="134" fill="#c3d8e8">Screener</text><text x="200" y="145" fill="#5d7b94" font-size="10">2 pass</text>
+        <text x="200" y="134" fill="#c3d8e8">Screener</text>
         <text x="200" y="196" fill="#ffb347">Market data</text>
-        <text x="200" y="248" fill="#ffb347">Portfolio</text><text x="200" y="259" fill="#5d7b94" font-size="10">₹10,00,000</text>
-        <text x="337" y="58" fill="#3fd0ff">Alpha signals</text><text x="337" y="69" fill="#5d7b94" font-size="10">0 signals</text>
-        <text x="337" y="168" fill="#5d7b94">Strategy</text><text x="337" y="179" fill="#5d7b94" font-size="10">idle</text>
-        <text x="337" y="266" fill="#5d7b94">Optimizer</text><text x="337" y="277" fill="#5d7b94" font-size="10">report only</text>
-        <text x="472" y="58" fill="#ff4d6d">Kill switch</text><text x="472" y="90" fill="#ff4d6d" font-size="10">OFF</text>
-        <text x="472" y="168" fill="#2ee6a6">Risk gate</text><text x="472" y="179" fill="#5d7b94" font-size="10">open 0/3</text>
-        <text x="472" y="266" fill="#ffb347">Ledger</text><text x="472" y="277" fill="#ffb347" font-size="10">+₹0</text>
-        <text x="608" y="168" fill="#c3d8e8">Execution</text><text x="608" y="179" fill="#5d7b94" font-size="10">0 fills</text>
-        <text x="743" y="168" fill="#c3d8e8">OpenAlgo bridge</text><text x="743" y="179" fill="#2ee6a6" font-size="10">DRY_RUN</text>
-        <text x="880" y="64" fill="#3fd0ff">Broker</text><text x="880" y="94" fill="#5d7b94" font-size="10">simulated</text>
-        <text x="880" y="210" fill="#3fd0ff">NSE / BSE</text><text x="880" y="240" fill="#2ee6a6" font-size="10">open</text>
+        <text x="200" y="248" fill="#ffb347">Portfolio</text>
+        <text x="337" y="58" fill="#3fd0ff">Alpha signals</text>
+        <text x="337" y="168" fill="#5d7b94">Strategy</text>
+        <text x="337" y="266" fill="#5d7b94">Optimizer</text>
+        <text x="472" y="58" fill="#ff4d6d">Kill switch</text>
+        <text x="472" y="168" fill="#2ee6a6">Risk gate</text>
+        <text x="472" y="266" fill="#ffb347">Ledger</text>
+        <text x="608" y="168" fill="#c3d8e8">Execution</text>
+        <text x="743" y="168" fill="#c3d8e8">OpenAlgo bridge</text>
+        <text x="880" y="64" fill="#3fd0ff">Broker</text>
+        <text x="880" y="210" fill="#3fd0ff">NSE / BSE</text>
       </g>
       <g font-size="10" fill="#5d7b94" text-anchor="middle">
         <text x="74" y="290">SOURCES</text><text x="268" y="290">SCREEN · ALPHA</text>
@@ -238,31 +217,63 @@
   </section>
 </div>
 
-<div class="bot">
+<div class="two">
   <section class="panel">
-    <div class="ph">Closed trades <span>net of costs · ₹</span></div>
-    <table>
-      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Entry</th><th class="n">Exit</th><th>Why</th><th class="n">R</th><th class="n">Net</th></tr></thead>
-      <tbody><tr><td colspan="9" class="d">No closed trades yet</td></tr></tbody>
-    </table>
+    <div class="ph">Safety events <span id="evcount"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Severity</th><th>Kind</th><th>Message</th></tr></thead>
+      <tbody id="events"></tbody>
+    </table></div>
+    <div class="ph" style="margin-top:10px">AI insight <span>rules, advice only</span></div>
+    <ul id="insight"></ul>
   </section>
 
   <section class="panel">
-    <div class="ph">Order &amp; event log <span>last 14 orders</span></div>
-    <table>
-      <thead><tr><th>Time</th><th>ID</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th>State</th></tr></thead>
-      <tbody><tr><td colspan="6" class="d">No orders yet</td></tr></tbody>
-    </table>
-    <div class="log" style="margin-top:8px">
-      <div><span class="d">10:07:29</span> New IST day 2026-11-03: today P&amp;L and loss limit reset</div>
-      <div><span class="d">10:07:29</span> Dashboard ready. Market hours: NSE 09:15–15:30 IST, Mon–Fri</div>
+    <div class="ph">Current limits <span>saved to config</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Limit</th><th class="n">Value</th></tr></thead>
+      <tbody id="limits"></tbody>
+    </table></div>
+  </section>
+</div>
+
+<div class="two">
+  <section class="panel">
+    <div class="ph">Kill switch <span>backend state</span></div>
+    <p class="d">Trip blocks new entries now. Open positions are closed by the next paper run; this page sends no orders. Needs the token (header) and a reason. Both actions are audited.</p>
+    <input type="text" id="killreason" maxlength="200" placeholder="reason (required)" autocomplete="off">
+    <div class="actions">
+      <button class="stop" id="killtrip" type="button">Trip kill switch</button>
+      <button class="go" id="killreset" type="button">Reset kill switch</button>
+      <span id="killmsg"></span>
     </div>
   </section>
 
   <section class="panel">
-    <div class="ph">Execution window <span>last 8 orders</span></div>
-    <div class="d" style="margin-bottom:8px">orders 0 · filled 0 · rejected 0 · avg ack – · avg slippage –</div>
-    <div class="d">No orders yet</div>
+    <div class="ph">Set limits <span id="unset"></span></div>
+    <form id="limitform" autocomplete="off">
+      <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
+        <input type="checkbox" id="lim-blocked" data-limit="blocked"></div>
+      <div class="row"><label for="lim-max_order_quantity">max order quantity (shares)</label>
+        <input type="number" id="lim-max_order_quantity" data-limit="max_order_quantity" min="0" step="1"></div>
+      <div class="row"><label for="lim-max_order_notional">max order notional (₹)</label>
+        <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
+        <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
+        <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
+        <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
+        <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
+      <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
+        <input type="number" id="lim-max_symbols_per_portfolio" data-limit="max_symbols_per_portfolio" min="0" step="1"></div>
+      <div class="actions">
+        <button class="go" type="submit">Save limits</button>
+        <span id="msg"></span>
+      </div>
+      <p class="d">Empty = not set (entries fail closed). The token is not stored; reload the page to clear it.</p>
+    </form>
   </section>
 </div>
 
@@ -275,58 +286,194 @@
     <div class="sheet-b">
       <h3>Algo trading system: full flow, v5</h3>
       <p>Proposed design, not built. Arrows show the order inside each row. Dashed red is feedback and kill switch. Dashed purple is the approved-model handoff.</p>
-      <div class="flow" id="flowgrid"></div>
+      <div class="flow" id="flowgrid2"></div>
       <div class="legend">Colour key: beige = data and records · red = safety and QA gates · blue = research and models · green = sizing, risk and execution.</div>
     </div>
   </div>
 </div>
 
 <script>
-  const rows = [
-    ["Historical bars", "Cached OHLCV, costs", "n1"], ["Data QA gate", "Corp actions, stale and missing bars", "n2"],
-    ["Walk-forward + purged CV", "Embargoed folds, costs included", "n3"], ["Trial logger + DSR/PBO", "All trials counted, OOS gate", "n2"],
-    ["Paper trading stage", "Live feed, no capital", "n2"], ["Model registry", "Versioned, human approves", "n1"],
-    ["LBL:Research validation: inputs to backtest and risk, no trade path"],
-    ["Indian cost model", "STT, charges, GST, stamp, impact", "n3"], ["Bootstrap of trades", "Luck vs edge test", "n3"],
-    ["Covariance, shrinkage", "Feeds optimizer and cluster caps", "n3"], ["Capacity estimator", "Max capital per strategy", "n3"],
-    ["Experiment lineage", "Data, code, params per signal", "n1"], ["Replay simulator", "Same code path as backtest", "n3"],
-    ["LBL:Market inputs: flow, relative strength, microstructure, filings"],
-    ["India flow data", "FII/DII, delivery %, pledging", "n3"], ["Bulk and block deals", "Large-holder activity", "n3"],
-    ["Relative strength", "Vs Nifty and sector indices", "n3"], ["Intraday microstructure", "Order-book imbalance, volume profile", "n3"],
-    ["Filings and circulars", "NSE, BSE, SEBI parsed to events", "n3"], ["Global cues", "SGX/GIFT Nifty, USDINR, crude", "n3"],
-    ["Market data live", "Point-in-time tagged", "n1"], ["Feature store", "Values as known on each date", "n1"],
-    ["Universe and actions", "Delisted included, adjusted", "n1"], ["Regime detector", "HMM, volatility states", "n3"],
-    ["Factor and alpha models", "Momentum, value, quality", "n3"], ["Feed health monitor", "Latency, heartbeats, gaps", "n2"],
-    ["Liquidity screener", "ADV, ASM/GSM flags", "n3"], ["Event scoring", "Frontline AI, advice only", "n3"],
-    ["Signal", "Direction, stop, time limit", "n3"], ["Meta-labeler", "Take or skip, bet size", "n3"],
-    ["Calibrated conviction", "Platt or isotonic", "n4"], ["Trading calendar", "Holidays, expiries, lot sizes", "n1"],
-    ["Fractional Kelly", "Vol-targeted, hard caps", "n4"], ["Capital allocator", "Budget per strategy", "n4"],
-    ["HRP optimizer", "Target weights, CVaR aware", "n4"], ["Drift check", "Vs target weights", "n4"],
-    ["Cash and margin manager", "SPAN, exposure, T+1 funds", "n1"], ["Beta limits", "Nifty beta, index exposure", "n3"],
-    ["Rebalancer", "No-trade bands, trade diffs", "n4"], ["Portfolio risk", "Sector, cluster, beta caps", "n2"],
-    ["Stress and CVaR", "2008, COVID, circuit days", "n2"], ["Live intraday VaR/CVaR", "Tail risk during session", "n2"],
-    ["Trade intent", "One handoff per trade", "n4"], ["Dashboard", "P&L hidden, EV, MAE/MFE", "n1"]
-  ];
-  const grid = document.getElementById("flowgrid");
-  let col = 0;
-  for (const r of rows) {
-    if (r[0].startsWith("LBL:")) {
-      const l = document.createElement("div");
-      l.className = "lbl"; l.textContent = r[0].slice(4);
-      grid.append(l); col = 0; continue;
-    }
-    const d = document.createElement("div");
-    d.className = "node " + r[2] + " step";
-    d.innerHTML = "<b></b><small></small>";
-    d.querySelector("b").textContent = r[0];
-    d.querySelector("small").textContent = r[1];
-    grid.append(d);
-    col++;
+  const $ = id => document.getElementById(id);
+  const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
+                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio"];
+  const POLL_MS = 2000;   // never below 500 ms
+  let showMoney = null;   // from settings.pnl_visible_default on first read
+  let last = null;        // last overview
+  let formLoaded = false; // fill the limit form once, and again after a save
+
+  const inr = v => v == null ? "—" : "₹" + Number(v).toLocaleString("en-IN", {maximumFractionDigits: 2});
+  const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+  const money = v => showMoney ? inr(v) : "••••";
+  const cell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
+  const sign = v => v == null ? "d" : v > 0 ? "g" : v < 0 ? "r" : "d";
+
+  function setChip(id, text, cls) { const e = $(id); e.textContent = text; e.className = "chip " + cls; }
+
+  function emptyRow(cols, text) {
+    const tr = document.createElement("tr"), td = cell(text, "d");
+    td.colSpan = cols; td.style.textAlign = "left"; tr.append(td); return tr;
+  }
+  function renderTable(body, rows, empty, cols) {
+    body.replaceChildren(...(rows.length ? rows : [emptyRow(cols, empty)]));
   }
 
-  // ---- Trade setup (copied from the old page; reads and writes /api/setup) ----
-  const $ = id => document.getElementById(id);
+  // Market chip: NSE cash hours 09:15-15:30 IST, Mon-Fri. Exchange holidays are NOT checked here.
+  function renderMarket() {
+    const ist = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+    const mins = ist.getHours() * 60 + ist.getMinutes();
+    const open = ist.getDay() >= 1 && ist.getDay() <= 5 && mins >= 555 && mins <= 930;
+    setChip("market", open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED", open ? "ok" : "d");
+  }
 
+  function render(o) {
+    last = o;
+    setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
+    setChip("kill", o.kill_switch.active ? "KILL SWITCH ON" : "kill switch off", o.kill_switch.active ? "bad" : "on");
+    setChip("feed", "feed " + o.feed.status, "warn");
+    $("killbanner").textContent = o.kill_switch.active ? "Kill switch on: " + o.kill_switch.reason : "";
+    $("killbanner").className = "banner" + (o.kill_switch.active ? " on" : "");
+
+    const p = o.performance, pnl = p.realized_pnl + (p.unrealized_pnl || 0);
+    $("pnl").textContent = money(pnl);
+    $("pnl").className = "big " + (pnl > 0 ? "g" : pnl < 0 ? "r" : "");
+    $("realized").textContent = money(p.realized_pnl);
+    $("unrealized").textContent = money(p.unrealized_pnl);
+    $("trades").textContent = String(p.trades);
+    $("winrate").textContent = pct(p.win_rate);
+    $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
+    $("openpos").textContent = String(o.positions.length);
+    $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
+
+    $("r-mode").textContent = o.mode;
+    $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
+    $("r-kill").className = o.kill_switch.active ? "r" : "g";
+    $("r-risk").textContent = pct(p.risk_utilisation);
+    $("riskbar").style.width = Math.min(100, (p.risk_utilisation || 0) * 100) + "%";
+    $("r-unset").textContent = o.unset_limits.length ? o.unset_limits.join(", ") : "none";
+    $("r-unset").className = o.unset_limits.length ? "a" : "g";
+    $("r-feed").textContent = o.feed.status;
+    $("unset").textContent = o.unset_limits.length ? "not set: " + o.unset_limits.join(", ") : "all set";
+
+    $("poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
+    renderTable($("positions"), o.positions.map(x => {
+      const tr = document.createElement("tr");
+      tr.append(cell(x.symbol), cell(String(x.qty), "n"), cell(inr(x.avg_price), "n"), cell(money(x.unrealized_pnl), "n " + sign(x.unrealized_pnl)));
+      return tr;
+    }), "No open positions.", 4);
+
+    renderTable($("events"), o.events.map(e => {
+      const tr = document.createElement("tr");
+      tr.append(cell(e.severity, e.severity === "CRITICAL" ? "r" : e.severity === "WARNING" ? "a" : "d"), cell(e.kind), cell(e.message));
+      return tr;
+    }), "No safety events.", 3);
+    $("evcount").textContent = o.events.length ? o.events.length + " shown" : "";
+
+    $("insight").replaceChildren(...o.insight.map(t => { const li = document.createElement("li"); li.textContent = t; return li; }));
+
+    renderTable($("limits"), Object.entries(o.limits).filter(([k]) => k !== "blocked").map(([k, v]) => {
+      const tr = document.createElement("tr");
+      tr.append(cell(k), v == null ? cell("not set", "r n") : cell(String(v), "n"));
+      return tr;
+    }), "No limits.", 2);
+
+    if (!formLoaded) fillForm(o.limits);
+  }
+
+  function fillForm(limits) {
+    for (const f of LIMIT_FIELDS) $("lim-" + f).value = limits[f] == null ? "" : String(limits[f]);
+    $("lim-blocked").checked = !!limits.blocked;
+    formLoaded = true;
+  }
+
+  async function refresh() {
+    renderMarket();
+    try {
+      const r = await fetch("/api/overview", {cache: "no-store"});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const o = await r.json();
+      if (showMoney === null) showMoney = !!o.settings.pnl_visible_default;
+      render(o);
+      setChip("conn", "live · " + new Date().toLocaleTimeString("en-IN"), "on");
+    } catch (e) {
+      setChip("conn", "API offline (" + e.message + ")", "bad");
+    }
+  }
+
+  function setMsg(text, cls) { const m = $("msg"); m.textContent = text; m.className = cls || ""; }
+
+  async function saveLimits(ev) {
+    ev.preventDefault();
+    const token = $("token").value;
+    if (!token) return setMsg("Enter the dashboard token.", "r");
+    const body = {};
+    for (const f of LIMIT_FIELDS) {
+      const raw = $("lim-" + f).value.trim();
+      if (raw === "") { body[f] = null; continue; }
+      if (!Number.isFinite(Number(raw))) return setMsg(f + " must be a number.", "r");
+      body[f] = Number(raw);
+    }
+    body.blocked = $("lim-blocked").checked;
+    const current = last ? last.limits : {};
+    const changed = Object.keys(body).filter(k => body[k] !== current[k]);
+    if (!changed.length) return setMsg("Nothing to save.", "d");
+    const send = Object.fromEntries(changed.map(k => [k, body[k]]));
+    setMsg("Saving…", "d");
+    try {
+      const r = await fetch("/api/limits", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify(send)});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setMsg("Saved " + Object.keys(j.changed.new).length + " value(s).", "g");
+        formLoaded = false;
+        refresh();
+      } else if (r.status === 401) setMsg("Token rejected.", "r");
+      else if (r.status === 503) setMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setMsg("Save failed: " + e.message, "r");
+    }
+  }
+
+  function setKillMsg(text, cls) { const m = $("killmsg"); m.textContent = text; m.className = cls || ""; }
+
+  async function postKill(url, reason, okText) {
+    const token = $("token").value;
+    if (!token) return setKillMsg("Enter the dashboard token in the header.", "r");
+    setKillMsg("Sending…", "d");
+    try {
+      const r = await fetch(url, {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({reason})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setKillMsg(okText, "g"); refresh(); }
+      else if (r.status === 401) setKillMsg("Token rejected.", "r");
+      else if (r.status === 503) setKillMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setKillMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setKillMsg("Failed: " + e.message, "r");
+    }
+  }
+
+  function tripKill() {
+    const reason = $("killreason").value.trim();
+    if (!reason) return setKillMsg("Enter a reason first.", "r");
+    if (!confirm("Trip the kill switch? New entries stop. Open positions are closed by the next paper run.")) return;
+    postKill("/api/kill/trip", reason, "Kill switch tripped.");
+  }
+
+  function resetKill() {
+    const reason = $("killreason").value.trim();
+    if (!reason) return setKillMsg("Enter a reason first.", "r");
+    if (!confirm("Reset the kill switch? New entries can start again.")) return;
+    postKill("/api/kill/reset", reason, "Kill switch reset.");
+  }
+
+  $("killtrip").onclick = tripKill;
+  $("killreset").onclick = resetKill;
+  $("headkill").onclick = () => { $("killreason").scrollIntoView({block: "center"}); $("killreason").focus(); };
+
+  // ---- Trade setup (reads and writes /api/setup) ----
   function setSetupMsg(text, cls) { const m = $("setupmsg"); m.textContent = text; m.className = cls || ""; }
 
   function fillSetup(s) {
@@ -379,16 +526,66 @@
     if (open) loadSetup();
   };
   $("setupform").addEventListener("submit", saveSetup);
+  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
+  $("limitform").addEventListener("submit", saveLimits);
 
-  const modal = document.getElementById("flowmodal");
-  const openFlow = () => { modal.hidden = false; document.getElementById("flowclose").focus(); };
-  const closeFlow = () => { modal.hidden = true; document.getElementById("flowbtn").focus(); };
-  document.getElementById("flowbtn").onclick = openFlow;
-  document.getElementById("flowclose").onclick = closeFlow;
+  // ---- Flow popup (proposed design, hand-drawn, not generated from the SVG yet) ----
+  const rows = [
+    ["Historical bars", "Cached OHLCV, costs", "n1"], ["Data QA gate", "Corp actions, stale and missing bars", "n2"],
+    ["Walk-forward + purged CV", "Embargoed folds, costs included", "n3"], ["Trial logger + DSR/PBO", "All trials counted, OOS gate", "n2"],
+    ["Paper trading stage", "Live feed, no capital", "n2"], ["Model registry", "Versioned, human approves", "n1"],
+    ["LBL:Research validation: inputs to backtest and risk, no trade path"],
+    ["Indian cost model", "STT, charges, GST, stamp, impact", "n3"], ["Bootstrap of trades", "Luck vs edge test", "n3"],
+    ["Covariance, shrinkage", "Feeds optimizer and cluster caps", "n3"], ["Capacity estimator", "Max capital per strategy", "n3"],
+    ["Experiment lineage", "Data, code, params per signal", "n1"], ["Replay simulator", "Same code path as backtest", "n3"],
+    ["LBL:Market inputs: flow, relative strength, microstructure, filings"],
+    ["India flow data", "FII/DII, delivery %, pledging", "n3"], ["Bulk and block deals", "Large-holder activity", "n3"],
+    ["Relative strength", "Vs Nifty and sector indices", "n3"], ["Intraday microstructure", "Order-book imbalance, volume profile", "n3"],
+    ["Filings and circulars", "NSE, BSE, SEBI parsed to events", "n3"], ["Global cues", "SGX/GIFT Nifty, USDINR, crude", "n3"],
+    ["Market data live", "Point-in-time tagged", "n1"], ["Feature store", "Values as known on each date", "n1"],
+    ["Universe and actions", "Delisted included, adjusted", "n1"], ["Regime detector", "HMM, volatility states", "n3"],
+    ["Factor and alpha models", "Momentum, value, quality", "n3"], ["Feed health monitor", "Latency, heartbeats, gaps", "n2"],
+    ["Liquidity screener", "ADV, ASM/GSM flags", "n3"], ["Event scoring", "Frontline AI, advice only", "n3"],
+    ["Signal", "Direction, stop, time limit", "n3"], ["Meta-labeler", "Take or skip, bet size", "n3"],
+    ["Calibrated conviction", "Platt or isotonic", "n4"], ["Trading calendar", "Holidays, expiries, lot sizes", "n1"],
+    ["Fractional Kelly", "Vol-targeted, hard caps", "n4"], ["Capital allocator", "Budget per strategy", "n4"],
+    ["HRP optimizer", "Target weights, CVaR aware", "n4"], ["Drift check", "Vs target weights", "n4"],
+    ["Cash and margin manager", "SPAN, exposure, T+1 funds", "n1"], ["Beta limits", "Nifty beta, index exposure", "n3"],
+    ["Rebalancer", "No-trade bands, trade diffs", "n4"], ["Portfolio risk", "Sector, cluster, beta caps", "n2"],
+    ["Stress and CVaR", "2008, COVID, circuit days", "n2"], ["Live intraday VaR/CVaR", "Tail risk during session", "n2"],
+    ["Trade intent", "One handoff per trade", "n4"], ["Dashboard", "P&L hidden, EV, MAE/MFE", "n1"]
+  ];
+  function buildFlow(target) {
+    for (const r of rows) {
+      if (r[0].startsWith("LBL:")) {
+        const l = document.createElement("div");
+        l.className = "lbl"; l.textContent = r[0].slice(4);
+        target.append(l); continue;
+      }
+      const d = document.createElement("div");
+      d.className = "node " + r[2] + " step";
+      d.innerHTML = "<b></b><small></small>";
+      d.querySelector("b").textContent = r[0];
+      d.querySelector("small").textContent = r[1];
+      target.append(d);
+    }
+  }
+  buildFlow($("flowgrid2"));
+
+  const modal = $("flowmodal");
+  const openFlow = () => { modal.hidden = false; $("flowclose").focus(); };
+  const closeFlow = () => { modal.hidden = true; $("flowbtn").focus(); };
+  $("flowbtn").onclick = openFlow;
+  $("flowclose").onclick = closeFlow;
   modal.addEventListener("click", e => { if (e.target === modal) closeFlow(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeFlow(); });
 
-  const clock = document.getElementById("clock");
-  function tick() { clock.textContent = new Date().toLocaleTimeString("en-GB", {hour12: false}) + " IST"; }
+  // ---- Clock (IST) ----
+  const clock = $("clock");
+  function tick() { clock.textContent = new Date().toLocaleTimeString("en-GB", {hour12: false, timeZone: "Asia/Kolkata"}) + " IST"; }
   tick(); setInterval(tick, 1000);
+
+  loadSetup();
+  refresh();
+  setInterval(refresh, POLL_MS);
 </script>

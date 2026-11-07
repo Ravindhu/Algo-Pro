@@ -22,13 +22,15 @@ building UI in more than one place, and the flow diagram lived in a separate fil
 
 - `/ui` in `dashboard/app.py` now serves `dashboard/main_dashboard.html`.
 - The Trade setup panel was copied from the old page. It reads and saves `/api/setup` with the token.
-- `src/quant/index.html` is no longer served. It stays in the repo because `tests/unit/test_pnl_visible.py`
-  still checks it. Delete it when those checks move to the main page.
+- The main page is wired to `/api/overview`, `/api/limits`, `/api/kill/trip`, `/api/kill/reset` and `/api/setup`.
+  Each write needs the token in the header. The token is kept in memory only.
+- The old page `src/quant/index.html` was deleted. Its checks now run on the main page (`tests/unit/test_pnl_visible.py`).
 
 ## Open items
 
-- The main page's START, STOP and KILL SWITCH buttons do nothing yet. The kill switch is not wired
-  to `/api/kill/*`. Do not rely on it until it is wired and tested.
-- Limit inputs and kill-switch controls from the old page are not on the main page yet.
+- START and STOP are disabled. The paper runner is started on the owner machine.
+- The equity curve is not built. It needs an equity series from the backend.
+- The neural shell and its values are a layout only. They are not connected to live data.
+- The market chip checks hours only. Exchange holidays are not checked.
 - The flow popup is hand-drawn. It is not generated from `quant_system_flow_v5.svg`.
   Connectors (feedback loop, kill switch) are not drawn yet.

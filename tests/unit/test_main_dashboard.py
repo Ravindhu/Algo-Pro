@@ -1,5 +1,6 @@
 """Main dashboard (decision 0027): dashboard/main_dashboard.html is what /ui serves.
 
+Route, panel and safety checks for the page are in test_pnl_visible.py.
 Text checks plus a Node syntax check, so they run without extra packages.
 """
 import pathlib
@@ -24,14 +25,6 @@ def test_page_has_trade_setup_panel():
         assert f'id="{element_id}"' in text, element_id
 
 
-def test_page_reads_and_writes_only_setup_routes():
-    text = PAGE.read_text(encoding="utf-8")
-    routes = set(re.findall(r'"(/api/[\w/]+)"', text))
-    assert routes == {"/api/setup"}
-    assert text.count('method: "POST"') == 1
-    assert '"X-Dashboard-Token"' in text
-
-
 def test_page_never_stores_the_token():
     text = PAGE.read_text(encoding="utf-8")
     for store in ("localStorage", "sessionStorage", "document.cookie"):
@@ -42,6 +35,11 @@ def test_page_has_no_order_code_or_simulated_random():
     text = PAGE.read_text(encoding="utf-8")
     for banned in ("placeorder", "Math.random"):
         assert banned not in text, banned
+
+
+def test_start_and_stop_are_disabled_until_wired():
+    text = PAGE.read_text(encoding="utf-8")
+    assert text.count("disabled") >= 2
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
