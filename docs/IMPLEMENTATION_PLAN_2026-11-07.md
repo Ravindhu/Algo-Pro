@@ -34,3 +34,16 @@ Plain-English plan for this batch. Paper and research only. Nothing here sends a
 - Each new file has a `Flow stage:` line and a `Status:` line (checked by `tests/unit/test_layout.py`).
 - No new code calls the order API.
 - Tests run in the sandbox without network. Unit tests use fakes.
+
+## Update: second batch
+| Item | What | Where | Test |
+|---|---|---|---|
+| 3 | Delivery (CNC) settlement is T+1 on trading days; holidays and weekends skipped; refuses if the calendar is unverified | `src/quant/core/calendar.py` (`settlement_date`) | `tests/unit/test_settlement_t1.py` |
+| 9 | Cash pre-open phases from NSE circular 61/2019 (NSE/CMTR/41180). Entries until 09:07, uncertain 09:07-09:08, market orders refused in pre-open | `src/quant/core/pre_open.py` | `tests/unit/test_pre_open.py` |
+| 13 | Optional exchange-approved algo ID on each intent. Refused only when `require_algo_id=True` | `core/types.py`, `risk/pretrade.py` | `tests/unit/test_algo_tag.py` |
+
+Notes:
+- Item 9: the 7 Sep 2026 pre-open change is for equity derivatives (F&O) only, per secondary sources. Cash timings above come from the 2019 NSE circular. Check against the current cash circular before live use.
+- Item 13: the owner runs a personal algo through OpenAlgo, hosted on a whitelisted IP. The owner has decided no compliance block for now. The gate does not pass `require_algo_id` yet. Wire it when you want the check on.
+- Item 1 (demerger): dropped by owner instruction.
+- Still deferred: 6, 7, 10, 15, 23, 24. See above.

@@ -31,6 +31,7 @@ class TradeIntent:
     adv_shares: Optional[float] = None
     asm_gsm: bool = False
     trade_day: Optional[date] = None  # needed for the event-blackout check on entries
+    algo_id: Optional[str] = None  # exchange-approved algo ID, when one is configured
 
     @property
     def notional(self) -> float:

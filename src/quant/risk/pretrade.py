@@ -12,8 +12,10 @@ from quant.core.config import RiskLimits
 from quant.core.types import TradeIntent
 
 
-def pretrade_checks(intent: TradeIntent, limits: RiskLimits) -> List[str]:
+def pretrade_checks(intent: TradeIntent, limits: RiskLimits, require_algo_id: bool = False) -> List[str]:
     reasons: List[str] = []
+    if require_algo_id and not intent.algo_id:
+        reasons.append("algo ID missing on order (require_algo_id is on)")
     if intent.qty <= 0:
         reasons.append("qty must be > 0")
     if intent.lot_size <= 0 or intent.qty % intent.lot_size:
