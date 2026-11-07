@@ -29,3 +29,14 @@ def cusum_alarm(returns: Sequence[float], mu0: float, k: float, h: float) -> boo
         if s < -h:
             return True
     return False
+
+
+def emit_deviation_alert(alerts, component: str, returns: Sequence[float], mu0: float, k: float, h: float) -> bool:
+    """Run the CUSUM drift alarm and emit an ERROR alert when it fires (flow item 22).
+
+    `alerts` is any object with emit(level, component, message), e.g. notify.alerts.Alerts.
+    """
+    fired = cusum_alarm(returns, mu0, k, h)
+    if fired:
+        alerts.emit("ERROR", component, "strategy deviation: CUSUM drift alarm fired")
+    return fired
