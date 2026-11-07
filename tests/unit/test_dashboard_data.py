@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "dashboard"))
 
 from quant.reporting.dashboard_data import (  # noqa: E402
-    ai_insight, build_overview, current_mode, fifo_pnl, safety_events, unrealized,
+    ai_insight, build_overview, current_mode, equity_curve, fifo_pnl, safety_events, unrealized,
 )
 
 
@@ -116,3 +116,13 @@ def test_overview_with_closed_trade_needs_blue_profit_factor():
     assert o["performance"]["trades"] == 1
     assert o["performance"]["realized_pnl"] == pytest.approx(100.0)
     assert o["performance"]["win_rate"] == pytest.approx(1.0)
+
+
+def test_equity_curve_is_cumulative_realized_with_drawdown():
+    e = equity_curve([{"pnl": 100.0}, {"pnl": -150.0}, {"pnl": 50.0}])
+    assert e["points"] == [0.0, 100.0, -50.0, 0.0]
+    assert e["max_drawdown"] == pytest.approx(150.0)
+
+
+def test_equity_curve_empty_is_just_the_start():
+    assert equity_curve([]) == {"points": [0.0], "max_drawdown": 0.0}

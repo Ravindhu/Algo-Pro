@@ -29,7 +29,7 @@ building UI in more than one place, and the flow diagram lived in a separate fil
 ## Open items
 
 - START and STOP are disabled. The paper runner is started on the owner machine.
-- The equity curve is not built. It needs an equity series from the backend.
+- The equity curve shows realized P&L from closed trades only (`equity_curve` in `dashboard_data.py`). Open-position P&L is not in the curve, because past prices are not stored.
 - The neural shell and its values are a layout only. They are not connected to live data.
 - The market chip checks hours only. Exchange holidays are not checked.
 - The flow popup is hand-drawn. It is not generated from `quant_system_flow_v5.svg`.

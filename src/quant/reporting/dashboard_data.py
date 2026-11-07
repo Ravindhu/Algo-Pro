@@ -67,6 +67,21 @@ def unrealized(open_pos: Mapping[str, Mapping], last_prices: Mapping[str, float]
     return out
 
 
+def equity_curve(closed: Sequence[Mapping]) -> Dict[str, object]:
+    """Realized P&L after each closed trade, in close order, starting at 0, and its max drawdown (money).
+
+    This is NOT a full equity curve: open-position P&L is not included, because past prices are not stored.
+    """
+    points: List[float] = [0.0]
+    cum = peak = max_dd = 0.0
+    for t in closed:
+        cum += float(t["pnl"])
+        points.append(round(cum, 2))
+        peak = max(peak, cum)
+        max_dd = max(max_dd, peak - cum)
+    return {"points": points, "max_drawdown": round(max_dd, 2)}
+
+
 def safety_events(audit_records: Sequence[Mapping], kill: Mapping) -> List[dict]:
     """Newest-first list of safety events. Kill switch first when active."""
     events: List[dict] = []
@@ -144,5 +159,6 @@ def build_overview(
         },
         "events": safety_events(audit_records, kill)[:20],
     }
+    overview["equity"] = equity_curve(pnl["closed"])
     overview["insight"] = ai_insight(overview)
     return overview

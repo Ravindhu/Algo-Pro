@@ -137,7 +137,11 @@
       <div><small>Profit factor</small><b id="pf">—</b></div>
       <div><small>Open positions</small><b id="openpos">—</b></div>
     </div>
-    <p class="d" style="margin-top:10px">Equity curve: not built yet. It needs an equity series from the backend.</p>
+    <svg id="eqsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:120px;margin-top:10px">
+      <line id="eqzero" x1="0" x2="800" y1="60" y2="60" stroke="#14283a" stroke-dasharray="4 4"/>
+      <polyline id="eqline" fill="none" stroke="#2ee6a6" stroke-width="2" points=""/>
+    </svg>
+    <p class="d" id="eqnote">Equity curve: waiting for data…</p>
   </section>
 
   <section class="panel">
@@ -376,7 +380,26 @@
       return tr;
     }), "No limits.", 2);
 
+    if (o.equity) drawEquity(o.equity);
     if (!formLoaded) fillForm(o.limits);
+  }
+
+  // Realized P&L curve (closed trades only). Scale: min..max of the points.
+  function drawEquity(e) {
+    const pts = e.points, w = 800, hgt = 120, pad = 6;
+    const note = $("eqnote");
+    if (pts.length < 2) {
+      $("eqline").setAttribute("points", "");
+      note.textContent = "No closed trades yet. The curve starts after the first close.";
+      return;
+    }
+    const min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+    const x = i => pad + i * (w - 2 * pad) / (pts.length - 1);
+    const y = v => hgt - pad - (v - min) * (hgt - 2 * pad) / span;
+    $("eqline").setAttribute("points", pts.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" "));
+    $("eqzero").setAttribute("y1", y(0).toFixed(1));
+    $("eqzero").setAttribute("y2", y(0).toFixed(1));
+    note.textContent = "realized P&L, closed trades only · max drawdown " + money(e.max_drawdown);
   }
 
   function fillForm(limits) {
