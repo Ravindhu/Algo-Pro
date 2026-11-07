@@ -37,9 +37,11 @@ def test_page_has_no_order_code_or_simulated_random():
         assert banned not in text, banned
 
 
-def test_start_and_stop_are_disabled_until_wired():
+def test_start_and_stop_are_wired_to_the_loop():
     text = PAGE.read_text(encoding="utf-8")
-    assert text.count("disabled") >= 2
+    for element_id in ("loopstart", "loopstop", "loopchip", "loopmsg"):
+        assert f'id="{element_id}"' in text, element_id
+    assert '"/api/loop/start"' in text and '"/api/loop/stop"' in text
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")

@@ -26,7 +26,7 @@ building UI in more than one place, and the flow diagram lived in a separate fil
 
 ## Open items
 
-- START and STOP are disabled. They need the owner's decision (option A, B or C in the plan).
+- START and STOP run the paper loop (decision 0029). The loop has no signal source yet.
 - The neural shell is a layout only. The screener has no data yet.
-- The market chip checks hours only. Exchange holidays are not checked.
+- The market status uses the holiday list in `config/calendar/holidays.csv` (decision 0029).
 - The flow popup is hand-drawn. It is not generated from `quant_system_flow_v5.svg`.

@@ -2,7 +2,7 @@
 
 PAPER can be selected. LIVE is always refused here. Live orders need a LiveApproval with an
 approver, a matching limits hash and an approved GateDecision (decision 0017; the guard is in
-src/quant/execution/openalgo_client.py). The dashboard never creates those, so it cannot switch live on.
+the execution package (decision 0017)). The dashboard never creates those, so it cannot switch live on.
 The mode is not saved to a file: paper is the only mode the dashboard can select, so a restart returns to paper.
 
 Flow stage: Dashboard

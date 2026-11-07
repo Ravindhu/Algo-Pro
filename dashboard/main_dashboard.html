@@ -106,8 +106,10 @@
   <button id="flowbtn" type="button">FLOW</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
-  <button class="go" type="button" disabled title="Not wired: paper runner is started from the owner machine">START</button>
-  <button class="stop" type="button" disabled title="Not wired yet">STOP</button>
+  <span id="loopchip" class="chip">loop —</span>
+  <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
+  <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions; the kill switch does that">STOP</button>
+  <span id="loopmsg" class="d"></span>
   <button class="kill" id="headkill" type="button">KILL SWITCH</button>
 </header>
 <div class="banner" id="killbanner"></div>
@@ -328,14 +330,6 @@
     body.replaceChildren(...(rows.length ? rows : [emptyRow(cols, empty)]));
   }
 
-  // Market chip: NSE cash hours 09:15-15:30 IST, Mon-Fri. Exchange holidays are NOT checked here.
-  function renderMarket() {
-    const ist = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
-    const mins = ist.getHours() * 60 + ist.getMinutes();
-    const open = ist.getDay() >= 1 && ist.getDay() <= 5 && mins >= 555 && mins <= 930;
-    setChip("market", open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED", open ? "ok" : "d");
-  }
-
   function renderMode(m) {
     const paper = $("mode-paper"), live = $("mode-live");
     paper.className = m.mode === "paper" ? "on" : "off";
@@ -361,12 +355,40 @@
       modeMsg("Failed: " + e.message, "r");
     }
   }
+  function loopMsg(text, cls) { const m = $("loopmsg"); m.textContent = text; m.className = "d " + (cls || ""); }
+
+  async function postLoop(url) {
+    const token = $("token").value;
+    if (!token) return loopMsg("Enter the dashboard token in the header.", "r");
+    loopMsg("Sending…", "d");
+    try {
+      const r = await fetch(url, {method: "POST", headers: {"X-Dashboard-Token": token}});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { loopMsg(j.message, "g"); refresh(); }
+      else if (r.status === 401) loopMsg("Token rejected.", "r");
+      else if (r.status === 503) loopMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else loopMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      loopMsg("Failed: " + e.message, "r");
+    }
+  }
+  $("loopstart").onclick = () => postLoop("/api/loop/start");
+  $("loopstop").onclick = () => postLoop("/api/loop/stop");
   $("mode-paper").onclick = () => postMode("paper");
   $("mode-live").onclick = () => postMode("live");
 
   function render(o) {
     last = o;
     if (o.trading_mode) renderMode(o.trading_mode);
+    if (o.market) {
+      setChip("market", o.market.open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED · " + o.market.reason, o.market.open ? "ok" : "d");
+      $("market").title = o.market.verified ? o.market.holidays_loaded + " holidays loaded (NSE CM circular)" : "holiday calendar not verified";
+    }
+    if (o.loop) {
+      const running = o.loop.status === "running";
+      setChip("loopchip", "loop " + o.loop.status + (running && o.loop.session ? " · " + o.loop.session : ""), running ? "on" : "d");
+      $("loopchip").title = o.loop.last_error || o.loop.last_result || "";
+    }
     setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
     setChip("kill", o.kill_switch.active ? "KILL SWITCH ON" : "kill switch off", o.kill_switch.active ? "bad" : "on");
     setChip("feed", "feed " + o.feed.status, "warn");
@@ -445,7 +467,6 @@
   }
 
   async function refresh() {
-    renderMarket();
     try {
       const r = await fetch("/api/overview", {cache: "no-store"});
       if (!r.ok) throw new Error("HTTP " + r.status);

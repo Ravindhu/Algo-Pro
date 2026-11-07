@@ -18,6 +18,7 @@ import hmac
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -35,6 +36,8 @@ from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
+from quant.core.calendar import TradingCalendar  # noqa: E402
+from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
 
 TOKEN_ENV = "DASHBOARD_API_TOKEN"
 TOKEN_HEADER = "X-Dashboard-Token"
@@ -50,7 +53,10 @@ DEFAULT_PATHS = {
     "strategies": ROOT / "config" / "strategies",
     "page": ROOT / "dashboard" / "main_dashboard.html",  # main dashboard (decision 0027)
     "flow": ROOT / "dashboard" / "assets" / "flow_svg.js",
+    "loop": ROOT / "data" / "paper" / "loop",
+    "holidays": ROOT / "config" / "calendar" / "holidays.csv",
 }
+LOOP_INTERVAL_S = 60  # paper loop cycle (decision 0029)
 
 API_INDEX = {
     "service": "Algo-Pro dashboard",
@@ -59,6 +65,7 @@ API_INDEX = {
         "/api/overview", "/api/positions", "/api/events", "/api/health", "/api/kill", "/api/setup",
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
         "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live refused)",
+        "/api/loop", "POST /api/loop/start (token)", "POST /api/loop/stop (token)",
     ],
 }
 
@@ -90,6 +97,12 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     overview["settings"] = read_settings(paths["settings"])
     overview["feed"] = {"status": "not connected", "note": "No live feed exists yet (paper data only)."}
     overview["trading_mode"] = trading_mode_status()
+    holidays = Path(paths.get("holidays", DEFAULT_PATHS["holidays"]))
+    cal = TradingCalendar.from_csv(holidays) if holidays.exists() else TradingCalendar(set(), verified=False)
+    is_open, reason = session_reason(now_ist(), cal)
+    overview["market"] = {"open": is_open, "reason": reason, "verified": cal.verified,
+                          "holidays_loaded": len(cal.holidays)}
+    overview["loop"] = loop_status(Path(paths.get("loop", DEFAULT_PATHS["loop"])), time.time(), LOOP_INTERVAL_S)
     return overview
 
 
@@ -226,6 +239,34 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         if not accepted:
             return JSONResponse({"error": message}, status_code=409 if mode == "live" else 422)
         return JSONResponse({"mode": "paper", "message": message})
+
+    @app.get("/api/loop")
+    def loop_state():
+        return JSONResponse(loop_status(paths["loop"], time.time(), LOOP_INTERVAL_S))
+
+    @app.post("/api/loop/start")
+    async def loop_start(request: Request):
+        """Start the paper loop in the background. Refused while the kill switch is on. Needs the token."""
+        denied = token_error(request)
+        if denied is not None:
+            return denied
+        kill_active = KillSwitch(paths["kill"]).active
+        ok, message = start_loop(paths["loop"], kill_active, LOOP_INTERVAL_S,
+                                 lambda: spawn_loop(ROOT, paths["loop"], LOOP_INTERVAL_S))
+        AuditLog(paths["audit"]).append("loop_start_requested", {"accepted": ok, "message": message, "actor": ACTOR})
+        if not ok:
+            return JSONResponse({"error": message}, status_code=409)
+        return JSONResponse({"message": message})
+
+    @app.post("/api/loop/stop")
+    async def loop_stop(request: Request):
+        """Ask the paper loop to stop. Does not close positions (the kill switch does that). Needs the token."""
+        denied = token_error(request)
+        if denied is not None:
+            return denied
+        ok, message = stop_loop(paths["loop"], LOOP_INTERVAL_S)
+        AuditLog(paths["audit"]).append("loop_stop_requested", {"message": message, "actor": ACTOR})
+        return JSONResponse({"message": message})
 
     @app.get("/api/overview")
     def overview():

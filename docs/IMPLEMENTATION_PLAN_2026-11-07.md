@@ -146,3 +146,15 @@ Living status. Older sections above are the batch log.
 1. START / STOP: choose option A, B or C (see chat).
 2. Holiday list source for market hours.
 3. Screener and neural-shell data: which endpoint to add.
+
+## Update: paper loop and holidays (2026-11-07, decision 0029)
+| Item | What | Where | Test |
+|---|---|---|---|
+| Paper loop | START / STOP run `scripts/run/paper_loop.py` in the background. Paper only. NSE cash session only. Refused with the kill switch on or if already running. STOP does not close positions | `src/quant/monitor/paper_loop.py`, `scripts/run/paper_loop.py`, `dashboard/app.py` (`/api/loop/*`), `dashboard/main_dashboard.html` | `tests/unit/test_paper_loop.py`, `tests/unit/test_pnl_visible.py` |
+| Holidays | Equity list from NSE Capital Market circular 12 Dec 2025 + amendment 12 Jan 2026. Dashboard shows market status and holiday count | `config/calendar/holidays.csv`, `src/quant/core/calendar.py` | `tests/unit/test_paper_loop.py`, `tests/unit/test_calendar_holidays.py` |
+
+Open:
+- No live signal source. The loop only records "no signals file" until `data/paper/signals.csv` exists.
+- Owner to confirm the holiday list on nseindia.com, and run `scripts/research/fetch_nse_holidays.py` on the owner machine.
+- FastAPI route tests are skipped in the sandbox (FastAPI is not installed). Run them on the owner machine.
+- The unit suite shows 27 HRP-related failures, the same as before this work.
