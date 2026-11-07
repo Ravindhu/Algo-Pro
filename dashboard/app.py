@@ -32,6 +32,7 @@ from quant.core.env import load_env_file  # noqa: E402
 from quant.core.limits_store import apply_limit_updates  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.reporting.dashboard_data import build_overview  # noqa: E402
+from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 
 TOKEN_ENV = "DASHBOARD_API_TOKEN"
@@ -45,6 +46,7 @@ DEFAULT_PATHS = {
     "kill": ROOT / "data" / "paper" / "kill_switch.json",
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
+    "strategies": ROOT / "config" / "strategies",
     "page": ROOT / "src" / "quant" / "index.html",
     "flow": ROOT / "dashboard" / "assets" / "flow_svg.js",
 }
@@ -53,8 +55,9 @@ API_INDEX = {
     "service": "Algo-Pro dashboard",
     "page": "/ui",
     "endpoints": [
-        "/api/overview", "/api/positions", "/api/events", "/api/health", "/api/kill",
+        "/api/overview", "/api/positions", "/api/events", "/api/health", "/api/kill", "/api/setup",
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
+        "POST /api/setup (token)",
     ],
 }
 
@@ -176,6 +179,24 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         switch = KillSwitch(paths["kill"])
         switch.reset(ACTOR, reason, audit=AuditLog(paths["audit"]))
         return JSONResponse({"active": switch.active, "reason": switch.reason})
+
+    @app.get("/api/setup")
+    def setup_status():
+        return JSONResponse(read_setup(paths["settings"], paths["strategies"]))
+
+    @app.post("/api/setup")
+    async def setup_save(request: Request):
+        """Save risk per trade, trades per day and strategy. Needs the token."""
+        denied = token_error(request)
+        if denied is not None:
+            return denied
+        try:
+            body = await request.json()
+            result = apply_setup_updates(paths["settings"], paths["strategies"], body)
+        except ValueError as exc:  # JSON errors are ValueError subclasses too
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        AuditLog(paths["audit"]).append("setup_changed", {**result, "actor": ACTOR})
+        return JSONResponse({"changed": result})
 
     @app.get("/api/overview")
     def overview():

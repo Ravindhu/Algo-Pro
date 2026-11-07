@@ -18,6 +18,12 @@
   button { font: inherit; background: transparent; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
   button.go { color: var(--ok); border-color: var(--ok); }
   button.stop { color: var(--bad); border-color: var(--bad); }
+  .setup { margin: 8px 16px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; }
+  .setup[hidden] { display: none; }
+  .setup .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+  .setup label { display: block; color: var(--dim); margin-bottom: 3px; }
+  .setup select { width: 100%; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  @media (max-width: 900px) { .setup .fields { grid-template-columns: 1fr; } }
   header input { width: 200px; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
   .banner { display: none; margin: 8px 16px 0; padding: 8px 12px; border: 1px solid var(--bad); color: var(--bad); border-radius: 3px; }
   .banner.on { display: block; }
@@ -62,9 +68,29 @@
   <span class="chip" id="conn">connecting…</span>
   <span class="sp"></span>
   <button id="toggle" type="button">Hide ₹</button>
+  <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
 </header>
 <div class="banner" id="killbanner"></div>
+
+<div class="setup" id="setup" hidden>
+  <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · token needed (header)</span></h2>
+  <form id="setupform" autocomplete="off">
+    <div class="fields">
+      <div><label for="su-risk">Risk per trade (% of equity)</label>
+        <input type="number" id="su-risk" min="0.001" max="5" step="0.001" placeholder="0.25"></div>
+      <div><label for="su-trades">No of trades (max per day)</label>
+        <input type="number" id="su-trades" min="1" max="100" step="1" placeholder="1"></div>
+      <div><label for="su-strategy">Strategy</label>
+        <select id="su-strategy"></select></div>
+    </div>
+    <div class="actions">
+      <button class="go" id="setupsave" type="submit">Save setup</button>
+      <span id="setupmsg"></span>
+    </div>
+    <p class="d">Risk per trade is read by the sizing code. Trades per day and strategy are saved only: the Risk gate does not enforce the trade cap yet, and no engine stage acts on the strategy yet.</p>
+  </form>
+</div>
 
 <main>
   <section class="w8"><h2>Performance &amp; P&amp;L <span class="d">paper · ₹</span></h2>
@@ -300,6 +326,59 @@
 
   $("killtrip").onclick = tripKill;
   $("killreset").onclick = resetKill;
+
+  function setSetupMsg(text, cls) { const m = $("setupmsg"); m.textContent = text; m.className = cls || ""; }
+
+  function fillSetup(s) {
+    $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
+    $("su-trades").value = s.max_trades_per_day == null ? "" : String(s.max_trades_per_day);
+    const sel = $("su-strategy");
+    const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
+    sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
+    sel.value = s.strategy || "";
+  }
+
+  async function loadSetup() {
+    try {
+      const r = await fetch("/api/setup", {cache: "no-store"});
+      if (r.ok) fillSetup(await r.json());
+    } catch (e) {
+      setSetupMsg("Could not load setup: " + e.message, "r");
+    }
+  }
+
+  async function saveSetup(ev) {
+    ev.preventDefault();
+    const token = $("token").value;
+    if (!token) return setSetupMsg("Enter the dashboard token in the header.", "r");
+    const pct = Number($("su-risk").value);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 5) return setSetupMsg("Risk per trade must be between 0 and 5 %.", "r");
+    const trades = Number($("su-trades").value);
+    if (!Number.isInteger(trades) || trades < 1 || trades > 100) return setSetupMsg("Trades per day must be a whole number 1-100.", "r");
+    const strategy = $("su-strategy").value;
+    if (!strategy) return setSetupMsg("Choose a strategy.", "r");
+    setSetupMsg("Saving…", "d");
+    try {
+      const r = await fetch("/api/setup", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({risk_per_trade: pct / 100, max_trades_per_day: trades, strategy})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setSetupMsg("Saved.", "g"); loadSetup(); }
+      else if (r.status === 401) setSetupMsg("Token rejected.", "r");
+      else if (r.status === 503) setSetupMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setSetupMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setSetupMsg("Save failed: " + e.message, "r");
+    }
+  }
+
+  $("setupbtn").onclick = () => {
+    const panel = $("setup"), open = panel.hidden;
+    panel.hidden = !open;
+    $("setupbtn").setAttribute("aria-expanded", String(open));
+    if (open) loadSetup();
+  };
+  $("setupform").addEventListener("submit", saveSetup);
   $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
   $("limitform").addEventListener("submit", saveLimits);
   if (window.FLOW_SVG) $("flow").innerHTML = window.FLOW_SVG;

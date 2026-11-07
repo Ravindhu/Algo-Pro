@@ -42,9 +42,15 @@ def test_page_reads_overview_and_writes_only_known_routes():
     text = PAGE.read_text(encoding="utf-8")
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/]+)"', text))
-    assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset"}
-    assert text.count('method: "POST"') == 2  # saveLimits and postKill only
+    assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup"}
+    assert text.count('method: "POST"') == 3  # saveLimits, postKill, saveSetup only
     assert '"X-Dashboard-Token"' in text
+
+
+def test_page_has_trade_setup_panel():
+    text = PAGE.read_text(encoding="utf-8")
+    for element_id in ("setupbtn", "setup", "setupform", "su-risk", "su-trades", "su-strategy", "setupsave"):
+        assert f'id="{element_id}"' in text, element_id
 
 
 def test_page_has_kill_switch_controls():
