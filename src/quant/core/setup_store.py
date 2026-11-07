@@ -1,8 +1,8 @@
-"""Trade setup: risk per trade, trades per day, strategy. Saved to config/settings.yaml.
+"""Trade setup: risk per trade, max symbols per portfolio, strategy. Saved to config/settings.yaml.
 
 Owner request 2026-11-07. A person sets these through the dashboard API (token required).
 - sizing.risk_per_trade: read by RiskLimits.risk_per_trade(), so the saved value is used by code.
-- trade_setup.max_trades_per_day and trade_setup.strategy: saved only. The Risk gate does not
+- trade_setup.max_symbols_per_portfolio and trade_setup.strategy: saved only. The Risk gate does not
   enforce the trade cap yet, and no engine stage acts on the strategy choice yet.
 Writes are atomic. Other keys are kept. Comments in settings.yaml are not kept on save.
 
@@ -24,8 +24,8 @@ HEADER = (
 )
 DEFAULT_RISK = 0.0025
 RISK_MAX = 0.05          # same upper bound as RiskLimits.risk_per_trade
-TRADES_MIN, TRADES_MAX = 1, 100
-KEYS = ("risk_per_trade", "max_trades_per_day", "strategy")
+SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
+KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy")
 
 
 def strategy_names(strategies_dir) -> List[str]:
@@ -49,7 +49,7 @@ def read_setup(settings_path, strategies_dir) -> Dict[str, Any]:
     trade = data.get("trade_setup") or {}
     return {
         "risk_per_trade": risk,
-        "max_trades_per_day": trade.get("max_trades_per_day"),
+        "max_symbols_per_portfolio": trade.get("max_symbols_per_portfolio"),
         "strategy": trade.get("strategy"),
         "strategies": strategy_names(strategies_dir),
     }
@@ -68,10 +68,10 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                     or not 0 < value <= RISK_MAX:
                 raise ValueError(f"risk_per_trade must be a fraction in (0, {RISK_MAX}]")
             clean[key] = float(value)
-        elif key == "max_trades_per_day":
+        elif key == "max_symbols_per_portfolio":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
-                    or float(value) != int(value) or not TRADES_MIN <= int(value) <= TRADES_MAX:
-                raise ValueError(f"max_trades_per_day must be a whole number {TRADES_MIN}-{TRADES_MAX}")
+                    or float(value) != int(value) or not SYMBOLS_MIN <= int(value) <= SYMBOLS_MAX:
+                raise ValueError(f"max_symbols_per_portfolio must be a whole number {SYMBOLS_MIN}-{SYMBOLS_MAX}")
             clean[key] = int(value)
         else:  # strategy
             if value not in strategies:
@@ -91,7 +91,7 @@ def apply_setup_updates(settings_path, strategies_dir, updates: Mapping[str, Any
     if "risk_per_trade" in clean:
         old["risk_per_trade"] = sizing.get("risk_per_trade")
         sizing["risk_per_trade"] = clean["risk_per_trade"]
-    for key in ("max_trades_per_day", "strategy"):
+    for key in ("max_symbols_per_portfolio", "strategy"):
         if key in clean:
             old[key] = trade.get(key)
             trade[key] = clean[key]

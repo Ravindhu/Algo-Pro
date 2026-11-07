@@ -79,8 +79,8 @@
     <div class="fields">
       <div><label for="su-risk">Risk per trade (% of equity)</label>
         <input type="number" id="su-risk" min="0.001" max="5" step="0.001" placeholder="0.25"></div>
-      <div><label for="su-trades">No of trades (max per day)</label>
-        <input type="number" id="su-trades" min="1" max="100" step="1" placeholder="1"></div>
+      <div><label for="su-symbols">Max symbols per portfolio</label>
+        <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
       <div><label for="su-strategy">Strategy</label>
         <select id="su-strategy"></select></div>
     </div>
@@ -88,7 +88,7 @@
       <button class="go" id="setupsave" type="submit">Save setup</button>
       <span id="setupmsg"></span>
     </div>
-    <p class="d">Risk per trade is read by the sizing code. Trades per day and strategy are saved only: the Risk gate does not enforce the trade cap yet, and no engine stage acts on the strategy yet.</p>
+    <p class="d">Risk per trade is read by the sizing code. Max symbols and strategy are saved only: the Risk gate does not enforce the trade cap yet, and no engine stage acts on the strategy yet.</p>
   </form>
 </div>
 
@@ -331,7 +331,7 @@
 
   function fillSetup(s) {
     $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
-    $("su-trades").value = s.max_trades_per_day == null ? "" : String(s.max_trades_per_day);
+    $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
     const sel = $("su-strategy");
     const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
     sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
@@ -353,15 +353,15 @@
     if (!token) return setSetupMsg("Enter the dashboard token in the header.", "r");
     const pct = Number($("su-risk").value);
     if (!Number.isFinite(pct) || pct <= 0 || pct > 5) return setSetupMsg("Risk per trade must be between 0 and 5 %.", "r");
-    const trades = Number($("su-trades").value);
-    if (!Number.isInteger(trades) || trades < 1 || trades > 100) return setSetupMsg("Trades per day must be a whole number 1-100.", "r");
+    const symbols = Number($("su-symbols").value);
+    if (!Number.isInteger(symbols) || symbols < 1 || symbols > 100) return setSetupMsg("Max symbols per portfolio must be a whole number 1-100.", "r");
     const strategy = $("su-strategy").value;
     if (!strategy) return setSetupMsg("Choose a strategy.", "r");
     setSetupMsg("Saving…", "d");
     try {
       const r = await fetch("/api/setup", {method: "POST",
         headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
-        body: JSON.stringify({risk_per_trade: pct / 100, max_trades_per_day: trades, strategy})});
+        body: JSON.stringify({risk_per_trade: pct / 100, max_symbols_per_portfolio: symbols, strategy})});
       const j = await r.json().catch(() => ({}));
       if (r.ok) { setSetupMsg("Saved.", "g"); loadSetup(); }
       else if (r.status === 401) setSetupMsg("Token rejected.", "r");

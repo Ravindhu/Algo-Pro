@@ -132,10 +132,10 @@ def test_setup_read_lists_strategies_without_token(write_client):
 
 def test_setup_save_needs_token_and_validates(write_client):
     client, _, audit = write_client
-    payload = {"risk_per_trade": 0.0025, "max_trades_per_day": 2, "strategy": "ocl_keylevel"}
+    payload = {"risk_per_trade": 0.0025, "max_symbols_per_portfolio": 2, "strategy": "ocl_keylevel"}
     assert client.post("/api/setup", json=payload).status_code == 401
     good = {"X-Dashboard-Token": "test-token-123"}
     assert client.post("/api/setup", json={"strategy": "nope"}, headers=good).status_code == 422
     r = client.post("/api/setup", json=payload, headers=good)
-    assert r.status_code == 200 and r.json()["changed"]["new"]["max_trades_per_day"] == 2
+    assert r.status_code == 200 and r.json()["changed"]["new"]["max_symbols_per_portfolio"] == 2
     assert "setup_changed" in audit.read_text(encoding="utf-8")

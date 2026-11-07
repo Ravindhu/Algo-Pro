@@ -49,7 +49,7 @@ def test_page_reads_overview_and_writes_only_known_routes():
 
 def test_page_has_trade_setup_panel():
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("setupbtn", "setup", "setupform", "su-risk", "su-trades", "su-strategy", "setupsave"):
+    for element_id in ("setupbtn", "setup", "setupform", "su-risk", "su-symbols", "su-strategy", "setupsave"):
         assert f'id="{element_id}"' in text, element_id
 
 
