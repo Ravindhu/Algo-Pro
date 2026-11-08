@@ -102,8 +102,8 @@ Status: PARTIAL. Conviction score, size tiers, and cap wiring are on `master` (m
 | Sizing | HRP optimizer, covariance, shrinkage | `portfolio/optimizer.py`, `portfolio/covariance.py` | DONE for shrinkage (wraps Blue, decision 0003). HRP KEEP local; Blue HRP disagrees (X-25). |
 | Sizing | Drift check, rebalancer | `portfolio/rebalance.py` | DONE (wraps Blue, tested) |
 | Portfolio risk | Sector, beta, stress, CVaR | `portfolio/portfolio_risk.py` | PARTIAL |
-| Improvement loop | Champion/challenger, model registry, human sign-off | `feedback/champion_challenger.py` | PENDING |
-| Improvement loop | Re-opt request | `feedback/reopt.py` | PENDING |
+| Improvement loop | Champion/challenger, model registry, human sign-off | `feedback/champion_challenger.py` | DONE (code exists; status corrected 2026-11-08) |
+| Improvement loop | Re-opt request | `feedback/reopt.py` | DONE (code exists; status corrected 2026-11-08) |
 | Monitor | Data drift, live vs backtest parity | `monitor/drift.py`, `monitor/parity.py` | PENDING |
 
 Reuse (wrap, do not copy):
@@ -160,6 +160,56 @@ Exit checks (all required before real capital):
 3. Capital starts at a fixed, small cap in config. Any scale-up needs owner sign-off.
 4. Kill switch and safe mode tested in a live session with no orders sent. PENDING.
 5. Dashboard P&L shown by default (decision 0007). EV, MAE/MFE and rule compliance removed; profit factor and win rate visible (decision 0008).
+
+---
+
+## Phase 4: Improvement loop, recovery, hardening
+
+Goal: keep improving and keep recovering, without ever letting either one touch
+capital on its own.
+
+Depends on: Phase 3 exit checks. **Those are NOT met** — `scripts/run_live.py` is
+deliberately not created, live limits in `config/risk_limits.yaml` are still
+`null`, and Phase 3 exit checks 1, 2 and 4 are PENDING. So Phase 4 is being built
+**paper-safe only**: every module below is advice-only or gate-only and none of
+them needs live capital to be correct. The parts that would act on live money
+stay gated behind Phase 3.
+
+Status: PARTIAL (improvement loop and recovery DONE; hardening PENDING).
+
+| Flow lane | Blocks | Module | Status |
+|---|---|---|---|
+| Improvement loop | Champion vs challenger verdict | `feedback/improvement_loop.py` | DONE: advice only, never calls `promote()`; tests `test_improvement_loop.py` (14) |
+| Improvement loop | Model registry, human sign-off | `feedback/champion_challenger.py` | DONE (Phase 2): sign-off required before promotion |
+| Improvement loop | Re-opt request | `feedback/reopt.py` | DONE (Phase 2): a request runs only after a named approval |
+| Recovery | Restart and resume decision | `monitor/recovery.py` | DONE: restart is automatic, resume is gated; tests `test_recovery.py` (18) |
+| Recovery | Reconciliation | `monitor/recon_job.py` | DONE (Phase 3) |
+| Recovery | Safe mode | `monitor/safe_mode.py` | DONE (Phase 1) |
+| Hardening | Live run path | `scripts/run/run_live.py` | PENDING BY DESIGN (Phase 3 gate) |
+| Hardening | Docs sync | `AGENTS.md`, this file, flow doc | PENDING (D-1 owner approval) |
+
+### The two Phase 4 rules, enforced in code
+
+1. **The improvement loop recommends; it never promotes.** `compare()` returns
+   `promote_recommended`, and nothing reads that flag. `test_this_module_never_calls_promote`
+   parses the module and fails if a `promote` call or a registry import appears.
+   A challenger needs: >= 100 out-of-sample observations, DSR not below the
+   champion, a Sharpe gain of at least 0.25, and PBO <= 0.50. Anything missing
+   is `insufficient`, not a pass.
+2. **Restart is not resume.** `Supervisor.restart_if_dead()` always restarts a
+   dead process, then runs every integrity check. Live resume needs all eight
+   checks wired and returning `True`; anything else parks the system and raises
+   a CRITICAL alert. A check that returns a truthy non-`True` value, or raises,
+   counts as FAILED — the same fail-closed rule the kill-switch store uses.
+
+Exit checks for Phase 4 (none of them need capital):
+1. A challenger with thin evidence, a PBO above the bar, or a DSR regression is
+   rejected. DONE (tested).
+2. The improvement loop is proven not to promote. DONE (AST test).
+3. Live recovery refuses to resume when any check is unwired, failing, raising or
+   returning a truthy non-`True`. DONE (tested).
+4. A crash loop stops at the restart cap and parks. DONE (tested).
+5. Recovery events reach the audit log and raise a CRITICAL alert. DONE (tested).
 
 ---
 

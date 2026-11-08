@@ -262,11 +262,22 @@ No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage
 | 1 | Data, research, risk gate, queue, ledger, paper runner | none | Phase 0 audit done |
 | 2 | Signal, conviction, sizing, portfolio, model registry | none (paper) | Phase 1 exit checks pass |
 | 3 | Live execution, session guards, monitors, dashboard, alerts | small fixed cap | Phase 2 exit checks pass |
-| 4 | Improvement loop, recovery, hardening, docs sync | capped | Phase 3 exit checks pass |
+| 4 | Improvement loop, recovery, hardening, docs sync | capped | Phase 3 exit checks pass — **NOT MET**; paper-safe parts only |
 
 Rules for every phase:
 - No phase starts before the previous phase's exit checks pass.
 - Nothing in Phase 1 or 2 may reach OpenAlgo.
+- Phase 4 exception, recorded 2026-11-08: the improvement loop (`feedback/improvement_loop.py`)
+  and recovery (`monitor/recovery.py`) were built ahead of the Phase 3 gate because both are
+  advice-only or gate-only and need no capital. Neither can place, size or promote anything.
+  Every part of Phase 4 that would act on live money stays blocked.
+- Restart is not resume. `Supervisor.restart_if_dead()` restarts any dead process, then runs
+  every integrity check. Live resume needs all of them wired and returning `True`; anything
+  else parks the system and raises CRITICAL. A check that raises or returns a truthy non-`True`
+  value counts as FAILED.
+- The improvement loop recommends; a person promotes. `compare()` returns
+  `promote_recommended` and nothing consumes it. An AST test fails the build if the module
+  ever calls `promote()` or imports the registry.
 - `config/risk_limits.yaml` values are `null` on purpose. Live trading stays blocked until a human sets them.
 - Fill the two known gaps in flow order: `scripts/run_paper.py` and the trading-calendar loader.
 
@@ -281,10 +292,10 @@ Rules for every phase:
 | Sizing and portfolio | `src/quant/portfolio/` | scaffold |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` | scaffold |
 | Execution | `src/quant/execution/` | scaffold |
-| Post-trade + support monitors | `src/quant/monitor/` | scaffold |
-| Audit | `src/quant/audit/` | scaffold |
-| Improvement loop | `src/quant/feedback/` | scaffold |
-| Dashboard, alerts | `src/quant/reporting/`, `src/quant/notify/` | scaffold |
+| Post-trade + support monitors | `src/quant/monitor/` | implemented (Phases 1-4; recovery 2026-11-08) |
+| Audit | `src/quant/audit/` | implemented (Phase 1) |
+| Improvement loop | `src/quant/feedback/` | implemented (Phases 2, 4; advice only) |
+| Dashboard, alerts | `src/quant/reporting/`, `src/quant/notify/` | implemented (P&L visible; alerts PENDING) |
 
 `src/quant/tests/test_layout.py` enforces three things. Do not weaken it:
 1. Every stage module imports.
