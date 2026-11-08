@@ -202,3 +202,13 @@ Open items and flags for owner:
 2. Bar timestamp convention is still assumed (start of minute). Verify against OpenAlgo history output.
 3. Runner entry point (script, file audit log, OpenAlgo SDK history call for `history_fn`) is not built yet.
 4. Exits are sent as one child (not POV-sliced). Exit qty is capped by max_order_quantity (10) on entry, so one child is enough at current limits. Revisit if limits rise.
+
+## S5 result (2026-11-08): risk-reducing exits pass HALT_ALL
+
+Owner decision: a risk-reducing exit passes HALT_ALL. Entries stay blocked.
+
+Rule (src/quant/risk/gate.py): an intent with kind "exit" and side "SELL" passes HALT_ALL. The book is long-only, so a SELL exit closes a long and never opens a short. Kill closes still pass only while the kill switch is on. BUY exits, entries, `risk_limits.blocked`, and duplicate ids are all still blocked under HALT_ALL.
+
+Known limit: the gate does not see held quantity. A SELL exit larger than the held qty would open a short. The paper position manager always sends exactly the held qty, so this holds for the paper path. A held-qty check in the gate is a follow-up.
+
+Tests: tests/unit/test_halt_risk_reducing_exits.py (6 tests, including a paper stop-out that fills during HALT_ALL). Two older assertions changed to the new policy: test_halt_all_kill_close.py and test_phase1_risk_exec.py. Full unit suite: 898 passed, 27 failed (HRP baseline only).
