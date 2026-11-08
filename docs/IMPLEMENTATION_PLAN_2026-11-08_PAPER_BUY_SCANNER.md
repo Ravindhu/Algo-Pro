@@ -102,3 +102,42 @@ Status of the layout test: all `src/quant/strategies/*.py` files carry `Status: 
 
 Next (S2): scanner loop, NSE session and holiday checks, persisted signal keys, and a paper run
 over recorded bars.
+
+## S2 result (2026-11-08): scanner, quantity, owner rules
+
+Owner answers applied:
+1. Scalp: not imported. Left out on purpose.
+2. Aggressive level: C3 break -> aggressive = C2 open. C4 confirmation -> aggressive = C3 open
+   (changed from Algo-Lab, which used C3 close here). Conservative = C3 open (unchanged).
+   Parity with Algo-Lab therefore differs by design in the C4 case. Test:
+   `test_ocl_c4_confirmation_uses_c3_open_as_aggressive`.
+3. Skip today's Muhurat session (2026-11-08): `config/settings.yaml` -> `paper.skip_dates`.
+4. Quantity: from portfolio construction. `src/quant/portfolio/paper_qty.py` takes the lowest of
+   - the risk budget: capital x risk_per_trade (0.25%, settings.yaml) / stop distance, and
+   - the caps: max_order_quantity, max_order_notional / entry, remaining open exposure / entry.
+   Any null limit fails closed (qty 0).
+
+New code:
+- `src/quant/portfolio/paper_qty.py` (quantity rule, uses `decide_size` and `risk_budget_qty`).
+- `src/quant/strategies/scanner.py`: session check, dedupe ledger saved before action, quantity,
+  parent intent, POV slicing into child intents through `PovExecutor`, paper fill recording.
+- Tests: `tests/unit/test_paper_scanner.py` (16 tests, real `check_intent` gate and the real
+  `risk_limits.yaml`, with one test copy that sets the symbol limit).
+
+Test state: 27 failed (all HRP, same as `main`), 1938 passed.
+
+Findings from running the real gate on the shipped limits (these are blocks, not bugs):
+- `max_symbols_per_portfolio` is null in `config/risk_limits.yaml`, so every entry is rejected.
+  Owner must set it. Not changed by Claude.
+- ADV is not supplied. The gate rejects a symbol with no ADV. The runner must supply ADV from daily
+  data. Not built yet.
+
+Open items before any paper run:
+1. Owner: set `max_symbols_per_portfolio` in `config/risk_limits.yaml`.
+2. Owner: confirm `paper.capital` (placeholder 100000 INR) in `config/settings.yaml`.
+3. Build: OpenAlgo history provider (1-minute bars, and 5-minute and 15-minute built from them),
+   plus daily ADV. Not verified against the OpenAlgo API yet.
+4. Build: runner loop (every 1 minute), file-based audit log, state persistence for the sell-fail
+   handoff and strategy state (restart safety beyond signal keys).
+5. Gap: no simulated exits. A traded strategy stays in trade for that symbol (conservative).
+6. Owner: the fifth strategy is still unidentified.

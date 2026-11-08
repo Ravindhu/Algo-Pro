@@ -4,7 +4,7 @@
 # live_enabled must stay false until a human signs off (see docs/IMPLEMENTATION_PLAN.md).
 strategy: ocl_keylevel
 mode: paper
-live_enabled: false
+live_enabled: false   # paper only
 
 params:
   htf_interval: "15m"
@@ -30,7 +30,7 @@ params:
   atr_trail_enabled: true
   atr_period: 14
   atr_multiplier: 2.0
-  dvs_enabled: true
+  dvs_enabled: false  # DV-ATR trail not ported (same as Algo-Lab). Paper config must keep this false
   dvs_sensitivity: 1.0
   dvs_max_scale: 2.5
   dvs_reference_period: 50
@@ -38,7 +38,7 @@ params:
   stop_fallback_atr_mult: 2.0
   require_close_above_c2_open: true
   allow_c4_confirmation: true
-  aggressive_level_source: "C3_CLOSE"
+  aggressive_level_source: "OWNER_RULE_2026-11-08"  # C3 break: C2 open; C4 confirmation: C3 open
   conservative_level_source: "C3_OPEN"
   min_body_pct_c23: 0.5
   sell_failure_enabled: false

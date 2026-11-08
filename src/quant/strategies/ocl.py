@@ -8,7 +8,7 @@ Naming: RRG = Red, Red, Green. Red closes below its open; green closes above it.
 HTF (closed bars, newest last), candles C1..C4 (C4 newest):
   - C1 red, C2 red, C3 green.
   - C3 closes above C2's open (C3 break), or C4 closes above C2's open (C4 confirmation, if enabled).
-  - Aggressive level   = C2 open (C3 break) or C3 close (C4 confirmation).
+  - Aggressive level   = C2 open (C3 break) or C3 open (C4 confirmation). Owner rule 2026-11-08.
   - Conservative level = C3 open.
   - HTF floor = min(low C2, low C3, low confirmation candle).
   - HTF gate: RSI above EMA(RSI). No oversold cap on the HTF.
@@ -128,7 +128,8 @@ def htf_setup(htf_closed: pd.DataFrame, p: OclParams) -> dict[str, Any] | None:
     else:
         return None
     return {
-        "aggressive": c2.open if name == "C3" else c3.close,
+        # Owner rule (2026-11-08): C3 break -> aggressive = C2 open; C4 confirmation -> aggressive = C3 open.
+        "aggressive": c2.open if name == "C3" else c3.open,
         "conservative": c3.open,
         "htf_sl": min(c2.low, c3.low, confirm.low),
         "confirm_bar": name,

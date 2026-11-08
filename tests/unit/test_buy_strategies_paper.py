@@ -135,6 +135,22 @@ def test_ocl_htf_setup_levels_by_hand():
     assert s["htf_sl"] == pytest.approx(96.0)          # min(C2 low 96, C3 low 96.5)
 
 
+def test_ocl_c4_confirmation_uses_c3_open_as_aggressive():
+    """Owner rule (2026-11-08): when C4 confirms (C3 does not break C2 open), aggressive = C3 open."""
+    htf_rows = [
+        (100.0, 101.0, 98.8, 99.0),   # C1 red
+        (99.0, 100.0, 96.0, 97.0),    # C2 red: open 99, low 96
+        (97.0, 99.0, 96.5, 98.5),     # C3 green but closes 98.5, below C2 open 99: no C3 break
+        (98.5, 100.5, 98.4, 100.0),   # C4 green closes 100 > C2 open 99: C4 confirmation
+    ]
+    closed = frame(htf_rows, "2026-11-02 09:15", "15min")
+    s = htf_setup(closed, OclParams(allow_c4_confirmation=True))
+    assert s["confirm_bar"] == "C4"
+    assert s["aggressive"] == pytest.approx(97.0)      # C3 open
+    assert s["conservative"] == pytest.approx(97.0)    # C3 open
+    assert s["htf_sl"] == pytest.approx(96.0)
+
+
 def test_ocl_signal_fires_on_touch_with_conservative_trigger():
     s = build("ocl", "RELIANCE", allow_c4_confirmation=False, hm_enabled=False,
               trigger_level_mode="CONSERVATIVE", atr_period=14)
