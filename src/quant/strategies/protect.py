@@ -94,3 +94,10 @@ class Trade:
             if self.trail is None or new_trail > self.trail:
                 self.trail = new_trail
         return None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Trade":
+        return cls(**d)

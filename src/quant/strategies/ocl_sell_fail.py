@@ -57,6 +57,13 @@ class Handoff:
         if key:
             self._marks[(symbol, key)] = True
 
+    def to_list(self) -> list:
+        return [[sym, key] for (sym, key) in sorted(self._marks)]
+
+    def restore_list(self, items: list) -> None:
+        for sym, key in items:
+            self._marks[(str(sym), str(key))] = True
+
 
 def _sell_core(bars: list[Bar], p: SellFailParams) -> int | None:
     """Newest failed-short core: index i where bars[i-1] is GREEN and bars[i] is RED, both with bodies

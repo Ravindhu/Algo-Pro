@@ -141,9 +141,14 @@ def ltf_frames(rows, start="09:15"):
                                      index=pd.date_range(f"{DAY} 09:15", periods=1, freq="15min"))}
 
 
+def approve_all(intent):
+    """Stand-in for PovExecutor.submit_child that approves every exit (gate tests live elsewhere)."""
+    return SimpleNamespace(sent=True, reasons=())
+
+
 def open_pos(strat, s):
     audit = ListAudit()
-    mgr = PaperPositionManager(audit)
+    mgr = PaperPositionManager(audit, submit=approve_all)
     mgr.open(key="k1", strategy=strat, symbol="RELIANCE", qty=10, sig=s, bar_time=s["time"])
     return mgr
 

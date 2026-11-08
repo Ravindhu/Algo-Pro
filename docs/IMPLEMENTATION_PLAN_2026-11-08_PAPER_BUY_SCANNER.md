@@ -179,3 +179,26 @@ Known gaps (must close before any real run):
 4. The runner process (entry script, file audit log, the OpenAlgo SDK call that builds `history_fn`)
    is not built yet. Nothing scans live symbols until it is.
 5. Fifth strategy still unidentified.
+
+## S4 result (2026-11-08): state saved, paper exits through the risk gate
+
+Owner requests: (1) save positions across restarts, (2) paper exits must pass the risk gate, (5) the fifth strategy is not needed and is dropped.
+
+What changed:
+- `src/quant/strategies/state_store.py` (new): one JSON state file with open positions, strategy state (`state()`/`restore()`), and Handoff marks. Written to a temp file, then renamed (atomic). Version mismatch raises. The signal ledger stays in its own file.
+- `src/quant/strategies/positions.py`: every exit is an order intent (`kind="exit"`, `side="SELL"`, full qty, ref price = exit price, ADV carried). It goes through the same executor as entries (gate, approved queue, PaperSender, audit). If the gate rejects it, the position keeps a `pending` exit, is retried on every cycle, and no new bars are processed until the exit is sent. The strategy's `on_exit` and the closed-trade record run only after the exit is sent.
+- `src/quant/strategies/paper_runtime.py`: `build_paper_runtime` takes `state_path` and `handoff`, restores state at start, and saves at the end of every cycle (also on skipped cycles). Exit submit uses the same `PovExecutor` as entries.
+- `src/quant/strategies/ocl_sell_fail.py`: `Handoff.to_list` / `restore_list` (done in S3 follow-up).
+- Fifth strategy: dropped by owner decision. The registry keeps four BUY strategies: ocl, ocl_sell_fail_top, ocl_sell_fail_bottom, engulfing_ocl.
+
+Gate facts checked for exits: money, liquidity (ADV) and per-order checks apply to entries only. Exits are still checked for duplicate ids, kill-switch closes, and safe mode. A rejected exit is not recorded as sent, so a retry with the same intent id is accepted.
+
+Tests: `tests/unit/test_paper_persistence.py` (14 tests): exit intent shape, rejected exit stays pending then fills, real-gate approval, no bar skipped while pending, refusal when no submit is wired, restart keeps position and exit still works, no reprocessing of old bars after restart, pending exit survives restart, strategy state and Handoff marks restored, no duplicate position, unknown strategy refused, version check, atomic save, runtime cycle saves and a new runtime resumes. The existing exit tests now pass an approving submit.
+
+Results: paper and layout tests 80 passed. Full unit suite: 892 passed before the runtime test was counted, 27 failed (HRP only). All 27 failures are the HRP tests (`httpx` missing in this environment), which were already the baseline.
+
+Open items and flags for owner:
+1. SAFE MODE HALT_ALL blocks exits too (only kill-switch closes are exempt). In HALT_ALL a stop exit stays pending and is not sent. This is the current gate behaviour and it is not changed here. Please confirm whether protective exits should pass HALT_ALL. Recommended: yes, for exits that reduce risk.
+2. Bar timestamp convention is still assumed (start of minute). Verify against OpenAlgo history output.
+3. Runner entry point (script, file audit log, OpenAlgo SDK history call for `history_fn`) is not built yet.
+4. Exits are sent as one child (not POV-sliced). Exit qty is capped by max_order_quantity (10) on entry, so one child is enough at current limits. Revisit if limits rise.
