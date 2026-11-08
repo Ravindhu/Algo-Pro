@@ -129,7 +129,7 @@ def test_market_input_helpers():
 
 def test_no_llm_code_in_risk_execution_or_portfolio():
     """Frontline AI may give advice, but never reach the risk, execution or portfolio code."""
-    root = Path(__file__).resolve().parents[2] / "src" / "quant"
+    root = Path(__file__).resolve().parents[3] / "src" / "quant"
     for folder in ("risk", "execution", "portfolio"):
         for py in (root / folder).rglob("*.py"):
             text = py.read_text()

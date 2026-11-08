@@ -14,5 +14,5 @@ jobs:
           python-version: "3.13"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run unit and parity tests
-        run: python -m pytest tests/unit tests/parity -q
+      - name: Run unit, quant and parity tests
+        run: python -m pytest tests/unit src/quant/tests tests/parity -q

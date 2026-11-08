@@ -76,7 +76,8 @@ Project layout
 │   ├── feedback/                # champion/challenger, re-optimization
 │   ├── audit/                   # append-only audit and override logs
 │   ├── reporting/               # dashboard data, accounting (P&L-gated view)
-│   └── notify/                  # alerts by severity
+│   ├── notify/                  # alerts by severity
+│   └── tests/                   # the quant suite (colocated; see test_layout note)
 │
 ├── scripts/
 │   ├── run/                     # run_paper.py, run_live.py, run_supervised.py
@@ -87,10 +88,11 @@ Project layout
 ├── dashboard/                   # the ONE dashboard: main_dashboard.html (decision 0027); app.py + assets
 │
 ├── tests/
-│   ├── unit/                    # includes test_layout.py (order-path rule)
+│   ├── unit/                    # system-level tests (dashboards, ops, Blue-backed)
+│   ├── parity/                  # local vs Blue_engine numeric parity
 │   ├── integration/
 │   ├── replay/
-│   └── fixtures/
+│   └── fixtures/                # shared by tests/unit and src/quant/tests
 │
 ├── docs/
 │   ├── quant_system_flow_v5.md  + .svg
@@ -284,10 +286,16 @@ Rules for every phase:
 | Improvement loop | `src/quant/feedback/` | scaffold |
 | Dashboard, alerts | `src/quant/reporting/`, `src/quant/notify/` | scaffold |
 
-`tests/unit/test_layout.py` enforces three things. Do not weaken it:
+`src/quant/tests/test_layout.py` enforces three things. Do not weaken it:
 1. Every stage module imports.
 2. Every stage file carries `Status: SCAFFOLD` until it has logic and tests.
 3. Only `execution/openalgo_client.py` may contain `.placeorder(`.
+
+The quant tests live with the package they test, in `src/quant/tests/`. That
+folder is excluded from all three scans: the guards themselves name `.placeorder`
+and the scaffold marker in order to assert the rules, so scanning them makes each
+guard fail on its own test. Production modules under `src/quant/` are still fully
+checked, which is what the rules protect.
 
 ### Reuse map (wrap, do not copy)
 
@@ -474,7 +482,9 @@ For every significant change:
 9. Check for security issues and secret exposure.
 10. Check performance.
 11. Run the relevant tests.
-12. Run the full regression suite: `pytest tests/unit Blue_engine/tests`. 
+12. Run the full regression suite: `pytest` (no args). The paths live in
+    `pyproject.toml [tool.pytest.ini_options] testpaths` — one place only:
+    `tests/unit`, `src/quant/tests`, `tests/parity`, `Blue_engine/tests`. 
 13. Update documentation (SVG + flow doc + this file together if a stage moved).
 14. Review file organization.
 15. Review logging and error handling.

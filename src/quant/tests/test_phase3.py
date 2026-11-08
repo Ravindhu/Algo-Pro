@@ -157,12 +157,18 @@ def test_only_broker_adapter_and_scripts_import_openalgo_client():
     """Only the order gate path and runners may reach the broker adapter."""
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     allowed = {root / "src/quant/execution/openalgo_client.py"}
+    tests_dir = root / "src" / "quant" / "tests"
     for py in list((root / "src/quant").rglob("*.py")) + list((root / "scripts").glob("*.py")):
         if py in allowed or py.name == "run_paper.py" or py.parent.name == "scripts":
             continue
         if {"openalgo_platform", "vendor"} & set(py.parts):  # vendored upstream code (decisions 0013, 0014)
+            continue
+        # The quant tests now live inside the package (src/quant/tests/). They name
+        # this module in order to ASSERT the rule, so scanning them would make the
+        # guard fail on its own test. Production modules are still fully checked.
+        if tests_dir in py.parents or py.name.startswith("test_"):
             continue
         assert "openalgo_client" not in py.read_text(), py
 

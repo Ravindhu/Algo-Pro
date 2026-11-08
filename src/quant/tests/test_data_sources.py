@@ -7,7 +7,7 @@ import pathlib
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 
 def _sources():

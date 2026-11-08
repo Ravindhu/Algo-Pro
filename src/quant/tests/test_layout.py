@@ -10,7 +10,7 @@ import re
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
@@ -18,7 +18,12 @@ sys.path.insert(0, str(SRC))
 # Vendored OpenAlgo platform (decision 0013). It is upstream code, not our stage modules,
 # so the stage rules below do not apply to it.
 # Vendored code: the OpenAlgo platform (decision 0013) and the OpenAlgo SDK (decision 0014).
-VENDOR_DIRS = {"openalgo_platform", "vendor"}
+# The quant tests live inside the package (src/quant/tests/), so they are inside
+# the tree these guards scan. They must be skipped: test_phase3.py and this file
+# NAME the order client and the scaffold marker in order to assert the rules, so
+# including them makes each guard fail on its own test. Production modules under
+# src/quant/ are still fully checked, which is what the rules protect.
+VENDOR_DIRS = {"openalgo_platform", "vendor", "tests"}
 
 
 def _our_py_files():

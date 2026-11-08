@@ -2,7 +2,7 @@
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "src"))
 
 from quant.reporting.dashboard_data import build_overview, risk_utilisation  # noqa: E402
 

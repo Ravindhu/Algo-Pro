@@ -7,7 +7,7 @@ import pytest
 
 from quant.data.market_inputs import event_blackout_dates, parse_nse_event_calendar
 
-FIXTURE = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "nse_event_calendar_sample.json"
+FIXTURE = pathlib.Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "nse_event_calendar_sample.json"
 
 
 def _records():

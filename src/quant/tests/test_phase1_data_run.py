@@ -10,7 +10,7 @@ from quant.data.ingest import FeedHealth
 from datetime import datetime, timedelta
 import sys, pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 import run_paper  # noqa: E402
 

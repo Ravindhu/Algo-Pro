@@ -6,7 +6,7 @@ import pytest
 from quant.core.config import RiskLimits
 from quant.portfolio.sizing import risk_budget_qty
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 
 def test_budget_is_quarter_percent_of_equity_over_stop_distance():
