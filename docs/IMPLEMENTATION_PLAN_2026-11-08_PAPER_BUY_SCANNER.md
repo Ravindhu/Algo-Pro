@@ -107,10 +107,10 @@ over recorded bars.
 
 Owner answers applied:
 1. Scalp: not imported. Left out on purpose.
-2. Aggressive level: C3 break -> aggressive = C2 open. C4 confirmation -> aggressive = C3 open
-   (changed from Algo-Lab, which used C3 close here). Conservative = C3 open (unchanged).
-   Parity with Algo-Lab therefore differs by design in the C4 case. Test:
-   `test_ocl_c4_confirmation_uses_c3_open_as_aggressive`.
+2. Aggressive level: C3 break -> aggressive = C2 open. C4 confirmation -> aggressive = C3 close
+   (as in Algo-Lab; a first draft wrongly used C3 open and was reverted after owner correction).
+   Conservative = C3 open. Parity with Algo-Lab unchanged. Test:
+   `test_ocl_c4_confirmation_uses_c3_close_as_aggressive`.
 3. Skip today's Muhurat session (2026-11-08): `config/settings.yaml` -> `paper.skip_dates`.
 4. Quantity: from portfolio construction. `src/quant/portfolio/paper_qty.py` takes the lowest of
    - the risk budget: capital x risk_per_trade (0.25%, settings.yaml) / stop distance, and

@@ -135,8 +135,8 @@ def test_ocl_htf_setup_levels_by_hand():
     assert s["htf_sl"] == pytest.approx(96.0)          # min(C2 low 96, C3 low 96.5)
 
 
-def test_ocl_c4_confirmation_uses_c3_open_as_aggressive():
-    """Owner rule (2026-11-08): when C4 confirms (C3 does not break C2 open), aggressive = C3 open."""
+def test_ocl_c4_confirmation_uses_c3_close_as_aggressive():
+    """Owner rule (2026-11-08): when C4 confirms (C3 does not break C2 open), aggressive = C3 CLOSE."""
     htf_rows = [
         (100.0, 101.0, 98.8, 99.0),   # C1 red
         (99.0, 100.0, 96.0, 97.0),    # C2 red: open 99, low 96
@@ -146,7 +146,7 @@ def test_ocl_c4_confirmation_uses_c3_open_as_aggressive():
     closed = frame(htf_rows, "2026-11-02 09:15", "15min")
     s = htf_setup(closed, OclParams(allow_c4_confirmation=True))
     assert s["confirm_bar"] == "C4"
-    assert s["aggressive"] == pytest.approx(97.0)      # C3 open
+    assert s["aggressive"] == pytest.approx(98.5)      # C3 close
     assert s["conservative"] == pytest.approx(97.0)    # C3 open
     assert s["htf_sl"] == pytest.approx(96.0)
 
