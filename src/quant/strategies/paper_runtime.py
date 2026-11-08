@@ -35,6 +35,7 @@ from quant.risk.kill_switch import KillSwitch
 from quant.strategies.base import MultiTimeframeStrategy
 from quant.strategies.positions import PaperPositionManager
 from quant.strategies.scanner import PAPER_KEY, ListAudit, PaperSender, Scanner, SignalLedger
+from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.strategies.state_store import load_state, restore_all, save_state
 
 INTERVALS = ("5minute", "15minute")
@@ -50,6 +51,7 @@ class PaperRuntime:
     state_path: Optional[Path] = None
     strategies: List[MultiTimeframeStrategy] = field(default_factory=list)
     handoff: Any = None
+    recon: Optional[ReconGate] = None
     _intervals: Tuple[str, ...] = field(default=INTERVALS)
 
     def cycle(self, now: datetime, bars_1m: Mapping[str, pd.DataFrame],
@@ -71,8 +73,12 @@ class PaperRuntime:
             except StaleData as exc:
                 self.audit.append("stale_data", {"symbol": symbol, "at": now.isoformat(), "detail": str(exc)})
 
-        self.positions.update(frames, adv)                  # exits are audited by the manager
-        self.scanner.cycle(now, frames, open_notional=self.positions.open_notional())
+        self.positions.update(frames, adv)                  # exits are audited by the manager, never blocked here
+        if self.recon is not None and not self.recon.entries_allowed:
+            self.audit.append("entries_blocked", {"at": now.isoformat(), "reason": f"broker recon {self.recon.status}",
+                                                   "mismatches": self.recon.mismatches, "error": self.recon.error})
+        else:
+            self.scanner.cycle(now, frames, open_notional=self.positions.open_notional())
         self._save()
         return list(self.audit.records[start:])
 
@@ -86,7 +92,9 @@ def build_paper_runtime(*, strategies: Mapping[str, List[MultiTimeframeStrategy]
                         tiers: TierTable, calendar: Any, capital: float, risk_fraction: float,
                         skip_dates: Iterable, ledger_path: Path, kill_path: Path,
                         audit: Any = None, entry_cutoff: str = "14:45",
-                        state_path: Optional[Path] = None, handoff: Any = None) -> PaperRuntime:
+                        state_path: Optional[Path] = None, handoff: Any = None,
+                        broker_positions: Optional[Callable[[], Dict[str, int]]] = None,
+                        require_broker: bool = False) -> PaperRuntime:
     """Wire one paper runtime. The caller builds the strategies. For each symbol, TOP and BOTTOM must share
     one Handoff object (see ocl_sell_fail.Handoff); pass that same object as `handoff` so its marks are saved.
 
@@ -121,9 +129,13 @@ def build_paper_runtime(*, strategies: Mapping[str, List[MultiTimeframeStrategy]
             restore_all(data, positions=positions, strategies=flat, handoff=handoff)
             audit.append("state_restored", {"positions": len(positions.open_positions())})
 
+    # Broker reconcile runs AFTER the restore, so the bot's view is complete before the comparison.
+    # Read-only. A mismatch or failed read blocks new entries (exits still run).
+    recon = startup_reconcile(positions, broker_positions, audit=audit, require_broker=require_broker)
+
     return PaperRuntime(scanner=scanner, positions=positions, sender=sender, audit=audit,
                         entry_cutoff=entry_cutoff, state_path=Path(state_path) if state_path else None,
-                        strategies=flat, handoff=handoff)
+                        strategies=flat, handoff=handoff, recon=recon)
 
 
 def seconds_to_next_minute(now: datetime) -> float:

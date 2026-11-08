@@ -212,3 +212,18 @@ Rule (src/quant/risk/gate.py): an intent with kind "exit" and side "SELL" passes
 Known limit: the gate does not see held quantity. A SELL exit larger than the held qty would open a short. The paper position manager always sends exactly the held qty, so this holds for the paper path. A held-qty check in the gate is a follow-up.
 
 Tests: tests/unit/test_halt_risk_reducing_exits.py (6 tests, including a paper stop-out that fills during HALT_ALL). Two older assertions changed to the new policy: test_halt_all_kill_close.py and test_phase1_risk_exec.py. Full unit suite: 898 passed, 27 failed (HRP baseline only).
+
+## S6 result (2026-11-08): broker reconcile at startup, wired to the BUY position book
+
+What it does:
+- `src/quant/monitor/broker_reconcile` is in `src/quant/monitor/broker_recon.py`. It reads the broker position book through the read-only OpenAlgo client (`positionbook`; no place/cancel method exists on that client). It nets quantity per symbol for NSE and compares it with our open long positions, using the existing `recon_job.run_recon`.
+- Order: state restore first, then reconcile. So the comparison includes restored positions.
+- Result: `match` allows entries. `mismatch` (including a broker short, since the book is long-only) and `unavailable` (failed read or unreadable body) block new entries. Exits are NOT blocked, so risk-reducing exits still go out.
+- Live start without a broker reader is refused (fail closed). Paper with no broker is `skipped` and allowed.
+- Every result is audited (`recon`). A blocked cycle is audited (`entries_blocked`) with the mismatches.
+
+Assumptions to verify before live use:
+1. The positionbook body is `{"status": "success", "data": [{"symbol", "exchange", "netqty"}]}`. Not checked against live OpenAlgo output. An unexpected shape gives `unavailable` (fail closed).
+2. Reconcile runs at startup only. There is no intraday re-check yet, so a break during the day is seen only after a restart or an explicit recheck.
+
+Tests: `tests/unit/test_broker_recon.py` (19 tests): body parsing, match, mismatch, broker short, failed read, paper skip, live refused, entries blocked while exits still run, restore before reconcile, read-only path.
