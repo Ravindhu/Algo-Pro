@@ -126,3 +126,41 @@ Both are behaviour changes and need an owner decision, so neither was applied:
   documented path). Both backends were measured; Optuna is stronger.
 - The 70 `openalgo`-related failures noted in older commits did not reproduce:
   `openalgo==2.0.3` installs cleanly from `requirements.txt` and imports.
+
+## Update — after colocating the quant suite (commit f37c963)
+
+The quant suite moved to `src/quant/tests/`. Verified after the move:
+
+- `pytest src/quant/tests` → **382 passed, 1 xfailed**
+- `pytest tests/parity` → **1078 passed**
+- `tests/unit` + `Blue_engine/tests` → **3761 passed, 0 failed**
+
+Two pre-existing bugs were exposed by the change in collection order and fixed:
+
+1. `test_broker_auth` patched `secrets._file_env`, but `broker_auth` binds
+   `get_secret` by value at import, so the patch never reached the code under
+   test. It passed only while no `.env` existed. Now patches
+   `broker_auth.get_secret`.
+2. `tests/` had no kill-switch isolation. `tests/conftest.py` now installs the
+   same autouse guard `Blue_engine/tests/conftest.py` uses.
+
+### OPEN — a full four-path run hangs
+
+`pytest` with no arguments (all four `testpaths`) **hangs after about 3%**
+(~418 tests) on this host: it stops producing output rather than failing.
+
+| Combination | Result |
+|---|---|
+| `tests/unit` + `Blue_engine/tests` | pass |
+| `src/quant/tests` + `Blue_engine/tests` | 2193 passed |
+| `tests/unit` + `src/quant/tests` + `tests/parity` | 1952 passed |
+| all four paths | **hangs** |
+
+The interaction is in the combination, not in one file, and it is not the kill
+switch (the autouse guard is confirmed running for `tests/unit` under
+`--setup-show`). **CI is unaffected:** the workflow runs
+`tests/unit src/quant/tests tests/parity`, and that combination passes.
+
+Next step: install `pytest-timeout` and re-run with `--timeout=120` to name the
+blocking test, or split the four paths into separate CI jobs so one hang cannot
+take the whole gate down.
