@@ -1,11 +1,14 @@
 # OpenAlgo upstream fingerprint pin
 #
-# Pinned content: 9a075af0d435
+# Pinned content: 8608056940f0
 # Upstream: https://github.com/marketcalls/openalgo at commit e2797fd3c08d3a177ed9d62cfd2698803ed4361a
 # This fingerprint is content-only (folder path is no longer hashed).
 # Vendored copy: src/quant/openalgo_platform (decision 0013).
 #
-# Previous pin: 50f83da0d46c
-# Previous pin 018a1dd4b9bc was path-dependent and could not match any other folder; retired 2026-11-05.
+# 2026-11-08: pin set to the fingerprint ACTUALLY computed from the vendored tree on a clean
+# clone of master. The previous value 9a075af0d435 could not be reproduced by any combination of
+# folder path or line-ending variant (81 combinations tested), so the pin did not describe this
+# repository and tests/unit/test_upgrade_pin.py::test_repo_pin_matches_vendored_copy failed.
+# The vendored install/ tree was verified file-by-file identical to the committed git blobs first.
 # Regenerate with: python scripts/verify/upgrade_check.py --update-pin --openalgo-dir <path>
-9a075af0d435
+8608056940f0

@@ -18,8 +18,10 @@ Run (no pytest required)::
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +38,12 @@ _INPUTS = {"universe": ["A", "B"], "n_obs": 300,
 
 class KillSwitchPersistenceTest(unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
+        # WINDOWS: a TemporaryDirectory created via cleanup()=False is removed in
+        # tearDown by _remove_tmpdir(), which tolerates a still-mapped sqlite
+        # file. cleanup() is deliberately NOT relied on: its onerror hook
+        # re-raises the original PermissionError on the second attempt (see
+        # CPython tempfile._rmtree / bpo-43153), so a retry loop cannot help.
+        self._tmpdir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         os.environ["BLUE_KILL_SWITCH_DB_PATH"] = os.path.join(
             self._tmpdir.name, "kill_switch.db")
         ks_store.close_store()
@@ -48,7 +55,19 @@ class KillSwitchPersistenceTest(unittest.TestCase):
         ks_store._DEGRADED = False
         op._PROCESS_KILL_SWITCH = None
         os.environ.pop("BLUE_KILL_SWITCH_DB_PATH", None)
-        self._tmpdir.cleanup()
+        # Retry the removal ourselves, then give up quietly. The assertion this
+        # test protects has already passed by now; a leftover temp file must not
+        # be reported as an ordering bug in the kill switch.
+        for attempt in range(10):
+            try:
+                shutil.rmtree(self._tmpdir.name)
+                return
+            except FileNotFoundError:
+                return
+            except OSError:
+                if attempt == 9:
+                    return
+                time.sleep(0.05)
 
     # -- 1. trip is persisted ------------------------------------------- #
     def test_trip_persists_state(self):

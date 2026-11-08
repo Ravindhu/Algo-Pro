@@ -189,10 +189,18 @@ def test_a_disabled_agent_writes_no_skill_files(tmp_path):
 
 
 def test_a_configured_default_sandbox_lives_under_data():
+    import os
+
     from blue_engine.runtime_paths import runtime_data_root
 
     pipe = MacroPipeline({"dry_run": True, "engines": {}})
     assert pipe.skill_writer.sandbox.name == "agent_stage"
     # The default follows the runtime data root (repo/data unless the test
     # suite redirects it), so tests never write into the working tree.
-    assert pipe.skill_writer.sandbox == runtime_data_root() / "agent_stage"
+    #
+    # WINDOWS: compare with realpath()/normcase(). The 8.3 short name of the
+    # temp dir (C:\Users\KANAGA~1\...) and its long form are the same folder,
+    # so a plain Path == said they differed. On POSIX this is a no-op.
+    expected = runtime_data_root() / "agent_stage"
+    assert (os.path.normcase(os.path.realpath(pipe.skill_writer.sandbox))
+            == os.path.normcase(os.path.realpath(expected)))
