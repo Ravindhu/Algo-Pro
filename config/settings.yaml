@@ -11,7 +11,7 @@ dashboard:
 
 # PAPER trading (2026-11-08). Paper only; no broker orders.
 paper:
-  # PLACEHOLDER: owner must confirm the paper capital (INR). Used by portfolio/paper_qty.py.
-  capital: 100000
+  # Paper capital (INR). Owner decision 2026-11-08. Used by portfolio/paper_qty.py.
+  capital: 1000000
   # Dates when the scanner does not enter trades. 2026-11-08 = Muhurat session (owner: skip).
   skip_dates: ["2026-11-08"]

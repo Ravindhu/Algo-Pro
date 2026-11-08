@@ -194,13 +194,18 @@ def test_qty_zero_is_skipped_with_reason(tmp_path):
     assert any(r["kind"] == "skipped" for r in audit.records)
 
 
-def test_real_limits_file_blocks_entries_until_owner_sets_symbol_limit(tmp_path):
-    """The shipped risk_limits.yaml has max_symbols_per_portfolio null, so the gate must reject (fail closed)."""
-    scanner, _, sender, audit = make_scanner(tmp_path, signal(), limits=LIMITS)
+def test_real_limits_file_has_owner_symbol_limit():
+    """Owner decision 2026-11-08: max_symbols_per_portfolio = 8 in config/risk_limits.yaml."""
+    assert LIMITS.max_symbols_per_portfolio == 8
+    scanner, _, sender, audit = make_scanner(tmp_path_factory_dummy(), signal(), limits=LIMITS)
     scanner.cycle(MON, {"RELIANCE": frames()})
-    assert sender.fills == []
     gate_rec = [r for r in audit.records if r["kind"] == "gate"][0]
-    assert any("max_symbols_per_portfolio" in reason for reason in gate_rec["reasons"])
+    assert not any("max_symbols_per_portfolio" in reason for reason in gate_rec["reasons"])
+
+
+def tmp_path_factory_dummy():
+    import tempfile
+    return Path(tempfile.mkdtemp())
 
 
 def test_symbol_without_adv_is_rejected_by_gate(tmp_path):

@@ -141,3 +141,41 @@ Open items before any paper run:
    handoff and strategy state (restart safety beyond signal keys).
 5. Gap: no simulated exits. A traded strategy stays in trade for that symbol (conservative).
 6. Owner: the fifth strategy is still unidentified.
+
+## S3 result (2026-11-08): owner answers, 1-minute feed, exits, runtime
+
+Owner answers applied:
+1. Max symbols per portfolio = 8 (`config/risk_limits.yaml`).
+2. Paper capital = 1,000,000 INR (`config/settings.yaml`, `paper.capital`).
+3. ADV: NOT used in Algo-Lab (checked: no ADV code there). ADV comes from Algo-Pro's own risk gate
+   (`max_adv_pct`). It is now supplied per symbol from daily history (20 completed days).
+4. 1-minute data: `src/quant/data/minute_feed.py`. Bars are built from OpenAlgo 1-minute history into
+   5-minute and 15-minute frames aligned to 09:15. Only closed minutes are used; the last row is the
+   forming bucket. A missing previous-minute bar raises `StaleData` and that symbol is skipped.
+5. Exits (investment, no simulated exit scenarios): `src/quant/strategies/positions.py` manages each
+   filled entry with the same rules as Algo-Lab (`protect.Trade`): trailing ATR stop, breakeven,
+   fixed target, broker disaster stop, HTF floor exit. Processed once per new closed 5-minute bar.
+   No squareoff: positions can stay overnight (investment).
+
+New code:
+- `src/quant/data/minute_feed.py`: bucket alignment, aggregation, forming row, stale check, ADV, and
+  `make_fetcher(history_fn, symbols)` where `history_fn` is injected (OpenAlgo SDK `history` in production).
+- `src/quant/strategies/positions.py`: PaperPositionManager (open, update, close, open notional, symbols).
+- `src/quant/strategies/paper_runtime.py`: `build_paper_runtime`, `PaperRuntime.cycle`, `run_loop`
+  (1-minute loop; a failed fetch is audited and the loop continues).
+- Scanner now registers each filled entry with the position manager.
+
+Risk gate with live state: open notional, open symbols (for the 8-symbol limit) and available funds
+(capital minus open notional) are read at each check.
+
+Tests: `tests/unit/test_paper_runtime.py` (feed, exits, runtime, loop). Full suite: 27 failed (HRP,
+same as `main`), 1956 passed.
+
+Known gaps (must close before any real run):
+1. Positions and the handoff store are in memory. A restart loses open positions. Persist them.
+2. Paper exits are recorded directly. They do not pass through the risk gate. Live exits must pass
+   the gate (closing exits are allowed by the gate; this needs a test before live).
+3. The bar timestamp convention (start of minute) is assumed. Verify against OpenAlgo history output.
+4. The runner process (entry script, file audit log, the OpenAlgo SDK call that builds `history_fn`)
+   is not built yet. Nothing scans live symbols until it is.
+5. Fifth strategy still unidentified.

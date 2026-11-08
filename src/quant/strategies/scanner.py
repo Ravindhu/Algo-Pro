@@ -14,8 +14,8 @@ One cycle (called every 1 minute by the runner):
   5. The parent intent goes to PovExecutor, which slices it into child intents. Each child goes through
      the risk gate, the approved queue, and PaperSender.
 
-Known gap (paper): there are no simulated exits yet. A strategy that trades stays 'in trade' and sends
-no new signal for that symbol. This is conservative: one open paper position per strategy and symbol.
+Exits: each filled entry is registered with PaperPositionManager (trailing stop, breakeven, target,
+disaster stop, HTF floor). While a position is open, its strategy sends no new signal for that symbol.
 """
 from __future__ import annotations
 
@@ -111,6 +111,9 @@ class Scanner:
     # Average daily volume in shares per symbol. Supplied by the runner from daily data. A symbol with
     # no ADV is rejected by the gate (fail closed: "ADV unknown").
     adv_shares: Mapping[str, float] = field(default_factory=dict)
+    # Position manager (exits). When set, every filled entry is registered so trailing stop and
+    # breakeven manage it. When None, the scanner keeps the strategy in trade (no exits).
+    positions: Optional[Any] = None
 
     def cycle(self, now: datetime, frames_by_symbol: Mapping[str, Mapping[str, pd.DataFrame]],
               open_notional: float = 0.0) -> List[Dict[str, Any]]:
@@ -154,7 +157,7 @@ class Scanner:
         parent = TradeIntent(intent_id=key, strategy_id=strat.name, symbol=symbol, side="BUY",
                              qty=qd.qty, ref_price=float(sig["entry_ref"]), kind="entry",
                              lot_size=1, adv_shares=self.adv_shares.get(symbol), trade_day=now.date())
-        remaining, seq, sent_any = parent.qty, 1, False
+        remaining, seq, sent_any, filled = parent.qty, 1, False, 0
         while remaining > 0 and seq <= MAX_CHILDREN_PER_SIGNAL:
             child_q = self.executor.child_qty(remaining, bar_volume)
             if child_q < 1:
@@ -169,6 +172,10 @@ class Scanner:
                 break
             sent_any = True
             remaining -= child_q
+            filled += child_q
             seq += 1
         if sent_any:
-            strat.on_entry()                               # blocks new signals for this symbol until exits exist
+            strat.on_entry()                               # blocks new signals for this symbol while in trade
+            if self.positions is not None:
+                self.positions.open(key=key, strategy=strat, symbol=symbol, qty=filled, sig=sig,
+                                    bar_time=sig["time"])

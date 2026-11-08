@@ -1,0 +1,120 @@
+"""Paper runtime: 1-minute cycle that connects the bar feed, exits, the scanner and the gate.
+
+Flow stage: Scanner runner (paper only, 2026-11-08; not live)
+Status: PHASE 2 IMPLEMENTED (paper only; not live). No broker call is possible from this module.
+
+One cycle at time `now` (called once per minute):
+  1. Session check. Outside the NSE session (09:15 to 15:30 IST, weekdays, not holidays), nothing runs.
+  2. Build frames per symbol from closed 1-minute bars (data/minute_feed.py). Stale data skips the symbol.
+  3. Exits first: PaperPositionManager processes each new closed bar (trail, breakeven, target, stops).
+  4. Entries: Scanner runs the BUY strategies, sizes with portfolio construction, passes the gate,
+     and sends child orders through PovExecutor to PaperSender.
+The risk gate sees live state: open exposure, open symbols and available paper funds.
+"""
+from __future__ import annotations
+
+import time as _time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+
+import pandas as pd
+
+from quant.core.config import RiskLimits
+from quant.core.session_clock import market_session_state
+from quant.data.minute_feed import StaleData, build_frames
+from quant.execution.pov_executor import PovExecutor
+from quant.monitor.safe_mode import SafeMode
+from quant.portfolio.tiers import TierTable
+from quant.risk.gate import RiskState, check_intent
+from quant.risk.kill_switch import KillSwitch
+from quant.strategies.base import MultiTimeframeStrategy
+from quant.strategies.positions import PaperPositionManager
+from quant.strategies.scanner import PAPER_KEY, ListAudit, PaperSender, Scanner, SignalLedger
+
+INTERVALS = ("5minute", "15minute")
+
+
+@dataclass
+class PaperRuntime:
+    scanner: Scanner
+    positions: PaperPositionManager
+    sender: PaperSender
+    audit: Any
+    entry_cutoff: str = "14:45"
+    _intervals: Tuple[str, ...] = field(default=INTERVALS)
+
+    def cycle(self, now: datetime, bars_1m: Mapping[str, pd.DataFrame],
+              adv_shares: Optional[Mapping[str, float]] = None) -> List[Dict[str, Any]]:
+        """Run one minute. Returns the audit records written in this cycle."""
+        start = len(self.audit.records)
+        state = market_session_state(now, entry_cutoff=self.entry_cutoff, calendar=self.scanner.calendar)
+        if not state["open"]:
+            self.audit.append("cycle_skipped", {"at": now.isoformat(), "reason": state["reason"]})
+            return list(self.audit.records[start:])
+
+        frames: Dict[str, Dict[str, pd.DataFrame]] = {}
+        for symbol, bars in bars_1m.items():
+            try:
+                frames[symbol] = build_frames(bars, now, self._intervals)
+            except StaleData as exc:
+                self.audit.append("stale_data", {"symbol": symbol, "at": now.isoformat(), "detail": str(exc)})
+
+        self.positions.update(frames)                       # exits are audited by the manager
+
+        self.scanner.adv_shares = dict(adv_shares or {})
+        self.scanner.cycle(now, frames, open_notional=self.positions.open_notional())
+        return list(self.audit.records[start:])
+
+
+def build_paper_runtime(*, strategies: Mapping[str, List[MultiTimeframeStrategy]], limits: RiskLimits,
+                        tiers: TierTable, calendar: Any, capital: float, risk_fraction: float,
+                        skip_dates: Iterable, ledger_path: Path, kill_path: Path,
+                        audit: Any = None, entry_cutoff: str = "14:45") -> PaperRuntime:
+    """Wire one paper runtime. The caller builds the strategies. For each symbol, TOP and BOTTOM must share
+    one Handoff object (see ocl_sell_fail.Handoff)."""
+    audit = audit if audit is not None else ListAudit()
+    positions = PaperPositionManager(audit)
+    kill = KillSwitch(kill_path)
+    safe = SafeMode()
+
+    def gate(intent):
+        state = RiskState(open_notional=positions.open_notional(),
+                          open_symbols=positions.open_symbols())
+        funds = capital - positions.open_notional()
+        return check_intent(intent, state, limits, kill, safe, available_funds=funds)
+
+    sender = PaperSender()
+    executor = PovExecutor(gate=gate, sender=sender, api_key=PAPER_KEY, audit=audit, pov=0.1)
+    scanner = Scanner(strategies=strategies, executor=executor, ledger=SignalLedger(ledger_path),
+                      audit=audit, capital=capital, risk_fraction=risk_fraction, limits=limits,
+                      tiers=tiers, calendar=calendar, skip_dates=list(skip_dates),
+                      entry_cutoff=entry_cutoff, positions=positions)
+    return PaperRuntime(scanner=scanner, positions=positions, sender=sender, audit=audit,
+                        entry_cutoff=entry_cutoff)
+
+
+def seconds_to_next_minute(now: datetime) -> float:
+    """Seconds until the next whole minute, so cycles run on the minute."""
+    return 60.0 - (now.second + now.microsecond / 1e6)
+
+
+def run_loop(runtime: PaperRuntime, fetch: Callable[[datetime], Tuple[Dict[str, pd.DataFrame], Dict[str, float]]],
+             *, now_fn: Callable[[], datetime] = datetime.now,
+             sleep_fn: Callable[[float], None] = _time.sleep,
+             stop_fn: Callable[[], bool] = lambda: False) -> int:
+    """Run cycles on the minute until stop_fn() is true. A failed fetch is audited and the loop goes on.
+    Returns the number of cycles run."""
+    cycles = 0
+    while not stop_fn():
+        now = now_fn()
+        try:
+            bars, adv = fetch(now)
+        except Exception as exc:                            # fail closed for this minute; keep running
+            runtime.audit.append("fetch_failed", {"at": now.isoformat(), "error": repr(exc)})
+            bars, adv = {}, {}
+        runtime.cycle(now, bars, adv)
+        cycles += 1
+        sleep_fn(seconds_to_next_minute(now_fn()))
+    return cycles

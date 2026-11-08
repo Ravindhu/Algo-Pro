@@ -10,3 +10,4 @@ max_daily_loss: 1000            # INR, daily loss budget
 max_strategy_loss: 500          # INR, loss budget per strategy per day
 max_adv_pct: 0.01               # max 1% of average daily volume per order
 blocked: false                  # true = stop all entries
+max_symbols_per_portfolio: 8    # owner decision 2026-11-08
