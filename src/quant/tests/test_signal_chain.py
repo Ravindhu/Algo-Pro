@@ -142,19 +142,22 @@ def _limits_with(tmp_path, **extra):
 
 
 def test_end_to_end_blocked_while_symbol_limit_unset(tmp_path):
-    # The owner file has no max_symbols_per_portfolio, so the gate fails closed: no fills.
+    # Copy of the owner file with max_symbols_per_portfolio removed: the gate fails closed, no fills.
     csv, n = _signals(tmp_path)
+    text = "\n".join(l for l in LIMITS.read_text(encoding="utf-8").splitlines()
+                     if not l.startswith("max_symbols_per_portfolio"))
+    unset = tmp_path / "limits_unset.yaml"
+    unset.write_text(text, encoding="utf-8")
     run_paper = _load_run_paper()
-    summary = run_paper.run(str(csv), str(LIMITS), str(tmp_path / "out"))
+    summary = run_paper.run(str(csv), str(unset), str(tmp_path / "out"))
     assert summary["audit_verified"] is True
     assert summary["approved"] == 0 and summary["blocked"] == n and summary["filled"] == 0
 
 
-def test_end_to_end_fills_through_paper_broker_when_limits_set(tmp_path):
+def test_end_to_end_fills_through_paper_broker_with_owner_limits(tmp_path):
     csv, n = _signals(tmp_path)
-    limits = _limits_with(tmp_path, max_symbols_per_portfolio=3)
     run_paper = _load_run_paper()
-    summary = run_paper.run(str(csv), str(limits), str(tmp_path / "out"))
+    summary = run_paper.run(str(csv), str(LIMITS), str(tmp_path / "out"))
     assert summary["audit_verified"] is True
     assert summary["approved"] == n and summary["blocked"] == 0
     assert summary["filled"] == n
@@ -164,7 +167,6 @@ def test_bridge_refuses_when_analyzer_is_off(tmp_path):
     # Analyze mode is checked before every send. Analyzer off -> refused; the order endpoint is never hit.
     from quant.execution.openalgo_client import OpenAlgoClient
     csv, n = _signals(tmp_path)
-    limits = _limits_with(tmp_path, max_symbols_per_portfolio=3)
     calls = []
 
     def transport(path, payload):
@@ -176,6 +178,6 @@ def test_bridge_refuses_when_analyzer_is_off(tmp_path):
     client = OpenAlgoClient(base_url="http://openalgo.invalid", transport=transport, mode="analyze")
     run_paper = _load_run_paper()
     broker = run_paper.AnalyzeBroker(client=client, api_key="test-key")
-    summary = run_paper.run(str(csv), str(limits), str(tmp_path / "out"), broker=broker)
+    summary = run_paper.run(str(csv), str(LIMITS), str(tmp_path / "out"), broker=broker)
     assert summary["filled"] == 0 and summary["rejected"] == n
     assert all(c.endswith("/analyzer") for c in calls)
