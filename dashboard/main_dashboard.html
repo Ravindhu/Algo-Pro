@@ -76,17 +76,18 @@
   #flowbox g.stg.st-err { animation: flowblink 1s steps(2, start) infinite; }
   @keyframes flowblink { to { opacity: .25; } }
   #flowbox g.stg { cursor: default; }
+  .limgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   @media (max-width: 1000px) {
     .top, .mid, .two { grid-template-columns: minmax(0, 1fr); }
     .setup .fields { grid-template-columns: 1fr; }
     form .row { grid-template-columns: 1fr; }
+    .limgrid { grid-template-columns: 1fr; }
   }
 </style>
 
 <header>
   <span class="brand">ALGO PRO // NSE·BSE</span>
   <span class="chip" id="mode">mode —</span>
-  <span class="chip" id="kill">kill switch —</span>
   <span class="chip" id="feed">feed —</span>
   <span class="chip" id="market">market —</span>
   <span class="chip" id="conn">connecting…</span>
@@ -102,11 +103,9 @@
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
   <span id="loopchip" class="chip">loop —</span>
   <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
-  <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions; the kill switch does that">STOP</button>
+  <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions">STOP</button>
   <span id="loopmsg" class="d"></span>
-  <button class="kill" id="headkill" type="button">KILL SWITCH</button>
 </header>
-<div class="banner" id="killbanner"></div>
 <div class="clock" id="clock"></div>
 
 <div class="setup" id="setup" hidden>
@@ -130,144 +129,63 @@
 
 <div class="top">
   <section class="panel">
-    <div class="ph">Portfolio &amp; P&amp;L <span>paper · ₹</span></div>
+    <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money · ₹</span></div>
     <div class="big" id="pnl">—</div>
-    <div class="kv" style="margin-top:8px">
-      <div><small>Realized P&amp;L</small><b id="realized">—</b></div>
-      <div><small>Unrealized P&amp;L</small><b id="unrealized">—</b></div>
-      <div><small>Closed trades</small><b id="trades">—</b></div>
-      <div><small>Win rate</small><b id="winrate">—</b></div>
-      <div><small>Profit factor</small><b id="pf">—</b></div>
-      <div><small>EV per trade</small><b id="ev">—</b></div>
-      <div><small>Open positions</small><b id="openpos">—</b></div>
+    <div class="sbhead">
+      <div><small>Capital base</small><b id="sb-capital">—</b></div>
+      <div><small>Paper equity</small><b id="sb-equity">—</b></div>
+      <div><small>Return on capital</small><b id="sb-return">—</b></div>
+      <div><small>Realized P&amp;L</small><b id="sb-realized">—</b></div>
+      <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
+      <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
+    </div>
+    <div class="kv">
+      <div><small>Closed trades</small><b id="sb-trades">—</b></div>
+      <div><small>Win rate</small><b id="sb-winrate">—</b></div>
+      <div><small>Profit factor</small><b id="sb-pf">—</b></div>
+      <div><small>EV per trade</small><b id="sb-ev">—</b></div>
+      <div><small>EV % per trade</small><b id="sb-evpct">—</b></div>
+      <div><small>Avg win</small><b id="sb-avgwin">—</b></div>
+      <div><small>Avg loss</small><b id="sb-avgloss">—</b></div>
+      <div><small>Risk : reward</small><b id="sb-rr">—</b></div>
+      <div><small>Open positions</small><b id="sb-open">—</b></div>
+      <div><small>Risk used</small><b id="sb-risk">—</b></div>
+      <div><small>Mode</small><b id="sb-mode">—</b></div>
+      <div><small>Paper loop</small><b id="sb-loop">—</b></div>
     </div>
     <svg id="eqsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:120px;margin-top:10px">
       <line id="eqzero" x1="0" x2="800" y1="60" y2="60" stroke="#14283a" stroke-dasharray="4 4"/>
       <polyline id="eqline" fill="none" stroke="#2ee6a6" stroke-width="2" points=""/>
     </svg>
     <p class="d" id="eqnote">Equity curve: waiting for data…</p>
+
+    <div class="ph" style="margin-top:10px">Open positions <span id="sb-poscount"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
+      <tbody id="sb-pos-rows"></tbody>
+    </table></div>
+
+    <div class="ph" style="margin-top:10px">Closed trades <span>last 20, newest first</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Entry ₹</th><th class="n">Exit ₹</th><th class="n">P&amp;L ₹</th><th class="n">Return</th></tr></thead>
+      <tbody id="sb-trades-rows"></tbody>
+    </table></div>
+
+    <div class="ph" style="margin-top:10px">Order history <span>last 20 fills, newest first</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th></tr></thead>
+      <tbody id="sb-fills-rows"></tbody>
+    </table></div>
+    <p class="d" id="sb-note">Paper trading stats come from the paper ledger. They are not live market results.</p>
   </section>
 
   <section class="panel">
     <div class="ph">Risk <span>caps &amp; guards</span></div>
     <div class="guard"><span>Mode</span><b id="r-mode">—</b></div>
-    <div class="guard"><span>Kill switch</span><b id="r-kill">—</b></div>
     <div class="guard"><span>Open exposure used</span><b id="r-risk">—</b></div>
     <div class="bar"><i id="riskbar"></i></div>
     <div class="guard"><span>Limits not set</span><b id="r-unset">—</b></div>
     <div class="guard"><span>Feed</span><b id="r-feed">—</b></div>
-  </section>
-</div>
-
-<section class="panel sandbox" id="sandbox" style="margin-top:8px">
-  <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money</span></div>
-  <div class="sbhead">
-    <div><small>Capital base</small><b id="sb-capital">—</b></div>
-    <div><small>Paper equity</small><b id="sb-equity">—</b></div>
-    <div><small>Return on capital</small><b id="sb-return">—</b></div>
-    <div><small>Realized P&amp;L</small><b id="sb-realized">—</b></div>
-    <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
-    <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
-  </div>
-  <div class="kv">
-    <div><small>Closed trades</small><b id="sb-trades">—</b></div>
-    <div><small>Win rate</small><b id="sb-winrate">—</b></div>
-    <div><small>Profit factor</small><b id="sb-pf">—</b></div>
-    <div><small>EV per trade</small><b id="sb-ev">—</b></div>
-    <div><small>EV % per trade</small><b id="sb-evpct">—</b></div>
-    <div><small>Avg win</small><b id="sb-avgwin">—</b></div>
-    <div><small>Avg loss</small><b id="sb-avgloss">—</b></div>
-    <div><small>Risk : reward</small><b id="sb-rr">—</b></div>
-    <div><small>Mode</small><b id="sb-mode">—</b></div>
-    <div><small>Paper loop</small><b id="sb-loop">—</b></div>
-    <div><small>Kill switch</small><b id="sb-kill">—</b></div>
-    <div><small>Risk used</small><b id="sb-risk">—</b></div>
-  </div>
-
-  <div class="ph" style="margin-top:10px">Open positions <span id="sb-poscount"></span></div>
-  <div class="scroll"><table>
-    <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
-    <tbody id="sb-pos-rows"></tbody>
-  </table></div>
-
-  <div class="ph" style="margin-top:10px">Closed trades <span>last 20, newest first</span></div>
-  <div class="scroll"><table>
-    <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Entry ₹</th><th class="n">Exit ₹</th><th class="n">P&amp;L ₹</th><th class="n">Return</th></tr></thead>
-    <tbody id="sb-trades-rows"></tbody>
-  </table></div>
-
-  <div class="ph" style="margin-top:10px">Order history <span>last 20 fills, newest first</span></div>
-  <div class="scroll"><table>
-    <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th></tr></thead>
-    <tbody id="sb-fills-rows"></tbody>
-  </table></div>
-
-  <p class="d" id="sb-note">Paper trading stats come from the paper ledger. They are not live market results.</p>
-</section>
-
-<div class="mid">
-  <section class="panel">
-    <div class="ph">Open positions <span id="poscount"></span></div>
-    <div class="scroll"><table>
-      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
-      <tbody id="positions"></tbody>
-    </table></div>
-  </section>
-
-  <section class="panel">
-    <div class="ph">Neural shell <span>layout only, values not connected</span></div>
-    <svg viewBox="0 0 940 300" role="img" aria-label="Neural shell layout">
-      <g stroke="#2a6f8f" stroke-width="1.2" fill="none">
-        <line x1="74" y1="36" x2="200" y2="173"/><line x1="74" y1="89" x2="200" y2="120"/>
-        <line x1="74" y1="142" x2="200" y2="173"/><line x1="74" y1="194" x2="200" y2="173"/>
-        <line x1="200" y1="69" x2="337" y2="152"/><line x1="200" y1="120" x2="337" y2="152"/>
-        <line x1="200" y1="225" x2="337" y2="152"/><line x1="200" y1="173" x2="200" y2="225"/>
-        <line x1="337" y1="69" x2="472" y2="152"/><line x1="337" y1="152" x2="472" y2="152"/>
-        <line x1="472" y1="152" x2="608" y2="152"/><line x1="608" y1="152" x2="743" y2="152"/>
-        <line x1="743" y1="152" x2="880" y2="79"/><line x1="743" y1="152" x2="880" y2="225"/>
-        <line x1="337" y1="246" x2="337" y2="152" stroke-dasharray="4 4" stroke="#9d8cff"/>
-      </g>
-      <path d="M337 152 Q405 200 472 246" stroke="#ffb347" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
-      <path d="M472 69 L472 140" stroke="#ff4d6d" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
-      <path d="M472 246 L472 164" stroke="#ffb347" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
-      <g fill="none" stroke-width="2">
-        <circle cx="74" cy="36" r="7" stroke="#3fd0ff"/><circle cx="74" cy="89" r="7" stroke="#3fd0ff"/>
-        <circle cx="74" cy="142" r="7" stroke="#3fd0ff"/><circle cx="74" cy="194" r="7" stroke="#3fd0ff"/>
-        <circle cx="200" cy="69" r="7" stroke="#5d7b94"/><circle cx="200" cy="120" r="7" stroke="#5d7b94"/>
-        <circle cx="200" cy="173" r="9" stroke="#ffb347"/><circle cx="200" cy="225" r="9" stroke="#ffb347"/>
-        <circle cx="337" cy="69" r="8" stroke="#3fd0ff"/><circle cx="337" cy="152" r="8" stroke="#5d7b94"/>
-        <circle cx="337" cy="246" r="8" stroke="#5d7b94"/>
-        <circle cx="472" cy="69" r="8" stroke="#ff4d6d"/><circle cx="472" cy="152" r="8" stroke="#2ee6a6"/>
-        <circle cx="472" cy="246" r="9" stroke="#ffb347"/>
-        <circle cx="608" cy="152" r="8" stroke="#3fd0ff"/><circle cx="743" cy="152" r="8" stroke="#3fd0ff"/>
-        <circle cx="880" cy="79" r="8" stroke="#3fd0ff"/><circle cx="880" cy="225" r="8" stroke="#3fd0ff"/>
-      </g>
-      <g font-size="11" text-anchor="middle" fill="#c3d8e8">
-        <text x="74" y="22" fill="#3fd0ff">NSE/BSE quotes</text>
-        <text x="74" y="106" fill="#3fd0ff">OpenAlgo WS feed</text>
-        <text x="74" y="158" fill="#3fd0ff">Historical data</text>
-        <text x="74" y="210" fill="#3fd0ff">Filings &amp; NLP</text>
-        <text x="200" y="58" fill="#5d7b94">Sectors</text>
-        <text x="200" y="134" fill="#c3d8e8">Screener</text>
-        <text x="200" y="196" fill="#ffb347">Market data</text>
-        <text x="200" y="248" fill="#ffb347">Portfolio</text>
-        <text x="337" y="58" fill="#3fd0ff">Alpha signals</text>
-        <text x="337" y="168" fill="#5d7b94">Strategy</text>
-        <text x="337" y="266" fill="#5d7b94">Optimizer</text>
-        <text x="472" y="58" fill="#ff4d6d">Kill switch</text>
-        <text x="472" y="168" fill="#2ee6a6">Risk gate</text>
-        <text x="472" y="266" fill="#ffb347">Ledger</text>
-        <text x="608" y="168" fill="#c3d8e8">Execution</text>
-        <text x="743" y="168" fill="#c3d8e8">OpenAlgo bridge</text>
-        <text x="880" y="64" fill="#3fd0ff">Broker</text>
-        <text x="880" y="210" fill="#3fd0ff">NSE / BSE</text>
-      </g>
-      <g font-size="10" fill="#5d7b94" text-anchor="middle">
-        <text x="74" y="290">SOURCES</text><text x="268" y="290">SCREEN · ALPHA</text>
-        <text x="404" y="290">STRATEGY · GUARDS</text><text x="540" y="290">RISK · KILL</text>
-        <text x="675" y="290">EXECUTE</text><text x="811" y="290">BRIDGE</text><text x="880" y="290">MARKET</text>
-      </g>
-    </svg>
   </section>
 </div>
 
@@ -278,56 +196,43 @@
       <thead><tr><th>Severity</th><th>Kind</th><th>Message</th></tr></thead>
       <tbody id="events"></tbody>
     </table></div>
-    <div class="ph" style="margin-top:10px">AI insight <span>rules, advice only</span></div>
-    <ul id="insight"></ul>
   </section>
 
   <section class="panel">
-    <div class="ph">Current limits <span>saved to config</span></div>
-    <div class="scroll"><table>
-      <thead><tr><th>Limit</th><th class="n">Value</th></tr></thead>
-      <tbody id="limits"></tbody>
-    </table></div>
-  </section>
-</div>
-
-<div class="two">
-  <section class="panel">
-    <div class="ph">Kill switch <span>backend state</span></div>
-    <p class="d">Trip blocks new entries now. Open positions are closed by the next paper run; this page sends no orders. Needs the token (header) and a reason. Both actions are audited.</p>
-    <input type="text" id="killreason" maxlength="200" placeholder="reason (required)" autocomplete="off">
-    <div class="actions">
-      <button class="stop" id="killtrip" type="button">Trip kill switch</button>
-      <button class="go" id="killreset" type="button">Reset kill switch</button>
-      <span id="killmsg"></span>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="ph">Set limits <span id="unset"></span></div>
-    <form id="limitform" autocomplete="off">
-      <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
-        <input type="checkbox" id="lim-blocked" data-limit="blocked"></div>
-      <div class="row"><label for="lim-max_order_quantity">max order quantity (shares)</label>
-        <input type="number" id="lim-max_order_quantity" data-limit="max_order_quantity" min="0" step="1"></div>
-      <div class="row"><label for="lim-max_order_notional">max order notional (₹)</label>
-        <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
-      <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
-        <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
-      <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
-        <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
-      <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
-        <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
-      <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
-        <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
-      <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
-        <input type="number" id="lim-max_symbols_per_portfolio" data-limit="max_symbols_per_portfolio" min="0" step="1"></div>
-      <div class="actions">
-        <button class="go" type="submit">Save limits</button>
-        <span id="msg"></span>
+    <div class="ph">Limits <span>current values · set new values below (token needed) · <span id="unset"></span></span></div>
+    <div class="limgrid">
+      <div>
+        <div class="d" style="margin-bottom:4px">Current (saved to config)</div>
+        <div class="scroll"><table>
+          <thead><tr><th>Limit</th><th class="n">Value</th></tr></thead>
+          <tbody id="limits"></tbody>
+        </table></div>
       </div>
-      <p class="d">Empty = not set (entries fail closed). The token is not stored; reload the page to clear it.</p>
-    </form>
+      <form id="limitform" autocomplete="off">
+        <div class="d" style="margin-bottom:4px">Set new values</div>
+        <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
+          <input type="checkbox" id="lim-blocked" data-limit="blocked"></div>
+        <div class="row"><label for="lim-max_order_quantity">max order quantity (shares)</label>
+          <input type="number" id="lim-max_order_quantity" data-limit="max_order_quantity" min="0" step="1"></div>
+        <div class="row"><label for="lim-max_order_notional">max order notional (₹)</label>
+          <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
+        <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
+          <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
+        <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
+          <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
+        <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
+          <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
+        <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
+          <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
+        <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
+          <input type="number" id="lim-max_symbols_per_portfolio" data-limit="max_symbols_per_portfolio" min="0" step="1"></div>
+        <div class="actions">
+          <button class="go" type="submit">Save limits</button>
+          <span id="msg"></span>
+        </div>
+        <p class="d">Empty = not set (entries fail closed). The token is not stored; reload the page to clear it.</p>
+      </form>
+    </div>
   </section>
 </div>
 
@@ -433,22 +338,12 @@
       $("loopchip").title = o.loop.last_error || o.loop.last_result || "";
     }
     setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
-    setChip("kill", o.kill_switch.active ? "KILL SWITCH ON" : "kill switch off", o.kill_switch.active ? "bad" : "on");
     setChip("feed", "feed " + o.feed.status, "warn");
-    $("killbanner").textContent = o.kill_switch.active ? "Kill switch on: " + o.kill_switch.reason : "";
-    $("killbanner").className = "banner" + (o.kill_switch.active ? " on" : "");
 
     const p = o.performance, pnl = p.realized_pnl + (p.unrealized_pnl || 0);
     $("pnl").textContent = money(pnl);
     $("pnl").className = "big " + (pnl > 0 ? "g" : pnl < 0 ? "r" : "");
-    $("realized").textContent = money(p.realized_pnl);
-    $("unrealized").textContent = money(p.unrealized_pnl);
-    $("trades").textContent = String(p.trades);
-    $("winrate").textContent = pct(p.win_rate);
-    $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
-    $("openpos").textContent = String(o.positions.length);
     $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
-    $("ev").textContent = money(p.ev_per_trade);
 
     // Paper trading section: paper ledger only, no broker calls
     const pct2 = v => v == null ? "—" : (v * 100).toFixed(2) + "%";
@@ -460,8 +355,6 @@
     $("sb-return").className = sbx.return_pct == null ? "" : sbx.return_pct > 0 ? "g" : sbx.return_pct < 0 ? "r" : "";
     $("sb-mode").textContent = o.mode;
     $("sb-loop").textContent = o.loop ? o.loop.status : "—";
-    $("sb-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
-    $("sb-kill").className = o.kill_switch.active ? "r" : "g";
     $("sb-trades").textContent = String(p.trades);
     $("sb-winrate").textContent = pct(p.win_rate);
     $("sb-pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
@@ -474,6 +367,7 @@
     $("sb-unrealized").textContent = money(p.unrealized_pnl);
     $("sb-dd").textContent = o.equity ? money(o.equity.max_drawdown) : "—";
     $("sb-risk").textContent = pct(p.risk_utilisation);
+    $("sb-open").textContent = String(o.positions.length);
     $("sb-poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
     renderTable($("sb-pos-rows"), o.positions.map(x => {
       const tr = document.createElement("tr");
@@ -496,8 +390,6 @@
       : "Paper trading stats come from the paper ledger. They are not live market results.";
 
     $("r-mode").textContent = o.mode;
-    $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
-    $("r-kill").className = o.kill_switch.active ? "r" : "g";
     $("r-risk").textContent = pct(p.risk_utilisation);
     $("riskbar").style.width = Math.min(100, (p.risk_utilisation || 0) * 100) + "%";
     $("r-unset").textContent = o.unset_limits.length ? o.unset_limits.join(", ") : "none";
@@ -505,12 +397,6 @@
     $("r-feed").textContent = o.feed.status;
     $("unset").textContent = o.unset_limits.length ? "not set: " + o.unset_limits.join(", ") : "all set";
 
-    $("poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
-    renderTable($("positions"), o.positions.map(x => {
-      const tr = document.createElement("tr");
-      tr.append(cell(x.symbol), cell(String(x.qty), "n"), cell(inr(x.avg_price), "n"), cell(money(x.unrealized_pnl), "n " + sign(x.unrealized_pnl)));
-      return tr;
-    }), "No open positions.", 4);
 
     renderTable($("events"), o.events.map(e => {
       const tr = document.createElement("tr");
@@ -519,7 +405,6 @@
     }), "No safety events.", 3);
     $("evcount").textContent = o.events.length ? o.events.length + " shown" : "";
 
-    $("insight").replaceChildren(...o.insight.map(t => { const li = document.createElement("li"); li.textContent = t; return li; }));
 
     renderTable($("limits"), Object.entries(o.limits).filter(([k]) => k !== "blocked").map(([k, v]) => {
       const tr = document.createElement("tr");
@@ -606,43 +491,6 @@
     }
   }
 
-  function setKillMsg(text, cls) { const m = $("killmsg"); m.textContent = text; m.className = cls || ""; }
-
-  async function postKill(url, reason, okText) {
-    const token = $("token").value;
-    if (!token) return setKillMsg("Enter the dashboard token in the header.", "r");
-    setKillMsg("Sending…", "d");
-    try {
-      const r = await fetch(url, {method: "POST",
-        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
-        body: JSON.stringify({reason})});
-      const j = await r.json().catch(() => ({}));
-      if (r.ok) { setKillMsg(okText, "g"); refresh(); }
-      else if (r.status === 401) setKillMsg("Token rejected.", "r");
-      else if (r.status === 503) setKillMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
-      else setKillMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
-    } catch (e) {
-      setKillMsg("Failed: " + e.message, "r");
-    }
-  }
-
-  function tripKill() {
-    const reason = $("killreason").value.trim();
-    if (!reason) return setKillMsg("Enter a reason first.", "r");
-    if (!confirm("Trip the kill switch? New entries stop. Open positions are closed by the next paper run.")) return;
-    postKill("/api/kill/trip", reason, "Kill switch tripped.");
-  }
-
-  function resetKill() {
-    const reason = $("killreason").value.trim();
-    if (!reason) return setKillMsg("Enter a reason first.", "r");
-    if (!confirm("Reset the kill switch? New entries can start again.")) return;
-    postKill("/api/kill/reset", reason, "Kill switch reset.");
-  }
-
-  $("killtrip").onclick = tripKill;
-  $("killreset").onclick = resetKill;
-  $("headkill").onclick = () => { $("killreason").scrollIntoView({block: "center"}); $("killreason").focus(); };
 
   // ---- Trade setup (reads and writes /api/setup) ----
   function setSetupMsg(text, cls) { const m = $("setupmsg"); m.textContent = text; m.className = cls || ""; }
