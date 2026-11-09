@@ -56,8 +56,6 @@
   form .row label { margin: 0; }
   .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   .d p, p.d { margin: 0 0 6px; }
-  .pipe { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
-  .pipe .chip { font-size: 11px; }
   .sbhead { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 8px; }
   .legend { margin-top: 14px; color: var(--dim); font-size: 11px; }
 
@@ -162,11 +160,7 @@
 </div>
 
 <section class="panel sandbox" id="sandbox" style="margin-top:8px">
-  <div class="ph">SANDBOX <span>paper trading · simulated fills · no broker orders · no live money</span></div>
-
-  <div class="d" style="margin-bottom:4px">Quant flow (paper path). Colour = node status from /api/overview (flow).</div>
-  <div class="pipe" id="sb-pipe"></div>
-
+  <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money</span></div>
   <div class="sbhead">
     <div><small>Capital base</small><b id="sb-capital">—</b></div>
     <div><small>Paper equity</small><b id="sb-equity">—</b></div>
@@ -175,7 +169,6 @@
     <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
     <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
   </div>
-
   <div class="kv">
     <div><small>Closed trades</small><b id="sb-trades">—</b></div>
     <div><small>Win rate</small><b id="sb-winrate">—</b></div>
@@ -188,16 +181,28 @@
     <div><small>Mode</small><b id="sb-mode">—</b></div>
     <div><small>Paper loop</small><b id="sb-loop">—</b></div>
     <div><small>Kill switch</small><b id="sb-kill">—</b></div>
-    <div><small>Open positions</small><b id="sb-open">—</b></div>
     <div><small>Risk used</small><b id="sb-risk">—</b></div>
   </div>
 
-  <div class="ph" style="margin-top:10px">Closed paper trades <span>last 20, newest first</span></div>
+  <div class="ph" style="margin-top:10px">Open positions <span id="sb-poscount"></span></div>
   <div class="scroll"><table>
-    <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Entry ₹</th><th class="n">Exit ₹</th><th class="n">P&amp;L ₹</th></tr></thead>
+    <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
+    <tbody id="sb-pos-rows"></tbody>
+  </table></div>
+
+  <div class="ph" style="margin-top:10px">Closed trades <span>last 20, newest first</span></div>
+  <div class="scroll"><table>
+    <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Entry ₹</th><th class="n">Exit ₹</th><th class="n">P&amp;L ₹</th><th class="n">Return</th></tr></thead>
     <tbody id="sb-trades-rows"></tbody>
   </table></div>
-  <p class="d" id="sb-note">Sandbox stats come from the paper ledger. They are not live market results.</p>
+
+  <div class="ph" style="margin-top:10px">Order history <span>last 20 fills, newest first</span></div>
+  <div class="scroll"><table>
+    <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th></tr></thead>
+    <tbody id="sb-fills-rows"></tbody>
+  </table></div>
+
+  <p class="d" id="sb-note">Paper trading stats come from the paper ledger. They are not live market results.</p>
 </section>
 
 <div class="mid">
@@ -445,7 +450,7 @@
     $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
     $("ev").textContent = money(p.ev_per_trade);
 
-    // Sandbox section: paper ledger only. Pipeline colours come from o.flow.
+    // Paper trading section: paper ledger only, no broker calls
     const pct2 = v => v == null ? "—" : (v * 100).toFixed(2) + "%";
     const na = (v, fmt) => v == null ? "not set" : fmt(v);
     const sbx = o.sandbox || {};
@@ -468,17 +473,27 @@
     $("sb-realized").textContent = money(p.realized_pnl);
     $("sb-unrealized").textContent = money(p.unrealized_pnl);
     $("sb-dd").textContent = o.equity ? money(o.equity.max_drawdown) : "—";
-    $("sb-open").textContent = String(o.positions.length);
     $("sb-risk").textContent = pct(p.risk_utilisation);
-    paintPipe(o.flow);
+    $("sb-poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
+    renderTable($("sb-pos-rows"), o.positions.map(x => {
+      const tr = document.createElement("tr");
+      tr.append(cell(x.symbol), cell(String(x.qty), "n"), cell(inr(x.avg_price), "n"), cell(money(x.unrealized_pnl), "n " + sign(x.unrealized_pnl)));
+      return tr;
+    }), "No open positions.", 4);
     renderTable($("sb-trades-rows"), (o.closed_trades || []).map(t => {
       const tr = document.createElement("tr");
-      tr.append(cell(t.symbol), cell(String(t.qty), "n"), cell(inr(t.entry), "n"), cell(inr(t.exit), "n"), cell(money(t.pnl), "n " + sign(t.pnl)));
+      tr.append(cell(t.symbol), cell(String(t.qty), "n"), cell(inr(t.entry), "n"), cell(inr(t.exit), "n"),
+        cell(money(t.pnl), "n " + sign(t.pnl)), cell(t.ret_pct == null ? "—" : t.ret_pct.toFixed(2) + "%", "n " + sign(t.ret_pct)));
       return tr;
-    }), "No closed trades yet.", 5);
+    }), "No closed trades yet.", 6);
+    renderTable($("sb-fills-rows"), (o.fills_recent || []).map(f => {
+      const tr = document.createElement("tr");
+      tr.append(cell(f.ts || "—"), cell(f.symbol), cell(f.side, f.side === "BUY" ? "g" : "r"), cell(String(f.qty), "n"), cell(inr(f.price), "n"));
+      return tr;
+    }), "No fills yet.", 5);
     $("sb-note").textContent = p.trades < 30
       ? "Only " + p.trades + " closed trades. EV is not statistically reliable below 30 trades. Paper data only."
-      : "Sandbox stats come from the paper ledger. They are not live market results.";
+      : "Paper trading stats come from the paper ledger. They are not live market results.";
 
     $("r-mode").textContent = o.mode;
     $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
@@ -684,22 +699,6 @@
   $("setupform").addEventListener("submit", saveSetup);
   $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
   $("limitform").addEventListener("submit", saveLimits);
-
-  // ---- Sandbox pipeline strip: v5 stages on the paper path (labels match the flow SVG) ----
-  const SANDBOX_STAGES = ["Broker feeds", "Data QA gate", "Signal", "Calibrated conviction",
-    "Fractional Kelly", "Portfolio risk", "Risk gate", "Pre-trade checks", "Paper trading stage",
-    "Ledger and recon", "Audit log", "Kill switch"];
-  function paintPipe(flow) {
-    const f = flow || {};
-    $("sb-pipe").replaceChildren(...SANDBOX_STAGES.map(name => {
-      const n = f[name], st = n ? n.status : "ok";
-      const chip = document.createElement("span");
-      chip.className = "chip " + (st === "err" ? "bad" : st === "warn" ? "warn" : "on");
-      chip.textContent = name + " · " + (st === "err" ? "error" : st === "warn" ? "warn" : "ok");
-      chip.title = n ? n.message : "ok";
-      return chip;
-    }));
-  }
 
   // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
   const SVG_NS = "http://www.w3.org/2000/svg";

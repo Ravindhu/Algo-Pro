@@ -44,3 +44,10 @@ Status: done. Decision: `docs/decisions/0033-ev-on-dashboard-and-sandbox-panel.m
 - Tests: `src/quant/tests/test_sandbox_ev.py` (8 tests, hand-checked numbers). Full suite: 33 failures, all pre-existing.
 - Preview: sample paper data built by the real backend code. Not live.
 - Not done: standalone sandbox trading engine. Broker feeds stay "not connected" (no live feed).
+
+## Round 4: standard paper trading dashboard (owner request, 2026-11-09)
+- Scope changed: no quant-flow pipeline on this view. Standard paper-trading layout.
+- Sections: account summary, stats, open positions, closed trades (with return %), order history (last 20 fills).
+- Orders are NOT placed from the dashboard. Manual buy/sell would bypass the risk gate (AGENTS: risk gate is the only path to orders). Paper loop and kill switch keep their controls.
+- Backend: `fills_recent` (order history) and `ret_pct` on closed trades. Tests in `test_sandbox_ev.py` (10 tests).
+- Preview: sample paper data, not live.

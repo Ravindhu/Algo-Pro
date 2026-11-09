@@ -100,3 +100,20 @@ def test_sandbox_equity_none_without_capital():
     o = build_overview(fills=[], audit_records=[], kill={}, limits={"blocked": False,
                        "capital_inr": None}, last_prices={})
     assert o["sandbox"] == {"capital_inr": None, "equity": None, "return_pct": None}
+
+
+def test_fills_recent_newest_first_with_side():
+    fills = [{"symbol": "A", "signed_qty": 5, "price": 100.0, "ts": "t1"},
+             {"symbol": "A", "signed_qty": -5, "price": 102.0, "ts": "t2"}]
+    o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
+                       last_prices={})
+    assert o["fills_recent"][0] == {"symbol": "A", "side": "SELL", "qty": 5, "price": 102.0, "ts": "t2"}
+    assert o["fills_recent"][1]["side"] == "BUY"
+
+
+def test_closed_trade_has_return_percent():
+    fills = [{"symbol": "A", "signed_qty": 10, "price": 100.0},
+             {"symbol": "A", "signed_qty": -10, "price": 110.0}]
+    o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
+                       last_prices={})
+    assert o["closed_trades"][0]["ret_pct"] == pytest.approx(10.0)

@@ -183,8 +183,13 @@ def build_overview(
     }
     overview["closed_trades"] = [
         {"symbol": t["symbol"], "qty": t["qty"], "entry": round(t["entry"], 2),
-         "exit": round(t["exit"], 2), "pnl": round(t["pnl"], 2)}
+         "exit": round(t["exit"], 2), "pnl": round(t["pnl"], 2), "ret_pct": _r(t["ret"] * 100, 2)}
         for t in pnl["closed"][-20:][::-1]  # newest first, last 20
+    ]
+    overview["fills_recent"] = [  # order history: newest first, last 20 paper fills
+        {"symbol": f["symbol"], "side": "BUY" if int(f["signed_qty"]) > 0 else "SELL",
+         "qty": abs(int(f["signed_qty"])), "price": _r(float(f["price"])), "ts": f.get("ts")}
+        for f in list(fills)[-20:][::-1]
     ]
     overview["equity"] = equity_curve(pnl["closed"])
     overview["sandbox"] = sandbox_account(limits.get("capital_inr"), overview["performance"])
