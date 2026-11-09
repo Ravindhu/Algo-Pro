@@ -250,7 +250,7 @@ No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage
 5. Only approved models enter production: Model registry → factor models. A person signs off (Human sign-off).
 6. Kill switch blocks new entries and closes all open positions (decision 0020). It feeds back to the Risk gate. Kill closes pass halt-all only while the switch is on. Safe mode controller can block entries from any stage.
 7. Every signal, intent, gate result, and override writes to the Audit log.
-8. Dashboard shows P&L by default. EV, MAE/MFE, and rule compliance are removed from the dashboard. MAE/MFE are optimizer parameters instead (decision 0008).
+8. Dashboard shows P&L by default.  MAE/MFE, and rule compliance are removed from the dashboard. MAE/MFE are optimizer parameters instead (decision 0008).
 9. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
 10. The main dashboard is `dashboard/main_dashboard.html` (decision 0027). Agents build and change dashboard UI only there. Do not create another dashboard page.
 
