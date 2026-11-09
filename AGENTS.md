@@ -256,16 +256,16 @@ Read both before changing pipeline, risk, execution, or dashboard code.
 
 | Flow lane | Package | Status |
 |---|---|---|
-| Research validation | `src/quant/research/` | scaffold |
-| Market inputs | `src/quant/data/market_inputs.py` | scaffold |
-| Data and features | `src/quant/data/` | scaffold |
-| Signal and conviction | `src/quant/models/` | scaffold |
-| Sizing and portfolio | `src/quant/portfolio/` | scaffold |
+| Research validation | `src/quant/research/` | implemented (Phases 1-5; optimizer + backtest wraps) |
+| Market inputs | `src/quant/data/market_inputs.py`, `data/economic_engine.py`, `data/screener_engine.py` | implemented (Phase 5 wraps) |
+| Data and features | `src/quant/data/` | implemented (Phase 1) |
+| Signal and conviction | `src/quant/models/`, `src/quant/strategies/`, `models/events/agent_team.py` | implemented (Phases 2, 5) |
+| Sizing and portfolio | `src/quant/portfolio/` | implemented (Phase 2) |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` | scaffold |
-| Execution | `src/quant/execution/` | scaffold |
+| Execution | `src/quant/execution/` | implemented (Phase 3; `pov_engine.py` plans only) |
 | Post-trade + support monitors | `src/quant/monitor/` | implemented (Phases 1-4; recovery 2026-11-08) |
 | Audit | `src/quant/audit/` | implemented (Phase 1) |
-| Improvement loop | `src/quant/feedback/` | implemented (Phases 2, 4; advice only) |
+| Improvement loop | `src/quant/feedback/` | implemented (Phases 2, 4, 5; advice only, `auto_tune.py` refuses apply) |
 | Dashboard, alerts | `src/quant/reporting/`, `src/quant/notify/` | implemented (P&L visible; alerts PENDING) |
 
 `src/quant/tests/test_layout.py` enforces three things. Do not weaken it:
@@ -853,28 +853,22 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 - Run heavy strategy code only when prices actually shift beyond a defined margin, rather than executing logic on every blank heartbeat tick.
 
 
-create .git/info/exclude file 
-add this rule to this laptop only
-
-Device name	IBM-PF3PD7E7
-Device ID	B57B8FE3-DD25-4F62-BE1A-6292E7C76D8E
-Product ID	00330-80000-00000-AA090
-
 
 ## Terminal & IBM Corporate Laptop Guardrails (Auto-Mode Hardened)
 
+### 0. Authorized Host & Execution Scope
+- **Target Device Only:** This workspace is running on IBM-managed Windows laptop **`IBM-PF3PD7E7`**. Before running commands, verify the host matches `IBM-PF3PD7E7` (`hostname`).
+- **Code & Test Only (No App Hosting):** Only write code and run automated unit/integration tests (e.g., `pytest`, `npm test`). **NEVER start, host, or run the OpenAlgo server** (`python app.py`, `flask run`, `uvicorn`, `gunicorn`, or binding any local web server/port) on this laptop.
+- **Mandatory Terminal Comments:** Because Auto Mode is enabled, prefix EVERY terminal command with a `#` comment explaining what the command does and why.
 
 ### 1. IBM Corporate Security & Endpoint Compliance
-- **Respect IBM Endpoint Controls:** This is an **IBM-managed corporate laptop** protected by enterprise security monitoring (e.g., CrowdStrike/EDR, Jamf/Intune MDM, corporate VPN, and TLS inspection proxies). Never attempt to bypass, disable, inspect, or alter security agents, endpoint policies, MDM profiles, firewall rules, or system certificates.
+- **Respect IBM Endpoint Controls:** This is an **IBM-managed corporate laptop** protected by enterprise security monitoring (e.g., CrowdStrike/EDR, Intune MDM, corporate VPN, and TLS inspection proxies). Never attempt to bypass, disable, inspect, or alter security agents, endpoint policies, MDM profiles, firewall rules, or system certificates.
 - **No Unapproved Binaries or Tunnels:** Never download or execute unverified remote scripts (e.g., `curl | bash`, `irm | iex`), install unauthorized software, or start reverse shells/tunnels (`ngrok`, `localtunnel`, custom proxies).
 - **Corporate Proxy & Certificate Hygiene:** Never disable SSL/TLS verification globally (`NODE_TLS_REJECT_UNAUTHORIZED=0`, `git config --global http.sslVerify false`, `pip --trusted-host`) to bypass corporate proxies. If a certificate error occurs, stop and ask the user.
-- **IBM Data & Credential Protection:** Never read, print, log, or transmit IBM credentials, API keys, `.env` secrets, SSH keys (`~/.ssh`), IBM Cloud/w3 tokens, or internal proprietary code to unauthorized external endpoints.
+- **IBM Data & Credential Protection:** Never read, print, log, or transmit IBM credentials, API keys, `.env` secrets, SSH keys, IBM Cloud/w3 tokens, or internal proprietary code to unauthorized external endpoints.
 
 ### 2. Strict Workspace Sandbox (No OS-Level Changes)
-- **Workspace Lock Only:** Only read, write, or execute commands inside the current working directory (`./`). You are strictly forbidden from accessing `~/`, `../`, `/etc`, `/usr`, `/Library`, `C:\`, or any path outside this repository.
-- **No Global Installations:** Never run global package managers or system installers (`npm -g`, `pip` outside a local `.venv`, `brew`, `apt`, `winget`, `choco`). Use local project environments only.
-- **No System or Profile Edits:** Never modify system environment variables, shell profiles (`.zshrc`, `.bashrc`), git global config (`git config --global`), system registries, or background daemons.
+- **Workspace Lock Only:** Only read, write, or execute commands inside the current working directory (`.\`). You are strictly forbidden from accessing `C:\`, `..\`, user profile folders, Windows Registry, or any path outside this repository.
 
+- **No System or Profile Edits:** Never modify system environment variables, PowerShell profiles, git global config (`git config --global`), Windows Registry, or background services.
 
-**only write code and test code test**
-1.dont start openalgo in this laptop

@@ -215,6 +215,30 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 | Improvement loop | `src/quant/feedback/` |
 | Support, dashboard, alerts | `src/quant/monitor/`, `src/quant/reporting/`, `src/quant/notify/` |
 
+### 4.1 Blue_engine wraps (Phase 5)
+
+Seven Blue modules are wrapped, not re-implemented. Each wrapper file carries the
+`Flow stage:` line that maps it to the SVG blocks above, and each one keeps a
+hard boundary (advice only, or plan only - never an order).
+
+| Blue_engine source | quant wrapper | Flow stage blocks | What the wrapper adds |
+|---|---|---|---|
+| `screener/screener_engine.py` | `data/screener_engine.py` | Liquidity screener, Filings and circulars | `select_universe` (fail-closed symbol gate) and the long-only exclusion |
+| `economics/economic_engine.py` | `data/economic_engine.py` | India flow data, Global cues | `risk_multiplier` clamps to `[0.5, 1.0]`; a stale feed cannot lever up |
+| `pov/pov_engine.py` | `execution/pov_engine.py` | Algo router, Approved order queue | `plan_pov` runs Blue in forced dry-run with no client; returns a `PovPlan` |
+| `core/agent_team.py`, `core/stage_gate.py` | `models/events/agent_team.py` | Event scoring, Filings and circulars | shift ledger with `ready_to_trade` forced to None; `check_stage` for data sufficiency |
+| `optimizer/engine.py`, `analysis.py` | `research/optimizer.py` | Walk-forward + purged CV, Trial logger + DSR/PBO | a run is refused without a trial log; the 3-step visual workflow in one call |
+| `backtest/engine.py` | `research/backtest.py` (`run_symbol_backtest`) | Historical bars, Replay simulator | long-only enforced; the local cost table is fed into Blue's cost model |
+| `core/auto_tune.py` | `feedback/auto_tune.py` | Champion/challenger, Re-opt request | OOS policy recomputed; an `apply` request is refused |
+| `alpha/registry.py`, `optimizer/strategies.py` | `strategies/` | Signal | one registry, two contracts kept apart; `guard_intent` enforces buy/add only |
+
+### 4.2 Long-only investment book (owner, 2026-11-09)
+
+This is an investment algo: BUY and ADD, never short. Enforced in code, not only in docs:
+`screener_engine.select_universe` drops short/inverse products, `pov_engine.plan_pov`
+refuses a SELL without `exit_leg=True`, `backtest.run_symbol_backtest` refuses
+`allow_short=True`, and `strategies.guard_intent` refuses a short intent.
+
 ---
 
 ## 5. Small items (checklist, not drawn as blocks)

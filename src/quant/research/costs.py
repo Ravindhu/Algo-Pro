@@ -78,3 +78,40 @@ class CostModel:
         sebi = self.sebi_fee_pct * 1e4
         gst = (brokerage + txn + sebi) * self.gst_pct   # GST on brokerage + txn + SEBI
         return brokerage + stt + txn + sebi + gst + stamp + self.impact_bps
+
+
+def blue_cost_model():
+    """Blue's ``backtest.costs.CostModel``, built from the local rate table.
+
+    Why not Blue's default rates: the local ``CostModel`` above is the owner-confirmed
+    Indian stack (see RULES), and two rate tables in one system is how a backtest
+    silently disagrees with the optimiser. This function feeds the SAME numbers into
+    Blue's engine so both simulators charge the same cents.
+
+    Returns None when Blue's cost model cannot be loaded (for example
+    ``portfolio.optim`` missing). Blue's ``BacktestConfig`` substitutes its own
+    default when ``cost_model`` is None, and the caller sees that in the result
+    version/warnings - it is never silently switched.
+    """
+    from quant.core.blue_bridge import BlueEngineUnavailable, load
+
+    try:
+        cost_cls = load("backtest.costs").CostModel
+    except BlueEngineUnavailable:
+        return None
+    local = CostModel()
+    # Per-side bps, split by leg: Blue's rates dict is in bps of notional.
+    rates = {
+        "brokerage_bps": local.brokerage_pct * 1e4,
+        "brokerage_cap": local.brokerage_cap,
+        "delivery_brokerage_bps": local.delivery_brokerage_pct * 1e4,
+        "stt_delivery_bps": local.stt_delivery * 1e4,
+        "stt_intraday_sell_bps": local.stt_intraday_sell * 1e4,
+        "exchange_txn_bps": local.exchange_txn_pct * 1e4,
+        "sebi_bps": local.sebi_fee_pct * 1e4,
+        "stamp_delivery_bps": local.stamp_buy_delivery * 1e4,
+        "stamp_intraday_bps": local.stamp_buy_intraday * 1e4,
+        "gst_pct": local.gst_pct,
+    }
+    return cost_cls(cost_config=rates, slippage_bps=0.0, latency_bps=0.0,
+                    impact_coefficient=0.0, charge_both_legs=True)
