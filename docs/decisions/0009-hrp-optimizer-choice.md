@@ -1,7 +1,7 @@
-# 0009. HRP optimizer: keep our implementation or switch to Blue's (DRAFT, owner to decide)
+# 0009. HRP optimizer: keep our implementation or switch to Blue's (DECIDED: Option A)
 
 Date: 2026-11-05
-Status: PROPOSED. No code change until the owner chooses an option.
+Status: DECIDED (Option A, owner choice recorded 2026-11-09). Code change follows in a separate step: port HRP locally with a golden test, then switch `optimizer.py` off Blue.
 Tracks: X-25 in `docs/IMPLEMENTATION_PLAN.md`.
 
 ## Facts (checked in the repo)
@@ -27,4 +27,4 @@ B. Fix Blue's HRP to match the published algorithm, then wrap it from `src/quant
 
 ## Owner choice
 
-[ ] A  [ ] B  (date, initials)
+[x] A  [ ] B  (2026-11-09, owner choice)
