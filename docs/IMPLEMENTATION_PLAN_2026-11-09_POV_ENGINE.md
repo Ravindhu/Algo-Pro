@@ -49,4 +49,14 @@ Live stays blocked (Phase 3 gate not met; the data source is not chosen).
   (core/liquidity.py: tiers, child caps, block scaling). Parity: 99 cases
   (`tests/parity/test_pov_phase_c_parity.py`). Hand-checked: `src/quant/tests/test_pov_phase_c.py`.
   NOT ported yet: the liquidity POV slicer class. It moves to Phase D with the engine loop.
-- Phase D (engine loop, paper only) is NOT started. It needs the owner's data-source decision.
+- 2026-11-09: Phase D done (paper only). `src/quant/execution/pov_engine.py`: `PovEngineLoop`
+  (poll loop: snapshot -> reconcile -> guards -> PEG -> stale cancel -> size -> submit via
+  `PovExecutor`), `PaperChildSender` (MARKET via PaperBroker; LIMIT fills only when it crosses the
+  touch), `SnapshotSource` Protocol (data source injected; NOT chosen here). Tests: 8 hand-checked in
+  `src/quant/tests/test_pov_phase_d.py`. Full quant + parity suite: 1832 passed.
+  Enforced in code: a non-paper sender raises TypeError; the API key is required.
+  NOT ported from Blue `pov.py` (928 lines): the SDK-based slicer, module-level throttle
+  (`_LAST_ORDER_AT`, `_LAST_CANCEL_AT`), cancel-by-strategy-tag, reconcile of failed placements,
+  reverse-exit and TCA in `pov_engine.py`, the liquidity slicer class (`liquidity_pov.py`).
+  Those need a separate step. Phase D is not parity with Blue's slicer.
+- Owner decision still open: the live snapshot data source (`config/data_sources.yaml`). Live stays blocked.
