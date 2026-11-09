@@ -1,7 +1,10 @@
-# quant.execution.pov_liquidity - liquidity tiers and child-size caps for POV.
-# Flow stage: POV child sizing (decouple 6.5, Phase C).
-# Status: ported 2026-11-09 from Blue_engine/core/liquidity.py. Pure; no Blue import.
-# Parity: tests/parity/test_pov_phase_c_parity.py
+"""quant.execution.pov_liquidity - liquidity tiers and child-size caps for POV.
+
+Flow stage: POV child sizing (decouple 6.5, Phase C).
+Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from Blue_engine/core/liquidity.py; pure; no Blue import).
+Parity: tests/parity/test_pov_phase_c_parity.py
+"""
+from __future__ import annotations
 # â”€â”€ Copyright and license header preserved from the repo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # blue_engine/core/liquidity.py
 """Liquidity analysis for POV execution - dynamic block-size scaling.
@@ -34,7 +37,6 @@ Design rules (mirrored from blue_engine/core/time_utils.py)
 - Graceful degradation: a None or empty quote always returns a
   conservative (small) block size rather than crashing the loop.
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Optional
