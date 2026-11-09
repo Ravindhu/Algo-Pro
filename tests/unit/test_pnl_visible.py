@@ -50,7 +50,7 @@ def test_page_reads_overview_and_writes_only_known_routes():
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     # Kill switch removed from the page (owner request 2026-11-09). Backend routes stay in app.py.
-    assert routes == {"/api/overview", "/api/limits", "/api/setup",
+    assert routes == {"/api/overview", "/api/limits", "/api/setup", "/api/portfolio",
                       "/api/trading-mode", "/api/loop/start", "/api/loop/stop"}
     # saveLimits, saveSetup, postMode, postLoop only
     assert text.count('method: "POST"') == 4

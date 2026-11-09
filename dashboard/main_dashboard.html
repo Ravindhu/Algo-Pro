@@ -77,6 +77,31 @@
   @keyframes flowblink { to { opacity: .25; } }
   #flowbox g.stg { cursor: default; }
   .limgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  /* portfolio popup */
+  .pfsheet { width: min(1120px, 100%); }
+  .pfkpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .tile { background: linear-gradient(160deg, #0c1d2d, #0a1420); border: 1px solid var(--line); border-top: 3px solid var(--cyan); border-radius: 6px; padding: 10px 12px; }
+  .tile.t-ok { border-top-color: var(--ok); } .tile.t-bad { border-top-color: var(--bad); } .tile.t-warn { border-top-color: var(--warn); } .tile.t-pink { border-top-color: var(--pink); }
+  .tile small { display: block; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+  .tile b { display: block; font-size: 20px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .pfcharts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; margin-bottom: 12px; }
+  .donut { position: relative; width: 190px; height: 190px; flex: 0 0 190px; }
+  .donut svg { width: 100%; height: 100%; }
+  .dcenter { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
+  .dcenter small { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .dcenter b { font-size: 15px; font-variant-numeric: tabular-nums; }
+  .donutwrap { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-variant-numeric: tabular-nums; }
+  .dot { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 9px; }
+  .brow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 96px; gap: 8px; align-items: center; margin: 5px 0; font-variant-numeric: tabular-nums; }
+  .btrack { position: relative; height: 12px; background: #0d1d2d; border-radius: 3px; }
+  .btrack::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
+  .bbar { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+  .pfmini { display: inline-block; width: 60px; height: 6px; background: #0d1d2d; border-radius: 3px; overflow: hidden; vertical-align: middle; margin-left: 6px; }
+  .pfmini i { display: block; height: 100%; }
+  .pfstate { border-color: var(--dim); color: var(--dim); }
+  .pfstate.ok { color: var(--ok); border-color: var(--ok); } .pfstate.warn { color: var(--warn); border-color: var(--warn); } .pfstate.bad { color: var(--bad); border-color: var(--bad); }
+  @media (max-width: 1000px) { .pfcharts { grid-template-columns: 1fr; } .donut { width: 160px; height: 160px; flex-basis: 160px; } }
   @media (max-width: 1000px) {
     .top, .mid, .two { grid-template-columns: minmax(0, 1fr); }
     .setup .fields { grid-template-columns: 1fr; }
@@ -99,6 +124,7 @@
   <span class="sp"></span>
   <button id="toggle" type="button">Hide ₹</button>
   <button id="flowbtn" type="button">FLOW</button>
+  <button id="pfbtn" type="button" title="Broker holdings popup (read-only)">PORTFOLIO</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
   <span id="loopchip" class="chip">loop —</span>
@@ -248,6 +274,49 @@
       <div id="flowbox" style="background:#f7f6f1;padding:8px;border-radius:4px;overflow:auto"></div>
       <div class="ph" style="margin-top:10px">Node status <span id="flowsum"></span></div>
       <ul id="flowissues"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="pfmodal" hidden role="dialog" aria-modal="true" aria-labelledby="pftitle">
+  <div class="sheet pfsheet">
+    <div class="sheet-h">
+      <div><b id="pftitle">PORTFOLIO · broker holdings</b> <span id="pf-meta"></span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="pf-state" class="chip pfstate">loading…</span>
+        <button type="button" id="pfclose">CLOSE ×</button>
+      </div>
+    </div>
+    <div class="sheet-b">
+      <p id="pf-error" class="r" style="margin:0 0 8px"></p>
+      <div class="pfkpi">
+        <div class="tile"><small>Holding value</small><b id="pf-value">—</b></div>
+        <div class="tile t-pink"><small>Invested</small><b id="pf-invested">—</b></div>
+        <div class="tile" id="pf-pnltile"><small>Total P&amp;L</small><b id="pf-pnl">—</b></div>
+        <div class="tile" id="pf-pcttile"><small>Return on invested</small><b id="pf-pnlpct">—</b></div>
+        <div class="tile t-warn"><small>Holdings</small><b id="pf-count">—</b></div>
+      </div>
+      <div class="pfcharts">
+        <section class="panel">
+          <div class="ph">Allocation <span>by current value</span></div>
+          <div class="donutwrap">
+            <div class="donut"><svg id="pf-donut" viewBox="0 0 200 200"></svg><div class="dcenter"><small>Total</small><b id="pf-dtotal">—</b></div></div>
+            <div id="pf-legend"></div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="ph">P&amp;L by holding <span>green gain · red loss</span></div>
+          <div id="pf-bars"></div>
+        </section>
+      </div>
+      <section class="panel">
+        <div class="ph">Holdings <span id="pf-rowsnote"></span></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Value ₹</th><th class="n">P&amp;L ₹</th><th class="n">P&amp;L %</th></tr></thead>
+          <tbody id="pf-rows"></tbody>
+        </table></div>
+      </section>
+      <p class="d" style="margin-top:8px">Read-only broker holdings through OpenAlgo. No orders are sent from this popup. Values are as the broker reports them; missing values show as —. Refreshes every 30 s while open.</p>
     </div>
   </div>
 </div>
@@ -545,7 +614,7 @@
     if (open) loadSetup();
   };
   $("setupform").addEventListener("submit", saveSetup);
-  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
+  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); if (pfLast) renderPortfolio(pfLast); };
   $("limitform").addEventListener("submit", saveLimits);
 
   // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
@@ -594,6 +663,117 @@
   $("flowclose").onclick = closeFlow;
   modal.addEventListener("click", e => { if (e.target === modal) closeFlow(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeFlow(); });
+
+  // ---- Portfolio popup: read-only broker holdings (decision 0032) ----
+  const PF_COLORS = ["#3fd0ff", "#2ee6a6", "#ffb347", "#9d8cff", "#ff6fb5", "#ff4d6d", "#5d7b94", "#ffd166", "#c3d8e8"];
+  const PF_STATE = {broker_read: ["LIVE BROKER READ", "ok"], not_connected: ["NOT CONNECTED", "warn"], error: ["ERROR", "bad"]};
+  const pf2 = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  const svgEl = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+  let pfTimer = null, pfLast = null;
+
+  function drawDonut(rows, total) {
+    const svg = $("pf-donut"), legend = $("pf-legend");
+    svg.replaceChildren(); legend.replaceChildren();
+    if (!rows.length || !total) { $("pf-dtotal").textContent = "—"; return; }
+    const r = 70, C = 2 * Math.PI * r; let cum = 0;
+    svg.append(svgEl("circle", {cx: 100, cy: 100, r, fill: "none", stroke: "#0d1d2d", "stroke-width": 26}));
+    rows.forEach((x, i) => {
+      const f = x.v / total, col = PF_COLORS[i % PF_COLORS.length];
+      svg.append(svgEl("circle", {cx: 100, cy: 100, r, fill: "none", stroke: col, "stroke-width": 26,
+        "stroke-dasharray": (f * C) + " " + C, "stroke-dashoffset": (-cum * C),
+        transform: "rotate(-90 100 100)"}));
+      cum += f;
+      const row = document.createElement("div"); row.className = "legend-row";
+      const dot = document.createElement("span"); dot.className = "dot"; dot.style.background = col;
+      row.append(dot, cell(x.symbol), cell((f * 100).toFixed(1) + "%"));
+      legend.append(row);
+    });
+    $("pf-dtotal").textContent = money(total);
+  }
+
+  function drawBars(rows) {
+    const box = $("pf-bars"); box.replaceChildren();
+    const withPnl = rows.filter(x => x.pnl != null).sort((a, b) => b.pnl - a.pnl);
+    if (!withPnl.length) { box.textContent = "No P&L values from the broker."; box.className = "d"; return; }
+    box.className = "";
+    const max = Math.max(...withPnl.map(x => Math.abs(x.pnl))) || 1;
+    for (const x of withPnl) {
+      const w = Math.min(50, Math.abs(x.pnl) / max * 50);
+      const row = document.createElement("div"); row.className = "brow";
+      const lab = cell(x.symbol); lab.style.overflow = "hidden"; lab.style.textOverflow = "ellipsis";
+      const track = document.createElement("div"); track.className = "btrack";
+      const bar = document.createElement("div"); bar.className = "bbar";
+      bar.style.background = x.pnl >= 0 ? "var(--ok)" : "var(--bad)";
+      if (x.pnl >= 0) { bar.style.left = "50%"; bar.style.width = w + "%"; }
+      else { bar.style.right = "50%"; bar.style.width = w + "%"; }
+      track.append(bar);
+      const val = cell(money(x.pnl), "n " + sign(x.pnl));
+      row.append(lab, track, val); box.append(row);
+    }
+  }
+
+  function renderPortfolio(p) {
+    pfLast = p;
+    const st = PF_STATE[p.state] || ["UNKNOWN", "bad"];
+    $("pf-state").textContent = st[0]; $("pf-state").className = "chip pfstate " + st[1];
+    $("pf-meta").textContent = (p.source || "") + (p.as_of ? " · as of " + p.as_of : "");
+    $("pf-error").textContent = p.error || "";
+    const s = p.summary || {};
+    $("pf-value").textContent = money(s.value);
+    $("pf-invested").textContent = money(s.invested);
+    $("pf-pnl").textContent = money(s.pnl);
+    $("pf-pnl").className = sign(s.pnl);
+    $("pf-pnltile").className = "tile " + (s.pnl > 0 ? "t-ok" : s.pnl < 0 ? "t-bad" : "");
+    $("pf-pnlpct").textContent = pf2(s.pnl_pct);
+    $("pf-pcttile").className = "tile " + (s.pnl_pct > 0 ? "t-ok" : s.pnl_pct < 0 ? "t-bad" : "");
+    $("pf-count").textContent = s.count == null ? "—" : String(s.count);
+    const holdings = p.holdings || [];
+    const rows = holdings.filter(h => h.ltp != null && h.quantity != null)
+      .map(h => ({symbol: h.symbol, v: h.ltp * h.quantity}))
+      .filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+    const TOP = 8, shown = rows.slice(0, TOP);
+    const other = rows.slice(TOP).reduce((a, x) => a + x.v, 0);
+    if (other > 0) shown.push({symbol: "Other", v: other});
+    drawDonut(shown, rows.reduce((a, x) => a + x.v, 0));
+    drawBars(holdings);
+    renderTable($("pf-rows"), holdings.map(h => {
+      const tr = document.createElement("tr");
+      const val = h.ltp != null && h.quantity != null ? h.ltp * h.quantity : null;
+      const barW = h.pnlpercent == null ? 0 : Math.min(100, Math.abs(h.pnlpercent) * 4);
+      const pctCell = cell(pf2(h.pnlpercent), "n " + sign(h.pnlpercent));
+      if (h.pnlpercent != null) {
+        const mini = document.createElement("span"); mini.className = "pfmini";
+        const fill = document.createElement("i"); fill.style.width = barW + "%";
+        fill.style.background = h.pnlpercent >= 0 ? "var(--ok)" : "var(--bad)";
+        mini.append(fill); pctCell.append(mini);
+      }
+      tr.append(cell(h.symbol), cell(h.exchange || "—"), cell(h.quantity == null ? "—" : String(h.quantity), "n"),
+        cell(inr(h.average_price), "n"), cell(inr(h.ltp), "n"), cell(money(val), "n"),
+        cell(money(h.pnl), "n " + sign(h.pnl)), pctCell);
+      return tr;
+    }), p.state === "broker_read" ? "No holdings in the broker account." : "No holdings to show.", 8);
+    $("pf-rowsnote").textContent = p.truncated ? "first " + holdings.length + " of " + s.count : (holdings.length ? holdings.length + " shown" : "");
+  }
+
+  async function loadPortfolio() {
+    try {
+      const r = await fetch("/api/portfolio", {cache: "no-store"});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      renderPortfolio(await r.json());
+    } catch (e) {
+      renderPortfolio({state: "error", error: "Dashboard API unreachable (" + e.message + ")", source: "", as_of: null, summary: null, holdings: [], truncated: false});
+    }
+  }
+
+  function openPortfolio() {
+    $("pfmodal").hidden = false; $("pfclose").focus(); loadPortfolio();
+    clearInterval(pfTimer); pfTimer = setInterval(loadPortfolio, 30000);
+  }
+  function closePortfolio() { $("pfmodal").hidden = true; clearInterval(pfTimer); $("pfbtn").focus(); }
+  $("pfbtn").onclick = openPortfolio;
+  $("pfclose").onclick = closePortfolio;
+  $("pfmodal").addEventListener("click", e => { if (e.target === $("pfmodal")) closePortfolio(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pfmodal").hidden) closePortfolio(); });
 
   // ---- Clock (IST) ----
   const clock = $("clock");
