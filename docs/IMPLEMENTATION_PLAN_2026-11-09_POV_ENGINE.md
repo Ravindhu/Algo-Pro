@@ -41,3 +41,12 @@ Live stays blocked (Phase 3 gate not met; the data source is not chosen).
 ## Work log
 
 - 2026-11-09: Phase A done. Branch `feat/pov-engine-port`. Phases B-E not started.
+- 2026-11-09: Phase B done. Local `pov_band.py`, `pov_guards.py`, `pov_sizing.py`. Parity: 86 cases
+  (`tests/parity/test_pov_phase_b_parity.py`). Hand-checked: `src/quant/tests/test_pov_phase_b.py`.
+  Known issue for owner: Blue `evaluate_guards` is rightmost-wins, so DepthPricingGuard overrides
+  AuctionPriceGuard, which contradicts the module comments. Ported unchanged for parity.
+- 2026-11-09: Phase C done (partial). Local `pov_peg.py` (PEG engine) and `pov_liquidity.py`
+  (core/liquidity.py: tiers, child caps, block scaling). Parity: 99 cases
+  (`tests/parity/test_pov_phase_c_parity.py`). Hand-checked: `src/quant/tests/test_pov_phase_c.py`.
+  NOT ported yet: the liquidity POV slicer class. It moves to Phase D with the engine loop.
+- Phase D (engine loop, paper only) is NOT started. It needs the owner's data-source decision.
