@@ -32,6 +32,23 @@ Live stays blocked (Phase 3 gate not met; the data source is not chosen).
 - **Phase E, verify and docs:** run new tests, parity tests and the unit suite. Update DECOUPLING_PLAN
   stage 6.5 and the flow lines.
 
+## Step 1 plan (after Phase D): TCA and throttle, pure, no live path
+
+Owner request: "Step1" (from the wrap-to-quant implications).
+- `src/quant/execution/pov_throttle.py`: port of `Blue_engine/core/throttle.py` `should_throttle_order`
+  as a pure function (same return tuple), plus `PovThrottleState`, a per-run object that replaces Blue's
+  module-level `_LAST_ORDER_AT` / `_LAST_CANCEL_AT` dicts. The state is passed in, never global.
+  Parity test: `blue("core.throttle")` with explicit `request_data` and explicit `now` (no env reads).
+- `src/quant/execution/pov_tca.py`: port of `PovEngine._execution_cost` (pure over the slicer summary).
+  Parity test if the Blue import chain resolves in the conftest stub; otherwise hand-checked only (noted).
+- Hand-checked tests in `src/quant/tests/test_pov_step1.py`.
+- Not in step 1: persisted child ids, cancel policy, fill confirmation by status, liquidity class.
+- Live stays blocked. Nothing here calls an order or cancel API.
+- 2026-11-09: Step 1 done. `pov_throttle.py` (pure throttle, `PovThrottleState` per run; env reads
+  removed) and `pov_tca.py` (execution_cost). Parity: 200 cases vs `blue("core.throttle")` and
+  `blue("pov.pov_engine").PovEngine._execution_cost` (`tests/parity/test_pov_step1_parity.py`).
+  Hand-checked: 10 tests in `src/quant/tests/test_pov_step1.py`.
+
 ## Rules applied
 
 - No module-level mutable state in the port. Pass state in objects.
