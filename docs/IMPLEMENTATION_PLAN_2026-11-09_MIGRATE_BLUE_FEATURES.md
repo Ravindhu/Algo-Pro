@@ -73,3 +73,35 @@ Code moves need the full test suite to pass. This planning step changes docs onl
 ## 8. Work log
 
 - 2026-11-09: plan written from the repo state at commit 0b3a467. Sizes are from the GitHub listing. Agent pipeline size not yet measured. No code moved.
+
+## 9. Owner inputs received 2026-11-09 and status
+
+| # | Input | Status |
+|---|---|---|
+| 1 | Add SVG blocks for economics and agent pipeline | NOT DONE in this commit. The SVG is a single line of about 41 KB, and placing blocks needs a layout pass plus a render check. Flow doc, AGENTS.md and README.md must change in the same commit |
+| 2 | Split the agent pipeline into smaller blocks | Proposed split (for approval): (a) event and news scoring, advice only, (b) improvement-loop research advice, (c) Blue core orchestration (`core/agent_team.py`, `pipeline.py`, `frontline_agent.py`, `agent_memory.py`, `stage_skills.py`, `self_correction.py`, `data_tools.py`, `llm/`). Also `core/risk_engine.py` and `core/paper_shift.py` are held for review (O2) |
+| 3 | screener.in data access comes from Blue's data access path | Accepted. The screener.in client (`Blue_engine/screener/client/`) moves into `src/quant/data/screener/`. Needs owner-machine test (O3) |
+| 4 | `max_symbols_per_portfolio` = 8 | DONE in `config/risk_limits.yaml` (commit of 2026-11-09). `src/quant/risk/symbol_cap.py` and `gate.py` read this key |
+| 4b | `0.5%` | UNCLEAR, NOT APPLIED. Existing `max_adv_pct` is 0.01 (1%). Need the key name: is it `max_adv_pct` changed to 0.005, or a different limit? |
+| 5 | Live run with OpenAlgo sandbox orders | NOT POSSIBLE in the current session. Needs an OpenAlgo server, sandbox broker credentials and network access to the broker, which this session does not have. Owner machine step |
+| 6 | Check each Blue feature against `src/quant`. If an equivalent exists, move the Blue copy to `Temp/`. If not, move it into `src/quant` | Inventory below. Name matches are NOT proof of equivalence. Each match needs a parity test before the Blue copy moves |
+
+### Item 6 inventory (name match in `src/quant`, 2026-11-09)
+
+| Blue feature | Found in src/quant | Decision | Needs |
+|---|---|---|---|
+| POV engine (`Blue_engine/pov/`) | `src/quant/execution/pov_band.py`, `pov_guards.py`, `pov_sizing.py`, `pov_peg.py`, `pov_liquidity.py`, `pov_executor.py` | Phases B and C already ported. `pov_executor.py` may already be Phase D. VERIFY before any move | Parity check for `pov_executor.py` against `pov_engine.py` |
+| Screener rules | `src/quant/data/screen_rules.py`, `screener_numbers.py` | Blue rules copy to `Temp/` only after parity check | Parity test (6.1 parity exists: 826 cases) |
+| Screener client, valuations, yfinance fallback, PDF parsing (`Blue_engine/screener/`) | Not found | Move into `src/quant/data/screener/` | Per sub-step plan (6.2a to 6.2e) |
+| Economics engine (`Blue_engine/economics/economic_engine.py`, providers, features, models) | Not found as an engine | Move into `src/quant/data/economics/` | Owner mapping (O1) for SVG block |
+| Economics regime and scoring (`economics/regime.py`, `scoring.py`) | `src/quant/models/regime.py`, `src/quant/models/events/scoring.py` | VERIFY. If equivalent, Blue copy to `Temp/`. If not, move | Parity test |
+| Agent pipeline (`Blue_engine/core/` agent files) | Not found. `src/quant/openalgo_platform/services/agent/` is OpenAlgo's own assistant, a different feature | Move into `src/quant/feedback/` (advice only) | Split approval (item 2) and O2 review |
+
+Note: `src/quant/openalgo_platform/` is a vendored OpenAlgo platform copy. It is not part of the Blue feature set and is not in scope here.
+
+## 10. Next steps
+
+1. Owner: confirm the meaning of `0.5%` (item 4b) and approve the agent split (item 2).
+2. Next session, with a test environment: add the SVG blocks (item 1), with flow doc, AGENTS.md and README in the same commit.
+3. Next session: run parity checks for the "VERIFY" rows above, then move the Blue copies to `Temp/` where confirmed.
+4. Owner machine: screener.in access test (O3), golden export (O5), then the OpenAlgo sandbox run (item 5).
