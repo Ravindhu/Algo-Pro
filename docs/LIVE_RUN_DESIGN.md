@@ -1,6 +1,6 @@
 # Live run design: one switch, on the dashboard
 
-Status: DESIGN ONLY (2026-11-09). No code changed. Needs owner decision D1 before build.
+Status: DESIGN, answers applied 2026-11-09. Checklist and one-switch endpoint implemented (decision 0031). Live still refused: D3 (licensed data) open. See docs/IMPLEMENTATION_PLAN_SVG_E2E.md.
 Written in simple English.
 
 ## 1. What the owner asked for

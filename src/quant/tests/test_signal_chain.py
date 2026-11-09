@@ -142,10 +142,13 @@ def _limits_with(tmp_path, **extra):
 
 
 def test_end_to_end_blocked_while_symbol_limit_unset(tmp_path):
-    # The owner file has no max_symbols_per_portfolio, so the gate fails closed: no fills.
+    # With max_symbols_per_portfolio removed, the gate fails closed: no fills.
     csv, n = _signals(tmp_path)
+    no_cap = tmp_path / "limits_no_cap.yaml"
+    no_cap.write_text("\n".join(l for l in LIMITS.read_text(encoding="utf-8").splitlines()
+                               if not l.startswith("max_symbols_per_portfolio")), encoding="utf-8")
     run_paper = _load_run_paper()
-    summary = run_paper.run(str(csv), str(LIMITS), str(tmp_path / "out"))
+    summary = run_paper.run(str(csv), str(no_cap), str(tmp_path / "out"))
     assert summary["audit_verified"] is True
     assert summary["approved"] == 0 and summary["blocked"] == n and summary["filled"] == 0
 
