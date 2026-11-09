@@ -4,14 +4,14 @@
 #
 # WHAT THIS FILE IS
 #   The repo-root venv is the ONE interpreter the whole desk uses on Windows:
-#   scripts/ops/start_all.py, scripts/ops/start_openalgo.py, the Dash terminal,
+#   scripts/ops/start_all.py, scripts/ops/start_openalgo.py, the FastAPI dashboard,
 #   the scheduled tasks, and the OpenAlgo app itself (Eventlet WSGI here, not on
 #   a stock venv - see the note at the bottom).
 #
 # WHAT THIS FILE IS NOT
 #   * It does NOT describe the Ubuntu VPS. There, `Servers/install_ubuntu.sh`
 #     builds the venv from the upstream `openalgo/requirements.txt` (pinned,
-#     generated upstream) and then installs `blue_engine[dashboard]`. Installing
+#     generated upstream) and then installs `blue_engine[charts]` plus fastapi/uvicorn. Installing
 #     this file there would make a second, conflicting source of truth.
 #   * It is NOT a lock file. Floor pins with a deliberate upper cap only where a
 #     known break exists. Regenerate exact versions with:
@@ -58,23 +58,25 @@ pydantic>=2.6,<3
 
 
 # -----------------------------------------------------------------------------
-# 2. TERMINAL DASHBOARD  (pyproject extra: dashboard)
+# 2. DASHBOARD  (FastAPI app: dashboard/app.py; the Blue terminal console was removed 2026-11-05)
 # -----------------------------------------------------------------------------
-# Plotly 7.x pairs with Dash 4.x. Kaleido is NOT installed: no server-side
-# image export path is used (every chart is rendered in the browser).
+fastapi>=0.110
+uvicorn>=0.29
+
+# Plotly charts for the optimizer (optimizer/plots.py). Kaleido is NOT installed: no
+# server-side image export path is used (every chart is rendered in the browser).
 plotly==7.1.0
 
-# Rich renders the terminal dashboard (dashboard/render.py) - a hard import of
-# the dashboard package, so the suite fails at import without it.
-rich==15.0.0
-
 
 # -----------------------------------------------------------------------------
-# 3. DATA / NUMERICS  (pyproject extras: dashboard, quant)
+# 3. DATA / NUMERICS  (pyproject extras: charts, quant)
 # -----------------------------------------------------------------------------
 # pandas 3.x needs python >= 3.11 and numpy >= 2.25's C-API. Keep this trio
 # consistent: pandas 3.x + numpy 2.4 will build but fail at runtime.
 
+# OpenAlgo SDK runtime deps (vendored SDK in src/quant/vendor/openalgo, decision 0014).
+httpx>=0.27.0,<1.0
+websocket-client>=1.8.0,<2.0
 pandas==3.0.6
 numpy==2.5.3
 pyarrow==25.0.1

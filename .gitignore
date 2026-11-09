@@ -82,7 +82,8 @@ _venv_hold/
 # -----------------------------------------------------------------------------
 # RUNTIME STATE AND LOGS
 # -----------------------------------------------------------------------------
-data/
+# Local cache only. Anchored so source packages named data/ stay tracked.
+/data/
 log/
 logs/
 *.log
@@ -151,14 +152,17 @@ move_log.txt
 #      obsolete, and committing it turns the repo into a junk drawer;
 #   2. the probes are run against real data and so are a place a credential can
 #      leak by accident (a tqdm bar echoing a URL, a repr of a config object).
-# Nothing in this repo imports from Temp/, so ignoring it breaks nothing.
+# Nothing in this repo imports from Temp/ except the OpenAlgo SDK submodule below.
 # A probe worth keeping belongs in docs/ (its findings) or scripts/ (its code).
 #
 # Layout since 2026-10-21: Temp/ holds ONLY live staging work. Loose files are
 # swept into Temp/archive/<YYYY-MM-DD>/<category>/ by
 # Temp/Staging Workspace/archive_temp.py, which writes an index.txt recording
 # every former path - so the root stays readable and nothing must be deleted.
-Temp/
+Temp/*
+# Exception: the OpenAlgo Python SDK is tracked as a submodule (pinned to v2.0.3)
+# so the test suite can import it. Everything else in Temp/ stays ignored.
+!Temp/openalgo-python-library/
 
 # -----------------------------------------------------------------------------
 # EXCEPTIONS — things that look ignored but must be tracked
@@ -168,3 +172,4 @@ Temp/
 !Blue_engine/pyproject.toml
 # Deployment config with the API key - the .example template IS tracked
 Servers/deploy.env
+

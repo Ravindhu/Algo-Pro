@@ -50,8 +50,7 @@ USAGE
     python scripts\ops\start_all.py --stop       # stop everything
     python scripts\ops\start_all.py --force      # kill port holders without asking
 
-    # or double-click:
-    scripts\ops\START_ALL.cmd
+    # or double-click install.bat (installs, updates and starts)
 """
 from __future__ import annotations
 

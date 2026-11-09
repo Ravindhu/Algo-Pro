@@ -56,8 +56,7 @@ USAGE
     # Fallback (project venv, when openalgo/.venv has not been created):
     .venv\Scripts\python.exe my-trading-system\scripts\ops\start_openalgo.py
 
-    # or via the .bat wrapper:
-    my-trading-system\scripts\START_OPENALGO.bat
+    # OpenAlgo only. install.bat starts the whole stack.
 """
 from __future__ import annotations
 

@@ -16,7 +16,7 @@ good. This script's job is to say, in one line, whether the model should be
 trusted near capital — and to say "no edge" loudly when there is none. A run
 that finds nothing is a SUCCESSFUL run: it cost an afternoon instead of money.
 
-Read `docs/ML_SKILL_DIAGNOSIS.md` before acting on a negative verdict. A
+Read `docs/audits/ML_SKILL_DIAGNOSIS.md` before acting on a negative verdict. A
 negative skill is usually not a bug — it frequently means the feature set has
 no information at that horizon, which is a finding worth having.
 
@@ -84,7 +84,7 @@ def _parse_args(argv=None):
                         "return). 'vol_ratio' predicts whether forward "
                         "realised volatility exceeds its trailing norm, which "
                         "is materially more forecastable on index data — see "
-                        "docs/ML_SKILL_DIAGNOSIS.md. 'triple_barrier_cost' nets "
+                        "docs/audits/ML_SKILL_DIAGNOSIS.md. 'triple_barrier_cost' nets "
                         "the barriers of the round-trip cost.")
     p.add_argument("--cross-section", default=None,
                    help="comma-separated instruments to train ACROSS, instead "
@@ -207,7 +207,7 @@ def _print_report(out, symbol):
         print()
         print("  No candidate cleared its gates. This is a valid, useful result:")
         print("  it means no model here should be traded. See")
-        print("  docs/ML_SKILL_DIAGNOSIS.md for what a negative skill usually")
+        print("  docs/audits/ML_SKILL_DIAGNOSIS.md for what a negative skill usually")
         print("  means and which changes are worth trying next.")
     return any_edge
 

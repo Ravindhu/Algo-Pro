@@ -24,9 +24,48 @@ if _ROOT not in sys.path:
 from blue_engine.portfolio import optim_policy as op  # noqa: E402
 
 
+import pytest  # noqa: E402
+
+
 def _check(cond: bool, msg: str) -> None:
     if not cond:
         raise AssertionError(msg)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_oracle(request):
+    """A clear kill switch and a clean persistent store for every test here.
+
+    ``decide()`` uses ONE latching switch per process and PERSISTS a trip. The
+    sibling test ``test_decide_exits_to_cash_when_tripped`` deliberately trips it,
+    and several tests here expect ``decide()`` to reach the DATA-validity checks.
+    With a tripped switch, ``decide()`` returns EXIT_TO_CASH before those checks
+    and those tests fail.
+
+    This fixture makes the file self-sufficient. Measured 2026-11-08: a full
+    ``pytest`` run produced 24 failures here while the folder ran with quant ahead
+    of it, even though ``Blue_engine/tests/conftest.py`` has an equivalent guard -
+    the guard runs, but the explicit trip in this file still wins for later tests
+    in the same module. An autouse fixture IN this module cannot be ordered away.
+    """
+    import os
+    import tempfile
+
+    from blue_engine.core import kill_switch_store as ks_store
+    from blue_engine.portfolio import optim_policy as op
+
+    tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    os.environ["BLUE_KILL_SWITCH_DB_PATH"] = os.path.join(
+        tmp.name, "kill_switch.db")
+    ks_store.close_store()
+    ks_store._DEGRADED = False
+    op._PROCESS_KILL_SWITCH = None
+    yield
+    op._PROCESS_KILL_SWITCH = None
+    ks_store.close_store()
+    ks_store._DEGRADED = False
+    os.environ.pop("BLUE_KILL_SWITCH_DB_PATH", None)
+    tmp.cleanup()
 
 
 def _inputs(**over):

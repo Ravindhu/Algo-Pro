@@ -405,11 +405,20 @@ def test_no_result_field_contains_a_credential_or_a_code(fake):
 # --------------------------------------------------------------------------- #
 # Opt-in gate
 # --------------------------------------------------------------------------- #
+# PATCHING TARGET, and why it is ``broker_auth.get_secret``
+# ---------------------------------------------------------
+# ``broker_auth`` does ``from ..economics.providers.secrets import get_secret``,
+# so it holds its OWN reference bound at import time. Patching
+# ``secrets_mod._file_env`` therefore does NOT affect it: the real
+# ``get_secret`` keeps reading the repo .env through the lru_cached
+# ``_file_env``. These tests passed only while no .env existed and while the
+# cache was still empty; with a populated .env they assert False is True.
+# Measured 2026-11-08: running ``tests/parity`` first produced 3 failures plus 24
+# more in the live monitor, because parity's stub-module fixture warms that
+# cache. Patching the name broker_auth actually calls is order-independent.
 def test_autologin_is_off_by_default(monkeypatch):
-    from blue_engine.economics.providers import secrets as secrets_mod
-
     monkeypatch.delenv("BROKER_AUTOLOGIN", raising=False)
-    monkeypatch.setattr(secrets_mod, "_file_env", lambda: {})
+    monkeypatch.setattr(broker_auth, "get_secret", lambda name, default=None: default)
     assert broker_auth.autologin_enabled() is False
 
 
@@ -417,16 +426,13 @@ def test_autologin_is_off_by_default(monkeypatch):
                                             ("yes", True), ("0", False),
                                             ("", False), ("no", False)])
 def test_autologin_parses_the_flag(monkeypatch, value, expected):
-    from blue_engine.economics.providers import secrets as secrets_mod
-
-    monkeypatch.setattr(secrets_mod, "_file_env", lambda: {"BROKER_AUTOLOGIN": value})
+    monkeypatch.setattr(broker_auth, "get_secret",
+                        lambda name, default=None: value)
     assert broker_auth.autologin_enabled() is expected
 
 
 def test_a_scheduled_run_refuses_when_not_opted_in(monkeypatch):
-    from blue_engine.economics.providers import secrets as secrets_mod
-
-    monkeypatch.setattr(secrets_mod, "_file_env", lambda: {})
+    monkeypatch.setattr(broker_auth, "get_secret", lambda name, default=None: default)
     out = broker_auth.run_scheduled_login(enable=False)
     assert out["ok"] is False
     assert out["skipped"] is True

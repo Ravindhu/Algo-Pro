@@ -13,14 +13,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dashboard = [
+# Plotly charts for the optimizer (optimizer/plots.py). The terminal dashboard was removed 2026-11-05.
+charts = [
     "plotly>=5.18",
     "pandas>=2.0",
     "numpy>=1.26",
-    # rich renders the terminal dashboard (dashboard/render.py). It is a hard
-    # import of the dashboard package, so without it the whole dashboard test
-    # suite fails at import - it belongs here, not in a separate extra.
-    "rich>=13.0",
 ]
 # Economic-engine analytics extras. ALL ARE OPTIONAL: the engine degrades to
 # the dependency-free tanh scorer without them (see ECONOMIC_ENGINE_PLAN.md).
@@ -87,7 +84,6 @@ packages = [
     "blue_engine.portfolio.attribution",
     "blue_engine.portfolio.views",
     "blue_engine.infrastructure",
-    "blue_engine.dashboard",
     "blue_engine.input",
 ]
 

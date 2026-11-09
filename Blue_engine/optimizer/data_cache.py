@@ -676,13 +676,13 @@ def watchlist_for_ui(*, preset: Optional[str] = None,
     """The operator's watchlist, filtered to ``exchange`` (NSE cash by default).
 
     Thin adapter over
-    ``blue_engine.dashboard.data_source.resolve_watchlist``. Returns the
+    ``blue_engine.screener.watchlist.resolve_watchlist``. Returns the
     list of ``{symbol, exchange, name, lot_size}`` dicts the dashboard
     dropdown renders. Exists in this module so the header has a single
     import point for both the bars cache and the watchlist.
     """
     try:
-        from blue_engine.dashboard.data_source import resolve_watchlist
+        from blue_engine.screener.watchlist import resolve_watchlist
         return list(resolve_watchlist(preset=preset,
                                        extra_symbols=extra_symbols,
                                        exchange_filter=exchange) or [])

@@ -38,7 +38,6 @@ should import/reference the folder path directly.
 | Script | Purpose |
 |---|---|
 | `ops/start_openalgo.py` | **Main launcher.** Starts the WS proxy then the web app. Restores `_restored/` state into the pristine `openalgo/` clone first. |
-| `ops/START_OPENALGO.bat` | Double-click wrapper for the above. |
 | `run/run_economic_engine.py` | Runs one economic pass and appends it to the run history. **Writes** to `data/economic_runs/`. |
 | `run/run_pov.py` | Runs the POV engine (read-only analysis). |
 | `run/run_screener_bridge.py` | Screener list -> OCL signal per symbol -> RiskGate -> POV. **Places orders** unless OpenAlgo is in analyzer mode. |

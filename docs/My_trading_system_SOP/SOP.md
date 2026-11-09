@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-29 (rev 2 - supervisor)
 **Applies to:** `C:\Users\Admin\CodeGPT\my-trading-system\Blue_engine`
-**Companion document:** `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
+**Companion document:** `docs/audits/Economic_to_POV_Pipeline_Audit_2026-10-22.md`
 
 > **Path note (resolved 2026-10-23).** `docs\My trading system SOP` used to be a
 > 30 KB **file**, which shadowed the directory path and made every SOP write fail.
@@ -123,8 +123,7 @@ left open — the services run detached and keep running after you close it.
 # Start everything
 .\.venv\Scripts\python.exe scripts\ops\start_all.py
 
-# ...or double-click:
-scripts\ops\START_ALL.cmd
+# ...or double-click install.bat (installs, updates and starts)
 ```
 
 | Port | Service | Needed for |
@@ -1282,3 +1281,89 @@ have a disk cache; two caches would only add ambiguity). Opt in with
 ```powershell
 .\.venv\Scripts\python.exe -m pytest Blue_engine/tests/test_llm_site_migration.py -q
 ```
+
+## 19. Repo layout pass (2026-11-05)
+
+Plain-English summary: folders now follow the tree in `AGENTS.md`. No trading logic changed.
+Full plan and open decisions: `docs/REPO_LAYOUT_PLAN.md`.
+
+**What moved (operators: update any bookmark or script that uses the old path):**
+
+| Old path | New path |
+|---|---|
+| `dashboard/algo_pro/index.html` | `dashboard/index.html` |
+| `dashboard/algo_pro/flow_svg.js` | `dashboard/assets/flow_svg.js` |
+| `dashboard/algo_pro/make_flow_svg.py` | `scripts/ops/make_flow_svg.py` (same output, verified byte-identical) |
+| `src/quant/models/events.py` | `src/quant/models/events/scoring.py` (`quant.models.events` import still works) |
+| `docs/PHASE0_REUSE_AUDIT.md`, `docs/Economic_to_POV_Pipeline_Audit_2026-10-22.md`, `docs/ML_SKILL_DIAGNOSIS.md` | `docs/audits/` |
+| `Blue_engine/skills/` | `docs/skills/` (documentation only; code defines its skills in Python) |
+| `strategies/.gitkeep` (root) | removed; real strategy configs stay in `config/strategies/` |
+
+**What was added:** `pyproject.toml` (metadata and pytest test paths), `src/quant/strategies/` (scaffold).
+
+**Not moved (waiting for owner decision, see `docs/REPO_LAYOUT_PLAN.md` section 5):**
+`Servers/` (live VPS keeps `deploy.env` there), `quant_system_flow_v5.svg` location,
+this SOP's location, `scripts/diagnostics/` and `scripts/verify/` (depth-based paths).
+
+**Pre-session checks reality (sandbox, 2026-11-05):**
+- `pytest tests/unit` → 239 passed, 70 failed, 34 skipped, 1 xfailed. Same 70 failures before and after the pass; all are `No module named 'openalgo'`.
+- `pytest Blue_engine/tests --collect-only` → 176 collected.
+- `tests/unit/test_layout.py` → 4 passed.
+- The OpenAlgo package cannot be installed in the cloud sandbox (package installs are off). Full regression must run on the owner's machine.
+
+## 20. FastAPI dashboard (2026-11-05)
+
+Plain-English summary: a read-only web page served by FastAPI. It shows mode, kill switch,
+risk limits, positions, realized and unrealized P&L, win rate, profit factor, risk use,
+safety events and rule-based "AI insight" lines. It never sends orders.
+
+**How to run (owner machine, after `pip install -r requirements.txt` with FastAPI and uvicorn):**
+```
+python dashboard/app.py
+```
+Open `http://127.0.0.1:8050`. Data is read from `data/paper/` (ledger, audit log, kill switch) and `config/risk_limits.yaml`.
+Missing files show an empty, safe state.
+
+**Rules built in:** P&L is shown by default (`config/settings.yaml`, key `dashboard.pnl_visible_default`).
+EV, MAE/MFE and rule compliance are not in the payload (AGENTS rule 8). No POST routes. Feed status says "not connected" (no live feed exists).
+
+**Not verified in the cloud sandbox:** FastAPI routes and the page in a browser (FastAPI cannot be installed there).
+Profit factor with closed trades needs `openalgo` (Blue_engine). The test for it skips until `openalgo` is installed.
+
+## 21. Blue terminal console removed (2026-11-05)
+
+Plain-English summary: the `rich` terminal console (`Blue_engine/dashboard/`, command
+`python -m blue_engine.dashboard.cli`) is removed from the repo. Copies are in `Temp/archive/2026-11-05/`
+(git-ignored) and in git history. Plan: `docs/DASHBOARD_REMOVAL_PLAN.md`.
+
+**What operators must know:**
+- VPS: the `pov-dash` service now runs the FastAPI dashboard (`uvicorn ... dashboard/app.py`) on the same port. The nginx route `/pov-dash/` is unchanged. Run `install_ubuntu.sh` again (or `sudo systemctl daemon-reload && sudo systemctl restart pov-dash`) to apply the new unit.
+- Installers: `Blue_engine[dashboard]` is now `Blue_engine[charts]` (plotly, pandas, numpy). `rich` is no longer installed. `fastapi` and `uvicorn` are installed.
+- Run data files `data/last_shift.json` and `data/last_token_usage.json` are no longer written. Token usage is still in the run report as `llm_tokens`.
+- `Blue_engine/Dockerfile` (image for the terminal console) is removed. If a compose file outside this repo still builds it, update that file.
+- Preset watchlists: `resolve_watchlist` moved to `Blue_engine/screener/watchlist.py` unchanged. Known gap: `blue_engine/screener/presets.py` is not in the repo, so a preset name returns no rows (this was already true before).
+
+**Not run here:** the Blue_engine test suite (needs `openalgo`), the VPS installer, the Windows installers, and Docker.
+
+## 22. One script per OS: install, update, start (2026-11-07)
+
+- **Windows:** `install.bat` (double-click). Updates the repo, installs what is
+  missing, runs the safe OpenAlgo upgrade when OpenAlgo exists, then starts the stack.
+- **Ubuntu:** `Servers/launch_ubuntu_server.sh`. Clones the repo if missing,
+  installs the platform, or does a gated update when it exists (refuses in NSE
+  hours or while `pov-runner` runs). Restarts `openalgo`, `openalgo-ws`, `pov-dash`
+  only.
+- Retired (moved to `Temp/archive/2026-11-07/installers/`): `install.sh`,
+  `scripts/ops/START_ALL.cmd`, `scripts/ops/START_OPENALGO.bat`.
+- Kept as shims for scheduled tasks: `scripts/start_openalgo.py`, `scripts/upgrade_openalgo.ps1`.
+- Not run here: the Windows `.bat` and a real Ubuntu install. Owner test pending.
+
+## 23. Scheduled starts (2026-11-07)
+
+- Windows: `scripts/ops/register_start_jobs.ps1` creates two Task Scheduler jobs for the
+  current user. "MTS - start at logon" and "MTS - pre-open start" (Mon-Fri 08:40, wake to run).
+  Both run `install.bat --scheduled`: start only, no code update, no engine.
+- Ubuntu: `mts-boot-start.service` runs `launch_ubuntu_server.sh --start-only` at every boot.
+  The existing `pov-preopen.timer` (08:45) remains the only scheduled engine start.
+- Scheduled runs never update code. Updates stay manual.
+- Not run here: the PowerShell script (no `pwsh` in the sandbox) and the boot unit (no systemd). Owner test pending.

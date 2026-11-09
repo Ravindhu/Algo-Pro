@@ -28,6 +28,7 @@ Design rules
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import socket
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -110,7 +111,9 @@ class InfrastructureEngine(BaseEngine):
         imports_ok = True
         import_error = None
         try:
-            importlib.import_module("blue_engine.dashboard.cli")
+            # Dashboard is the FastAPI app in the repo root (dashboard/app.py); it needs fastapi.
+            if importlib.util.find_spec("fastapi") is None:
+                raise ImportError("fastapi not installed (dashboard/app.py needs it)")
         except Exception as exc:  # noqa: BLE001
             imports_ok = False
             import_error = repr(exc)

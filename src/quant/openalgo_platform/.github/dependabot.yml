@@ -1,0 +1,60 @@
+version: 2
+# Supply-chain cooldown: a version-update PR waits until the new release has
+# been public for 7 days, the window in which a hijacked or malicious publish
+# is usually caught and pulled. GitHub does not apply cooldown to security
+# updates, so a patched release for an open advisory still arrives at once.
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-minor:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(py):"
+    cooldown:
+      default-days: 7
+
+  # Root NPM (Tailwind CSS)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      npm-root:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(css):"
+    cooldown:
+      default-days: 7
+
+  # Frontend NPM (React)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      frontend-deps:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(frontend):"
+    cooldown:
+      default-days: 7
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(actions):"
+    cooldown:
+      default-days: 7

@@ -60,7 +60,7 @@ from __future__ import annotations
 import inspect
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .bars import BarSeries, build_series
 from .metrics import compute_metrics
@@ -363,6 +363,24 @@ def _call_signal(strategy: Any, params: Dict[str, Any],
     return strategy(params, context, view)
 
 
+def _excursion(direction: int, entry: float, high: Optional[float],
+                low: Optional[float]) -> Tuple[float, float]:
+    """(MAE, MFE) as positive fractions of entry, in the trade's direction.
+
+    MAE = worst adverse move seen while the trade was open.
+    MFE = best favourable move seen while the trade was open.
+    """
+    if not entry or high is None or low is None:
+        return 0.0, 0.0
+    if direction > 0:
+        mae = max(0.0, (entry - low) / entry)
+        mfe = max(0.0, (high - entry) / entry)
+    else:
+        mae = max(0.0, (high - entry) / entry)
+        mfe = max(0.0, (entry - low) / entry)
+    return float(mae), float(mfe)
+
+
 def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                  config: BacktestConfig, symbol: str = "",
                  exchange: str = "", interval: str = "1d",
@@ -411,7 +429,17 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
     daily_halt = False
     stop_exit_pending = False
     stop_exit_reference: Optional[float] = None
+    # Price range of the currently open trade, used for MAE/MFE. The entry
+    # bar's own range is not included (the trade is only open from the next
+    # bar); a flip bar's range is attributed to the closing trade.
+    trade_high: Optional[float] = None
+    trade_low: Optional[float] = None
     for index, bar in enumerate(series.bars):
+        if quantity:
+            trade_high = bar.high if trade_high is None else max(trade_high, bar.high)
+            trade_low = bar.low if trade_low is None else min(trade_low, bar.low)
+        else:
+            trade_high = trade_low = None
         # Timestamps are sortable strings from the validated bar adapter. Daily
         # loss is measured from the equity mark at each new calendar date.
         bar_day = bar.ts[:10]
@@ -524,6 +552,8 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                     gross_pnl = (
                         (reference_price - average_entry_reference)
                         * closed_quantity * direction)
+                    mae, mfe = _excursion(direction, average_entry_reference,
+                                          trade_high, trade_low)
                     trades.append({
                         "entry_ts": average_entry_ts,
                         "exit_ts": bar.ts,
@@ -534,6 +564,8 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                         "gross_pnl": gross_pnl,
                         "costs": entry_cost_allocated + exit_cost_allocated,
                         "pnl": gross_pnl - entry_cost_allocated - exit_cost_allocated,
+                        "mae": mae,
+                        "mfe": mfe,
                     })
                     entry_cost_remaining -= entry_cost_allocated
                     if target_quantity == 0 or target_quantity * quantity < 0:
@@ -602,6 +634,8 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
         last_bar = series.bars[-1]
         gross_mark_pnl = (
             (last_bar.close - average_entry_reference) * abs(quantity) * direction)
+        mae, mfe = _excursion(direction, average_entry_reference,
+                              trade_high, trade_low)
         trades.append({
             "entry_ts": average_entry_ts,
             "exit_ts": None,
@@ -613,6 +647,8 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
             "costs": entry_cost_remaining,
             "pnl": gross_mark_pnl - entry_cost_remaining,
             "status": "OPEN",
+            "mae": mae,
+            "mfe": mfe,
         })
 
     metrics = compute_metrics(

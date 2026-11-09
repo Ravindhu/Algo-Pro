@@ -1,0 +1,6 @@
+[
+  {"symbol": "AADHARHFC", "company": "Aadhar Housing Finance Limited", "purpose": "Financial Results", "bm_desc": "Sample abbreviated text", "date": "05-Nov-2026"},
+  {"symbol": "ABFRL", "company": "Aditya Birla Fashion and Retail Limited", "purpose": "Financial Results", "bm_desc": "Sample abbreviated text", "date": "05-Nov-2026"},
+  {"symbol": "ADFFOODS", "company": "ADF Foods Limited", "purpose": "Financial Results/Dividend", "bm_desc": "Sample abbreviated text", "date": "05-Nov-2026"},
+  {"symbol": "BADROW", "company": "Bad date example", "purpose": "Financial Results", "bm_desc": "Sample", "date": "2026-11-05"}
+]

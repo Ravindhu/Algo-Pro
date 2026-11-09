@@ -2,12 +2,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .engine import BacktestConfig, run_backtest
 from .metrics import returns_from_equity
 
 __all__ = ["BacktestStrategyAdapter", "as_optimizer_strategy"]
+
+
+def _closed_trade_records(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per-trade fraction return with MAE/MFE, for closed trades only."""
+    records: List[Dict[str, Any]] = []
+    for t in trades:
+        if t.get("exit_ts") is None:
+            continue  # still open at end of data: excluded from excursion stats
+        notional = float(t["entry_price"]) * float(t["quantity"])
+        if notional <= 0:
+            continue
+        records.append({
+            "ret": float(t["pnl"]) / notional,
+            "pnl": float(t["pnl"]),
+            "mae": float(t.get("mae", 0.0)),
+            "mfe": float(t.get("mfe", 0.0)),
+        })
+    return records
 
 
 @dataclass(frozen=True)
@@ -45,6 +63,7 @@ class BacktestStrategyAdapter:
             "risk_free_per_period": self.config.risk_free_per_period,
             "cost_bps": self.config.cost_model.round_trip_bps(),
             "costs_applied_once": True,
+            "trades": _closed_trade_records(result.trades),
         }
 
 

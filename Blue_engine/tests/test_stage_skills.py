@@ -26,7 +26,15 @@ from blue_engine.core.stage_skills import (
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SKILLS_DIR = ROOT / "skills"
+# The per-stage skill docs were MOVED to docs/skills by 81ef720
+# ("chore(layout): match AGENTS.md tree"), which also records "docs only, no code
+# loads them". The markdown assertions below stayed pointed at the old folder and
+# failed with FileNotFoundError. Keep a fallback so a future layout move that
+# keeps either location working does not break this suite.
+SKILLS_DIR = next(
+    (p for p in (ROOT.parent / "docs" / "skills", ROOT / "skills") if p.is_dir()),
+    ROOT.parent / "docs" / "skills",
+)
 
 
 # --------------------------------------------------------------------------- #

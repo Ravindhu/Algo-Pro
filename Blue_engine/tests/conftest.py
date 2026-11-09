@@ -46,8 +46,7 @@ _atexit.register(_shutil.rmtree, _RUNTIME_DATA_TMP, ignore_errors=True)
 #
 # This lives in conftest so it runs before ANY test module or fixture imports
 # blue_engine -- a per-file guard cannot help, because pytest imports conftest
-# (and its fixtures) first. Same reasoning as
-# ``Blue_engine/dashboard/cli.py`` (rich terminal dashboard).
+# (and its fixtures) first.
 # ---------------------------------------------------------------------------
 if os.name == "nt":
     _ARCH = os.environ.get("PROCESSOR_ARCHITECTURE", "") or "AMD64"

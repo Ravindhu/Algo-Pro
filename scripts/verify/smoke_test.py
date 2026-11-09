@@ -78,12 +78,15 @@ def t_config_schema():
 check("engine input/master.json parses (schema ok)", t_config_schema)
 
 
-# ---- 3. dashboard module imports ----
+# ---- 3. dashboard app present (FastAPI, repo root dashboard/app.py) ----
 def t_dashboard_import():
-    from blue_engine.dashboard import cli  # noqa: F401
+    import importlib.util
+    root = Path(__file__).resolve().parents[2]
+    assert (root / "dashboard" / "app.py").exists(), "dashboard/app.py missing"
+    assert importlib.util.find_spec("fastapi") is not None, "fastapi not installed"
 
 
-check("dashboard module imports", t_dashboard_import)
+check("dashboard app present (FastAPI)", t_dashboard_import)
 
 
 # ---- 4. local state in place (static, no server needed) ----

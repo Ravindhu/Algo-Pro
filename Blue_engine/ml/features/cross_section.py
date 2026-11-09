@@ -4,7 +4,7 @@ ml/features/cross_section.py — turn a panel of instruments into relative targe
 WHY THIS EXISTS (the statistical argument, verified on this repo's data)
 -----------------------------------------------------------------------
 A time-series target asks: "will NIFTY rise over the next 5 days?" Measured on
-the real cached series (docs/ML_SKILL_DIAGNOSIS.md), that question is nearly
+the real cached series (docs/audits/ML_SKILL_DIAGNOSIS.md), that question is nearly
 unanswerable from price features — the index rose 54.25% of the time, and no
 feature beat that majority class by more than 0.6 percentage points in-sample.
 

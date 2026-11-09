@@ -1,0 +1,664 @@
+<!-- Flow stage: Dashboard. Status: MAIN DASHBOARD (decision 0027). Reads /api/* and writes only through token-protected routes. -->
+<title>Algo Pro NSE BSE Dashboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  :root { color-scheme: dark; --bg:#050a12; --panel:#0a1420; --line:#14283a; --txt:#c3d8e8; --dim:#5d7b94;
+          --cyan:#3fd0ff; --ok:#2ee6a6; --warn:#ffb347; --bad:#ff4d6d; --pink:#ff6fb5; --purple:#9d8cff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace;
+         padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+  header { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .brand { color: var(--cyan); font-weight: 700; margin-right: 4px; }
+  .chip { border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; color: var(--dim); white-space: nowrap; }
+  .chip.on, .chip.ok { color: var(--ok); border-color: var(--ok); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.bad { color: var(--bad); border-color: var(--bad); }
+  .sp { flex: 1; }
+  .modes button.on { background: var(--ok); color: #03140d; border-color: var(--ok); font-weight: 700; }
+  .modes button.off { color: var(--dim); border-color: var(--line); }
+  button { font: inherit; background: transparent; color: var(--cyan); border: 1px solid var(--cyan); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
+  button:disabled { color: var(--dim); border-color: var(--line); cursor: default; }
+  button.kill { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
+  button.go { color: var(--ok); border-color: var(--ok); }
+  button.stop { color: var(--bad); border-color: var(--bad); }
+  .clock { color: var(--dim); padding: 6px 0; }
+  .banner { display: none; margin: 4px 0 0; padding: 8px 12px; border: 1px solid var(--bad); color: var(--bad); border-radius: 3px; }
+  .banner.on { display: block; }
+  .top { display: grid; gap: 8px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); padding-top: 8px; }
+  .mid { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); padding-top: 8px; }
+  .two { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 8px; }
+  .bot { padding: 8px 0 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-width: 0; }
+  .ph { display: flex; justify-content: space-between; gap: 8px; color: var(--cyan); font-weight: 700; margin-bottom: 6px; flex-wrap: wrap; }
+  .ph span { color: var(--dim); font-weight: 400; }
+  .kv { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .kv small { display: block; color: var(--dim); }
+  .big { font-size: 26px; font-weight: 700; color: var(--ok); font-variant-numeric: tabular-nums; }
+  .g { color: var(--ok); } .r { color: var(--bad); } .a { color: var(--warn); } .d { color: var(--dim); }
+  .guard { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #0e1d2b; }
+  .bar { height: 3px; background: #0d1d2d; border-radius: 3px; margin: 2px 0 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--ok); width: 0%; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid #0e1d2b; font-weight: 400; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th { color: var(--dim); }
+  td.n, th.n { text-align: right; }
+  .scroll { max-height: 220px; overflow: auto; }
+  ul { margin: 0; padding-left: 16px; }
+  li { margin: 2px 0; }
+  svg { width: 100%; height: auto; display: block; }
+  input[type=number], input[type=password], input[type=text], select { width: 100%; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
+  header input { width: 200px; min-width: 0; }
+  .setup { margin: 8px 0 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; }
+  .setup[hidden] { display: none; }
+  .setup .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+  .setup label, form label { display: block; color: var(--dim); margin-bottom: 3px; }
+  form .row { display: grid; grid-template-columns: 1fr 160px; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
+  form .row label { margin: 0; }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .d p, p.d { margin: 0 0 6px; }
+  .legend { margin-top: 14px; color: var(--dim); font-size: 11px; }
+
+  /* flow popup */
+  .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
+  .modal[hidden] { display: none; }
+  .sheet { background: #05080d; border: 1px solid var(--cyan); border-radius: 4px; width: min(1320px, 100%); max-height: 100%; overflow: auto; }
+  .sheet-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #05080d; }
+  .sheet-h b { color: var(--cyan); }
+  .sheet-h span { color: var(--dim); }
+  .sheet-b { padding: 12px 16px 18px; }
+  .sheet-b h3 { margin: 0 0 4px; font-size: 18px; color: #d8e6f2; font-weight: 600; }
+  .sheet-b p { margin: 0 0 12px; color: var(--dim); }
+  /* flow node colours from overview.flow: err blinks red, warn gets an amber border */
+  #flowbox g.stg.st-warn rect { stroke: var(--warn); stroke-width: 3; }
+  #flowbox g.stg.st-err rect { fill: #ff4d6d; stroke: #8f0f2a; stroke-width: 3; }
+  #flowbox g.stg.st-err text { fill: #ffffff; }
+  #flowbox g.stg.st-err { animation: flowblink 1s steps(2, start) infinite; }
+  @keyframes flowblink { to { opacity: .25; } }
+  #flowbox g.stg { cursor: default; }
+  @media (max-width: 1000px) {
+    .top, .mid, .two { grid-template-columns: minmax(0, 1fr); }
+    .setup .fields { grid-template-columns: 1fr; }
+    form .row { grid-template-columns: 1fr; }
+  }
+</style>
+
+<header>
+  <span class="brand">ALGO PRO // NSE·BSE</span>
+  <span class="chip" id="mode">mode —</span>
+  <span class="chip" id="kill">kill switch —</span>
+  <span class="chip" id="feed">feed —</span>
+  <span class="chip" id="market">market —</span>
+  <span class="chip" id="conn">connecting…</span>
+  <span class="modes">
+    <button id="mode-paper" type="button" class="on" title="Paper trading (simulated, no broker orders)">PAPER</button>
+    <button id="mode-live" type="button" class="off" title="Refused: live needs owner approval (decision 0017)">LIVE</button>
+  </span>
+  <span id="modemsg" class="d"></span>
+  <span class="sp"></span>
+  <button id="toggle" type="button">Hide ₹</button>
+  <button id="flowbtn" type="button">FLOW</button>
+  <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
+  <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
+  <span id="loopchip" class="chip">loop —</span>
+  <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
+  <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions; the kill switch does that">STOP</button>
+  <span id="loopmsg" class="d"></span>
+  <button class="kill" id="headkill" type="button">KILL SWITCH</button>
+</header>
+<div class="banner" id="killbanner"></div>
+<div class="clock" id="clock"></div>
+
+<div class="setup" id="setup" hidden>
+  <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · token needed (header)</span></h2>
+  <form id="setupform" autocomplete="off">
+    <div class="fields">
+      <div><label for="su-risk">Risk per trade (% of equity)</label>
+        <input type="number" id="su-risk" min="0.001" max="5" step="0.001" placeholder="0.25"></div>
+      <div><label for="su-symbols">Max symbols per portfolio</label>
+        <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
+      <div><label for="su-strategy">Strategy</label>
+        <select id="su-strategy"></select></div>
+    </div>
+    <div class="actions">
+      <button class="go" id="setupsave" type="submit">Save setup</button>
+      <span id="setupmsg"></span>
+    </div>
+    <p class="d">Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
+  </form>
+</div>
+
+<div class="top">
+  <section class="panel">
+    <div class="ph">Portfolio &amp; P&amp;L <span>paper · ₹</span></div>
+    <div class="big" id="pnl">—</div>
+    <div class="kv" style="margin-top:8px">
+      <div><small>Realized P&amp;L</small><b id="realized">—</b></div>
+      <div><small>Unrealized P&amp;L</small><b id="unrealized">—</b></div>
+      <div><small>Closed trades</small><b id="trades">—</b></div>
+      <div><small>Win rate</small><b id="winrate">—</b></div>
+      <div><small>Profit factor</small><b id="pf">—</b></div>
+      <div><small>Open positions</small><b id="openpos">—</b></div>
+    </div>
+    <svg id="eqsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:120px;margin-top:10px">
+      <line id="eqzero" x1="0" x2="800" y1="60" y2="60" stroke="#14283a" stroke-dasharray="4 4"/>
+      <polyline id="eqline" fill="none" stroke="#2ee6a6" stroke-width="2" points=""/>
+    </svg>
+    <p class="d" id="eqnote">Equity curve: waiting for data…</p>
+  </section>
+
+  <section class="panel">
+    <div class="ph">Risk <span>caps &amp; guards</span></div>
+    <div class="guard"><span>Mode</span><b id="r-mode">—</b></div>
+    <div class="guard"><span>Kill switch</span><b id="r-kill">—</b></div>
+    <div class="guard"><span>Open exposure used</span><b id="r-risk">—</b></div>
+    <div class="bar"><i id="riskbar"></i></div>
+    <div class="guard"><span>Limits not set</span><b id="r-unset">—</b></div>
+    <div class="guard"><span>Feed</span><b id="r-feed">—</b></div>
+  </section>
+</div>
+
+<div class="mid">
+  <section class="panel">
+    <div class="ph">Open positions <span id="poscount"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
+      <tbody id="positions"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <div class="ph">Neural shell <span>layout only, values not connected</span></div>
+    <svg viewBox="0 0 940 300" role="img" aria-label="Neural shell layout">
+      <g stroke="#2a6f8f" stroke-width="1.2" fill="none">
+        <line x1="74" y1="36" x2="200" y2="173"/><line x1="74" y1="89" x2="200" y2="120"/>
+        <line x1="74" y1="142" x2="200" y2="173"/><line x1="74" y1="194" x2="200" y2="173"/>
+        <line x1="200" y1="69" x2="337" y2="152"/><line x1="200" y1="120" x2="337" y2="152"/>
+        <line x1="200" y1="225" x2="337" y2="152"/><line x1="200" y1="173" x2="200" y2="225"/>
+        <line x1="337" y1="69" x2="472" y2="152"/><line x1="337" y1="152" x2="472" y2="152"/>
+        <line x1="472" y1="152" x2="608" y2="152"/><line x1="608" y1="152" x2="743" y2="152"/>
+        <line x1="743" y1="152" x2="880" y2="79"/><line x1="743" y1="152" x2="880" y2="225"/>
+        <line x1="337" y1="246" x2="337" y2="152" stroke-dasharray="4 4" stroke="#9d8cff"/>
+      </g>
+      <path d="M337 152 Q405 200 472 246" stroke="#ffb347" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
+      <path d="M472 69 L472 140" stroke="#ff4d6d" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
+      <path d="M472 246 L472 164" stroke="#ffb347" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
+      <g fill="none" stroke-width="2">
+        <circle cx="74" cy="36" r="7" stroke="#3fd0ff"/><circle cx="74" cy="89" r="7" stroke="#3fd0ff"/>
+        <circle cx="74" cy="142" r="7" stroke="#3fd0ff"/><circle cx="74" cy="194" r="7" stroke="#3fd0ff"/>
+        <circle cx="200" cy="69" r="7" stroke="#5d7b94"/><circle cx="200" cy="120" r="7" stroke="#5d7b94"/>
+        <circle cx="200" cy="173" r="9" stroke="#ffb347"/><circle cx="200" cy="225" r="9" stroke="#ffb347"/>
+        <circle cx="337" cy="69" r="8" stroke="#3fd0ff"/><circle cx="337" cy="152" r="8" stroke="#5d7b94"/>
+        <circle cx="337" cy="246" r="8" stroke="#5d7b94"/>
+        <circle cx="472" cy="69" r="8" stroke="#ff4d6d"/><circle cx="472" cy="152" r="8" stroke="#2ee6a6"/>
+        <circle cx="472" cy="246" r="9" stroke="#ffb347"/>
+        <circle cx="608" cy="152" r="8" stroke="#3fd0ff"/><circle cx="743" cy="152" r="8" stroke="#3fd0ff"/>
+        <circle cx="880" cy="79" r="8" stroke="#3fd0ff"/><circle cx="880" cy="225" r="8" stroke="#3fd0ff"/>
+      </g>
+      <g font-size="11" text-anchor="middle" fill="#c3d8e8">
+        <text x="74" y="22" fill="#3fd0ff">NSE/BSE quotes</text>
+        <text x="74" y="106" fill="#3fd0ff">OpenAlgo WS feed</text>
+        <text x="74" y="158" fill="#3fd0ff">Historical data</text>
+        <text x="74" y="210" fill="#3fd0ff">Filings &amp; NLP</text>
+        <text x="200" y="58" fill="#5d7b94">Sectors</text>
+        <text x="200" y="134" fill="#c3d8e8">Screener</text>
+        <text x="200" y="196" fill="#ffb347">Market data</text>
+        <text x="200" y="248" fill="#ffb347">Portfolio</text>
+        <text x="337" y="58" fill="#3fd0ff">Alpha signals</text>
+        <text x="337" y="168" fill="#5d7b94">Strategy</text>
+        <text x="337" y="266" fill="#5d7b94">Optimizer</text>
+        <text x="472" y="58" fill="#ff4d6d">Kill switch</text>
+        <text x="472" y="168" fill="#2ee6a6">Risk gate</text>
+        <text x="472" y="266" fill="#ffb347">Ledger</text>
+        <text x="608" y="168" fill="#c3d8e8">Execution</text>
+        <text x="743" y="168" fill="#c3d8e8">OpenAlgo bridge</text>
+        <text x="880" y="64" fill="#3fd0ff">Broker</text>
+        <text x="880" y="210" fill="#3fd0ff">NSE / BSE</text>
+      </g>
+      <g font-size="10" fill="#5d7b94" text-anchor="middle">
+        <text x="74" y="290">SOURCES</text><text x="268" y="290">SCREEN · ALPHA</text>
+        <text x="404" y="290">STRATEGY · GUARDS</text><text x="540" y="290">RISK · KILL</text>
+        <text x="675" y="290">EXECUTE</text><text x="811" y="290">BRIDGE</text><text x="880" y="290">MARKET</text>
+      </g>
+    </svg>
+  </section>
+</div>
+
+<div class="two">
+  <section class="panel">
+    <div class="ph">Safety events <span id="evcount"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Severity</th><th>Kind</th><th>Message</th></tr></thead>
+      <tbody id="events"></tbody>
+    </table></div>
+    <div class="ph" style="margin-top:10px">AI insight <span>rules, advice only</span></div>
+    <ul id="insight"></ul>
+  </section>
+
+  <section class="panel">
+    <div class="ph">Current limits <span>saved to config</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Limit</th><th class="n">Value</th></tr></thead>
+      <tbody id="limits"></tbody>
+    </table></div>
+  </section>
+</div>
+
+<div class="two">
+  <section class="panel">
+    <div class="ph">Kill switch <span>backend state</span></div>
+    <p class="d">Trip blocks new entries now. Open positions are closed by the next paper run; this page sends no orders. Needs the token (header) and a reason. Both actions are audited.</p>
+    <input type="text" id="killreason" maxlength="200" placeholder="reason (required)" autocomplete="off">
+    <div class="actions">
+      <button class="stop" id="killtrip" type="button">Trip kill switch</button>
+      <button class="go" id="killreset" type="button">Reset kill switch</button>
+      <span id="killmsg"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="ph">Set limits <span id="unset"></span></div>
+    <form id="limitform" autocomplete="off">
+      <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
+        <input type="checkbox" id="lim-blocked" data-limit="blocked"></div>
+      <div class="row"><label for="lim-max_order_quantity">max order quantity (shares)</label>
+        <input type="number" id="lim-max_order_quantity" data-limit="max_order_quantity" min="0" step="1"></div>
+      <div class="row"><label for="lim-max_order_notional">max order notional (₹)</label>
+        <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
+        <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
+        <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
+        <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
+        <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
+      <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
+        <input type="number" id="lim-max_symbols_per_portfolio" data-limit="max_symbols_per_portfolio" min="0" step="1"></div>
+      <div class="actions">
+        <button class="go" type="submit">Save limits</button>
+        <span id="msg"></span>
+      </div>
+      <p class="d">Empty = not set (entries fail closed). The token is not stored; reload the page to clear it.</p>
+    </form>
+  </section>
+</div>
+
+<div class="modal" id="flowmodal" hidden role="dialog" aria-modal="true" aria-labelledby="flowtitle">
+  <div class="sheet">
+    <div class="sheet-h">
+      <div><b id="flowtitle">QUANT SYSTEM FLOW · v5</b> <span>live node status · red blinks = error · amber = warning</span></div>
+      <button type="button" id="flowclose">CLOSE ×</button>
+    </div>
+    <div class="sheet-b">
+      <h3>Algo trading system: full flow, v5</h3>
+      <p>Source: quant_system_flow_v5.svg. Colours come from /api/overview (flow). Nodes not named below are ok.</p>
+      <div id="flowbox" style="background:#f7f6f1;padding:8px;border-radius:4px;overflow:auto"></div>
+      <div class="ph" style="margin-top:10px">Node status <span id="flowsum"></span></div>
+      <ul id="flowissues"></ul>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/flow_svg.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
+                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio"];
+  const POLL_MS = 2000;   // never below 500 ms
+  let showMoney = null;   // from settings.pnl_visible_default on first read
+  let last = null;        // last overview
+  let formLoaded = false; // fill the limit form once, and again after a save
+
+  const inr = v => v == null ? "—" : "₹" + Number(v).toLocaleString("en-IN", {maximumFractionDigits: 2});
+  const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+  const money = v => showMoney ? inr(v) : "••••";
+  const cell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
+  const sign = v => v == null ? "d" : v > 0 ? "g" : v < 0 ? "r" : "d";
+
+  function setChip(id, text, cls) { const e = $(id); e.textContent = text; e.className = "chip " + cls; }
+
+  function emptyRow(cols, text) {
+    const tr = document.createElement("tr"), td = cell(text, "d");
+    td.colSpan = cols; td.style.textAlign = "left"; tr.append(td); return tr;
+  }
+  function renderTable(body, rows, empty, cols) {
+    body.replaceChildren(...(rows.length ? rows : [emptyRow(cols, empty)]));
+  }
+
+  function renderMode(m) {
+    const paper = $("mode-paper"), live = $("mode-live");
+    paper.className = m.mode === "paper" ? "on" : "off";
+    live.className = m.mode === "live" ? "on" : "off";
+    live.title = m.live_allowed ? "Live selected" : "Refused: " + m.reason;
+  }
+
+  function modeMsg(text, cls) { const m = $("modemsg"); m.textContent = text; m.className = "d " + (cls || ""); }
+
+  async function postMode(mode) {
+    const token = $("token").value;
+    if (!token) return modeMsg("Enter the dashboard token in the header.", "r");
+    try {
+      const r = await fetch("/api/trading-mode", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({mode})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { modeMsg(j.message, "g"); refresh(); }
+      else if (r.status === 401) modeMsg("Token rejected.", "r");
+      else if (r.status === 503) modeMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else modeMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      modeMsg("Failed: " + e.message, "r");
+    }
+  }
+  function loopMsg(text, cls) { const m = $("loopmsg"); m.textContent = text; m.className = "d " + (cls || ""); }
+
+  async function postLoop(url) {
+    const token = $("token").value;
+    if (!token) return loopMsg("Enter the dashboard token in the header.", "r");
+    loopMsg("Sending…", "d");
+    try {
+      const r = await fetch(url, {method: "POST", headers: {"X-Dashboard-Token": token}});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { loopMsg(j.message, "g"); refresh(); }
+      else if (r.status === 401) loopMsg("Token rejected.", "r");
+      else if (r.status === 503) loopMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else loopMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      loopMsg("Failed: " + e.message, "r");
+    }
+  }
+  $("loopstart").onclick = () => postLoop("/api/loop/start");
+  $("loopstop").onclick = () => postLoop("/api/loop/stop");
+  $("mode-paper").onclick = () => postMode("paper");
+  $("mode-live").onclick = () => postMode("live");
+
+  function render(o) {
+    last = o;
+    if (o.trading_mode) renderMode(o.trading_mode);
+    if (o.market) {
+      setChip("market", o.market.open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED · " + o.market.reason, o.market.open ? "ok" : "d");
+      $("market").title = o.market.verified ? o.market.holidays_loaded + " holidays loaded (NSE CM circular)" : "holiday calendar not verified";
+    }
+    if (o.loop) {
+      const running = o.loop.status === "running";
+      setChip("loopchip", "loop " + o.loop.status + (running && o.loop.session ? " · " + o.loop.session : ""), running ? "on" : "d");
+      $("loopchip").title = o.loop.last_error || o.loop.last_result || "";
+    }
+    setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
+    setChip("kill", o.kill_switch.active ? "KILL SWITCH ON" : "kill switch off", o.kill_switch.active ? "bad" : "on");
+    setChip("feed", "feed " + o.feed.status, "warn");
+    $("killbanner").textContent = o.kill_switch.active ? "Kill switch on: " + o.kill_switch.reason : "";
+    $("killbanner").className = "banner" + (o.kill_switch.active ? " on" : "");
+
+    const p = o.performance, pnl = p.realized_pnl + (p.unrealized_pnl || 0);
+    $("pnl").textContent = money(pnl);
+    $("pnl").className = "big " + (pnl > 0 ? "g" : pnl < 0 ? "r" : "");
+    $("realized").textContent = money(p.realized_pnl);
+    $("unrealized").textContent = money(p.unrealized_pnl);
+    $("trades").textContent = String(p.trades);
+    $("winrate").textContent = pct(p.win_rate);
+    $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
+    $("openpos").textContent = String(o.positions.length);
+    $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
+
+    $("r-mode").textContent = o.mode;
+    $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
+    $("r-kill").className = o.kill_switch.active ? "r" : "g";
+    $("r-risk").textContent = pct(p.risk_utilisation);
+    $("riskbar").style.width = Math.min(100, (p.risk_utilisation || 0) * 100) + "%";
+    $("r-unset").textContent = o.unset_limits.length ? o.unset_limits.join(", ") : "none";
+    $("r-unset").className = o.unset_limits.length ? "a" : "g";
+    $("r-feed").textContent = o.feed.status;
+    $("unset").textContent = o.unset_limits.length ? "not set: " + o.unset_limits.join(", ") : "all set";
+
+    $("poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
+    renderTable($("positions"), o.positions.map(x => {
+      const tr = document.createElement("tr");
+      tr.append(cell(x.symbol), cell(String(x.qty), "n"), cell(inr(x.avg_price), "n"), cell(money(x.unrealized_pnl), "n " + sign(x.unrealized_pnl)));
+      return tr;
+    }), "No open positions.", 4);
+
+    renderTable($("events"), o.events.map(e => {
+      const tr = document.createElement("tr");
+      tr.append(cell(e.severity, e.severity === "CRITICAL" ? "r" : e.severity === "WARNING" ? "a" : "d"), cell(e.kind), cell(e.message));
+      return tr;
+    }), "No safety events.", 3);
+    $("evcount").textContent = o.events.length ? o.events.length + " shown" : "";
+
+    $("insight").replaceChildren(...o.insight.map(t => { const li = document.createElement("li"); li.textContent = t; return li; }));
+
+    renderTable($("limits"), Object.entries(o.limits).filter(([k]) => k !== "blocked").map(([k, v]) => {
+      const tr = document.createElement("tr");
+      tr.append(cell(k), v == null ? cell("not set", "r n") : cell(String(v), "n"));
+      return tr;
+    }), "No limits.", 2);
+
+    if (o.equity) drawEquity(o.equity);
+    if (!formLoaded) fillForm(o.limits);
+    paintFlow(o.flow);
+  }
+
+  // Realized P&L curve (closed trades only). Scale: min..max of the points.
+  function drawEquity(e) {
+    const pts = e.points, w = 800, hgt = 120, pad = 6;
+    const note = $("eqnote");
+    if (pts.length < 2) {
+      $("eqline").setAttribute("points", "");
+      note.textContent = "No closed trades yet. The curve starts after the first close.";
+      return;
+    }
+    const min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+    const x = i => pad + i * (w - 2 * pad) / (pts.length - 1);
+    const y = v => hgt - pad - (v - min) * (hgt - 2 * pad) / span;
+    $("eqline").setAttribute("points", pts.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" "));
+    $("eqzero").setAttribute("y1", y(0).toFixed(1));
+    $("eqzero").setAttribute("y2", y(0).toFixed(1));
+    note.textContent = "realized P&L, closed trades only · max drawdown " + money(e.max_drawdown);
+  }
+
+  function fillForm(limits) {
+    for (const f of LIMIT_FIELDS) $("lim-" + f).value = limits[f] == null ? "" : String(limits[f]);
+    $("lim-blocked").checked = !!limits.blocked;
+    formLoaded = true;
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch("/api/overview", {cache: "no-store"});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const o = await r.json();
+      if (showMoney === null) showMoney = !!o.settings.pnl_visible_default;
+      render(o);
+      setChip("conn", "live · " + new Date().toLocaleTimeString("en-IN"), "on");
+    } catch (e) {
+      setChip("conn", "API offline (" + e.message + ")", "bad");
+      setFlowNode("Dashboard", "err", "API offline: " + e.message);
+    }
+  }
+
+  function setMsg(text, cls) { const m = $("msg"); m.textContent = text; m.className = cls || ""; }
+
+  async function saveLimits(ev) {
+    ev.preventDefault();
+    const token = $("token").value;
+    if (!token) return setMsg("Enter the dashboard token.", "r");
+    const body = {};
+    for (const f of LIMIT_FIELDS) {
+      const raw = $("lim-" + f).value.trim();
+      if (raw === "") { body[f] = null; continue; }
+      if (!Number.isFinite(Number(raw))) return setMsg(f + " must be a number.", "r");
+      body[f] = Number(raw);
+    }
+    body.blocked = $("lim-blocked").checked;
+    const current = last ? last.limits : {};
+    const changed = Object.keys(body).filter(k => body[k] !== current[k]);
+    if (!changed.length) return setMsg("Nothing to save.", "d");
+    const send = Object.fromEntries(changed.map(k => [k, body[k]]));
+    setMsg("Saving…", "d");
+    try {
+      const r = await fetch("/api/limits", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify(send)});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setMsg("Saved " + Object.keys(j.changed.new).length + " value(s).", "g");
+        formLoaded = false;
+        refresh();
+      } else if (r.status === 401) setMsg("Token rejected.", "r");
+      else if (r.status === 503) setMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setMsg("Save failed: " + e.message, "r");
+    }
+  }
+
+  function setKillMsg(text, cls) { const m = $("killmsg"); m.textContent = text; m.className = cls || ""; }
+
+  async function postKill(url, reason, okText) {
+    const token = $("token").value;
+    if (!token) return setKillMsg("Enter the dashboard token in the header.", "r");
+    setKillMsg("Sending…", "d");
+    try {
+      const r = await fetch(url, {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({reason})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setKillMsg(okText, "g"); refresh(); }
+      else if (r.status === 401) setKillMsg("Token rejected.", "r");
+      else if (r.status === 503) setKillMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setKillMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setKillMsg("Failed: " + e.message, "r");
+    }
+  }
+
+  function tripKill() {
+    const reason = $("killreason").value.trim();
+    if (!reason) return setKillMsg("Enter a reason first.", "r");
+    if (!confirm("Trip the kill switch? New entries stop. Open positions are closed by the next paper run.")) return;
+    postKill("/api/kill/trip", reason, "Kill switch tripped.");
+  }
+
+  function resetKill() {
+    const reason = $("killreason").value.trim();
+    if (!reason) return setKillMsg("Enter a reason first.", "r");
+    if (!confirm("Reset the kill switch? New entries can start again.")) return;
+    postKill("/api/kill/reset", reason, "Kill switch reset.");
+  }
+
+  $("killtrip").onclick = tripKill;
+  $("killreset").onclick = resetKill;
+  $("headkill").onclick = () => { $("killreason").scrollIntoView({block: "center"}); $("killreason").focus(); };
+
+  // ---- Trade setup (reads and writes /api/setup) ----
+  function setSetupMsg(text, cls) { const m = $("setupmsg"); m.textContent = text; m.className = cls || ""; }
+
+  function fillSetup(s) {
+    $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
+    $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
+    const sel = $("su-strategy");
+    const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
+    sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
+    sel.value = s.strategy || "";
+  }
+
+  async function loadSetup() {
+    try {
+      const r = await fetch("/api/setup", {cache: "no-store"});
+      if (r.ok) fillSetup(await r.json());
+    } catch (e) {
+      setSetupMsg("Could not load setup: " + e.message, "r");
+    }
+  }
+
+  async function saveSetup(ev) {
+    ev.preventDefault();
+    const token = $("token").value;
+    if (!token) return setSetupMsg("Enter the dashboard token in the header.", "r");
+    const pctVal = Number($("su-risk").value);
+    if (!Number.isFinite(pctVal) || pctVal <= 0 || pctVal > 5) return setSetupMsg("Risk per trade must be between 0 and 5 %.", "r");
+    const symbols = Number($("su-symbols").value);
+    if (!Number.isInteger(symbols) || symbols < 1 || symbols > 100) return setSetupMsg("Max symbols per portfolio must be a whole number 1-100.", "r");
+    const strategy = $("su-strategy").value;
+    if (!strategy) return setSetupMsg("Choose a strategy.", "r");
+    setSetupMsg("Saving…", "d");
+    try {
+      const r = await fetch("/api/setup", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        body: JSON.stringify({risk_per_trade: pctVal / 100, max_symbols_per_portfolio: symbols, strategy})});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { setSetupMsg("Saved.", "g"); loadSetup(); }
+      else if (r.status === 401) setSetupMsg("Token rejected.", "r");
+      else if (r.status === 503) setSetupMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else setSetupMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
+    } catch (e) {
+      setSetupMsg("Save failed: " + e.message, "r");
+    }
+  }
+
+  $("setupbtn").onclick = () => {
+    const panel = $("setup"), open = panel.hidden;
+    panel.hidden = !open;
+    $("setupbtn").setAttribute("aria-expanded", String(open));
+    if (open) loadSetup();
+  };
+  $("setupform").addEventListener("submit", saveSetup);
+  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
+  $("limitform").addEventListener("submit", saveLimits);
+
+  // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function paintNode(g, status, message) {
+    const cls = "stg st-" + status;
+    if (g.getAttribute("class") !== cls) g.setAttribute("class", cls); // same class = no animation restart
+    let t = g.querySelector("title");
+    if (!t) { t = document.createElementNS(SVG_NS, "title"); g.prepend(t); }
+    const label = g.getAttribute("data-label");
+    t.textContent = status === "ok" ? label + " · ok"
+      : label + " · " + (status === "err" ? "ERROR" : "WARNING") + " · " + message;
+  }
+  function setFlowNode(label, status, message) {
+    for (const g of document.querySelectorAll("#flowbox g.stg"))
+      if (g.getAttribute("data-label") === label) paintNode(g, status, message);
+  }
+  function paintFlow(flow) {
+    const nodes = flow || {}, issues = [];
+    let errs = 0, warns = 0;
+    for (const g of document.querySelectorAll("#flowbox g.stg")) {
+      const label = g.getAttribute("data-label"), n = nodes[label];
+      paintNode(g, n ? n.status : "ok", n ? n.message : "");
+      if (!n) continue;
+      if (n.status === "err") errs++; else warns++;
+      issues.push([label, n.status, n.message]);
+    }
+    issues.sort((a, b) => (a[1] === "err" ? 0 : 1) - (b[1] === "err" ? 0 : 1));
+    $("flowsum").textContent = errs || warns ? errs + " error · " + warns + " warning" : "all nodes ok";
+    $("flowsum").className = errs ? "r" : warns ? "a" : "g";
+    $("flowissues").replaceChildren(...issues.map(([label, st, msg]) => {
+      const li = document.createElement("li");
+      li.className = st === "err" ? "r" : "a";
+      li.textContent = label + " — " + (st === "err" ? "ERROR" : "WARNING") + ": " + msg;
+      return li;
+    }));
+  }
+
+  // ---- Flow popup: the real v5 diagram from quant_system_flow_v5.svg (window.FLOW_SVG) ----
+  $("flowbox").innerHTML = window.FLOW_SVG || "<p class='d'>Flow diagram not found: run scripts/ops/make_flow_svg.py.</p>";
+
+  const modal = $("flowmodal");
+  const openFlow = () => { modal.hidden = false; $("flowclose").focus(); };
+  const closeFlow = () => { modal.hidden = true; $("flowbtn").focus(); };
+  $("flowbtn").onclick = openFlow;
+  $("flowclose").onclick = closeFlow;
+  modal.addEventListener("click", e => { if (e.target === modal) closeFlow(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeFlow(); });
+
+  // ---- Clock (IST) ----
+  const clock = $("clock");
+  function tick() { clock.textContent = new Date().toLocaleTimeString("en-GB", {hour12: false, timeZone: "Asia/Kolkata"}) + " IST"; }
+  tick(); setInterval(tick, 1000);
+
+  loadSetup();
+  refresh();
+  setInterval(refresh, POLL_MS);
+</script>

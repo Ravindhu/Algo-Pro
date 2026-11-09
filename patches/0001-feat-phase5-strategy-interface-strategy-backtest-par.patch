@@ -1,0 +1,766 @@
+From 93bef2236a5670a92f09efec6382b5d8644745fa Mon Sep 17 00:00:00 2001
+From: Claude <claude@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 00:03:33 +0000
+Subject: [PATCH] feat(phase5): strategy interface, strategy backtest,
+ parameter search, advice-only loop
+
+- strategies/base.py: Strategy interface and weight validation (long-only, no look-ahead)
+- strategies/momentum.py: reference top-N positive momentum strategy
+- research/strategy_backtest.py: weights -> whole-share targets -> existing run_backtest
+- research/param_search.py: grid search selected on in-sample only; every trial logged
+  with per-period Sharpe; DSR on held-out with true trial count; PBO on in-sample matrix
+- feedback/strategy_loop.py: search result -> existing improvement_loop (advice only)
+- research/trial_log.py: record(sharpe=None) for failed trials (documented, previously rejected)
+- tests: 17 new tests in src/quant/tests/test_phase5_strategy_stack.py
+- docs: IMPLEMENTATION_PLAN_2026-11-08_STRATEGY_OPTIMIZER.md
+
+Quant suite: 391 passed, 27 failed (same HRP tests as baseline; Blue Engine not loadable here).
+---
+ ...TION_PLAN_2026-11-08_STRATEGY_OPTIMIZER.md |  54 ++++
+ src/quant/feedback/strategy_loop.py           |  22 ++
+ src/quant/research/param_search.py            | 130 ++++++++++
+ src/quant/research/strategy_backtest.py       |  78 ++++++
+ src/quant/research/trial_log.py               |   5 +-
+ src/quant/strategies/README.md                |  18 +-
+ src/quant/strategies/__init__.py              |   7 +-
+ src/quant/strategies/base.py                  |  53 ++++
+ src/quant/strategies/momentum.py              |  47 ++++
+ src/quant/tests/test_phase5_strategy_stack.py | 241 ++++++++++++++++++
+ 10 files changed, 643 insertions(+), 12 deletions(-)
+ create mode 100644 docs/IMPLEMENTATION_PLAN_2026-11-08_STRATEGY_OPTIMIZER.md
+ create mode 100644 src/quant/feedback/strategy_loop.py
+ create mode 100644 src/quant/research/param_search.py
+ create mode 100644 src/quant/research/strategy_backtest.py
+ create mode 100644 src/quant/strategies/base.py
+ create mode 100644 src/quant/strategies/momentum.py
+ create mode 100644 src/quant/tests/test_phase5_strategy_stack.py
+
+diff --git a/docs/IMPLEMENTATION_PLAN_2026-11-08_STRATEGY_OPTIMIZER.md b/docs/IMPLEMENTATION_PLAN_2026-11-08_STRATEGY_OPTIMIZER.md
+new file mode 100644
+index 0000000..56e8231
+--- /dev/null
++++ b/docs/IMPLEMENTATION_PLAN_2026-11-08_STRATEGY_OPTIMIZER.md
+@@ -0,0 +1,54 @@
++# Implementation plan: strategy, backtest, optimizer, feedback loop
++
++Date: 2026-11-08. Owner request: "Implement 4 steps" (strategy, backtesting, optimization, loop feedback).
++Scope of this change: `src/quant/` only. No Blue_engine edits. No live order path touched.
++
++## What already existed (checked in the code, not the older docs)
++
++| Step | Module | State before this change |
++|---|---|---|
++| Backtest engine | `research/backtest.py` | PHASE 1: target-based portfolio replay, next-open fills, costs via `research/costs.py` |
++| Trial log | `research/trial_log.py` | PHASE 1: append-only trial log for DSR |
++| Validation | `research/validation.py` | DSR and PBO helpers |
++| Feedback loop | `feedback/improvement_loop.py` | PHASE 4: advice-only challenger vs champion verdict, never promotes |
++| HRP optimizer | `portfolio/optimizer.py` | Still delegates to Blue. BLOCKED: decision 0009 open (owner choice A or B) |
++| Strategy | `strategies/` | Scaffold only (README + empty `__init__`) |
++
++## Phases
++
++- **Phase A (this doc):** inventory above. Done.
++- **Phase B, strategy interface:** `strategies/base.py`. A strategy sees only history up to the decision date and returns long-only target weights. Weights are validated (no NaN, no negatives, sum <= 1).
++- **Phase C, reference strategy:** `strategies/momentum.py`. Top-N positive momentum, equal weight 1/top_n (unfilled slots stay cash). Uses existing `models/factors.momentum`.
++- **Phase D, strategy backtest:** `research/strategy_backtest.py`. Converts weights to whole-share targets on each decision date using each date's own close, then calls the existing `run_backtest`. Sizing uses initial capital (no compounding). This is a stated limitation.
++- **Phase E, optimizer:** `research/param_search.py`. Grid search over strategy parameters. Parameters are chosen on the in-sample window only. Every trial is written to the trial log with per-period Sharpe (the unit DSR expects). The held-out window is used once, for the report. DSR on the held-out returns uses the true trial count from the log. PBO is computed on in-sample return matrices of the grid.
++- **Phase F, feedback:** `feedback/strategy_loop.py`. Turns a search result into a challenger metric dict and calls the existing `improvement_loop.evaluate_and_record`. Output is advice. Nothing promotes.
++- **Phase G, tests:** `src/quant/tests/test_phase5_strategy_stack.py`. Covers no look-ahead, fill timing, weight validation, momentum selection, backtest end to end, OOS-blind selection, trial counting, and loop advice-only behaviour.
++- **Phase H, verify and commit:** run the quant suite. Compare against baseline (374 passed, 27 failed, 13 skipped, 1 xfailed). The 27 failures are HRP tests that need Blue and must stay the only failures.
++
++## Rules applied
++
++- Every new module carries a `Status: PHASE n IMPLEMENTED` line (layout test).
++- No look-ahead: decisions use rows up to the decision date only. Fills occur at the next open (existing engine).
++- Selection never sees the held-out window.
++- Trial count is the full log count for the strategy, failed or not.
++- The feedback loop never calls `ModelRegistry.promote`.
++
++## Known limits (for the owner)
++
++1. Sizing uses initial capital, not marked-to-market equity.
++2. PBO uses only the current grid, while DSR uses the full logged trial count.
++3. HRP is not ported (decision 0009). The optimizer here is parameter search, not portfolio weights.
++4. Long-only. No short leg.
++
++## Work log
++
++- 2026-11-08: Phase A done. Plan written before code.
++- 2026-11-08: Phases B-F done. Files: strategies/base.py, strategies/momentum.py,
++  research/strategy_backtest.py, research/param_search.py, feedback/strategy_loop.py.
++  Changed one existing file: research/trial_log.py now accepts sharpe=None for failed trials
++  (it already documented that meaning; the code had required a float).
++- 2026-11-08: Phase G done. src/quant/tests/test_phase5_strategy_stack.py: 17 tests, all pass.
++- 2026-11-08: Phase H checks. Quant suite 391 passed, 27 failed, 13 skipped, 1 xfailed.
++  Baseline was 374 passed, 27 failed. The 27 failures are the same HRP tests (Blue Engine
++  cannot load in the sandbox). No new failures.
++- Open for owner: D1 (HRP option A or B, decision 0009). Phase 5 does not port HRP.
+diff --git a/src/quant/feedback/strategy_loop.py b/src/quant/feedback/strategy_loop.py
+new file mode 100644
+index 0000000..3a20043
+--- /dev/null
++++ b/src/quant/feedback/strategy_loop.py
+@@ -0,0 +1,22 @@
++"""Connect a strategy search to the advice-only improvement loop.
++
++Flow stage: Champion/challenger, Re-opt request
++Status: PHASE 5 IMPLEMENTED
++
++Takes the held-out result of ``grid_search`` as the challenger and asks
++``improvement_loop.evaluate_and_record`` for a verdict. The verdict is advice. This module never
++calls ``ModelRegistry.promote`` and never changes a strategy, a limit or a position.
++"""
++from __future__ import annotations
++
++from typing import Any, Dict, Optional
++
++from quant.feedback.improvement_loop import Comparison, evaluate_and_record
++from quant.research.param_search import SearchResult
++
++
++def review_search(result: SearchResult, champion_metrics: Optional[Dict[str, Any]] = None,
++                  audit: Optional[object] = None, **kwargs) -> Comparison:
++    """Judge the search's held-out result against the current champion's metrics."""
++    return evaluate_and_record(result.strategy_id, dict(champion_metrics or {}),
++                               result.challenger_metrics(), audit=audit, **kwargs)
+diff --git a/src/quant/research/param_search.py b/src/quant/research/param_search.py
+new file mode 100644
+index 0000000..cfd82ff
+--- /dev/null
++++ b/src/quant/research/param_search.py
+@@ -0,0 +1,130 @@
++"""Parameter grid search with honest selection, trial logging, DSR and PBO.
++
++Flow stage: Trial logger + DSR/PBO
++Status: PHASE 5 IMPLEMENTED
++
++Rules
++-----
++- The date range is cut in two: an in-sample window (first ``split_frac``) and a held-out window.
++- Every grid point is scored on the in-sample window ONLY. The held-out window is read once,
++  for the best in-sample point, after selection is finished.
++- Every grid point is written to the trial log with its per-period Sharpe (the unit that
++  ``deflated_sharpe`` expects). The log count is the true trial count, failures included.
++- DSR on the held-out returns uses that true count. PBO is computed on the in-sample return
++  matrix of this grid (rows = dates, columns = grid points).
++"""
++from __future__ import annotations
++
++import itertools
++from dataclasses import dataclass, field
++from typing import Any, Dict, List, Optional, Sequence, Type
++
++import numpy as np
++import pandas as pd
++
++from quant.research.costs import CostModel
++from quant.research.perf_metrics import sharpe
++from quant.research.trial_log import TrialLog
++from quant.research.validation import deflated_sharpe, prob_backtest_overfit
++from quant.research.strategy_backtest import run_strategy_backtest
++from quant.strategies.base import Strategy
++
++PBO_BLOCKS = 8  # must be even; PBO needs T >= PBO_BLOCKS
++
++
++@dataclass
++class SearchResult:
++    strategy_id: str
++    best_params: Dict[str, Any]
++    in_sample_sharpe: Optional[float]        # annualised, for reporting
++    oos_sharpe: Optional[float]              # annualised, held-out window
++    oos_dsr: float                           # deflated Sharpe on held-out returns
++    n_trials: int                            # true logged trial count for this strategy
++    trial_sharpe_var: float                  # variance of per-period trial Sharpes
++    pbo: Optional[float]                     # None when the grid or window is too small
++    n_oos: int
++    oos_returns: pd.Series
++    trial_table: List[Dict[str, Any]] = field(default_factory=list)
++
++    def challenger_metrics(self) -> Dict[str, Any]:
++        """Metric dict in the shape ``feedback.improvement_loop.compare`` reads."""
++        return {"sharpe": self.oos_sharpe, "dsr": self.oos_dsr, "pbo": self.pbo, "n_oos": self.n_oos}
++
++
++def _periodic_sharpe(r: np.ndarray) -> Optional[float]:
++    if len(r) < 2 or np.std(r, ddof=1) == 0:
++        return None
++    return float(np.mean(r) / np.std(r, ddof=1))
++
++
++def grid_search(strategy_cls: Type[Strategy], param_grid: Dict[str, Sequence[Any]],
++                bars: pd.DataFrame, *, strategy_id: str, trial_log: TrialLog,
++                split_frac: float = 0.7, capital: float = 1_000_000.0,
++                product: str = "delivery", cost: Optional[CostModel] = None) -> SearchResult:
++    if not 0.0 < split_frac < 1.0:
++        raise ValueError("split_frac must be between 0 and 1")
++    if not param_grid:
++        raise ValueError("param_grid is empty")
++
++    dates = sorted(pd.unique(bars["date"]))
++    k = int(len(dates) * split_frac)
++    train_dates, test_dates = dates[:k], dates[k:]
++    if len(train_dates) < 3 or len(test_dates) < 3:
++        raise ValueError("not enough dates for an in-sample and a held-out window")
++    train_idx = pd.Index(train_dates)
++    test_idx = pd.Index(test_dates)
++
++    keys = sorted(param_grid)
++    combos = [dict(zip(keys, values)) for values in itertools.product(*(param_grid[k_] for k_ in keys))]
++
++    # --- Phase 1: score every grid point on the in-sample window only -----------------
++    runs = {}
++    trial_rows: List[Dict[str, Any]] = []
++    train_cols: Dict[int, pd.Series] = {}
++    for n, params in enumerate(combos):
++        run = run_strategy_backtest(strategy_cls(**params), bars, capital=capital,
++                                    product=product, cost=cost)
++        runs[n] = run
++        in_ret = run.returns.reindex(train_idx).dropna()
++        periodic = _periodic_sharpe(in_ret.to_numpy())
++        # Log before the next point so a crash later still leaves the trial on record.
++        trial_log.record(strategy_id, params, sharpe=periodic, n_obs=int(len(in_ret)))
++        trial_rows.append({"params": params, "in_sample_sharpe_periodic": periodic})
++        train_cols[n] = in_ret.fillna(0.0)
++
++    # --- Phase 2: choose on in-sample only (ties go to the first grid point) ----------
++    scored = [(n, row["in_sample_sharpe_periodic"]) for n, row in enumerate(trial_rows)
++              if row["in_sample_sharpe_periodic"] is not None]
++    if not scored:
++        raise ValueError("no grid point has a usable in-sample Sharpe")
++    best_n = max(scored, key=lambda t: t[1])[0]
++    best_params = combos[best_n]
++
++    # --- Phase 3: held-out window, read once for the chosen point ----------------------
++    best_run = runs[best_n]
++    oos_returns = best_run.returns.reindex(test_idx).dropna()
++    n_trials = trial_log.count(strategy_id)
++    trial_var = trial_log.sharpe_variance(strategy_id)
++    oos_sharpe = sharpe(oos_returns.tolist(), periods_per_year=252.0) if len(oos_returns) > 1 else None
++    oos_dsr = deflated_sharpe(oos_returns.to_numpy(), n_trials, trial_var) if len(oos_returns) > 2 else 0.0
++
++    # --- PBO on the in-sample matrix of this grid -------------------------------------
++    matrix = pd.DataFrame(train_cols).fillna(0.0).to_numpy()
++    pbo = None
++    if matrix.shape[1] >= 2 and matrix.shape[0] >= PBO_BLOCKS:
++        pbo = prob_backtest_overfit(matrix, n_blocks=PBO_BLOCKS)
++
++    return SearchResult(
++        strategy_id=strategy_id,
++        best_params=best_params,
++        in_sample_sharpe=sharpe(train_cols[best_n].tolist(), periods_per_year=252.0)
++        if len(train_cols[best_n]) > 1 else None,
++        oos_sharpe=oos_sharpe,
++        oos_dsr=float(oos_dsr),
++        n_trials=int(n_trials),
++        trial_sharpe_var=float(trial_var),
++        pbo=pbo,
++        n_oos=int(len(oos_returns)),
++        oos_returns=oos_returns,
++        trial_table=trial_rows,
++    )
+diff --git a/src/quant/research/strategy_backtest.py b/src/quant/research/strategy_backtest.py
+new file mode 100644
+index 0000000..a94365f
+--- /dev/null
++++ b/src/quant/research/strategy_backtest.py
+@@ -0,0 +1,78 @@
++"""Run a Strategy through the existing portfolio backtest.
++
++Flow stage: Historical bars, Replay simulator
++Status: PHASE 5 IMPLEMENTED
++
++How it works
++------------
++1. On each decision date d, the strategy sees only closes up to and including d.
++2. Its weights become whole-share targets using close(d) and the INITIAL capital
++   (no compounding; stated limitation).
++3. ``run_backtest`` fills those targets at the next open, with costs. Nothing new is
++   simulated here, so the fill rules stay in one place.
++
++Limitation: sizing uses initial capital, not marked-to-market equity.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Dict, Optional
++
++import numpy as np
++import pandas as pd
++
++from quant.research.backtest import BacktestResult, run_backtest
++from quant.research.costs import CostModel
++from quant.research.perf_metrics import max_drawdown, sharpe
++from quant.strategies.base import Strategy, check_weights
++
++
++@dataclass
++class StrategyRun:
++    strategy_name: str
++    params: Dict[str, object]
++    result: BacktestResult
++    returns: pd.Series                       # per-period equity returns, indexed by date
++    metrics: Dict[str, Optional[float]] = field(default_factory=dict)
++
++
++def build_targets(strategy: Strategy, bars: pd.DataFrame, capital: float) -> pd.DataFrame:
++    """Targets for every decision date, using only history up to that date.
++
++    Returns rows of (date, symbol, target_qty). A symbol with no close on a date gets no row,
++    so the previous target carries forward (same rule as ``run_backtest``).
++    """
++    close = bars.pivot(index="date", columns="symbol", values="close").sort_index()
++    rows = []
++    for i, d in enumerate(close.index):
++        history = close.iloc[: i + 1]
++        weights = check_weights(strategy.target_weights(history))
++        w = weights.reindex(close.columns).fillna(0.0).to_numpy(dtype=float)
++        px = close.loc[d].to_numpy(dtype=float)
++        ok = ~np.isnan(px)
++        qty = np.zeros(len(px))
++        qty[ok] = np.floor(w[ok] * capital / px[ok])
++        for sym, q, good in zip(close.columns, qty, ok):
++            if good:
++                rows.append({"date": d, "symbol": sym, "target_qty": float(q)})
++    return pd.DataFrame(rows, columns=["date", "symbol", "target_qty"])
++
++
++def run_strategy_backtest(strategy: Strategy, bars: pd.DataFrame, *, capital: float = 1_000_000.0,
++                          product: str = "delivery", cost: Optional[CostModel] = None) -> StrategyRun:
++    """Backtest ``strategy`` on ``bars`` (columns: date, symbol, open, close)."""
++    targets = build_targets(strategy, bars, capital)
++    result = run_backtest(bars, targets, cost=cost, capital=capital, product=product)
++    returns = result.equity.pct_change().dropna()
++    run = StrategyRun(strategy_name=strategy.name, params=strategy.get_params(),
++                      result=result, returns=returns)
++    run.metrics = {
++        "sharpe": sharpe(returns.tolist(), periods_per_year=252.0),
++        "max_drawdown": max_drawdown(result.equity.tolist()),
++        "total_return": float(result.equity.iloc[-1] / capital - 1.0),
++        "total_cost": float(result.total_cost),
++        "n_trades": int(len(result.trades)),
++        "missed_fills": int(result.missed_fills),
++        "n_obs": int(len(returns)),
++    }
++    return run
+diff --git a/src/quant/research/trial_log.py b/src/quant/research/trial_log.py
+index 3aa6077..c7c3f57 100644
+--- a/src/quant/research/trial_log.py
++++ b/src/quant/research/trial_log.py
+@@ -19,12 +19,13 @@ class TrialLog:
+         self.path = Path(path)
+         self.path.parent.mkdir(parents=True, exist_ok=True)
+ 
+-    def record(self, strategy_id: str, params: Dict[str, Any], sharpe: float, n_obs: int) -> None:
++    def record(self, strategy_id: str, params: Dict[str, Any], sharpe: Optional[float], n_obs: int) -> None:
++        """Append one trial. ``sharpe=None`` marks a failed trial: it counts, but not in the variance."""
+         row = {
+             "ts": datetime.now(timezone.utc).isoformat(),
+             "strategy_id": strategy_id,
+             "params": params,
+-            "sharpe": float(sharpe),
++            "sharpe": None if sharpe is None else float(sharpe),
+             "n_obs": int(n_obs),
+         }
+         with self.path.open("a", encoding="utf-8") as fh:
+diff --git a/src/quant/strategies/README.md b/src/quant/strategies/README.md
+index 9757089..21a5a1f 100644
+--- a/src/quant/strategies/README.md
++++ b/src/quant/strategies/README.md
+@@ -1,10 +1,14 @@
+ # strategies
+ 
+-Flow stage: Execution · strategy (parameter bounds only; no sizing or risk changes).
+-Status: SCAFFOLD. No strategy class is implemented yet.
++Flow stage: Execution · strategy (weights only; no sizing or risk changes).
++Status: PHASE 5 IMPLEMENTED (interface + one reference strategy).
+ 
+-Plan:
+-- One class per strategy, registered by name.
+-- Parameters load from `config/strategies/<name>.yaml`.
+-- Strategy code never changes risk limits or position size (AGENTS.md agent roster).
+-- First example config: `config/strategies/ocl_keylevel.yaml` (not yet wired).
++What is here:
++- `base.py`: `Strategy` interface. Sees history up to the decision date only. Returns long-only weights.
++  `check_weights` rejects NaN, negative weights and totals above 1.
++- `momentum.py`: `MomentumStrategy`, top-N positive momentum, equal weight. Reference only.
++
++Not here yet: `config/strategies/<name>.yaml` loading and the `ocl_keylevel` strategy.
++Strategy code never changes risk limits or position size (AGENTS.md agent roster).
++Run it with `research/strategy_backtest.py`, search it with `research/param_search.py`,
++and review the result with `feedback/strategy_loop.py` (advice only).
+diff --git a/src/quant/strategies/__init__.py b/src/quant/strategies/__init__.py
+index 7b6ccc3..a45fe8a 100644
+--- a/src/quant/strategies/__init__.py
++++ b/src/quant/strategies/__init__.py
+@@ -1,4 +1,5 @@
+-"""Strategy classes, registered by name. Scaffold only: no strategy logic yet.
++"""Strategies: interface and reference implementations."""
++from quant.strategies.base import Strategy, check_weights
++from quant.strategies.momentum import MomentumStrategy
+ 
+-Strategy params come from config/strategies/<name>.yaml.
+-"""
++__all__ = ["Strategy", "check_weights", "MomentumStrategy"]
+diff --git a/src/quant/strategies/base.py b/src/quant/strategies/base.py
+new file mode 100644
+index 0000000..e077603
+--- /dev/null
++++ b/src/quant/strategies/base.py
+@@ -0,0 +1,53 @@
++"""Strategy interface: turn price history into long-only target weights.
++
++Flow stage: Strategy
++Status: PHASE 5 IMPLEMENTED
++
++Rules
++-----
++- A strategy receives only the rows up to and including its decision date. It never sees
++  the future, so the backtest cannot leak it (no look-ahead).
++- It returns weights, not quantities. Sizing into whole shares lives in
++  ``research/strategy_backtest.py``.
++- A strategy never changes risk limits or position size beyond its own weights (AGENTS.md).
++"""
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from typing import Dict
++
++import numpy as np
++import pandas as pd
++
++
++class Strategy(ABC):
++    """Base class. Subclasses set ``name`` and implement ``target_weights``."""
++
++    name: str = "strategy"
++
++    @abstractmethod
++    def get_params(self) -> Dict[str, object]:
++        """Parameters as a plain dict, written to the trial log and audit."""
++
++    @abstractmethod
++    def target_weights(self, close_history: pd.DataFrame) -> pd.Series:
++        """Weights for the decision date (the last row of ``close_history``).
++
++        ``close_history``: rows = dates up to and including the decision date, columns = symbols.
++        Return a Series indexed by symbol. Symbols not listed get weight 0.
++        """
++
++
++def check_weights(weights: pd.Series, tol: float = 1e-9) -> pd.Series:
++    """Validate a weight vector. Raises ValueError on NaN, negative weight, or total above 1."""
++    w = pd.Series(weights, dtype=float)
++    if w.isna().any():
++        raise ValueError("weights contain NaN")
++    if (w < 0).any():
++        raise ValueError("long-only strategy returned a negative weight")
++    total = float(w.sum())
++    if total > 1.0 + tol:
++        raise ValueError(f"weights sum to {total:.6f}, above 1")
++    if not np.isfinite(total):
++        raise ValueError("weights are not finite")
++    return w
+diff --git a/src/quant/strategies/momentum.py b/src/quant/strategies/momentum.py
+new file mode 100644
+index 0000000..05999d8
+--- /dev/null
++++ b/src/quant/strategies/momentum.py
+@@ -0,0 +1,47 @@
++"""Reference strategy: top-N positive momentum, equal weight.
++
++Flow stage: Strategy
++Status: PHASE 5 IMPLEMENTED
++
++Rule: on each decision date, rank symbols by total return over ``lookback`` bars that ends
++``shift`` bars ago (uses ``models/factors.momentum``, which only reads the past). Take the top
++``top_n`` with positive momentum. Each gets weight 1/top_n, so unfilled slots stay in cash.
++"""
++from __future__ import annotations
++
++from typing import Dict
++
++import pandas as pd
++
++from quant.models.factors import momentum
++from quant.strategies.base import Strategy
++
++
++class MomentumStrategy(Strategy):
++    name = "momentum_topn"
++
++    def __init__(self, lookback: int = 126, top_n: int = 5, shift: int = 1) -> None:
++        if int(lookback) < 2:
++            raise ValueError("lookback must be at least 2 bars")
++        if int(top_n) < 1:
++            raise ValueError("top_n must be at least 1")
++        if int(shift) < 0:
++            raise ValueError("shift must be >= 0 (negative would read the future)")
++        self.lookback = int(lookback)
++        self.top_n = int(top_n)
++        self.shift = int(shift)
++
++    def get_params(self) -> Dict[str, object]:
++        return {"lookback": self.lookback, "top_n": self.top_n, "shift": self.shift}
++
++    def target_weights(self, close_history: pd.DataFrame) -> pd.Series:
++        if close_history.empty:
++            return pd.Series(dtype=float)
++        score = momentum(close_history, window=self.lookback, shift=self.shift).iloc[-1]
++        score = score.dropna()
++        score = score[score > 0].sort_values(ascending=False).head(self.top_n)
++        weights = pd.Series(0.0, index=close_history.columns, dtype=float)
++        if score.empty:
++            return weights
++        weights.loc[score.index] = 1.0 / self.top_n
++        return weights
+diff --git a/src/quant/tests/test_phase5_strategy_stack.py b/src/quant/tests/test_phase5_strategy_stack.py
+new file mode 100644
+index 0000000..11f04e9
+--- /dev/null
++++ b/src/quant/tests/test_phase5_strategy_stack.py
+@@ -0,0 +1,241 @@
++"""Phase 5 tests: strategy interface, strategy backtest, parameter search, advice-only loop.
++
++Hand-checked where the numbers are small enough to check by hand. The rest are property tests
++(no look-ahead, fill timing, selection blind to the held-out window, honest trial counts).
++"""
++from __future__ import annotations
++
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++import pytest
++
++from quant.feedback.improvement_loop import compare
++from quant.feedback.strategy_loop import review_search
++from quant.research.param_search import SearchResult, grid_search
++from quant.research.strategy_backtest import build_targets, run_strategy_backtest
++from quant.research.trial_log import TrialLog
++from quant.strategies.base import check_weights
++from quant.strategies.momentum import MomentumStrategy
++
++CAPITAL = 1_000_000.0
++
++
++def make_bars(n_days: int = 300, drifts=(0.002, 0.0, -0.001, 0.001, 0.0, 0.003), seed: int = 1) -> pd.DataFrame:
++    rng = np.random.default_rng(seed)
++    dates = pd.bdate_range("2024-01-01", periods=n_days)
++    rows = []
++    for j, drift in enumerate(drifts):
++        close = 100 * np.exp(np.cumsum(drift + rng.normal(0, 0.01, n_days)))
++        prev = np.concatenate([[close[0]], close[:-1]])
++        opened = prev * (1 + rng.normal(0, 0.002, n_days))
++        for d, o, c in zip(dates, opened, close):
++            rows.append({"date": d, "symbol": f"S{j}", "open": o, "close": c})
++    return pd.DataFrame(rows)
++
++
++# ---------------------------------------------------------------- weights (hand-checked)
++
++def test_check_weights_accepts_long_only_and_rejects_bad_vectors():
++    ok = check_weights(pd.Series({"A": 0.5, "B": 0.5}))
++    assert ok.sum() == pytest.approx(1.0)
++    with pytest.raises(ValueError, match="NaN"):
++        check_weights(pd.Series({"A": np.nan}))
++    with pytest.raises(ValueError, match="negative"):
++        check_weights(pd.Series({"A": -0.1, "B": 0.5}))
++    with pytest.raises(ValueError, match="above 1"):
++        check_weights(pd.Series({"A": 0.7, "B": 0.7}))
++
++
++def test_momentum_rejects_bad_parameters():
++    with pytest.raises(ValueError):
++        MomentumStrategy(lookback=1)
++    with pytest.raises(ValueError):
++        MomentumStrategy(top_n=0)
++    with pytest.raises(ValueError):
++        MomentumStrategy(shift=-1)
++
++
++# ---------------------------------------------------------------- momentum (hand-checked)
++
++def test_momentum_picks_top_n_positive_and_equal_weights():
++    # lookback=2, shift=0: momentum on the last row = close[-1] / close[-3] - 1.
++    close = pd.DataFrame({
++        "A": [100, 100, 110, 120, 130],   # last/3-back = 130/110-1 = 0.1818
++        "B": [100, 100, 100, 100, 100],   # 0 -> not positive, excluded
++        "C": [100, 100, 99, 98, 97],      # negative, excluded
++        "D": [100, 100, 101, 102, 103],   # 103/101-1 = 0.0198
++    })
++    w = MomentumStrategy(lookback=2, top_n=2, shift=0).target_weights(close)
++    assert w["A"] == pytest.approx(0.5)
++    assert w["D"] == pytest.approx(0.5)
++    assert w["B"] == 0.0 and w["C"] == 0.0
++
++
++def test_momentum_all_negative_means_all_cash():
++    close = pd.DataFrame({"A": [100, 99, 98, 97], "B": [100, 98, 96, 94]})
++    w = MomentumStrategy(lookback=2, top_n=2, shift=0).target_weights(close)
++    assert float(w.sum()) == 0.0
++
++
++def test_targets_are_whole_shares_from_initial_capital():
++    bars = make_bars(n_days=60)
++    targets = build_targets(MomentumStrategy(lookback=10, top_n=2), bars, CAPITAL)
++    assert (targets["target_qty"] % 1 == 0).all()
++    assert (targets["target_qty"] >= 0).all()
++
++
++# ---------------------------------------------------------------- no look-ahead
++
++def test_targets_do_not_depend_on_future_prices():
++    bars = make_bars(n_days=260)
++    dates = sorted(bars["date"].unique())
++    cut = dates[150]
++    perturbed = bars.copy()
++    future = perturbed["date"] > cut
++    rng = np.random.default_rng(7)
++    perturbed.loc[future, "close"] *= rng.uniform(0.5, 1.5, future.sum())
++    perturbed.loc[future, "open"] *= rng.uniform(0.5, 1.5, future.sum())
++    strat = MomentumStrategy(lookback=20, top_n=2)
++    t_full = build_targets(strat, bars, CAPITAL)
++    t_pert = build_targets(strat, perturbed, CAPITAL)
++    before = lambda t: t[t["date"] <= cut].reset_index(drop=True)  # noqa: E731
++    pd.testing.assert_frame_equal(before(t_full), before(t_pert))
++
++
++def test_fills_happen_at_next_open_not_decision_close():
++    bars = make_bars(n_days=120)
++    run = run_strategy_backtest(MomentumStrategy(lookback=10, top_n=2), bars, capital=CAPITAL)
++    trades = run.result.trades
++    assert len(trades) > 0
++    first_decision = sorted(bars["date"].unique())[0]
++    assert (trades["date"] > first_decision).all()
++    opens = bars.set_index(["date", "symbol"])["open"]
++    for _, t in trades.iterrows():
++        assert t["price"] == pytest.approx(opens.loc[(t["date"], t["symbol"])])
++
++
++def test_backtest_reports_metrics_and_costs():
++    bars = make_bars(n_days=200)
++    run = run_strategy_backtest(MomentumStrategy(lookback=15, top_n=2), bars, capital=CAPITAL)
++    m = run.metrics
++    for key in ("sharpe", "max_drawdown", "total_return", "total_cost", "n_trades", "missed_fills", "n_obs"):
++        assert key in m
++    assert m["n_trades"] == len(run.result.trades) > 0
++    assert m["total_cost"] > 0
++    assert len(run.result.equity) == len(sorted(bars["date"].unique()))
++
++
++# ---------------------------------------------------------------- trial log
++
++def test_failed_trial_counts_but_not_in_variance(tmp_path: Path):
++    log = TrialLog(tmp_path / "trials.jsonl")
++    log.record("s1", {"a": 1}, sharpe=0.1, n_obs=50)
++    log.record("s1", {"a": 2}, sharpe=0.3, n_obs=50)
++    log.record("s1", {"a": 3}, sharpe=None, n_obs=0)   # failed trial
++    assert log.count("s1") == 3
++    assert log.sharpe_variance("s1") == pytest.approx(np.var([0.1, 0.3], ddof=1))
++
++
++# ---------------------------------------------------------------- parameter search
++
++GRID = {"lookback": [10, 20], "top_n": [1, 2]}
++
++
++def _in_sample_best(bars: pd.DataFrame, split_frac: float = 0.7):
++    dates = sorted(bars["date"].unique())
++    train_idx = pd.Index(dates[: int(len(dates) * split_frac)])
++    best, best_val = None, None
++    for lb in GRID["lookback"]:
++        for tn in GRID["top_n"]:
++            r = run_strategy_backtest(MomentumStrategy(lookback=lb, top_n=tn), bars, capital=CAPITAL)
++            x = r.returns.reindex(train_idx).dropna().to_numpy()
++            val = np.mean(x) / np.std(x, ddof=1)
++            if best_val is None or val > best_val:
++                best, best_val = {"lookback": lb, "top_n": tn}, val
++    return best
++
++
++def test_search_selects_on_in_sample_only(tmp_path: Path):
++    bars = make_bars(n_days=300)
++    log = TrialLog(tmp_path / "t.jsonl")
++    res = grid_search(MomentumStrategy, GRID, bars, strategy_id="mom", trial_log=log)
++    assert res.best_params == _in_sample_best(bars)
++
++
++def test_held_out_window_cannot_change_the_choice(tmp_path: Path):
++    bars = make_bars(n_days=300)
++    dates = sorted(bars["date"].unique())
++    cut = dates[int(len(dates) * 0.7)]
++    wrecked = bars.copy()
++    mask = wrecked["date"] >= cut
++    wrecked.loc[mask, "close"] = wrecked.loc[mask, "close"] * np.linspace(1.0, 0.2, mask.sum())
++    a = grid_search(MomentumStrategy, GRID, bars, strategy_id="a", trial_log=TrialLog(tmp_path / "a.jsonl"))
++    b = grid_search(MomentumStrategy, GRID, wrecked, strategy_id="b", trial_log=TrialLog(tmp_path / "b.jsonl"))
++    assert a.best_params == b.best_params
++
++
++def test_trial_count_is_the_full_logged_count(tmp_path: Path):
++    bars = make_bars(n_days=300)
++    log = TrialLog(tmp_path / "t.jsonl")
++    first = grid_search(MomentumStrategy, GRID, bars, strategy_id="mom", trial_log=log)
++    assert first.n_trials == 4
++    second = grid_search(MomentumStrategy, GRID, bars, strategy_id="mom", trial_log=log)
++    assert second.n_trials == 8
++    assert len(log.trials("mom")) == 8
++
++
++def test_search_outputs_are_bounded(tmp_path: Path):
++    bars = make_bars(n_days=300)
++    res = grid_search(MomentumStrategy, GRID, bars, strategy_id="mom", trial_log=TrialLog(tmp_path / "t.jsonl"))
++    assert 0.0 <= res.oos_dsr <= 1.0
++    assert res.pbo is not None and 0.0 <= res.pbo <= 1.0
++    assert res.n_oos == len(res.oos_returns) > 0
++
++
++def test_search_rejects_bad_inputs(tmp_path: Path):
++    bars = make_bars(n_days=300)
++    log = TrialLog(tmp_path / "t.jsonl")
++    with pytest.raises(ValueError):
++        grid_search(MomentumStrategy, {}, bars, strategy_id="x", trial_log=log)
++    with pytest.raises(ValueError):
++        grid_search(MomentumStrategy, GRID, bars, strategy_id="x", trial_log=log, split_frac=1.0)
++
++
++# ---------------------------------------------------------------- feedback loop (advice only)
++
++class _FakeAudit:
++    def __init__(self):
++        self.rows = []
++
++    def append(self, kind, payload):
++        self.rows.append((kind, payload))
++
++
++def _result(oos_sharpe, dsr, pbo, n_oos) -> SearchResult:
++    return SearchResult(strategy_id="mom", best_params={}, in_sample_sharpe=1.0, oos_sharpe=oos_sharpe,
++                        oos_dsr=dsr, n_trials=4, trial_sharpe_var=0.01, pbo=pbo, n_oos=n_oos,
++                        oos_returns=pd.Series(dtype=float))
++
++
++def test_loop_recommends_but_never_promotes():
++    audit = _FakeAudit()
++    verdict = review_search(_result(2.0, 0.9, 0.1, 300),
++                            {"sharpe": 0.5, "dsr": 0.4}, audit=audit)
++    assert verdict.promote_recommended is True
++    assert verdict.to_dict()["advice_only"] is True
++    assert any("advice only" in r for r in verdict.reasons)
++    assert [k for k, _ in audit.rows] == ["challenger_compared"]
++
++
++def test_loop_rejects_thin_evidence_and_overfit_candidates():
++    assert review_search(_result(2.0, 0.9, 0.1, 50), {"sharpe": 0.5, "dsr": 0.4}).verdict == "insufficient"
++    assert review_search(_result(2.0, 0.9, 0.8, 300), {"sharpe": 0.5, "dsr": 0.4}).verdict == "keep_champion"
++
++
++def test_loop_module_never_calls_promote():
++    src = (Path(__file__).resolve().parents[1] / "feedback" / "strategy_loop.py").read_text()
++    assert "promote(" not in src
++    # the shared compare() is the same judge used elsewhere
++    assert compare({"sharpe": 0.5, "dsr": 0.4}, {"sharpe": 2.0, "dsr": 0.9, "pbo": 0.1, "n_oos": 300}).promote_recommended
+-- 
+2.43.0
+

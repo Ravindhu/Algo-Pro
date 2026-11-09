@@ -1,0 +1,28 @@
+# Package metadata and pytest settings. Layout rule: AGENTS.md "Project layout".
+# Code lives in src/quant/ (package "quant") and Blue_engine/ (existing engine, wrapped).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "algo-pro"
+version = "0.1.0"
+description = "Quant trading system for NSE/BSE. Paper and disabled live only. See AGENTS.md."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+# `quant.tests` is the quant suite and ships with the package on purpose: the
+# tests resolve the repo root with parents[3], so they also run from an installed
+# copy. Excluding them would silently drop 380 tests from an installed build.
+include = ["quant*"]
+exclude = ["quant.openalgo_platform*"]  # vendored upstream platform, not an installable package (decision 0013)
+
+[tool.pytest.ini_options]
+# The one place the suites are named. AGENTS.md, the CI workflow and the audits
+# quote this list rather than keeping copies.
+#   tests/unit      -> system-level and Blue-backed tests (the order-path rule, dashboards, ops)
+#   src/quant/tests -> the quant suite, colocated with the package it tests
+#   tests/parity    -> local vs Blue_engine numeric parity
+#   Blue_engine/tests -> the existing engine's own suite
+testpaths = ["tests/unit", "src/quant/tests", "tests/parity", "Blue_engine/tests"]

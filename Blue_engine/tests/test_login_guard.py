@@ -144,11 +144,35 @@ def test_the_cli_script_calls_the_guard():
     assert "EXIT_COOLDOWN" in text
 
 
-def test_the_dashboard_button_is_gated():
-    text = (ROOT / "Blue_engine" / "dashboard" / "ui" / "service_control.py"
-            ).read_text(encoding="utf-8")
-    assert "login_guard" in text, (
-        "the LOGIN button must not be a path around the guard")
+def test_no_dashboard_can_login_around_the_guard():
+    """No dashboard may expose a broker-login path that skips ``login_guard``.
+
+    HISTORY: this test used to read
+    ``Blue_engine/dashboard/ui/service_control.py`` and assert that the LOGIN
+    button called ``login_guard``. That terminal console was deleted on
+    2026-11-05 (commit 1d72420, "remove Blue terminal console; FastAPI dashboard
+    replaces it"), so the test failed with FileNotFoundError while the property
+    it was protecting still held -- the new dashboard simply has no login path.
+
+    The invariant is restated so it survives the next dashboard rewrite: scan
+    every dashboard module. Any module that can start a broker login must also
+    reference the guard. A module with no login path passes trivially, which is
+    the correct outcome (nothing to bypass).
+    """
+    dashboards = [ROOT / "dashboard", ROOT / "Blue_engine" / "dashboard"]
+    login_markers = ("launch_login", "run_scheduled_login", "BrokerAuth(")
+    checked = 0
+    for folder in dashboards:
+        if not folder.is_dir():
+            continue
+        for path in folder.rglob("*.py"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            checked += 1
+            if any(marker in text for marker in login_markers):
+                assert "login_guard" in text, (
+                    f"{path.relative_to(ROOT)} can log in but never calls "
+                    "login_guard(); that is a path around the rate cap")
+    assert checked > 0, "no dashboard module was found - the scan is vacuous"
 
 
 def test_the_shipped_task_retries_once_not_three_times():

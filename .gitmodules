@@ -1,0 +1,3 @@
+[submodule "Temp/openalgo-python-library"]
+	path = Temp/openalgo-python-library
+	url = https://github.com/marketcalls/openalgo-python-library

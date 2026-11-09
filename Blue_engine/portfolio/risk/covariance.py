@@ -414,7 +414,8 @@ def _jacobi_eig(m: List[List[float]], *, iters: int = 100
                     vkp, vkq = v[k][p], v[k][q]
                     v[k][p] = c * vkp - s * vkq
                     v[k][q] = s * vkp + c * vkq
-    return [a[i][i] for i in range(n)], v
+    # v holds eigenvectors as COLUMNS (rotations update columns). Return rows, as documented.
+    return [a[i][i] for i in range(n)], [list(row) for row in zip(*v)]
 
 
 def cov_to_dicts(cov: Optional[Sequence[Sequence[float]]],

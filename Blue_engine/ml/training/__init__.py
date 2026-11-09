@@ -108,7 +108,7 @@ class TrainRun:
         self.candidate_names = candidates
         #: The label kind. "binary" is the sign of the forward return (the
         #: target measured to be unlearnable on NIFTY — see
-        #: docs/ML_SKILL_DIAGNOSIS.md). "vol_ratio" predicts whether forward
+        #: docs/audits/ML_SKILL_DIAGNOSIS.md). "vol_ratio" predicts whether forward
         #: realised volatility exceeds its trailing norm, which is materially
         #: more forecastable. "triple_barrier_cost" nets the barriers of the
         #: round-trip cost.
@@ -355,7 +355,7 @@ def run_training(symbol: str, *, sources: Optional[List[str]] = None,
     Args:
         target: label kind — "binary" (sign of the forward return), "vol_ratio"
             (forward realised vol vs its trailing norm) or "triple_barrier_cost".
-            See ml/features/labels.py:LABEL_KINDS and docs/ML_SKILL_DIAGNOSIS.md
+            See ml/features/labels.py:LABEL_KINDS and docs/audits/ML_SKILL_DIAGNOSIS.md
             for which of these has actually shown signal on real data.
         cross_section: when set, train across these instruments rather than on
             one time series. The label becomes the member's rank against its

@@ -257,7 +257,8 @@ def deflated_sharpe(observed_sharpe: float, *,
                     n_trials: int,
                     n_obs: int,
                     skew: float = 0.0,
-                    kurtosis: float = 3.0) -> Dict[str, Any]:
+                    kurtosis: float = 3.0,
+                    trial_sharpe_var: Optional[float] = None) -> Dict[str, Any]:
     """Bailey & López de Prado's deflated Sharpe — correct for the search.
 
     THE PROBLEM: if you test 100 strategies and pick the best, its Sharpe is
@@ -280,6 +281,12 @@ def deflated_sharpe(observed_sharpe: float, *,
             real returns are negatively skewed with fat tails, which *widens* the
             confidence interval and lowers the deflated score. Pass the real
             values when you have them.
+        trial_sharpe_var: variance of the per-period Sharpe ratios across the
+            n_trials variants (Bailey & Lopez de Prado). The selection threshold
+            scales with its square root. When None (legacy behaviour) the
+            variance is taken as 1.0, which is far too large for realistic trial
+            sets and makes the test stricter than it should be. The output records
+            which assumption was used in ``trial_sharpe_var_used``.
 
     Returns:
         ``{"observed", "expected_max_sharpe", "deflated_sharpe", "prob_real",
@@ -339,14 +346,17 @@ def deflated_sharpe(observed_sharpe: float, *,
                                 + b[4]) * r + 1)
 
     n = float(n_trials)
+    v = 1.0 if trial_sharpe_var is None else float(trial_sharpe_var)
+    if v < 0:
+        raise ValueError("trial_sharpe_var must be >= 0")
     if n == 1.0:
         # With one strategy there is no multiple-testing selection premium.
         # The EVT approximation's first quantile is otherwise Z^-1(0) = -inf,
         # which contaminates every downstream DSR value with infinity/NaN.
         e_max = 0.0
     else:
-        e_max = ((1 - gamma) * _z_inv(1 - 1.0 / n)
-                 + gamma * _z_inv(1 - 1.0 / (n * math.e)))
+        e_max = math.sqrt(v) * ((1 - gamma) * _z_inv(1 - 1.0 / n)
+                                + gamma * _z_inv(1 - 1.0 / (n * math.e)))
 
     # Standard error of the Sharpe estimate, corrected for skew and kurtosis.
     # Fat tails make the estimate less certain, so the denominator grows.
@@ -378,6 +388,7 @@ def deflated_sharpe(observed_sharpe: float, *,
         "prob_real": round(prob, 4),
         "n_trials": n_trials,
         "n_obs": n_obs,
+        "trial_sharpe_var_used": v,
         "verdict": verdict,
     }
 
