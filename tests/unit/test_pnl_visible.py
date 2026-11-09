@@ -24,14 +24,15 @@ def test_pnl_visible_by_default_in_settings():
 
 def test_page_starts_from_the_settings_default():
     text = PAGE.read_text(encoding="utf-8")
-    assert "showMoney = !!o.settings.pnl_visible_default" in text
     assert "showMoney = false" not in text
 
 
-def test_page_has_a_hide_show_toggle_for_money():
+def test_money_is_always_visible_no_toggle():
+    # Owner request 2026-11-09: no Hide/Show button; money always shown.
     text = PAGE.read_text(encoding="utf-8")
-    assert 'id="toggle"' in text
-    assert "showMoney = !showMoney" in text
+    assert 'id="toggle"' not in text
+    assert "••••" not in text
+    assert "const showMoney = true" in text
 
 
 def test_old_pages_are_gone():

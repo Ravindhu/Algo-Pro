@@ -124,7 +124,6 @@
   </span>
   <span id="modemsg" class="d"></span>
   <span class="sp"></span>
-  <button id="toggle" type="button">Hide ₹</button>
   <button id="flowbtn" type="button">FLOW</button>
   <button id="pfbtn" type="button" title="Broker holdings popup (read-only)">PORTFOLIO</button>
   <button id="sbbtn" type="button" title="Paper trade history popup (view only)">SANDBOX</button>
@@ -340,13 +339,13 @@
   const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
                         "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio"];
   const POLL_MS = 2000;   // never below 500 ms
-  let showMoney = null;   // from settings.pnl_visible_default on first read
+  const showMoney = true; // money is always visible (owner request 2026-11-09)
   let last = null;        // last overview
   let formLoaded = false; // fill the limit form once, and again after a save
 
   const inr = v => v == null ? "—" : "₹" + Number(v).toLocaleString("en-IN", {maximumFractionDigits: 2});
   const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
-  const money = v => showMoney ? inr(v) : "••••";
+  const money = v => inr(v);
   const cell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
   const sign = v => v == null ? "d" : v > 0 ? "g" : v < 0 ? "r" : "d";
 
@@ -425,7 +424,6 @@
     const p = o.performance, pnl = p.realized_pnl + (p.unrealized_pnl || 0);
     $("pnl").textContent = money(pnl);
     $("pnl").className = "big " + (pnl > 0 ? "g" : pnl < 0 ? "r" : "");
-    $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
 
     // Paper trading section: paper ledger only, no broker calls
     const pct2 = v => v == null ? "—" : (v * 100).toFixed(2) + "%";
@@ -528,7 +526,6 @@
       const r = await fetch("/api/overview", {cache: "no-store"});
       if (!r.ok) throw new Error("HTTP " + r.status);
       const o = await r.json();
-      if (showMoney === null) showMoney = !!o.settings.pnl_visible_default;
       render(o);
       setChip("conn", "live · " + new Date().toLocaleTimeString("en-IN"), "on");
     } catch (e) {
@@ -627,7 +624,6 @@
     if (open) loadSetup();
   };
   $("setupform").addEventListener("submit", saveSetup);
-  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); if (pfLast) renderPortfolio(pfLast); };
   $("limitform").addEventListener("submit", saveLimits);
 
   // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
