@@ -35,6 +35,7 @@
   .kv small { display: block; color: var(--dim); }
   .big { font-size: 26px; font-weight: 700; color: var(--ok); font-variant-numeric: tabular-nums; }
   .g { color: var(--ok); } .r { color: var(--bad); } .a { color: var(--warn); } .d { color: var(--dim); }
+  .pfh { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin-top: 8px; }
   .guard { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #0e1d2b; }
   .bar { height: 3px; background: #0d1d2d; border-radius: 3px; margin: 2px 0 6px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--ok); width: 0%; }
@@ -107,6 +108,24 @@
 </header>
 <div class="banner" id="killbanner"></div>
 <div class="clock" id="clock"></div>
+
+<section class="pfh" id="pfh" aria-label="Portfolio header">
+  <div class="ph">Portfolio <span id="pf-src">connecting…</span></div>
+  <div class="kv">
+    <div><small>Holdings value</small><b id="pf-value">—</b></div>
+    <div><small>Invested</small><b id="pf-inv">—</b></div>
+    <div><small>Holdings P&amp;L</small><b id="pf-pnl">—</b></div>
+    <div><small>P&amp;L %</small><b id="pf-pct">—</b></div>
+    <div><small>Holdings</small><b id="pf-count">—</b></div>
+  </div>
+  <div class="scroll" style="margin-top:8px">
+    <table>
+      <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg</th><th class="n">LTP</th><th class="n">P&amp;L</th><th class="n">P&amp;L %</th></tr></thead>
+      <tbody id="pf-rows"></tbody>
+    </table>
+  </div>
+  <p class="d" id="pf-note">Read-only. Shows what your broker holds, through OpenAlgo. Sends no orders.</p>
+</section>
 
 <div class="setup" id="setup" hidden>
   <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · token needed (header)</span></h2>
@@ -637,7 +656,7 @@
     if (open) loadSetup();
   };
   $("setupform").addEventListener("submit", saveSetup);
-  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
+  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); if (lastPortfolio) renderPortfolio(lastPortfolio); };
   $("limitform").addEventListener("submit", saveLimits);
 
   // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
@@ -692,7 +711,48 @@
   function tick() { clock.textContent = new Date().toLocaleTimeString("en-GB", {hour12: false, timeZone: "Asia/Kolkata"}) + " IST"; }
   tick(); setInterval(tick, 1000);
 
+  // ---- Portfolio header: broker holdings from /api/portfolio (read-only, 30 s). Money follows the ₹ toggle. ----
+  const PF_MS = 30000;
+  let lastPortfolio = null;
+  const pfPct = v => v == null ? "—" : Number(v).toFixed(2) + "%";
+  const pfTone = v => v == null ? "" : v > 0 ? "g" : v < 0 ? "r" : "";
+  const pfCell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
+  function renderPortfolio(p) {
+    const label = {broker_read: "broker holdings · via OpenAlgo", not_connected: "not connected", error: "error"}[p.state] || p.state;
+    $("pf-src").textContent = label + " · as of " + String(p.as_of).replace("T", " ").slice(0, 19);
+    $("pf-src").className = p.state === "broker_read" ? "g" : "a";
+    const s = p.summary || {};
+    const set = (id, text, cls) => { const e = $(id); e.textContent = text; e.className = cls || ""; };
+    set("pf-value", money(s.value)); set("pf-inv", money(s.invested));
+    set("pf-pnl", money(s.pnl), pfTone(s.pnl)); set("pf-pct", pfPct(s.pnl_pct), pfTone(s.pnl_pct));
+    set("pf-count", s.count == null ? "—" : String(s.count));
+    $("pf-note").textContent = p.error ? "⚠ " + p.error
+      : p.truncated ? "Showing the first 50 holdings. Read-only; sends no orders."
+      : "Read-only. Shows what your broker holds, through OpenAlgo. Sends no orders.";
+    $("pf-note").className = p.error ? "a" : "d";
+    $("pf-rows").replaceChildren(...p.holdings.map(h => {
+      const tr = document.createElement("tr");
+      tr.append(pfCell(h.symbol), pfCell(h.exchange), pfCell(h.quantity == null ? "—" : String(h.quantity), "n"),
+        pfCell(money(h.average_price), "n"), pfCell(money(h.ltp), "n"),
+        pfCell(money(h.pnl), "n " + pfTone(h.pnl)), pfCell(pfPct(h.pnlpercent), "n " + pfTone(h.pnlpercent)));
+      return tr;
+    }));
+  }
+  async function refreshPortfolio() {
+    try {
+      const r = await fetch("/api/portfolio", {cache: "no-store"});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      lastPortfolio = await r.json();
+      renderPortfolio(lastPortfolio);
+    } catch (e) {
+      $("pf-src").textContent = "API offline (" + e.message + ")";
+      $("pf-src").className = "r";
+    }
+  }
+
   loadSetup();
   refresh();
+  refreshPortfolio();
   setInterval(refresh, POLL_MS);
+  setInterval(refreshPortfolio, PF_MS);
 </script>

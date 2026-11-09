@@ -50,7 +50,7 @@ def test_page_reads_overview_and_writes_only_known_routes():
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup",
-                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop"}
+                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop", "/api/portfolio"}  # portfolio: read-only (decision 0032)
     # saveLimits, postKill, saveSetup, postMode, postLoop only
     assert text.count('method: "POST"') == 5
     assert '"X-Dashboard-Token"' in text

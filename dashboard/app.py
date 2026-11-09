@@ -5,6 +5,7 @@ Writes (all need the DASHBOARD_API_TOKEN header, decision 0020):
     POST /api/kill/trip    block new entries (reason required, audited)
     POST /api/kill/reset   clear the kill switch (reason required, audited)
 Reads: GET /api/overview, /api/positions, /api/events, /api/health, /api/kill.
+Portfolio header: GET /api/portfolio reads broker holdings through OpenAlgo (read-only, 30 s cache, decision 0032).
 
 Run (after installing requirements, on the owner's machine):
     python dashboard/app.py            # serves http://127.0.0.1:8050
@@ -43,6 +44,8 @@ from quant.core.live_facts import gather  # noqa: E402
 from quant.core.trading_mode import current_mode, request_mode, trading_mode_status  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
+from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
+from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 
 TOKEN_ENV = "DASHBOARD_API_TOKEN"
 TOKEN_HEADER = "X-Dashboard-Token"
@@ -71,6 +74,7 @@ API_INDEX = {
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
         "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live refused)",
         "/api/loop", "POST /api/loop/start (token)", "POST /api/loop/stop (token)",
+        "/api/portfolio",
     ],
 }
 
@@ -120,6 +124,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     load_env_file()  # reads the repo-root .env without overriding shell variables
     paths = {**DEFAULT_PATHS, **(paths or {})}
     app = FastAPI(title="Algo-Pro dashboard", version="0.1.0")
+    # Read-only holdings. mode is not used: get_holdings sends no order.
+    openalgo = OpenAlgoClient(os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"),
+                              transport=http_transport, mode="analyze")
+    portfolio = HoldingsReader(openalgo.get_holdings, OpenAlgoClient.api_key_from_env, time.time)
 
     def token_error(request: Request):
         """None when the token is good. Otherwise the error response (503 no server token, 401 wrong)."""
@@ -289,6 +297,11 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         ok, message = stop_loop(paths["loop"], LOOP_INTERVAL_S)
         AuditLog(paths["audit"]).append("loop_stop_requested", {"message": message, "actor": ACTOR})
         return JSONResponse({"message": message})
+
+    @app.get("/api/portfolio")
+    def portfolio_header():
+        """Broker holdings for the Portfolio header. Read-only; the reader caches for 30 s."""
+        return JSONResponse(portfolio.read())
 
     @app.get("/api/overview")
     def overview():
