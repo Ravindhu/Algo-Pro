@@ -2,8 +2,9 @@
 mode: paper   # paper | live
 
 sizing:
-  # Risk per trade as a share of equity (owner decision 0020, 2026-11-06). Read by core/config.py.
-  risk_per_trade: 0.0025
+  # Risk per trade as a share of equity. 2026-11-08 owner instruction: 0.5% (was 0.25%).
+  # Read by core/config.py; values outside (0, 0.05] are refused.
+  risk_per_trade: 0.005
 
 dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.

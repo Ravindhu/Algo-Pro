@@ -1,7 +1,7 @@
-# 0009. HRP optimizer: keep our implementation or switch to Blue's (SUPERSEDED by 0003)
+# 0009. HRP optimizer: keep our implementation or switch to Blue's (DRAFT, owner to decide)
 
 Date: 2026-11-05
-Status: SUPERSEDED by `0003-hrp-and-shrinkage.md` (accepted 2026-11-04). Blue HRP was fixed in commit 8986b65 and now matches the reference. Decision: HRP stays WRAPPED around Blue. No local port. Owner chose option 1 on 2026-11-09 (keep the 0003 wrapper).
+Status: PROPOSED. No code change until the owner chooses an option.
 Tracks: X-25 in `docs/IMPLEMENTATION_PLAN.md`.
 
 ## Facts (checked in the repo)
@@ -27,4 +27,4 @@ B. Fix Blue's HRP to match the published algorithm, then wrap it from `src/quant
 
 ## Owner choice
 
-Owner chose option 1 (wrapper) on 2026-11-09, then reversed it the same day: owner moved HRP into src (local port, `optimizer.py`). Blue is not changed. Final state: HRP local, see 0003 update of 2026-11-09.
+[ ] A  [ ] B  (date, initials)

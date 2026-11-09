@@ -5,7 +5,6 @@ Writes (all need the DASHBOARD_API_TOKEN header, decision 0020):
     POST /api/kill/trip    block new entries (reason required, audited)
     POST /api/kill/reset   clear the kill switch (reason required, audited)
 Reads: GET /api/overview, /api/positions, /api/events, /api/health, /api/kill.
-Portfolio header: GET /api/portfolio reads broker holdings through OpenAlgo (read-only, 30 s cache, decision 0032).
 
 Run (after installing requirements, on the owner's machine):
     python dashboard/app.py            # serves http://127.0.0.1:8050
@@ -37,15 +36,9 @@ from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.reporting.flow_status import node_statuses  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
-from datetime import datetime  # noqa: E402
-from zoneinfo import ZoneInfo  # noqa: E402
-from quant.core.live_checklist import evaluate  # noqa: E402
-from quant.core.live_facts import gather  # noqa: E402
-from quant.core.trading_mode import current_mode, request_mode, trading_mode_status  # noqa: E402
+from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
-from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
-from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 
 TOKEN_ENV = "DASHBOARD_API_TOKEN"
 TOKEN_HEADER = "X-Dashboard-Token"
@@ -63,6 +56,8 @@ DEFAULT_PATHS = {
     "flow": ROOT / "dashboard" / "assets" / "flow_svg.js",
     "loop": ROOT / "data" / "paper" / "loop",
     "holidays": ROOT / "config" / "calendar" / "holidays.csv",
+    "mode_state": ROOT / "data" / "mode.json",          # requested mode (decision 0030)
+    "live_approval": ROOT / "data" / "live_approval.json",  # human sign-off; written only by scripts/ops/approve_live.py
 }
 LOOP_INTERVAL_S = 60  # paper loop cycle (decision 0029)
 
@@ -72,9 +67,8 @@ API_INDEX = {
     "endpoints": [
         "/api/overview", "/api/positions", "/api/events", "/api/health", "/api/kill", "/api/setup",
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
-        "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live refused)",
+        "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live needs approval)",
         "/api/loop", "POST /api/loop/start (token)", "POST /api/loop/stop (token)",
-        "/api/portfolio",
     ],
 }
 
@@ -124,10 +118,6 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     load_env_file()  # reads the repo-root .env without overriding shell variables
     paths = {**DEFAULT_PATHS, **(paths or {})}
     app = FastAPI(title="Algo-Pro dashboard", version="0.1.0")
-    # Read-only holdings. mode is not used: get_holdings sends no order.
-    openalgo = OpenAlgoClient(os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"),
-                              transport=http_transport, mode="analyze")
-    portfolio = HoldingsReader(openalgo.get_holdings, OpenAlgoClient.api_key_from_env, time.time)
 
     def token_error(request: Request):
         """None when the token is good. Otherwise the error response (503 no server token, 401 wrong)."""
@@ -234,12 +224,18 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.get("/api/trading-mode")
     def trading_mode():
-        return JSONResponse(trading_mode_status())
+        return JSONResponse(trading_mode_status(
+            state_path=paths.get("mode_state"), approval_path=paths.get("live_approval"),
+            limits_path=paths.get("limits")))
 
     @app.post("/api/trading-mode")
     async def set_trading_mode(request: Request):
-        """PAPER: always accepted. LIVE: needs the confirm phrase, a named approver and all live checks
-        (decision 0031). Every request is audited with its checks. Needs the token."""
+        """Select paper or live (decision 0030). Live needs a valid LiveApproval. Needs the token.
+
+        The mode is a REQUEST, never authority: authority is the approval file plus the
+        risk gate. A live request without a valid approval is refused with 409 and audited,
+        so a mis-click writes one audit row and nothing else.
+        """
         denied = token_error(request)
         if denied is not None:
             return denied
@@ -247,28 +243,19 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             body = await request.json()
         except ValueError:
             body = None
-        body = body if isinstance(body, dict) else {}
-        mode = body.get("mode")
-        approver = body.get("approver")
-        checks = None
-        if mode == "live":
-            try:
-                checks = evaluate(gather(ROOT, paths["kill"], approver, datetime.now(ZoneInfo("Asia/Kolkata"))))
-            except Exception as exc:  # fail closed: unreadable facts = refused
-                checks = None
-                fact_error = f"live facts could not be read: {exc}"
-            else:
-                fact_error = None
-        accepted, message = request_mode(mode, checks=checks, confirm=body.get("confirm"), approver=approver)
-        if mode == "live" and fact_error:
-            accepted, message = False, "Live refused: " + fact_error
-        AuditLog(paths["audit"]).append("trading_mode_requested", {
-            "requested": mode, "accepted": accepted, "message": message, "actor": ACTOR,
-            "approver": approver if mode == "live" else None,
-            "checks": [{"name": c.name, "passed": c.passed, "reason": c.reason} for c in (checks or [])]})
+        mode = body.get("mode") if isinstance(body, dict) else None
+        audit = AuditLog(paths["audit"])
+        accepted, message = request_mode(
+            mode,
+            state_path=paths.get("mode_state"), approval_path=paths.get("live_approval"),
+            limits_path=paths.get("limits"), audit=audit)
+        audit.append("trading_mode_requested",
+                     {"requested": mode, "accepted": accepted, "message": message, "actor": ACTOR})
         if not accepted:
             return JSONResponse({"error": message}, status_code=409 if mode == "live" else 422)
-        return JSONResponse({"mode": current_mode(), "message": message})
+        return JSONResponse(trading_mode_status(
+            state_path=paths.get("mode_state"), approval_path=paths.get("live_approval"),
+            limits_path=paths.get("limits")))
 
     @app.get("/api/loop")
     def loop_state():
@@ -297,11 +284,6 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         ok, message = stop_loop(paths["loop"], LOOP_INTERVAL_S)
         AuditLog(paths["audit"]).append("loop_stop_requested", {"message": message, "actor": ACTOR})
         return JSONResponse({"message": message})
-
-    @app.get("/api/portfolio")
-    def portfolio_header():
-        """Broker holdings for the Portfolio header. Read-only; the reader caches for 30 s."""
-        return JSONResponse(portfolio.read())
 
     @app.get("/api/overview")
     def overview():

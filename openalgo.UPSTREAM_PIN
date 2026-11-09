@@ -1,14 +1,22 @@
 # OpenAlgo upstream fingerprint pin
 #
-# Pinned content: 8608056940f0
-# Upstream: https://github.com/marketcalls/openalgo at commit e2797fd3c08d3a177ed9d62cfd2698803ed4361a
-# This fingerprint is content-only (folder path is no longer hashed).
-# Vendored copy: src/quant/openalgo_platform (decision 0013).
+# Pinned content: df6ca31e5c95
+# Upstream: https://github.com/marketcalls/openalgo
+# Snapshot commit: a1b9e32506bce21403a8614dddeed0ab61fd519a (2026-11-06)
+# Vendored copy: src/quant/openalgo_platform (decision 0013) -- the COMPLETE
+# upstream repo, tracked in git. This pin describes that tree.
 #
-# 2026-11-08: pin set to the fingerprint ACTUALLY computed from the vendored tree on a clean
-# clone of master. The previous value 9a075af0d435 could not be reproduced by any combination of
-# folder path or line-ending variant (81 combinations tested), so the pin did not describe this
-# repository and tests/unit/test_upgrade_pin.py::test_repo_pin_matches_vendored_copy failed.
-# The vendored install/ tree was verified file-by-file identical to the committed git blobs first.
-# Regenerate with: python scripts/verify/upgrade_check.py --update-pin --openalgo-dir <path>
-8608056940f0
+# The hash folds CRLF to LF, so it is the same value on a Linux CI checkout and
+# on a Windows clone made with core.autocrlf=true (scripts/verify/upgrade_check.py,
+# 2026-11-09). Verified: the runtime clone at openalgo/ and the vendored copy both
+# compute df6ca31e5c95.
+#
+# 2026-11-09: re-synced to upstream a1b9e32 from the runtime clone. 18 upstream
+# files added (docs + per-broker quote-feed tests), 168 updated (broker streaming
+# adapters, Kotak/Mstock/Fyers fixes, docs). Previous pin: 8608056940f0
+# (upstream e2797fd, snapshot 2026-11-05).
+#
+# Regenerate from the tracked tree (never from a Windows clone of openalgo/):
+#   python scripts/verify/upgrade_check.py
+#          --openalgo-dir src/quant/openalgo_platform --update-pin
+df6ca31e5c95

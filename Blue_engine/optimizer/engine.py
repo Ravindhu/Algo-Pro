@@ -71,67 +71,6 @@ __all__ = ["OptimizerEngine", "SearchResult", "EngineConfig"]
 # --------------------------------------------------------------------------- #
 
 
-def _refine_best(space: SearchSpace, objective: Objective, study: Study,
-                 evaluated: set, budget: int, bars: Any,
-                 start_number: int) -> int:
-    """Greedy coordinate refinement around the study's best trial.
-
-    The TPE sampler can miss a narrow peak that sits on the edge of a
-    parameter's range, because it proposes values from a density fitted to
-    earlier good points. This stage spends a fixed, reserved share of the
-    budget on direct moves: for each numeric parameter it tries both bounds
-    and small steps around the current best, keeping any move that improves
-    the score. It never exceeds ``budget`` evaluations, skips points that were
-    already evaluated, and respects the space's constraints.
-
-    Returns the number of evaluations actually spent.
-    """
-    spent = 0
-    best = study.best()
-    if best is None or best.value is None or budget <= 0:
-        return 0
-    best_params = dict(best.params)
-    best_value = best.value
-    number = start_number
-    improved = True
-    while improved and spent < budget:
-        improved = False
-        for spec in space.params:
-            if spec.kind == "categorical" or spent >= budget:
-                continue
-            base = best_params.get(spec.name)
-            if base is None:
-                continue
-            span = float(spec.high) - float(spec.low)
-            moves = [spec.low, spec.high,
-                     float(base) - 0.05 * span, float(base) + 0.05 * span,
-                     float(base) - 0.01 * span, float(base) + 0.01 * span]
-            for raw in moves:
-                if spent >= budget:
-                    break
-                cand = dict(best_params)
-                cand[spec.name] = spec.coerce(raw)
-                key = objective._key(cand)
-                if key in evaluated or space.check_constraints(cand) is not None:
-                    continue
-                evaluated.add(key)
-                r = objective.evaluate(cand, bars=bars)
-                spent += 1
-                number += 1
-                study.add(TrialRecord(
-                    number=number, params=r.params, value=r.score, ok=r.ok,
-                    reason=r.reason, mean_sharpe=r.mean_sharpe,
-                    std_sharpe=r.std_sharpe, min_sharpe=r.min_sharpe,
-                    n_folds=r.n_folds, n_obs=r.n_obs, seconds=r.seconds,
-                    cached=r.cached, cost_gate=_copy_cost_gate(r.cost_gate)))
-                if r.ok and r.score is not None and r.score > best_value:
-                    best_value = r.score
-                    best_params = dict(cand)
-                    improved = True
-    study.meta["refinement_trials"] = spent
-    return spent
-
-
 def _copy_cost_gate(gate: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Return a detached copy of a cost-gate dict, or None.
 
@@ -612,20 +551,9 @@ class OptimizerEngine:
                                  n_ei_candidates=cfg.n_ei_candidates,
                                  multivariate=cfg.multivariate)
             n_no_improve = 0
-            # A draw that repeats an already-evaluated point is a wasted budget
-            # slot: the objective returns the cached result. Redraw a bounded
-            # number of times; discarded draws are never told to the sampler.
-            evaluated = {self.objective._key(defaults)}
-            evaluated.update(self.objective._key(p) for p in seed_pts)
-            refine_budget = min(n_remaining, max(10, n_remaining // 4))
-            n_sampler = n_remaining - refine_budget
-            for i in range(1, n_sampler + 1):
-                for _ in range(16):
-                    trial = sampler.ask()
-                    params = self.space.sample(trial)
-                    if self.objective._key(params) not in evaluated:
-                        break
-                evaluated.add(self.objective._key(params))
+            for i in range(1, n_remaining + 1):
+                trial = sampler.ask()
+                params = self.space.sample(trial)
                 r = self.objective.evaluate(params, bars=bars_arg)
                 sampler.tell(trial, r.score if r.ok else None)
                 study.add(TrialRecord(
@@ -647,9 +575,6 @@ class OptimizerEngine:
                     logger.info("early stop: no improvement in %d trials",
                                 cfg.early_stop_patience)
                     break
-            _refine_best(self.space, self.objective, study, evaluated,
-                         refine_budget, bars_arg,
-                         start_number=n_sampler + n_seeded)
             backend = "builtin_tpe"
 
         if n_seeded:

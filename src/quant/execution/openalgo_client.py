@@ -93,7 +93,6 @@ class OpenAlgoClient:
     CANCEL_PATH = "/api/v1/cancelorder"
     ANALYZER_PATH = "/api/v1/analyzer"
     ORDERSTATUS_PATH = "/api/v1/orderstatus"
-    HOLDINGS_PATH = "/api/v1/holdings"
 
     def __init__(
         self,
@@ -236,12 +235,6 @@ class OpenAlgoClient:
             raise ValueError("order status needs an order_id")
         payload = {"apikey": api_key, "orderid": str(order_id), "strategy": strategy}
         return self._transport(self.base_url + self.ORDERSTATUS_PATH, payload)
-
-    def get_holdings(self, api_key: str) -> Dict:
-        """Read broker holdings (a read, not an order). Used only by the dashboard portfolio header."""
-        if not api_key:
-            raise ValueError("holdings needs an API key")
-        return self._transport(self.base_url + self.HOLDINGS_PATH, {"apikey": api_key})
 
 
 class AnalyzeBroker:

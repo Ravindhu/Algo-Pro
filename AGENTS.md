@@ -233,9 +233,6 @@ The system should be designed so that brokers can be added, removed, replaced, o
 Source of truth: `docs/quant_system_flow_v5.md` (diagram: `quant_system_flow_v5.svg`).
 Read both before changing pipeline, risk, execution, or dashboard code.
 
-Status: Phases 1-3 are implemented as code and tests, all paper or disabled. **Nothing is live.**
-No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage as live.
-
 **Two build surfaces, one rule each:**
 
 | Surface | Role | Rule |
@@ -250,36 +247,10 @@ No live runner exists. Phase 0 reuse audit is pending. Do not describe any stage
 5. Only approved models enter production: Model registry → factor models. A person signs off (Human sign-off).
 6. Kill switch blocks new entries and closes all open positions (decision 0020). It feeds back to the Risk gate. Kill closes pass halt-all only while the switch is on. Safe mode controller can block entries from any stage.
 7. Every signal, intent, gate result, and override writes to the Audit log.
-8. Dashboard shows P&L by default.  MAE/MFE, and rule compliance are removed from the dashboard. MAE/MFE are optimizer parameters instead (decision 0008).
-9. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
-10. The main dashboard is `dashboard/main_dashboard.html` (decision 0027). Agents build and change dashboard UI only there. Do not create another dashboard page.
 
-### v5 build phases (from `docs/IMPLEMENTATION_PLAN.md`)
+8. A new or changed stage updates the SVG, `docs/quant_system_flow_v5.md`, and this section in the same commit.
+9. The main dashboard is `dashboard/main_dashboard.html` (decision 0027). Agents build and change dashboard UI only there. Do not create another dashboard page.
 
-| Phase | Scope | Capital | Entry gate |
-|---|---|---|---|
-| 0 | Reuse audit of `Blue_engine/`, test baseline, trust boundary | none | — |
-| 1 | Data, research, risk gate, queue, ledger, paper runner | none | Phase 0 audit done |
-| 2 | Signal, conviction, sizing, portfolio, model registry | none (paper) | Phase 1 exit checks pass |
-| 3 | Live execution, session guards, monitors, dashboard, alerts | small fixed cap | Phase 2 exit checks pass |
-| 4 | Improvement loop, recovery, hardening, docs sync | capped | Phase 3 exit checks pass — **NOT MET**; paper-safe parts only |
-
-Rules for every phase:
-- No phase starts before the previous phase's exit checks pass.
-- Nothing in Phase 1 or 2 may reach OpenAlgo.
-- Phase 4 exception, recorded 2026-11-08: the improvement loop (`feedback/improvement_loop.py`)
-  and recovery (`monitor/recovery.py`) were built ahead of the Phase 3 gate because both are
-  advice-only or gate-only and need no capital. Neither can place, size or promote anything.
-  Every part of Phase 4 that would act on live money stays blocked.
-- Restart is not resume. `Supervisor.restart_if_dead()` restarts any dead process, then runs
-  every integrity check. Live resume needs all of them wired and returning `True`; anything
-  else parks the system and raises CRITICAL. A check that raises or returns a truthy non-`True`
-  value counts as FAILED.
-- The improvement loop recommends; a person promotes. `compare()` returns
-  `promote_recommended` and nothing consumes it. An AST test fails the build if the module
-  ever calls `promote()` or imports the registry.
-- `config/risk_limits.yaml` values are `null` on purpose. Live trading stays blocked until a human sets them.
-- Fill the two known gaps in flow order: `scripts/run_paper.py` and the trading-calendar loader.
 
 ### v5 stage ownership (which module owns which SVG block)
 
@@ -880,3 +851,24 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 ## 4. Signal Calculation Debouncing
 - Wrap heavy mathematical indicators or arbitrage checks in a step conditional check.
 - Run heavy strategy code only when prices actually shift beyond a defined margin, rather than executing logic on every blank heartbeat tick.
+
+
+## Terminal & IBM Corporate Laptop Guardrails (Auto-Mode Hardened)
+
+
+### 1. IBM Corporate Security & Endpoint Compliance
+- **Respect IBM Endpoint Controls:** This is an **IBM-managed corporate laptop** protected by enterprise security monitoring (e.g., CrowdStrike/EDR, Jamf/Intune MDM, corporate VPN, and TLS inspection proxies). Never attempt to bypass, disable, inspect, or alter security agents, endpoint policies, MDM profiles, firewall rules, or system certificates.
+- **No Unapproved Binaries or Tunnels:** Never download or execute unverified remote scripts (e.g., `curl | bash`, `irm | iex`), install unauthorized software, or start reverse shells/tunnels (`ngrok`, `localtunnel`, custom proxies).
+- **Corporate Proxy & Certificate Hygiene:** Never disable SSL/TLS verification globally (`NODE_TLS_REJECT_UNAUTHORIZED=0`, `git config --global http.sslVerify false`, `pip --trusted-host`) to bypass corporate proxies. If a certificate error occurs, stop and ask the user.
+- **IBM Data & Credential Protection:** Never read, print, log, or transmit IBM credentials, API keys, `.env` secrets, SSH keys (`~/.ssh`), IBM Cloud/w3 tokens, or internal proprietary code to unauthorized external endpoints.
+
+### 2. Strict Workspace Sandbox (No OS-Level Changes)
+- **Workspace Lock Only:** Only read, write, or execute commands inside the current working directory (`./`). You are strictly forbidden from accessing `~/`, `../`, `/etc`, `/usr`, `/Library`, `C:\`, or any path outside this repository.
+- **No Global Installations:** Never run global package managers or system installers (`npm -g`, `pip` outside a local `.venv`, `brew`, `apt`, `winget`, `choco`). Use local project environments only.
+- **No System or Profile Edits:** Never modify system environment variables, shell profiles (`.zshrc`, `.bashrc`), git global config (`git config --global`), system registries, or background daemons.
+
+
+**only write code and test code test**
+1.dont start openalgo in this laptop
+
+

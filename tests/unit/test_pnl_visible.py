@@ -50,7 +50,7 @@ def test_page_reads_overview_and_writes_only_known_routes():
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup",
-                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop", "/api/portfolio"}  # portfolio: read-only (decision 0032)
+                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop"}
     # saveLimits, postKill, saveSetup, postMode, postLoop only
     assert text.count('method: "POST"') == 5
     assert '"X-Dashboard-Token"' in text
@@ -70,14 +70,16 @@ def test_page_never_stores_the_token():
 
 
 def test_page_has_an_input_for_every_risk_limit():
+    from dataclasses import fields
+
     import sys
 
     sys.path.insert(0, str(ROOT / "src"))
-    from quant.core.limits_store import WRITABLE
+    from quant.core.config import RiskLimits
 
     text = PAGE.read_text(encoding="utf-8")
     covered = set(re.findall(r'data-limit="(\w+)"', text))
-    assert covered == set(WRITABLE)  # every saved limit has an input; no rupee inputs
+    assert covered == {f.name for f in fields(RiskLimits)}
 
 
 def test_flow_asset_shows_new_kill_switch_wording():

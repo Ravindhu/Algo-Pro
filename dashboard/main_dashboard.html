@@ -35,7 +35,6 @@
   .kv small { display: block; color: var(--dim); }
   .big { font-size: 26px; font-weight: 700; color: var(--ok); font-variant-numeric: tabular-nums; }
   .g { color: var(--ok); } .r { color: var(--bad); } .a { color: var(--warn); } .d { color: var(--dim); }
-  .pfh { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin-top: 8px; }
   .guard { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #0e1d2b; }
   .bar { height: 3px; background: #0d1d2d; border-radius: 3px; margin: 2px 0 6px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--ok); width: 0%; }
@@ -109,24 +108,6 @@
 <div class="banner" id="killbanner"></div>
 <div class="clock" id="clock"></div>
 
-<section class="pfh" id="pfh" aria-label="Portfolio header">
-  <div class="ph">Portfolio <span id="pf-src">connecting…</span></div>
-  <div class="kv">
-    <div><small>Holdings value</small><b id="pf-value">—</b></div>
-    <div><small>Invested</small><b id="pf-inv">—</b></div>
-    <div><small>Holdings P&amp;L</small><b id="pf-pnl">—</b></div>
-    <div><small>P&amp;L %</small><b id="pf-pct">—</b></div>
-    <div><small>Holdings</small><b id="pf-count">—</b></div>
-  </div>
-  <div class="scroll" style="margin-top:8px">
-    <table>
-      <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg</th><th class="n">LTP</th><th class="n">P&amp;L</th><th class="n">P&amp;L %</th></tr></thead>
-      <tbody id="pf-rows"></tbody>
-    </table>
-  </div>
-  <p class="d" id="pf-note">Read-only. Shows what your broker holds, through OpenAlgo. Sends no orders.</p>
-</section>
-
 <div class="setup" id="setup" hidden>
   <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · token needed (header)</span></h2>
   <form id="setupform" autocomplete="off">
@@ -175,24 +156,6 @@
     <div class="guard"><span>Feed</span><b id="r-feed">—</b></div>
   </section>
 </div>
-
-<section class="panel sandbox" id="sandbox" style="margin-top:8px">
-  <div class="ph">SANDBOX <span>paper trading · simulated fills · no broker orders</span></div>
-  <div class="kv">
-    <div><small>Mode</small><b id="sb-mode">—</b></div>
-    <div><small>Paper loop</small><b id="sb-loop">—</b></div>
-    <div><small>Kill switch</small><b id="sb-kill">—</b></div>
-    <div><small>Closed trades</small><b id="sb-trades">—</b></div>
-    <div><small>Win rate</small><b id="sb-winrate">—</b></div>
-    <div><small>Profit factor</small><b id="sb-pf">—</b></div>
-    <div><small>Realized P&amp;L</small><b id="sb-realized">—</b></div>
-    <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
-    <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
-    <div><small>Open positions</small><b id="sb-open">—</b></div>
-    <div><small>Risk used</small><b id="sb-risk">—</b></div>
-  </div>
-  <p class="d" id="sb-note">Sandbox stats come from the paper ledger. They are not live market results.</p>
-</section>
 
 <div class="mid">
   <section class="panel">
@@ -299,16 +262,14 @@
         <input type="checkbox" id="lim-blocked" data-limit="blocked"></div>
       <div class="row"><label for="lim-max_order_quantity">max order quantity (shares)</label>
         <input type="number" id="lim-max_order_quantity" data-limit="max_order_quantity" min="0" step="1"></div>
-      <div class="row"><label for="lim-capital_inr">capital base (₹)</label>
-        <input type="number" id="lim-capital_inr" data-limit="capital_inr" min="0" step="any"></div>
-      <div class="row"><label for="lim-max_daily_loss_pct">max daily loss (% of capital)</label>
-        <input type="number" id="lim-max_daily_loss_pct" data-limit="max_daily_loss_pct" min="0" max="1" step="0.0001"></div>
-      <div class="row"><label for="lim-max_strategy_loss_pct">max strategy loss (% of capital)</label>
-        <input type="number" id="lim-max_strategy_loss_pct" data-limit="max_strategy_loss_pct" min="0" max="1" step="0.0001"></div>
-      <div class="row"><label for="lim-max_order_notional_pct">max order size (% of capital)</label>
-        <input type="number" id="lim-max_order_notional_pct" data-limit="max_order_notional_pct" min="0" max="1" step="0.0001"></div>
-      <div class="row"><label for="lim-max_open_exposure_pct">max open exposure (% of capital)</label>
-        <input type="number" id="lim-max_open_exposure_pct" data-limit="max_open_exposure_pct" min="0" max="1" step="0.0001"></div>
+      <div class="row"><label for="lim-max_order_notional">max order notional (₹)</label>
+        <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
+        <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
+        <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
+      <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
+        <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
       <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
         <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
       <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
@@ -341,8 +302,8 @@
 <script src="/assets/flow_svg.js"></script>
 <script>
   const $ = id => document.getElementById(id);
-  const LIMIT_FIELDS = ["max_order_quantity", "max_adv_pct", "max_symbols_per_portfolio",
-    "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct", "max_order_notional_pct", "max_open_exposure_pct"];
+  const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
+                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio"];
   const POLL_MS = 2000;   // never below 500 ms
   let showMoney = null;   // from settings.pnl_visible_default on first read
   let last = null;        // last overview
@@ -439,20 +400,6 @@
     $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
     $("openpos").textContent = String(o.positions.length);
     $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
-
-    // Sandbox section: same data as the panels above, paper ledger only
-    $("sb-mode").textContent = o.mode;
-    $("sb-loop").textContent = o.loop ? o.loop.status : "—";
-    $("sb-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
-    $("sb-kill").className = o.kill_switch.active ? "r" : "g";
-    $("sb-trades").textContent = String(p.trades);
-    $("sb-winrate").textContent = pct(p.win_rate);
-    $("sb-pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
-    $("sb-realized").textContent = money(p.realized_pnl);
-    $("sb-unrealized").textContent = money(p.unrealized_pnl);
-    $("sb-dd").textContent = o.equity ? money(o.equity.max_drawdown) : "—";
-    $("sb-open").textContent = String(o.positions.length);
-    $("sb-risk").textContent = pct(p.risk_utilisation);
 
     $("r-mode").textContent = o.mode;
     $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
@@ -656,7 +603,7 @@
     if (open) loadSetup();
   };
   $("setupform").addEventListener("submit", saveSetup);
-  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); if (lastPortfolio) renderPortfolio(lastPortfolio); };
+  $("toggle").onclick = () => { showMoney = !showMoney; if (last) render(last); };
   $("limitform").addEventListener("submit", saveLimits);
 
   // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----
@@ -711,48 +658,7 @@
   function tick() { clock.textContent = new Date().toLocaleTimeString("en-GB", {hour12: false, timeZone: "Asia/Kolkata"}) + " IST"; }
   tick(); setInterval(tick, 1000);
 
-  // ---- Portfolio header: broker holdings from /api/portfolio (read-only, 30 s). Money follows the ₹ toggle. ----
-  const PF_MS = 30000;
-  let lastPortfolio = null;
-  const pfPct = v => v == null ? "—" : Number(v).toFixed(2) + "%";
-  const pfTone = v => v == null ? "" : v > 0 ? "g" : v < 0 ? "r" : "";
-  const pfCell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
-  function renderPortfolio(p) {
-    const label = {broker_read: "broker holdings · via OpenAlgo", not_connected: "not connected", error: "error"}[p.state] || p.state;
-    $("pf-src").textContent = label + " · as of " + String(p.as_of).replace("T", " ").slice(0, 19);
-    $("pf-src").className = p.state === "broker_read" ? "g" : "a";
-    const s = p.summary || {};
-    const set = (id, text, cls) => { const e = $(id); e.textContent = text; e.className = cls || ""; };
-    set("pf-value", money(s.value)); set("pf-inv", money(s.invested));
-    set("pf-pnl", money(s.pnl), pfTone(s.pnl)); set("pf-pct", pfPct(s.pnl_pct), pfTone(s.pnl_pct));
-    set("pf-count", s.count == null ? "—" : String(s.count));
-    $("pf-note").textContent = p.error ? "⚠ " + p.error
-      : p.truncated ? "Showing the first 50 holdings. Read-only; sends no orders."
-      : "Read-only. Shows what your broker holds, through OpenAlgo. Sends no orders.";
-    $("pf-note").className = p.error ? "a" : "d";
-    $("pf-rows").replaceChildren(...p.holdings.map(h => {
-      const tr = document.createElement("tr");
-      tr.append(pfCell(h.symbol), pfCell(h.exchange), pfCell(h.quantity == null ? "—" : String(h.quantity), "n"),
-        pfCell(money(h.average_price), "n"), pfCell(money(h.ltp), "n"),
-        pfCell(money(h.pnl), "n " + pfTone(h.pnl)), pfCell(pfPct(h.pnlpercent), "n " + pfTone(h.pnlpercent)));
-      return tr;
-    }));
-  }
-  async function refreshPortfolio() {
-    try {
-      const r = await fetch("/api/portfolio", {cache: "no-store"});
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      lastPortfolio = await r.json();
-      renderPortfolio(lastPortfolio);
-    } catch (e) {
-      $("pf-src").textContent = "API offline (" + e.message + ")";
-      $("pf-src").className = "r";
-    }
-  }
-
   loadSetup();
   refresh();
-  refreshPortfolio();
   setInterval(refresh, POLL_MS);
-  setInterval(refreshPortfolio, PF_MS);
 </script>

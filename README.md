@@ -1,62 +1,5 @@
 # Algo Pro — Quant Trading System (Indian Market)
 
-Automated, risk-gated quantum of work for NSE/BSE trading: data → features → signal →
-conviction → sizing → portfolio risk → session guards → **risk gate** → execution → ledger,
-with a feedback loop back into research.
-
-- **Design source of truth:** [`docs/quant_system_flow_v5.md`](docs/quant_system_flow_v5.md) + [`quant_system_flow_v5.svg`](quant_system_flow_v5.svg)
-- **Build order:** [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
-- **Operating procedure:** [`docs/My_trading_system_SOP/SOP.md`](docs/My_trading_system_SOP/SOP.md)
-
-> **Status (2026-11-06): paper and research only. Nothing is live.** Most `src/quant/` modules
-> now carry code and unit tests (`Status: PHASE n IMPLEMENTED`). The live path (Phase 3 runner,
-> broker feed, router) is not enabled. No stage is production-live until its exit checks pass.
-> Latest state: [`docs/STATUS_2026-11-06.md`](docs/STATUS_2026-11-06.md).
-
-## Current status (2026-11-06)
-
-| Area | State |
-|---|---|
-| Trading-day calendar | 2026 NSE equity holidays from official circulars (NSE/CMTR/71775 + circular 07/2026): 16 weekdays. Loader: `config/calendar/holidays.csv`. Reference with sources: `config/calendar/nse_holidays_2026.csv`. |
-| Expiry and lot size | Delivery: no expiry. Intraday: same-day expiry. Lot size only for SME, read from the broker at order time; whole lots only; fail closed. `src/quant/core/expiry_rules.py`. |
-| Costs | Indian cost model; exchange charge 0.00307% per side (NSE circular FA73061). Hand-checked tests. |
-| Risk limits | Starter minimums approved for paper. Live values = same values; live still blocked. `config/risk_limits.yaml`. |
-| Model registry | Human sign-off required before promotion. `src/quant/feedback/champion_challenger.py`. |
-| Dashboard | FastAPI, read and write (limits and kill switch, token-protected). P&L visible by default. |
-| Tests | Sandbox: `pytest tests/unit` 27 failed, 424 passed, 18 skipped. All 27 failures are the missing `httpx` package (HRP via Blue bridge). `pytest tests/parity` passes, including the money-check parity (34,560 cases, zero differences). Owner machine run pending. |
-| Risk money checks | Ported out of Blue_engine (decision 0018). `src/quant/risk/money_checks.py`. Owner sign-off pending. |
-| Live order guard | Live orders need a human `LiveApproval` tied to the current risk limits file, and an approved gate decision for the same intent. Still not enabled. `src/quant/execution/openalgo_client.py`. |
-| Data | INFY is test-only (`config/data_sources.yaml`). Fetched on the owner machine with `python Blue_engine/database/sample_data.py`. Not in this repo. No live data source is chosen yet. |
-
-**Next steps and owner follow-ups:** see [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md), section "Follow-ups after 2026-11-06".
-**Decisions:** [`docs/decisions/`](docs/decisions/) (0015 owner answers, 0016 lots, calendar, live limits).
-
----
-
-## System flow v5
-
-![Quant system flow v5 — full flow, trade path, feedback and support lanes](quant_system_flow_v5.svg)
-
-*(Rendered inline by GitHub from the SVG at repo root. Diagram is 1530 × 1935 px.)*
-
-**Legend**
-
-| Mark | Meaning |
-|---|---|
-| Solid gray arrow | Normal trade-path flow |
-| Dashed red arrow | Feedback loop and kill switch |
-| Dashed purple arrow | Approved-model handoff only (model registry → factor models) |
-| Gray box | State, inputs, governance |
-| Purple box | Analysis and AI (advice only) |
-| Green box | Decision and execution |
-| Red box | Safety and gates |
-
-**Two hard rules**
-
-1. Every order intent passes the **Risk gate**. No other stage can reach OpenAlgo.
-2. No AI/LLM stage has a trade path. Event scoring is advice only.
-
----
 
 ## Trade path (simplified)
 
@@ -157,18 +100,6 @@ flowchart LR
 
 ---
 
-## Implementation phases
-
-| Phase | Scope | Capital |
-|---|---|---|
-| 0 | Reuse audit of `Blue_engine/`, test baseline, trust boundary | none |
-| 1 | Safe foundation: data, research, risk gate, queue, ledger, paper runner | none |
-| 2 | Signal, conviction, sizing, portfolio, model registry | none (paper) |
-| 3 | Live execution, session guards, monitors, dashboard, alerts | small, fixed cap |
-| 4 | Improvement loop, recovery, hardening, docs sync | capped |
-
-Hard rule: no phase starts before the previous phase's exit checks pass. Details in
-[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ---
 

@@ -170,7 +170,17 @@ def test_only_broker_adapter_and_scripts_import_openalgo_client():
         # guard fail on its own test. Production modules are still fully checked.
         if tests_dir in py.parents or py.name.startswith("test_"):
             continue
-        assert "openalgo_client" not in py.read_text(), py
+        # Match the IMPORT, not a free-text mention. ``live_approval.py`` refers to
+        # this module in its docstring to say where the gate lives ("see
+        # execution/openalgo_client.LiveApproval"); that is documentation, not a
+        # call path, and the old substring check flagged it. A real reach-in is an
+        # import or a direct attribute use, so match those forms only.
+        import re
+        text = py.read_text()
+        assert not re.search(
+            r"^\s*(from|import)\s+[\w.]*openalgo_client\b"
+            r"|\bopenalgo_client\.(place|modify|cancel|order|\.)",
+            text, re.M), py
 
 
 def test_calendar_empty_is_unverified_and_holidays_block(tmp_path):

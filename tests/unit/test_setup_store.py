@@ -16,7 +16,7 @@ def paths(tmp_path):
     settings.write_text("mode: paper\nsizing:\n  risk_per_trade: 0.0025\ndashboard:\n  pnl_visible_default: true\n",
                         encoding="utf-8")
     limits = tmp_path / "risk_limits.yaml"
-    limits.write_text("blocked: false\nmax_daily_loss_pct: 0.001\n", encoding="utf-8")
+    limits.write_text("blocked: false\nmax_daily_loss: 1000\n", encoding="utf-8")
     return settings, strategies, limits
 
 
@@ -44,7 +44,7 @@ def test_save_writes_risk_strategy_and_symbol_cap_to_their_files(paths):
     assert data["sizing"]["risk_per_trade"] == 0.005
     assert data["trade_setup"] == {"strategy": "beta"}
     saved = RiskLimits.from_yaml(limits)
-    assert saved.max_symbols_per_portfolio == 3 and saved.max_daily_loss_pct == 0.001  # other limits kept
+    assert saved.max_symbols_per_portfolio == 3 and saved.max_daily_loss == 1000  # other limits kept
 
 
 def test_saved_risk_is_what_the_code_reads(paths):

@@ -46,7 +46,7 @@ Support inputs to backtest and risk:
 |---|---|
 | Indian cost model | STT, brokerage, exchange charges, GST, stamp duty, market impact |
 | Bootstrap of trades | Luck vs edge test |
-| Covariance, shrinkage | Feeds the optimizer and cluster caps |
+| Covariance + shrinkage | Feeds the optimizer and cluster caps |
 | Capacity estimator | Max capital per strategy |
 | Experiment lineage | Data, code and parameters per signal |
 
@@ -174,17 +174,6 @@ Support inputs to backtest and risk:
 
 ---
 
-### 2.13 Added 2026-11-09 (owner decision, advice only)
-
-| Stage | What it does |
-|---|---|
-| Economic engine | Macro inputs, regime and scoring from the old Blue economics engine. Moves to `src/quant/data/economics/` (plan doc section 2, item 2). No trade path |
-| Agent pipeline (core) | Blue agent orchestration (`agent_team`, `pipeline`, `frontline_agent`, `agent_memory`). Advice only, moves to `src/quant/feedback/`. `risk_engine.py` and `paper_shift.py` are NOT moved until reviewed (O2) |
-
-Event scoring (2.4) and the improvement loop (2.11) are the other two parts of the agent split. Plan: docs/IMPLEMENTATION_PLAN_2026-11-09_MIGRATE_BLUE_FEATURES.md.
-
----
-
 ## 3. Main trade path (simplified)
 
 ```mermaid
@@ -225,8 +214,6 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 | Audit | `src/quant/audit/` |
 | Improvement loop | `src/quant/feedback/` |
 | Support, dashboard, alerts | `src/quant/monitor/`, `src/quant/reporting/`, `src/quant/notify/` |
-| Economic engine (added 2026-11-09) | `src/quant/data/economics/` (planned, not yet moved) |
-| Agent pipeline core (added 2026-11-09) | `src/quant/feedback/` (planned, advice only, not yet moved) |
 
 ---
 

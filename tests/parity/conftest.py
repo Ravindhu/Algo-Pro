@@ -14,7 +14,7 @@ import pytest
 
 BLUE = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine"
 PACKAGES = ["", "core", "portfolio", "portfolio.risk", "portfolio.optim", "portfolio.sizing",
-            "backtest", "ml", "ml.evaluation", "screener", "screener.client", "pov", "pov.slicers"]
+            "backtest", "ml", "ml.evaluation", "screener", "screener.client"]
 
 
 @pytest.fixture

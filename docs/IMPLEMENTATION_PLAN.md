@@ -127,7 +127,7 @@ Exit checks:
 Goal: go live in small steps, with every guard tested.
 Depends on: Phase 2 exit checks, plus a paper period with parity results.
 
-Status: PENDING for the live path. Risk control modules exist (controls, exits, squareoff) but are not enabled. `scripts/run_live.py` is deliberately NOT created.
+Status: PENDING for the live path. Risk control modules exist (controls, exits, squareoff) but are not enabled. `scripts/run_live.py` was created 2026-11-08 (decision 0030) but is DISARMED: it refuses to start without a valid LiveApproval, so no live order can be placed until a person signs off.
 
 | Flow lane | Blocks | Module | Status |
 |---|---|---|---|
@@ -158,7 +158,7 @@ Exit checks (all required before real capital):
 1. Live paper fills match the replayed backtest within a tolerance the owner sets. PENDING.
 2. Regulatory items (SEBI algo registration, order tagging, immutable audit store, NTP clock sync) checked against current SEBI rules. NOT verified yet. Scope is an OPEN OWNER QUESTION (see "Open owner decisions").
 3. Capital starts at a fixed, small cap in config. Any scale-up needs owner sign-off.
-4. Kill switch and safe mode tested in a live session with no orders sent. PENDING.
+4. Kill switch and safe mode tested in a live session with no orders sent. **DONE 2026-11-08 (decision 0031):** `monitor/drill.py` + `scripts/run/safety_drill.py`. Nine phases, all pass: clean entry approved; kill blocks entries; kill survives restart; kill closes pass while killed; reset needs a person; reduce-only blocks entries/allows exits; halt-all blocks all but kill closes; safe-mode changes audited; **zero orders sent** (every path went to a CountingBroker stub). Evidence: `data/drills/<ts>/report.json` + audit row. Planted-fault tests prove each phase catches its own breakage.
 5. Dashboard P&L shown by default (decision 0007). EV, MAE/MFE and rule compliance removed; profit factor and win rate visible (decision 0008).
 
 ---
@@ -168,9 +168,7 @@ Exit checks (all required before real capital):
 Goal: keep improving and keep recovering, without ever letting either one touch
 capital on its own.
 
-Depends on: Phase 3 exit checks. **Those are NOT met** — `scripts/run_live.py` is
-deliberately not created, live limits in `config/risk_limits.yaml` are still
-`null`, and Phase 3 exit checks 1, 2 and 4 are PENDING. So Phase 4 is being built
+Depends on: Phase 3 exit checks. **Those are NOT met** — no LiveApproval has been recorded (so `scripts/run_live.py`, created 2026-11-08 under decision 0030, still refuses to start), and Phase 3 exit checks 1, 2 and 4 are PENDING. Phase 4 is being built
 **paper-safe only**: every module below is advice-only or gate-only and none of
 them needs live capital to be correct. The parts that would act on live money
 stay gated behind Phase 3.
@@ -185,7 +183,8 @@ Status: PARTIAL (improvement loop and recovery DONE; hardening PENDING).
 | Recovery | Restart and resume decision | `monitor/recovery.py` | DONE: restart is automatic, resume is gated; tests `test_recovery.py` (18) |
 | Recovery | Reconciliation | `monitor/recon_job.py` | DONE (Phase 3) |
 | Recovery | Safe mode | `monitor/safe_mode.py` | DONE (Phase 1) |
-| Hardening | Live run path | `scripts/run/run_live.py` | PENDING BY DESIGN (Phase 3 gate) |
+| Hardening | Live run path | `scripts/run/run_live.py` | DONE 2026-11-08 (decision 0030): starts only behind a valid LiveApproval; exit checks 2 and 4 still open |
+| Hardening | Live approval record | `core/live_approval.py`, `scripts/ops/approve_live.py` | DONE 2026-11-08: terminal-only, phrase-gated, hash-voided |
 | Hardening | Docs sync | `AGENTS.md`, this file, flow doc | PENDING (D-1 owner approval) |
 
 ### The two Phase 4 rules, enforced in code

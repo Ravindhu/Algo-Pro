@@ -59,12 +59,19 @@ WATCHED_DIRS = ("install",)
 
 
 def _hash_file(path: Path) -> str:
-    """SHA-256 of a single file, hex digest."""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    """SHA-256 of a single file, hex digest.
+
+    Line endings are folded to LF before hashing. A Windows clone (git with
+    core.autocrlf=true) and the LF-only vendored tree then produce the same
+    pin; without this the check reports a MISMATCH on every machine that has
+    no .gitattributes in effect for the clone.
+    """
+    return _hash_bytes_lf(path.read_bytes())
+
+
+def _hash_bytes_lf(data: bytes) -> str:
+    """SHA-256 of file bytes with CRLF folded to LF."""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _hash_dir(path: Path) -> str:
@@ -83,9 +90,8 @@ def _hash_dir(path: Path) -> str:
         rel = p.relative_to(path).as_posix()
         h.update(rel.encode("utf-8"))
         h.update(b"\0")
-        with p.open("rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
+        # Same LF folding as _hash_file, so a CRLF clone of install/ matches.
+        h.update(_hash_bytes_lf(p.read_bytes()).encode("ascii"))
         h.update(b"\0")
     return h.hexdigest()
 

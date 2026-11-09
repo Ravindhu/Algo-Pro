@@ -1,4 +1,4 @@
-"""User-set risk limits: validation and atomic save (owner decisions 0020, 0031). No FastAPI needed."""
+"""User-set risk limits: validation and atomic save (owner decision 0020). No FastAPI needed."""
 import pytest
 import yaml
 
@@ -8,24 +8,23 @@ from quant.core.limits_store import apply_limit_updates, validate_limit_updates
 
 def _file(tmp_path):
     p = tmp_path / "risk_limits.yaml"
-    p.write_text("blocked: false\nmax_order_quantity: null\ncapital_inr: 1000000\nmax_daily_loss_pct: null\n",
-                 encoding="utf-8")
+    p.write_text("blocked: false\nmax_order_quantity: null\nmax_daily_loss: null\n", encoding="utf-8")
     return p
 
 
 def test_valid_update_is_saved_and_reported(tmp_path):
     p = _file(tmp_path)
-    r = apply_limit_updates(p, {"max_daily_loss_pct": 0.005, "max_order_quantity": 10})
-    assert r == {"old": {"max_daily_loss_pct": None, "max_order_quantity": None},
-                 "new": {"max_daily_loss_pct": 0.005, "max_order_quantity": 10}}
+    r = apply_limit_updates(p, {"max_daily_loss": 1000, "max_order_quantity": 10})
+    assert r == {"old": {"max_daily_loss": None, "max_order_quantity": None},
+                 "new": {"max_daily_loss": 1000, "max_order_quantity": 10}}
     limits = RiskLimits.from_yaml(p)
-    assert limits.max_daily_loss == 5000.0 and limits.max_order_quantity == 10
+    assert limits.max_daily_loss == 1000 and limits.max_order_quantity == 10
 
 
 def test_null_clears_a_limit(tmp_path):
     p = _file(tmp_path)
-    apply_limit_updates(p, {"max_daily_loss_pct": 0.005})
-    apply_limit_updates(p, {"max_daily_loss_pct": None})
+    apply_limit_updates(p, {"max_daily_loss": 500})
+    apply_limit_updates(p, {"max_daily_loss": None})
     assert RiskLimits.from_yaml(p).max_daily_loss is None
 
 
@@ -37,31 +36,20 @@ def test_blocked_flag_round_trips(tmp_path):
 
 def test_header_comment_is_written(tmp_path):
     p = _file(tmp_path)
-    apply_limit_updates(p, {"max_daily_loss_pct": 0.005})
-    assert p.read_text(encoding="utf-8").startswith("# Hard limits.")
-
-
-def test_saved_file_has_no_rupee_keys(tmp_path):
-    p = _file(tmp_path)
-    p.write_text("blocked: false\nmax_daily_loss: 1000\n", encoding="utf-8")  # old-style file
-    apply_limit_updates(p, {"max_daily_loss_pct": 0.005})
-    text = p.read_text(encoding="utf-8")
-    assert "max_daily_loss:" not in text and "max_daily_loss_pct" in text
+    apply_limit_updates(p, {"max_daily_loss": 1})
+    assert p.read_text(encoding="utf-8").startswith("# Hard limits (INR)")
 
 
 def test_no_temp_file_left_behind(tmp_path):
     p = _file(tmp_path)
-    apply_limit_updates(p, {"max_daily_loss_pct": 0.005})
+    apply_limit_updates(p, {"max_daily_loss": 1})
     assert not (tmp_path / "risk_limits.yaml.tmp").exists()
 
 
 @pytest.mark.parametrize("bad", [
-    {}, {"unknown_limit": 5}, {"max_daily_loss_pct": -0.1}, {"max_daily_loss_pct": "0.5"},
-    {"max_daily_loss_pct": True}, {"max_daily_loss_pct": 1.5}, {"max_adv_pct": 1.5},
-    {"max_order_quantity": 2.5}, {"blocked": "yes"}, {"max_daily_loss_pct": float("nan")},
-    {"capital_inr": 0},
-    {"max_daily_loss": 1000},  # rupee key is retired
-    {"max_strategy_loss": 500},
+    {}, {"unknown_limit": 5}, {"max_daily_loss": -1}, {"max_daily_loss": "10"},
+    {"max_daily_loss": True}, {"max_adv_pct": 1.5}, {"max_order_quantity": 2.5},
+    {"blocked": "yes"}, {"max_daily_loss": float("nan")},
 ])
 def test_bad_updates_are_refused_and_file_is_unchanged(tmp_path, bad):
     p = _file(tmp_path)

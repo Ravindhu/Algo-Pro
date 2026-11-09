@@ -1,5 +1,4 @@
-"""Strategies: interface and reference implementations."""
-from quant.strategies.base import Strategy, check_weights
-from quant.strategies.momentum import MomentumStrategy
+"""Strategy classes, registered by name. Scaffold only: no strategy logic yet.
 
-__all__ = ["Strategy", "check_weights", "MomentumStrategy"]
+Strategy params come from config/strategies/<name>.yaml.
+"""
