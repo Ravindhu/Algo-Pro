@@ -2,7 +2,7 @@
 
 Date: 2026-11-04
 Stages: Covariance, shrinkage (Phase 2); Sizing and allocation (HRP optimiser, Phase 2)
-Status: accepted. Update 2026-11-04: Blue HRP fixed (commit 8986b65); HRP now WRAPPED (section 3, item 2).
+Status: accepted. Update 2026-11-04: Blue HRP fixed (commit 8986b65); HRP was WRAPPED. Update 2026-11-09: owner moved HRP into src (decouple item 8). HRP is now LOCAL in `src/quant/portfolio/optimizer.py`, with a parity test against Blue (`tests/parity/test_hrp_parity.py`). See `docs/IMPLEMENTATION_PLAN_2026-11-09_HRP_LOCAL_PORT.md`.
 
 ## Context
 
@@ -34,7 +34,7 @@ Blue `portfolio/risk/covariance.py::ledoit_wolf_cov`). The disagreement was not 
 1. **Shrinkage: WRAP.** `src/quant/portfolio/covariance.py::shrink_cov` delegates to Blue
    `ledoit_wolf_cov(shrink=delta)`. Our validation of `delta` stays local. Reason: after the
    Blue fix, the two agree to rounding error, so wrapping changes no numbers.
-2. **HRP: WRAP (updated 2026-11-04).** The original decision kept HRP local because Blue's
+2. **HRP: LOCAL (updated 2026-11-09, owner instruction).** Supersedes the 2026-11-04 wrapper. The 2026-11-04 wrap text follows for history: **HRP: WRAP (updated 2026-11-04).** The original decision kept HRP local because Blue's
    quasi-diagonal order differed from the reference. The fix in commit 8986b65 makes Blue match
    the reference: 60/60 regression cases pass (order and weights), and the 25-case src test
    passes against Blue. `src/quant/portfolio/optimizer.py::hrp_weights` now delegates to Blue,

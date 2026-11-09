@@ -27,4 +27,4 @@ B. Fix Blue's HRP to match the published algorithm, then wrap it from `src/quant
 
 ## Owner choice
 
-Owner chose: keep the wrapper decided in 0003 (no local port, no Blue change). 2026-11-09.
+Owner chose option 1 (wrapper) on 2026-11-09, then reversed it the same day: owner moved HRP into src (local port, `optimizer.py`). Blue is not changed. Final state: HRP local, see 0003 update of 2026-11-09.
