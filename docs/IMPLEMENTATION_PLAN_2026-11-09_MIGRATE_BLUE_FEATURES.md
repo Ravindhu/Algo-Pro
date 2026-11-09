@@ -105,3 +105,11 @@ Note: `src/quant/openalgo_platform/` is a vendored OpenAlgo platform copy. It is
 2. Next session, with a test environment: add the SVG blocks (item 1), with flow doc, AGENTS.md and README in the same commit.
 3. Next session: run parity checks for the "VERIFY" rows above, then move the Blue copies to `Temp/` where confirmed.
 4. Owner machine: screener.in access test (O3), golden export (O5), then the OpenAlgo sandbox run (item 5).
+
+## 11. Owner update 2026-11-09 (later)
+
+- Item 2 (agent split): APPROVED by owner. Split as in section 9 (a), (b), (c). Blue core files `risk_engine.py` and `paper_shift.py` still need the O2 review before any move.
+- Item 4b: owner wrote "Risk percentage -0.5%". NOT APPLIED. No percentage-of-capital risk key exists in `config/risk_limits.yaml` or in `src/quant/core/config.py`. The only daily loss limit is `max_daily_loss` (INR). A new percentage limit needs gate code changes in `money_checks.py`, `loss_breaker.py` and `auto_kill.py`, plus tests. Open question for owner: which is meant?
+  (a) a new daily loss limit of 0.5% of capital (negative sign = loss),
+  (b) change `max_adv_pct` from 1% to 0.5%, or
+  (c) a per-trade stop-loss of 0.5% (strategy exits, `risk/exits.py`).
