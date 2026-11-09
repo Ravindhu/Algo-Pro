@@ -388,7 +388,9 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_ROOT}
 Environment=OPENALGO_URL=${OPENALGO_URL}
-ExecStart=${OA_VENV}/bin/python ${INSTALL_ROOT}/scripts/run_pov.py
+# Live path goes through the supervisor: its six pre-start gates and restart
+# rules run before every start. Never point this at run_pov.py (no gates).
+ExecStart=${OA_VENV}/bin/python ${INSTALL_ROOT}/scripts/run/run_supervised.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:${INSTALL_ROOT}/log/pov.out.log

@@ -23,7 +23,9 @@ from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 
+from quant.models.conviction import score_conviction
 from quant.portfolio.optimiser_registry import optimise
+from quant.portfolio.tiers import TierTable, decide_size
 from quant.strategies.base import Strategy
 
 ORDER_COLUMNS = ["intent_id", "strategy_id", "symbol", "side", "qty", "ref_price", "kind",
@@ -38,8 +40,17 @@ def _intent_id(strategy_id: str, day, side: str, symbol: str) -> str:
 def build_signals(bars: pd.DataFrame, *, strategy: Strategy, optimiser_name: str,
                   strategy_id: str, limits: Dict[str, Any], capital: float,
                   held: Optional[Dict[str, int]] = None, cov_window: int = 60,
-                  optimiser_config: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
-    """Return the signals DataFrame (columns ORDER_COLUMNS) for the last date in ``bars``."""
+                  optimiser_config: Optional[Dict[str, Any]] = None,
+                  conviction: Optional[Dict[str, Dict[str, Optional[float]]]] = None,
+                  tier_table: Optional[TierTable] = None,
+                  sizing_log: Optional[list] = None) -> pd.DataFrame:
+    """Return the signals DataFrame (columns ORDER_COLUMNS) for the last date in ``bars``.
+
+    conviction: symbol -> the six CONDITIONS values (see models.conviction). Used only when tier_table
+    is enabled. A symbol with no inputs gets score 0 (no trade). tier_table=None or disabled keeps the
+    flat sizing above exactly.
+    sizing_log: optional list; one audit dict per tier decision is appended.
+    """
     if capital <= 0:
         raise ValueError("capital must be positive")
     need = {"date", "symbol", "close"}
@@ -83,6 +94,9 @@ def build_signals(bars: pd.DataFrame, *, strategy: Strategy, optimiser_name: str
             qty = min(qty, math.floor(max_qty), math.floor(max_notional / px))
             room = max_exposure - exposure
             qty = min(qty, math.floor(room / px))
+            if tier_table is not None and tier_table.enabled:
+                qty = _tiered_qty(sym, float(w[sym]) * capital / px, px, max_qty, max_notional, room,
+                                  conviction, tier_table, sizing_log)
             if qty <= 0:
                 continue
             exposure += qty * px
@@ -98,6 +112,26 @@ def build_signals(bars: pd.DataFrame, *, strategy: Strategy, optimiser_name: str
         rows.append(_row(bars, day, strategy_id, sym, "SELL", qty, px, "exit"))
 
     return pd.DataFrame(rows, columns=ORDER_COLUMNS)
+
+
+def _tiered_qty(sym: str, base_qty: float, px: float, max_qty: float, max_notional: float,
+                room: float, conviction, table: TierTable, sizing_log) -> int:
+    """Conviction-tier size for one entry. Tiers enabled only. Every hard cap still wins.
+
+    base_qty is the uncapped weight-based size. The tier multiplier can raise it, but the result is
+    clamped to the per-order quantity, per-order notional and open-exposure room (all in shares).
+    """
+    caps = {"max_order_quantity": max_qty,
+            "max_order_notional": max_notional / px,
+            "open_exposure_room": room / px}
+    cond = (conviction or {}).get(sym)
+    score = 0.0 if cond is None else score_conviction(cond).score  # no inputs -> fail closed
+    decision = decide_size(base_qty, score, caps, table)
+    qty = min(math.floor(decision.size + 1e-9), math.floor(min(caps.values()) + 1e-9))
+    if sizing_log is not None:
+        sizing_log.append({"symbol": sym, **decision.as_audit_record(), "qty": int(qty),
+                           "conviction_inputs": cond is not None})
+    return int(qty)
 
 
 def _row(bars: pd.DataFrame, day, strategy_id: str, sym: str, side: str, qty: int,

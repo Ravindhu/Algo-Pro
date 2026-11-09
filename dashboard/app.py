@@ -36,7 +36,11 @@ from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.reporting.flow_status import node_statuses  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
-from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
+from datetime import datetime  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+from quant.core.live_checklist import evaluate  # noqa: E402
+from quant.core.live_facts import gather  # noqa: E402
+from quant.core.trading_mode import current_mode, request_mode, trading_mode_status  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
 
@@ -226,7 +230,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.post("/api/trading-mode")
     async def set_trading_mode(request: Request):
-        """Select paper. Live is always refused here (decisions 0017 and 0028). Needs the token."""
+        """PAPER: always accepted. LIVE: needs the confirm phrase, a named approver and all live checks
+        (decision 0031). Every request is audited with its checks. Needs the token."""
         denied = token_error(request)
         if denied is not None:
             return denied
@@ -234,13 +239,28 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             body = await request.json()
         except ValueError:
             body = None
-        mode = body.get("mode") if isinstance(body, dict) else None
-        accepted, message = request_mode(mode)
-        AuditLog(paths["audit"]).append("trading_mode_requested",
-                                        {"requested": mode, "accepted": accepted, "message": message, "actor": ACTOR})
+        body = body if isinstance(body, dict) else {}
+        mode = body.get("mode")
+        approver = body.get("approver")
+        checks = None
+        if mode == "live":
+            try:
+                checks = evaluate(gather(ROOT, paths["kill"], approver, datetime.now(ZoneInfo("Asia/Kolkata"))))
+            except Exception as exc:  # fail closed: unreadable facts = refused
+                checks = None
+                fact_error = f"live facts could not be read: {exc}"
+            else:
+                fact_error = None
+        accepted, message = request_mode(mode, checks=checks, confirm=body.get("confirm"), approver=approver)
+        if mode == "live" and fact_error:
+            accepted, message = False, "Live refused: " + fact_error
+        AuditLog(paths["audit"]).append("trading_mode_requested", {
+            "requested": mode, "accepted": accepted, "message": message, "actor": ACTOR,
+            "approver": approver if mode == "live" else None,
+            "checks": [{"name": c.name, "passed": c.passed, "reason": c.reason} for c in (checks or [])]})
         if not accepted:
             return JSONResponse({"error": message}, status_code=409 if mode == "live" else 422)
-        return JSONResponse({"mode": "paper", "message": message})
+        return JSONResponse({"mode": current_mode(), "message": message})
 
     @app.get("/api/loop")
     def loop_state():

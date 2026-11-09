@@ -18,10 +18,13 @@ Existing code to reuse or wrap (do not copy): Blue_engine/core/paper_broker.py
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import pathlib
 import sys
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -31,6 +34,7 @@ import pandas as pd  # noqa: E402
 from quant.audit.log import AuditLog  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.core.types import TradeIntent  # noqa: E402
+from quant.data.market_inputs import blackout_map, read_event_calendar  # noqa: E402
 from quant.execution.openalgo_client import (  # noqa: E402
     AnalyzeBroker, OpenAlgoClient, PaperBroker, http_transport,
 )
@@ -96,8 +100,13 @@ def _close_reason(closed: list, skipped: list) -> str:
     return text
 
 
-def run(signals_csv, limits_path, out_dir, broker=None, readers=None) -> dict:
+def run(signals_csv, limits_path, out_dir, broker=None, readers=None, trade_day=None,
+        blackout_dates=None) -> dict:
     """Run one signals file. broker: any object with place(intent, decision) -> result dict.
+
+    trade_day: date stamped on every intent (the event-blackout check needs it for entries).
+    blackout_dates: symbol -> blocked dates from an event calendar. None = no calendar loaded; the
+    audit log says so, so the run never looks checked when it was not.
 
     Result dict keys: status (FILLED / REJECTED / UNKNOWN), order_id, filled_qty, avg_price, reason.
     Only FILLED changes the ledger position and exposure. REJECTED and UNKNOWN are audited.
@@ -108,7 +117,10 @@ def run(signals_csv, limits_path, out_dir, broker=None, readers=None) -> dict:
     ledger = Ledger(out / "ledger.jsonl")
     kill = KillSwitch(out / "kill_switch.json")
     safe = SafeMode(audit)
-    state = RiskState(seen_ids=ledger.seen_intent_ids())
+    state = RiskState(seen_ids=ledger.seen_intent_ids(), blackout_dates=dict(blackout_dates or {}))
+    audit.append("event_calendar", {"loaded": blackout_dates is not None,
+                                    "symbols": sorted((blackout_dates or {}).keys()),
+                                    "trade_day": trade_day.isoformat() if trade_day else None})
     halt = HaltHandler()  # index circuit freezes; empty until a halt or index-move freeze is set
     alerts = Alerts(on_critical=lambda msg: audit.append("critical", {"message": msg}))
     if broker is not None and hasattr(broker, "attach_alerts"):
@@ -189,6 +201,8 @@ def run(signals_csv, limits_path, out_dir, broker=None, readers=None) -> dict:
     for row in pd.read_csv(signals_csv, dtype={"intent_id": str}).to_dict("records"):
         _flatten_if_killed()
         intent = _intent_from_row(row)
+        if trade_day is not None:
+            intent = dataclasses.replace(intent, trade_day=trade_day)
         if intent.intent_id in state.seen_ids:
             summary["skipped_duplicates"] += 1
             continue
@@ -207,7 +221,16 @@ def main() -> None:
     p.add_argument("--out", default=str(ROOT / "data" / "paper"))
     p.add_argument("--broker", choices=("paper", "analyze"), default="paper")
     p.add_argument("--base-url", default="", help="OpenAlgo base URL; required with --broker analyze")
+    p.add_argument("--events", default=None,
+                   help="event CSV (symbol,date). Omitted = blackout not checked, and the audit says so")
+    p.add_argument("--blackout-days", type=int, default=1, help="days blocked before and after each event")
+    p.add_argument("--trade-day", default=None, help="YYYY-MM-DD; default is today in IST")
     args = p.parse_args()
+    trade_day = date.fromisoformat(args.trade_day) if args.trade_day else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    blackout = None
+    if args.events:
+        symbols = pd.read_csv(args.signals, usecols=["symbol"])["symbol"].tolist()
+        blackout = blackout_map(read_event_calendar(args.events), symbols, args.blackout_days, args.blackout_days)
 
     broker = None
     if args.broker == "analyze":
@@ -219,7 +242,8 @@ def main() -> None:
         broker = AnalyzeBroker(client, key, order_not_placed=readers.not_placed,
                                position_still_open=readers.still_open)
     print(json.dumps(run(args.signals, args.limits, args.out, broker=broker,
-                         readers=readers if args.broker == "analyze" else None), indent=2, default=str))
+                         readers=readers if args.broker == "analyze" else None,
+                         trade_day=trade_day, blackout_dates=blackout), indent=2, default=str))
 
 
 if __name__ == "__main__":

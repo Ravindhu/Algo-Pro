@@ -88,3 +88,26 @@ def event_blackout_dates(events: Iterable[Dict[str, object]], symbol: str,
         for k in range(-days_before, days_after + 1):
             blocked.add(d + timedelta(days=k))
     return blocked
+
+
+def read_event_calendar(path) -> List[Dict[str, object]]:
+    """Read an event CSV with columns symbol,date (date as YYYY-MM-DD). Missing columns raise.
+
+    Events are advice-level inputs: they only feed the entry blackout, never orders or size.
+    """
+    df = pd.read_csv(path, dtype={"symbol": str, "date": str})
+    if not {"symbol", "date"} <= set(df.columns):
+        raise ValueError("event calendar needs columns: symbol, date")
+    events: List[Dict[str, object]] = []
+    for rec in df.to_dict("records"):
+        events.append({"symbol": str(rec["symbol"]).strip().upper(),
+                       "date": datetime.strptime(str(rec["date"]).strip(), "%Y-%m-%d").date()})
+    return events
+
+
+def blackout_map(events: Iterable[Dict[str, object]], symbols: Iterable[str],
+                 days_before: int = 1, days_after: int = 1) -> Dict[str, Set[date]]:
+    """Symbol -> blocked dates, built with event_blackout_dates for each symbol given."""
+    events = list(events)
+    return {s.strip().upper(): event_blackout_dates(events, s, days_before, days_after)
+            for s in {str(x) for x in symbols}}
