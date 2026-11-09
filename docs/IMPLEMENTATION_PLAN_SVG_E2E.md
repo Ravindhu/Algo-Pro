@@ -77,3 +77,4 @@ The earlier inventory was wrong in places. This plan replaces it. Checked by gre
 ## 6. Work log
 
 - 2026-11-09: Merged `master` into `main`. Corrected the inventory. Phase 1 code and tests. Plan written after the first code change, which breaks the rule to plan first. Recorded here for transparency.
+- 2026-11-09 (later): Live run design written in `docs/LIVE_RUN_DESIGN.md`. Holiday calendar verified against the NSE circular list (16 equity holidays, files agree). Corrected: live limits are not null (decision 0016), only `max_symbols_per_portfolio` is unset. Live still not enabled.
