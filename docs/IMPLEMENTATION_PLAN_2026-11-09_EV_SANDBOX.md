@@ -32,3 +32,15 @@ Status: done. Decision: `docs/decisions/0033-ev-on-dashboard-and-sandbox-panel.m
 ## Next priority
 1. Decide if the standalone sandbox trading engine is wanted, and which flow stage owns it.
 2. Fix the pre-existing failures before the next release.
+
+## Round 3: full Sandbox page (owner request, 2026-11-09 evening)
+- Sandbox = paper trading view inside `dashboard/main_dashboard.html` (no new page, per AGENTS rule 9).
+- Pipeline strip shows 12 v5 stages on the paper path. Colours come from `overview.flow`.
+- Account block: capital base, paper equity, return on capital, realized, unrealized, max drawdown.
+- Statistics: closed trades, win rate, profit factor, EV, EV %, avg win, avg loss, risk:reward.
+- Controls and status: mode, paper loop, kill switch, open positions, risk used.
+- Closed-trades table (last 20, newest first) uses the existing `closed_trades` field.
+- Backend: `sandbox_account()` in `dashboard_data.py` (capital, equity, return %). Shows "not set" when capital is unset.
+- Tests: `src/quant/tests/test_sandbox_ev.py` (8 tests, hand-checked numbers). Full suite: 33 failures, all pre-existing.
+- Preview: sample paper data built by the real backend code. Not live.
+- Not done: standalone sandbox trading engine. Broker feeds stay "not connected" (no live feed).

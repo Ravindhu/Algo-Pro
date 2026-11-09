@@ -53,3 +53,50 @@ def test_overview_carries_ev_fields_for_dashboard():
     assert perf["avg_win"] == pytest.approx(100.0)
     assert perf["avg_loss"] == pytest.approx(-50.0)
     assert perf["risk_reward"] == pytest.approx(2.0)
+
+
+def test_closed_trades_newest_first_with_pnl():
+    fills = [
+        {"symbol": "AAA", "signed_qty": 10, "price": 100.0},
+        {"symbol": "AAA", "signed_qty": -10, "price": 110.0},
+        {"symbol": "BBB", "signed_qty": 5, "price": 200.0},
+        {"symbol": "BBB", "signed_qty": -5, "price": 190.0},
+    ]
+    o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
+                       last_prices={})
+    rows = o["closed_trades"]
+    assert [r["symbol"] for r in rows] == ["BBB", "AAA"]  # BBB closed last
+    assert rows[0]["pnl"] == pytest.approx(-50.0)
+    assert rows[1]["pnl"] == pytest.approx(100.0)
+
+
+def test_closed_trades_newest_first_and_capped():
+    fills = []
+    for i in range(25):  # 25 round trips, each buys 1 at 100 and sells at 101
+        fills += [{"symbol": f"S{i}", "signed_qty": 1, "price": 100.0},
+                  {"symbol": f"S{i}", "signed_qty": -1, "price": 101.0}]
+    o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
+                       last_prices={})
+    assert len(o["closed_trades"]) == 20
+    assert o["closed_trades"][0]["symbol"] == "S24"  # newest first
+    assert o["closed_trades"][0]["pnl"] == pytest.approx(1.0)
+
+
+def test_sandbox_equity_is_capital_plus_pnl():
+    # Capital 100000; realized +100 (10 x 10); open long 10 @ 100 marked 105 = +50.
+    fills = [{"symbol": "A", "signed_qty": 10, "price": 100.0},
+             {"symbol": "A", "signed_qty": -10, "price": 110.0},
+             {"symbol": "B", "signed_qty": 10, "price": 100.0}]
+    o = build_overview(fills=fills, audit_records=[], kill={},
+                       limits={"blocked": False, "capital_inr": 100000.0},
+                       last_prices={"B": 105.0})
+    sb = o["sandbox"]
+    assert sb["capital_inr"] == pytest.approx(100000.0)
+    assert sb["equity"] == pytest.approx(100150.0)
+    assert sb["return_pct"] == pytest.approx(0.15)
+
+
+def test_sandbox_equity_none_without_capital():
+    o = build_overview(fills=[], audit_records=[], kill={}, limits={"blocked": False,
+                       "capital_inr": None}, last_prices={})
+    assert o["sandbox"] == {"capital_inr": None, "equity": None, "return_pct": None}

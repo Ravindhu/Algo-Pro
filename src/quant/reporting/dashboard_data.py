@@ -87,6 +87,18 @@ def _r(value: Optional[float], digits: int = 2) -> Optional[float]:
     return None if value is None else round(float(value), digits)
 
 
+def sandbox_account(capital: Optional[float], performance: Mapping[str, object]) -> Dict[str, Optional[float]]:
+    """Paper account: capital base, equity (capital + realized + unrealized) and return %.
+
+    None when the capital base is not set. Never guessed.
+    """
+    if capital is None or not capital:
+        return {"capital_inr": _r(capital), "equity": None, "return_pct": None}
+    equity = float(capital) + float(performance["realized_pnl"]) + float(performance["unrealized_pnl"])
+    return {"capital_inr": _r(capital), "equity": _r(equity),
+            "return_pct": _r((equity - float(capital)) / float(capital) * 100, 2)}
+
+
 def safety_events(audit_records: Sequence[Mapping], kill: Mapping) -> List[dict]:
     """Newest-first list of safety events. Kill switch first when active."""
     events: List[dict] = []
@@ -169,6 +181,12 @@ def build_overview(
         },
         "events": safety_events(audit_records, kill)[:20],
     }
+    overview["closed_trades"] = [
+        {"symbol": t["symbol"], "qty": t["qty"], "entry": round(t["entry"], 2),
+         "exit": round(t["exit"], 2), "pnl": round(t["pnl"], 2)}
+        for t in pnl["closed"][-20:][::-1]  # newest first, last 20
+    ]
     overview["equity"] = equity_curve(pnl["closed"])
+    overview["sandbox"] = sandbox_account(limits.get("capital_inr"), overview["performance"])
     overview["insight"] = ai_insight(overview)
     return overview
