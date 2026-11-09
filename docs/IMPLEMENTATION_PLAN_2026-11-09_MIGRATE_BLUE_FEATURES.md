@@ -120,3 +120,23 @@ Note: `src/quant/openalgo_platform/` is a vendored OpenAlgo platform copy. It is
 - Daily loss 0.5% (owner input). Strategy loss, order size and open exposure converted from the old rupee values (0.05%, 1%, 2%). Owner to confirm.
 - Dashboard form changed to percent inputs. Rupee keys refused by the YAML loader and by the save path.
 - Still open: item 1 (live sandbox run), and the SVG block change (section 9, item 1).
+
+## 13. Remaining work status, end of session 2026-11-09
+
+Checked against `origin/master` at d44e554. The live-path open items are in docs/IMPLEMENTATION_PLAN_SVG_E2E.md.
+
+| Item | Status | Blocker | Who |
+|---|---|---|---|
+| Screener move (6.2a to 6.2e) | NOT STARTED. Rules and numbers are in quant | Parity needs Blue deps (`openalgo`, `httpx`), not installable here. screener.in data access (O3) | Owner machine + owner data access |
+| Economics engine (6.3) | SCAFFOLD only (`src/quant/data/economics/engine.py`) | Port needs a pass over Blue providers and keys. No parity run here | Next session with test env |
+| Agent pipeline core (6.6) | SCAFFOLD only (`src/quant/feedback/agent_core.py`) | O2 review of `core/risk_engine.py` and `core/paper_shift.py` first | Owner review (O2) |
+| POV engine loop (6.5 Phase D) | NOT STARTED. `execution/pov_executor.py` exists and needs a parity check | Parity against `Blue_engine/pov/pov_engine.py` | Next session with test env |
+| Installers (stage 5) | BLOCKED. Blue is still used by 6.2 to 6.6 | Finish 6.2 to 6.6 first | After the moves |
+| Item 6: Blue copies to `Temp/` | NOTHING MOVED. Each move needs a parity pass | Same as above | Owner machine |
+| Decision number clash | Two files numbered 0031 (`0031-live-switch-on-dashboard.md` and `0031-percent-of-capital-risk-limits.md`) | Owner OK to rename mine to 0032 | Owner |
+| Live sandbox order run (item 5) | NOT POSSIBLE in session | Needs OpenAlgo server, sandbox broker keys, D3 licensed live data source | Owner machine |
+| Live path, E2E plan phase 5 | Checklist and switch done. Live readers and live runner NOT BUILT | D3 and the readers' wiring | Next session |
+| Kill-and-restart test (X-7) | OPEN | None in code. Can be done next session | Next session |
+| Branch name | BRANCHES.md says `master`. The E2E plan says `main` | Owner to confirm one | Owner |
+
+Next session, in order: (1) owner answers on rename and branch, (2) X-7 kill-and-restart test, (3) POV Phase D with parity, (4) screener sub-steps on the owner machine, (5) economics port, (6) agent core after O2, (7) installers and Temp moves.
