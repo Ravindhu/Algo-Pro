@@ -78,7 +78,7 @@ def _svg_block_titles():
 def test_every_svg_block_is_mapped_to_a_module():
     """Each SVG block title must appear in a stage file's Flow stage line, or be a known gap."""
     titles = _svg_block_titles()
-    assert len(titles) == 77, len(titles)  # guards against the parser finding nothing
+    assert len(titles) == 79, len(titles)  # guards against the parser finding nothing (77 + 2 added 2026-11-09)
     scripts = list((ROOT / "scripts").glob("*.py"))
     stage_lines = "\n".join(
         line
