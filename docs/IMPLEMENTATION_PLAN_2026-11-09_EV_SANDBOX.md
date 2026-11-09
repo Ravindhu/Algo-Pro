@@ -58,3 +58,5 @@ Status: done. Decision: `docs/decisions/0033-ev-on-dashboard-and-sandbox-panel.m
 - LTP column in open positions (`last_price` from the ledger price feed).
 - Stop paper trading button in the SANDBOX popup. Uses the existing paper-loop stop route. No new order path.
 - Pending in this round: tax rate module lookup, slippage from OpenAlgo.
+- Round 5 part 2 (done): estimated net P&L from `research/costs.py` CostModel (delivery rates, incl. 5 bps impact). Labelled as estimated. STOP PAPER TRADING button in SANDBOX popup calls `/api/loop/stop`.
+- Slippage: still open. Needs arrival price logged at order time (risk-gate path). Not built.

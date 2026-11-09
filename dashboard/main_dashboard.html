@@ -251,7 +251,7 @@
         </div>
         <div class="zone"><div class="zh">P&amp;L strip</div>
           <div class="zrow"><small>Gross P&amp;L (realized + unrealized)</small><b id="z-gross">—</b></div>
-          <div class="zrow"><small>Net P&amp;L after taxes</small><b class="d">not set</b></div>
+          <div class="zrow"><small>Net P&amp;L after est. costs</small><b id="z-net">—</b></div>
           <div class="zrow"><small>Slippage drag</small><b class="d">not recorded</b></div>
           <div class="zalert">Alert: gross profit with net loss. <span class="d">needs tax rates</span></div>
         </div>
@@ -271,6 +271,7 @@
   <section class="panel">
     <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money · ₹</span></div>
     <div class="big" id="pnl">—</div>
+    <div style="margin:8px 0"><button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button> <small class="d">stops the paper loop only · does not close positions · needs token in header</small></div>
     <div class="sbhead">
       <div><small>Capital base</small><b id="sb-capital">—</b></div>
       <div><small>Paper equity</small><b id="sb-equity">—</b></div>
@@ -435,6 +436,7 @@
   }
   $("loopstart").onclick = () => postLoop("/api/loop/start");
   $("loopstop").onclick = () => postLoop("/api/loop/stop");
+  $("sbstop").onclick = () => postLoop("/api/loop/stop");
   $("mode-paper").onclick = () => postMode("paper");
   $("mode-live").onclick = () => postMode("live");
 
@@ -487,6 +489,8 @@
     const gross = p.realized_pnl + (p.unrealized_pnl || 0);
     $("z-gross").textContent = money(gross);
     $("z-open").textContent = String(o.positions.length);
+    $("z-net").textContent = o.costs ? money(o.costs.net_pnl) : "—";
+    $("z-net").className = o.costs ? sign(o.costs.net_pnl) : "d";
     $("z-unreal").textContent = money(p.unrealized_pnl);
     $("sb-poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
     renderTable($("sb-pos-rows"), o.positions.map(x => {

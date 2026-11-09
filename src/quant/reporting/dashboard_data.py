@@ -13,6 +13,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from quant.reporting.dashboard import build_payload
+from quant.research.costs import CostModel
 
 SEVERITY = {"kill_switch": "CRITICAL", "kill_close": "CRITICAL", "safe_mode": "WARNING", "override": "WARNING",
             "limits_changed": "WARNING"}
@@ -193,6 +194,13 @@ def build_overview(
         for f in list(fills)[-20:][::-1]
     ]
     overview["equity"] = equity_curve(pnl["closed"])
+    # Estimated statutory costs on every paper fill (CostModel, delivery rates, incl. impact)
+    cm = CostModel()
+    cost_inr = sum(cm.trade_cost(abs(int(f["signed_qty"])) * float(f["price"]),
+                                 "BUY" if int(f["signed_qty"]) > 0 else "SELL", "delivery") for f in fills)
+    gross = overview["performance"]["realized_pnl"] + overview["performance"]["unrealized_pnl"]
+    overview["costs"] = {"statutory_inr": _r(cost_inr), "net_pnl": _r(gross - cost_inr),
+                         "basis": "estimated: delivery rates from research/costs.py, includes 5 bps impact"}
     overview["sandbox"] = sandbox_account(limits.get("capital_inr"), overview["performance"])
     overview["insight"] = ai_insight(overview)
     return overview

@@ -125,3 +125,20 @@ def test_positions_carry_last_price():
                        last_prices={"B": 105.0})
     assert o["positions"][0]["last_price"] == pytest.approx(105.0)
     assert o["positions"][0]["unrealized_pnl"] == pytest.approx(50.0)
+
+
+def test_statutory_cost_one_buy_hand_checked():
+    # BUY 10 @ 100 = notional 1000, delivery rates (bps): STT 10, txn 0.307, SEBI 0.01,
+    # GST 18% of (txn + SEBI) = 0.0571, stamp 1.5, impact 5 -> total 16.874 bps -> Rs 1.6874
+    from quant.research.costs import CostModel
+    assert CostModel().trade_cost(1000.0, "BUY", "delivery") == pytest.approx(1.6874, rel=1e-3)
+
+
+def test_overview_net_pnl_is_gross_minus_costs():
+    fills = [{"symbol": "B", "signed_qty": 10, "price": 100.0},
+             {"symbol": "B", "signed_qty": -10, "price": 110.0}]
+    o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
+                       last_prices={})
+    assert o["performance"]["realized_pnl"] == pytest.approx(100.0)
+    assert o["costs"]["statutory_inr"] > 0
+    assert o["costs"]["net_pnl"] == pytest.approx(100.0 - o["costs"]["statutory_inr"], abs=0.01)
