@@ -245,8 +245,8 @@ def test_broker_needs_key():
 def _limits(tmp_path):
     p = tmp_path / "limits.yaml"
     p.write_text(
-        "max_order_quantity: 1000\nmax_order_notional: 5000000\nmax_open_exposure: 20000000\n"
-        "max_daily_loss: 100000\nmax_strategy_loss: 50000\nmax_adv_pct: 0.05\nmax_symbols_per_portfolio: 10\n"
+        "max_order_quantity: 1000\ncapital_inr: 100000000\nmax_order_notional_pct: 0.05\nmax_open_exposure_pct: 0.2\n"
+        "max_daily_loss_pct: 0.001\nmax_strategy_loss_pct: 0.0005\nmax_adv_pct: 0.05\nmax_symbols_per_portfolio: 10\n"
     )
     return p
 

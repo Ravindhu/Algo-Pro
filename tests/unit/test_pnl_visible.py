@@ -70,16 +70,14 @@ def test_page_never_stores_the_token():
 
 
 def test_page_has_an_input_for_every_risk_limit():
-    from dataclasses import fields
-
     import sys
 
     sys.path.insert(0, str(ROOT / "src"))
-    from quant.core.config import RiskLimits
+    from quant.core.limits_store import WRITABLE
 
     text = PAGE.read_text(encoding="utf-8")
     covered = set(re.findall(r'data-limit="(\w+)"', text))
-    assert covered == {f.name for f in fields(RiskLimits)}
+    assert covered == set(WRITABLE)  # every saved limit has an input; no rupee inputs
 
 
 def test_flow_asset_shows_new_kill_switch_wording():

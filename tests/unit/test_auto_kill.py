@@ -32,8 +32,9 @@ def test_gain_never_trips():
 def _limits_file(tmp_path, max_daily_loss):
     p = tmp_path / "limits.yaml"
     p.write_text(
-        "max_order_quantity: 1000\nmax_order_notional: 5000000\nmax_open_exposure: 20000000\n"
-        f"max_daily_loss: {max_daily_loss}\nmax_strategy_loss: 100000\nmax_adv_pct: 0.05\nblocked: false\n",
+        "max_order_quantity: 1000\ncapital_inr: 100000000\nmax_order_notional_pct: 0.05\n"
+        "max_open_exposure_pct: 0.2\n"
+        f"max_daily_loss_pct: {max_daily_loss / 1e8:.10f}\nmax_strategy_loss_pct: 0.001\nmax_adv_pct: 0.05\nblocked: false\n",
         encoding="utf-8",
     )
     return p

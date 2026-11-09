@@ -1,13 +1,12 @@
-# Hard limits (INR). Minimum starter values set on 2026-11-04 for PAPER trading.
-# 2026-11-06: owner approved these minimums for PAPER (decision 0015) and set LIVE = same values
-# (decision 0016). Live trading still blocked by the Phase 3 gate.
-# Change only after a human review. Any null value makes the gate reject entries
-# (fail closed). Mirrors RiskGate keys in Blue_engine/core/risk_gate.py.
+# Hard limits. Owner decisions 0015/0016 (INR, 2026-11-06) replaced by decision 0031 (2026-11-09):
+# money limits are PERCENT of capital_inr. Rupee keys are not allowed here.
+# Change only after a human review. Any null value makes the gate reject entries (fail closed).
+capital_inr: 1000000            # capital base, INR (owner: 10 lakh)
+max_daily_loss_pct: 0.005       # 0.5% of capital per day. Owner input 2026-11-09
+max_strategy_loss_pct: 0.0005   # 0.05% of capital per strategy per day. Converted from 500 INR, CONFIRM
+max_order_notional_pct: 0.01    # 1% of capital per order. Converted from 10000 INR, CONFIRM
+max_open_exposure_pct: 0.02     # 2% of capital across open entries. Converted from 20000 INR, CONFIRM
 max_order_quantity: 10          # shares per order
-max_order_notional: 10000       # INR per order
-max_open_exposure: 20000        # INR across all open entries
-max_daily_loss: 1000            # INR, daily loss budget
-max_strategy_loss: 500          # INR, loss budget per strategy per day
 max_adv_pct: 0.01               # max 1% of average daily volume per order
 max_symbols_per_portfolio: 8    # owner set 2026-11-09 (plan O4). New symbols blocked above this count
 blocked: false                  # true = stop all entries

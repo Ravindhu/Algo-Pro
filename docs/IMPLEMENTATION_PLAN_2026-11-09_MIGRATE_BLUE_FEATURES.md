@@ -113,3 +113,10 @@ Note: `src/quant/openalgo_platform/` is a vendored OpenAlgo platform copy. It is
   (a) a new daily loss limit of 0.5% of capital (negative sign = loss),
   (b) change `max_adv_pct` from 1% to 0.5%, or
   (c) a per-trade stop-loss of 0.5% (strategy exits, `risk/exits.py`).
+
+## 12. Risk limits in percent (decision 0031), 2026-11-09
+
+- Owner: all money limits in percent of capital, capital 10 lakh. DONE. See docs/decisions/0031-percent-of-capital-risk-limits.md.
+- Daily loss 0.5% (owner input). Strategy loss, order size and open exposure converted from the old rupee values (0.05%, 1%, 2%). Owner to confirm.
+- Dashboard form changed to percent inputs. Rupee keys refused by the YAML loader and by the save path.
+- Still open: item 1 (live sandbox run), and the SVG block change (section 9, item 1).
