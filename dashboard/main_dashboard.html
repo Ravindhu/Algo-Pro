@@ -157,6 +157,24 @@
   </section>
 </div>
 
+<section class="panel sandbox" id="sandbox" style="margin-top:8px">
+  <div class="ph">SANDBOX <span>paper trading · simulated fills · no broker orders</span></div>
+  <div class="kv">
+    <div><small>Mode</small><b id="sb-mode">—</b></div>
+    <div><small>Paper loop</small><b id="sb-loop">—</b></div>
+    <div><small>Kill switch</small><b id="sb-kill">—</b></div>
+    <div><small>Closed trades</small><b id="sb-trades">—</b></div>
+    <div><small>Win rate</small><b id="sb-winrate">—</b></div>
+    <div><small>Profit factor</small><b id="sb-pf">—</b></div>
+    <div><small>Realized P&amp;L</small><b id="sb-realized">—</b></div>
+    <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
+    <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
+    <div><small>Open positions</small><b id="sb-open">—</b></div>
+    <div><small>Risk used</small><b id="sb-risk">—</b></div>
+  </div>
+  <p class="d" id="sb-note">Sandbox stats come from the paper ledger. They are not live market results.</p>
+</section>
+
 <div class="mid">
   <section class="panel">
     <div class="ph">Open positions <span id="poscount"></span></div>
@@ -402,6 +420,20 @@
     $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
     $("openpos").textContent = String(o.positions.length);
     $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
+
+    // Sandbox section: same data as the panels above, paper ledger only
+    $("sb-mode").textContent = o.mode;
+    $("sb-loop").textContent = o.loop ? o.loop.status : "—";
+    $("sb-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
+    $("sb-kill").className = o.kill_switch.active ? "r" : "g";
+    $("sb-trades").textContent = String(p.trades);
+    $("sb-winrate").textContent = pct(p.win_rate);
+    $("sb-pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
+    $("sb-realized").textContent = money(p.realized_pnl);
+    $("sb-unrealized").textContent = money(p.unrealized_pnl);
+    $("sb-dd").textContent = o.equity ? money(o.equity.max_drawdown) : "—";
+    $("sb-open").textContent = String(o.positions.length);
+    $("sb-risk").textContent = pct(p.risk_utilisation);
 
     $("r-mode").textContent = o.mode;
     $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
