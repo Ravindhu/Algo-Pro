@@ -51,7 +51,7 @@ def test_a_person_can_create_an_approval(limits, tmp_path):
 
 def test_a_fresh_approval_checks_valid(limits, tmp_path):
     out = tmp_path / "live_approval.json"
-    _approve(out, limits)
+    _approve(out, limits, today=date(2026, 11, 8))
     ok, why = check_approval(out, limits, today=date(2026, 11, 8))
     assert ok is True
     assert "Owner" in why
@@ -102,7 +102,7 @@ def test_a_missing_limits_file_fails_the_check(limits, tmp_path):
 
 def test_an_old_approval_is_stale(limits, tmp_path):
     out = tmp_path / "live_approval.json"
-    _approve(out, limits)          # approved 2026-11-08
+    _approve(out, limits, today=date(2026, 11, 8))   # approved 2026-11-08
     later = date(2026, 11, 8) + timedelta(days=MAX_AGE_DAYS + 1)
     ok, why = check_approval(out, limits, today=later)
     assert ok is False

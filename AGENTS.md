@@ -853,6 +853,14 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 - Run heavy strategy code only when prices actually shift beyond a defined margin, rather than executing logic on every blank heartbeat tick.
 
 
+create .git/info/exclude file 
+add this rule to this laptop only
+
+Device name	IBM-PF3PD7E7
+Device ID	B57B8FE3-DD25-4F62-BE1A-6292E7C76D8E
+Product ID	00330-80000-00000-AA090
+
+
 ## Terminal & IBM Corporate Laptop Guardrails (Auto-Mode Hardened)
 
 
@@ -870,5 +878,3 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 
 **only write code and test code test**
 1.dont start openalgo in this laptop
-
-
