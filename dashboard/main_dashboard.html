@@ -78,6 +78,12 @@
   #flowbox g.stg { cursor: default; }
   .limgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .one { padding-top: 8px; }
+  .zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .zone { background: #0a1420; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .zone .zh { color: var(--cyan); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin-bottom: 6px; }
+  .zrow { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid #0e1d2b; }
+  .zrow small { color: var(--dim); }
+  .zalert { margin-top: 6px; color: var(--dim); font-size: 11px; }
   .sbsheet { width: min(1200px, 100%); }
   /* portfolio popup */
   .pfsheet { width: min(1120px, 100%); }
@@ -236,6 +242,32 @@
       <button type="button" id="sbclose">CLOSE ×</button>
     </div>
     <div class="sheet-b">
+      <div class="zones">
+        <div class="zone"><div class="zh">Header bar</div>
+          <div class="zrow"><small>Mode</small><b id="z-mode">—</b></div>
+          <div class="zrow"><small>Paper loop</small><b id="z-loop">—</b></div>
+          <div class="zrow"><small>Feed</small><b id="z-feed">—</b></div>
+          <div class="zalert">Alert: feed not connected or mode not normal. <span id="z-alert-feed" class="d">—</span></div>
+        </div>
+        <div class="zone"><div class="zh">P&amp;L strip</div>
+          <div class="zrow"><small>Gross P&amp;L (realized + unrealized)</small><b id="z-gross">—</b></div>
+          <div class="zrow"><small>Net P&amp;L after taxes</small><b class="d">not set</b></div>
+          <div class="zrow"><small>Slippage drag</small><b class="d">not recorded</b></div>
+          <div class="zalert">Alert: gross profit with net loss. <span class="d">needs tax rates</span></div>
+        </div>
+        <div class="zone"><div class="zh">Execution quality</div>
+          <div class="zrow"><small>Avg latency</small><b class="d">no data yet</b></div>
+          <div class="zrow"><small>Fill rate</small><b class="d">no data yet</b></div>
+          <div class="zrow"><small>Avg spread</small><b class="d">no data yet</b></div>
+          <div class="zalert">Alert: slippage above 2 ticks. <span class="d">needs fill log</span></div>
+        </div>
+        <div class="zone"><div class="zh">Active positions</div>
+          <div class="zrow"><small>Open</small><b id="z-open">—</b></div>
+          <div class="zrow"><small>Unrealized P&amp;L</small><b id="z-unreal">—</b></div>
+          <div class="zrow"><small>Margin used</small><b class="d">not set</b></div>
+          <div class="zalert">Alert: margin above 85%. <span class="d">margin not tracked</span></div>
+        </div>
+      </div>
   <section class="panel">
     <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money · ₹</span></div>
     <div class="big" id="pnl">—</div>
@@ -269,7 +301,7 @@
 
     <div class="ph" style="margin-top:10px">Open positions <span id="sb-poscount"></span></div>
     <div class="scroll"><table>
-      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg price ₹</th><th class="n">Unrealized ₹</th></tr></thead>
+      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Unrealized ₹</th></tr></thead>
       <tbody id="sb-pos-rows"></tbody>
     </table></div>
 
@@ -448,12 +480,20 @@
     $("sb-dd").textContent = o.equity ? money(o.equity.max_drawdown) : "—";
     $("sb-risk").textContent = pct(p.risk_utilisation);
     $("sb-open").textContent = String(o.positions.length);
+    $("z-mode").textContent = o.mode;
+    $("z-loop").textContent = o.loop ? o.loop.status : "—";
+    $("z-feed").textContent = o.feed.status;
+    $("z-alert-feed").textContent = (o.feed.status === "connected" && o.mode === "normal") ? "clear" : "ACTIVE";
+    const gross = p.realized_pnl + (p.unrealized_pnl || 0);
+    $("z-gross").textContent = money(gross);
+    $("z-open").textContent = String(o.positions.length);
+    $("z-unreal").textContent = money(p.unrealized_pnl);
     $("sb-poscount").textContent = o.positions.length ? o.positions.length + " open" : "";
     renderTable($("sb-pos-rows"), o.positions.map(x => {
       const tr = document.createElement("tr");
-      tr.append(cell(x.symbol), cell(String(x.qty), "n"), cell(inr(x.avg_price), "n"), cell(money(x.unrealized_pnl), "n " + sign(x.unrealized_pnl)));
+      tr.append(cell(x.symbol), cell(String(x.qty), "n"), cell(inr(x.avg_price), "n"), cell(inr(x.last_price), "n"), cell(money(x.unrealized_pnl), "n " + sign(x.unrealized_pnl)));
       return tr;
-    }), "No open positions.", 4);
+    }), "No open positions.", 5);
     renderTable($("sb-trades-rows"), (o.closed_trades || []).map(t => {
       const tr = document.createElement("tr");
       tr.append(cell(t.symbol), cell(String(t.qty), "n"), cell(inr(t.entry), "n"), cell(inr(t.exit), "n"),

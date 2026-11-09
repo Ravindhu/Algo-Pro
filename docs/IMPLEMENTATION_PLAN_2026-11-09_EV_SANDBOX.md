@@ -51,3 +51,10 @@ Status: done. Decision: `docs/decisions/0033-ev-on-dashboard-and-sandbox-panel.m
 - Orders are NOT placed from the dashboard. Manual buy/sell would bypass the risk gate (AGENTS: risk gate is the only path to orders). Paper loop and kill switch keep their controls.
 - Backend: `fills_recent` (order history) and `ret_pct` on closed trades. Tests in `test_sandbox_ev.py` (10 tests).
 - Preview: sample paper data, not live.
+
+## Round 5: SANDBOX zones and stop button (owner request, 2026-11-09)
+- Four zones in the SANDBOX popup: header bar, P&L strip, execution quality, active positions. Each has an alert line.
+- Placeholders are honest: "not set" / "no data yet" when the system has no value.
+- LTP column in open positions (`last_price` from the ledger price feed).
+- Stop paper trading button in the SANDBOX popup. Uses the existing paper-loop stop route. No new order path.
+- Pending in this round: tax rate module lookup, slippage from OpenAlgo.

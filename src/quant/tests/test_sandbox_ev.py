@@ -117,3 +117,11 @@ def test_closed_trade_has_return_percent():
     o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
                        last_prices={})
     assert o["closed_trades"][0]["ret_pct"] == pytest.approx(10.0)
+
+
+def test_positions_carry_last_price():
+    fills = [{"symbol": "B", "signed_qty": 10, "price": 100.0}]
+    o = build_overview(fills=fills, audit_records=[], kill={}, limits={"blocked": False},
+                       last_prices={"B": 105.0})
+    assert o["positions"][0]["last_price"] == pytest.approx(105.0)
+    assert o["positions"][0]["unrealized_pnl"] == pytest.approx(50.0)

@@ -163,6 +163,7 @@ def build_overview(
         "unset_limits": unset,
         "positions": [
             {"symbol": s, "qty": p["qty"], "avg_price": round(p["avg_price"], 2),
+             "last_price": None if last_prices.get(s) is None else round(float(last_prices[s]), 2),
              "unrealized_pnl": None if upnl[s] is None else round(upnl[s], 2)}
             for s, p in sorted(pnl["open"].items())
         ],
