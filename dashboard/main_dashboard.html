@@ -137,6 +137,7 @@
       <div><small>Closed trades</small><b id="trades">—</b></div>
       <div><small>Win rate</small><b id="winrate">—</b></div>
       <div><small>Profit factor</small><b id="pf">—</b></div>
+      <div><small>EV per trade</small><b id="ev">—</b></div>
       <div><small>Open positions</small><b id="openpos">—</b></div>
     </div>
     <svg id="eqsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:120px;margin-top:10px">
@@ -156,6 +157,29 @@
     <div class="guard"><span>Feed</span><b id="r-feed">—</b></div>
   </section>
 </div>
+
+<section class="panel sandbox" id="sandbox" style="margin-top:8px">
+  <div class="ph">SANDBOX <span>paper trading · simulated fills · no broker orders</span></div>
+  <div class="kv">
+    <div><small>Mode</small><b id="sb-mode">—</b></div>
+    <div><small>Paper loop</small><b id="sb-loop">—</b></div>
+    <div><small>Kill switch</small><b id="sb-kill">—</b></div>
+    <div><small>Closed trades</small><b id="sb-trades">—</b></div>
+    <div><small>Win rate</small><b id="sb-winrate">—</b></div>
+    <div><small>Profit factor</small><b id="sb-pf">—</b></div>
+    <div><small>EV per trade</small><b id="sb-ev">—</b></div>
+    <div><small>EV % per trade</small><b id="sb-evpct">—</b></div>
+    <div><small>Avg win</small><b id="sb-avgwin">—</b></div>
+    <div><small>Avg loss</small><b id="sb-avgloss">—</b></div>
+    <div><small>Risk : reward</small><b id="sb-rr">—</b></div>
+    <div><small>Realized P&amp;L</small><b id="sb-realized">—</b></div>
+    <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
+    <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
+    <div><small>Open positions</small><b id="sb-open">—</b></div>
+    <div><small>Risk used</small><b id="sb-risk">—</b></div>
+  </div>
+  <p class="d" id="sb-note">Sandbox stats come from the paper ledger. They are not live market results.</p>
+</section>
 
 <div class="mid">
   <section class="panel">
@@ -400,6 +424,30 @@
     $("pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
     $("openpos").textContent = String(o.positions.length);
     $("toggle").textContent = showMoney ? "Hide ₹" : "Show ₹";
+    $("ev").textContent = money(p.ev_per_trade);
+
+    // Sandbox section: same data as the panels above, paper ledger only
+    const pct2 = v => v == null ? "—" : (v * 100).toFixed(2) + "%";
+    $("sb-mode").textContent = o.mode;
+    $("sb-loop").textContent = o.loop ? o.loop.status : "—";
+    $("sb-kill").textContent = o.kill_switch.active ? "ON" : "OFF";
+    $("sb-kill").className = o.kill_switch.active ? "r" : "g";
+    $("sb-trades").textContent = String(p.trades);
+    $("sb-winrate").textContent = pct(p.win_rate);
+    $("sb-pf").textContent = p.profit_factor == null ? "—" : p.profit_factor.toFixed(2);
+    $("sb-ev").textContent = money(p.ev_per_trade);
+    $("sb-evpct").textContent = pct2(p.ev_pct_per_trade);
+    $("sb-avgwin").textContent = money(p.avg_win);
+    $("sb-avgloss").textContent = money(p.avg_loss);
+    $("sb-rr").textContent = p.risk_reward == null ? "—" : p.risk_reward.toFixed(2) + " : 1";
+    $("sb-realized").textContent = money(p.realized_pnl);
+    $("sb-unrealized").textContent = money(p.unrealized_pnl);
+    $("sb-dd").textContent = o.equity ? money(o.equity.max_drawdown) : "—";
+    $("sb-open").textContent = String(o.positions.length);
+    $("sb-risk").textContent = pct(p.risk_utilisation);
+    $("sb-note").textContent = p.trades < 30
+      ? "Only " + p.trades + " closed trades. EV is not statistically reliable below 30 trades. Paper data only."
+      : "Sandbox stats come from the paper ledger. They are not live market results.";
 
     $("r-mode").textContent = o.mode;
     $("r-kill").textContent = o.kill_switch.active ? "ON" : "OFF";

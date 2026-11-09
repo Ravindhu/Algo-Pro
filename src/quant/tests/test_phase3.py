@@ -124,14 +124,15 @@ def test_alerts_critical_calls_handler():
         a.emit("LOUD", "x", "y")
 
 
-def test_dashboard_shows_pnl_and_hides_ev_mae_mfe():
-    # AGENTS rule 8 (decision 0008): P&L shown; EV, MAE/MFE and rule compliance removed.
+def test_dashboard_shows_pnl_and_ev_hides_mae_mfe():
+    # AGENTS rule 8 (decision 0008, EV ban lifted 2026-11-09): P&L and EV shown; MAE/MFE and rule compliance removed.
     trades = [{"ret": 0.02, "pnl": 2000.0, "mae": 0.01, "mfe": 0.03},
               {"ret": -0.01, "pnl": -1000.0, "mae": 0.02, "mfe": 0.005}]
     payload = build_payload(trades, risk_used=0.3)
     assert payload["total_pnl"] == pytest.approx(1000.0)
     assert payload["profit_factor"] == pytest.approx(2.0)
-    for key in ("ev_pct_per_trade", "avg_mae_pct", "avg_mfe_pct", "rule_breaches"):
+    assert payload["ev_per_trade"] == pytest.approx(500.0)
+    for key in ("avg_mae_pct", "avg_mfe_pct", "rule_breaches"):
         assert key not in payload
 
 

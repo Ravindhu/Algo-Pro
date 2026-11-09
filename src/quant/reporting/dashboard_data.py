@@ -1,6 +1,6 @@
 """Read-only data for the FastAPI dashboard: positions, FIFO P&L, safety events, AI insight.
 
-Owner rule (AGENTS rule 8): P&L is shown. EV, MAE/MFE and rule compliance are NOT in this payload.
+Owner rule (AGENTS rule 8): P&L and EV are shown. MAE/MFE and rule compliance are NOT in this payload.
 Nothing here sends orders. Inputs are plain records read from the ledger, audit log and kill switch.
 
 Flow stage: Dashboard
@@ -82,6 +82,11 @@ def equity_curve(closed: Sequence[Mapping]) -> Dict[str, object]:
     return {"points": points, "max_drawdown": round(max_dd, 2)}
 
 
+def _r(value: Optional[float], digits: int = 2) -> Optional[float]:
+    """Round a stat for the payload. None stays None."""
+    return None if value is None else round(float(value), digits)
+
+
 def safety_events(audit_records: Sequence[Mapping], kill: Mapping) -> List[dict]:
     """Newest-first list of safety events. Kill switch first when active."""
     events: List[dict] = []
@@ -156,6 +161,11 @@ def build_overview(
             "win_rate": perf["win_rate"],
             "profit_factor": perf["profit_factor"],
             "risk_utilisation": risk_used,
+            "ev_per_trade": _r(perf["ev_per_trade"]),
+            "ev_pct_per_trade": _r(perf["ev_pct_per_trade"], 6),
+            "avg_win": _r(perf["avg_win"]),
+            "avg_loss": _r(perf["avg_loss"]),
+            "risk_reward": _r(perf["risk_reward"], 3),
         },
         "events": safety_events(audit_records, kill)[:20],
     }

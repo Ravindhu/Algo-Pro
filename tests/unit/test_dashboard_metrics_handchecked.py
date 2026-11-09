@@ -3,8 +3,9 @@
 Flow stage: Dashboard, Live monitor
 Status: TEST
 
-Owner rule (decision 0008, 2026-11-05): EV, MAE/MFE and rule compliance are NOT on the
-dashboard. The dashboard keeps P&L, win rate, profit factor and risk use. The
+Owner rule (decision 0008, 2026-11-05; EV ban lifted 2026-11-09): MAE/MFE and rule
+compliance are NOT on the dashboard. The dashboard keeps P&L, EV, win rate, profit
+factor and risk use. The
 excursion helper (MAE/MFE per trade) is still tested here because the optimizer uses it.
 
 Expected numbers are worked out by hand in the comments. Trade list (return, rupee P&L):
@@ -19,8 +20,8 @@ from quant.monitor.live_monitor import excursions
 from quant.reporting.dashboard import build_payload
 
 
-#: Keys the dashboard must NOT show (decision 0008).
-REMOVED_KEYS = ("ev_pct_per_trade", "avg_mae_pct", "avg_mfe_pct", "rule_breaches")
+#: Keys the dashboard must NOT show (decision 0008; EV ban lifted 2026-11-09).
+REMOVED_KEYS = ("avg_mae_pct", "avg_mfe_pct", "rule_breaches")
 
 
 TRADES = [
@@ -45,10 +46,21 @@ def test_fixed_trade_list_payload():
 
 
 def test_removed_metrics_are_not_in_payload():
-    # Decision 0008: EV, MAE/MFE and rule compliance are off the dashboard.
+    # Decision 0008: MAE/MFE and rule compliance are off the dashboard.
     p = build_payload(TRADES, risk_used=0.3)
     for key in REMOVED_KEYS:
         assert key not in p
+
+
+def test_ev_is_shown_and_hand_checked():
+    # EV per trade = total P&L / 5 = 3000 / 5 = 600. EV % = sum of returns / 5 = 0.03 / 5 = 0.006.
+    p = build_payload(TRADES, risk_used=0.3)
+    assert p["ev_per_trade"] == pytest.approx(600.0)
+    assert p["ev_pct_per_trade"] == pytest.approx(0.006)
+    # Avg win = (2000+3000+1000)/3 = 2000; avg loss = (-1000-2000)/2 = -1500; R:R = 2000/1500
+    assert p["avg_win"] == pytest.approx(2000.0)
+    assert p["avg_loss"] == pytest.approx(-1500.0)
+    assert p["risk_reward"] == pytest.approx(2000.0 / 1500.0)
 
 
 def test_removed_metrics_stay_off_even_when_trades_carry_excursions():
