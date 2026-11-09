@@ -26,7 +26,7 @@ Out of scope now: the optimizer, screener, economics, agent pipeline, POV engine
 | 5 | models/factors.py | ml.features.engineering.momentum | yes | 2 | local + parity |
 | 6 | reporting/dashboard.py | backtest.metrics.profit_factor | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
 | 7 | portfolio/covariance.py | portfolio.risk.covariance.ledoit_wolf_cov | no | 3 | DONE: local + parity (rel 1e-9, abs floor 1e-8 x max entry) |
-| 8 | portfolio/optimizer.py | portfolio.optim.hrp.hrp_weights | no | 3 | PENDING: still via blue_bridge; local + golden (see note: decision 0009) |
+| 8 | portfolio/optimizer.py | portfolio.optim.hrp.hrp_weights | no | 3 | DONE 2026-11-09: local port + parity (`test_hrp_parity.py`); owner golden export still pending |
 | 9 | portfolio/portfolio_risk.py | portfolio.risk.tail.cvar | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
 | 10 | portfolio/rebalance.py | portfolio.optim.cost_aware.should_rebalance | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
 | 11 | portfolio/sizing.py | portfolio.sizing.kelly.kelly_leverage | no | 3 | DONE: local + parity (`test_stage3_parity.py`) |
