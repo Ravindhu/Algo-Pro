@@ -49,18 +49,20 @@ def test_page_reads_overview_and_writes_only_known_routes():
     text = PAGE.read_text(encoding="utf-8")
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
-    assert routes == {"/api/overview", "/api/limits", "/api/kill/trip", "/api/kill/reset", "/api/setup",
+    # Kill switch removed from the page (owner request 2026-11-09). Backend routes stay in app.py.
+    assert routes == {"/api/overview", "/api/limits", "/api/setup",
                       "/api/trading-mode", "/api/loop/start", "/api/loop/stop"}
-    # saveLimits, postKill, saveSetup, postMode, postLoop only
-    assert text.count('method: "POST"') == 5
+    # saveLimits, saveSetup, postMode, postLoop only
+    assert text.count('method: "POST"') == 4
     assert '"X-Dashboard-Token"' in text
 
 
-def test_page_has_kill_switch_controls():
+def test_page_has_no_kill_switch_controls():
+    # Owner request 2026-11-09: kill switch removed from the page.
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("killtrip", "killreset", "killreason", "killmsg", "token"):
-        assert f'id="{element_id}"' in text, element_id
-    assert "confirm(" in text  # both kill actions ask first
+    for element_id in ("killtrip", "killreset", "killreason", "killmsg", "headkill", "killbanner", "r-kill"):
+        assert f'id="{element_id}"' not in text, element_id
+    assert 'id="token"' in text
 
 
 def test_page_never_stores_the_token():
