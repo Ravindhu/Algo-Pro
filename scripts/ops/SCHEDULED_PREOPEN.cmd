@@ -33,6 +33,10 @@ if not "%LOGIN_RC%"=="0" (
     exit /b %LOGIN_RC%
 )
 
+if "%PREOPEN_ENGINE_ALLOWED%"=="0" (
+    echo [%DATE% %TIME%] engine not allowed this run (after 09:15 or runner decision) >> "%LOG%"
+    exit /b 0
+)
 set "ENGINE_FLAG=0"
 for /f "usebackq delims=" %%F in (`"%PY%" "%ROOT%\scripts\ops\read_engine_flag.py" 2^>nul`) do set "ENGINE_FLAG=%%F"
 if "%ENGINE_FLAG%"=="1" (

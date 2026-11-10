@@ -101,3 +101,30 @@ Effects to know about:
   Old files that still contain them load without error. The keys are ignored.
 - Popup layout: two headers, Infrastructure (checks, scheduler, engine, START ENGINE)
   and Account (dashboard login only).
+
+## Missed runs (owner, 2026-11-10)
+
+- If the machine is off at the start time, the run must not be skipped. It runs when
+  the machine is on: `scripts/ops/run_preopen_once.py` is the one entry point.
+- Triggers: Windows uses a weekday trigger at the start time, a logon trigger, and
+  "start as soon as possible". Ubuntu uses a daily cron line plus `@reboot`.
+- One marker per trading day (`data/run/preopen_done_<date>.json`, created exclusively)
+  stops a second login when both triggers fire.
+- Before the start time: wait, then run. After the start time: run now (catch-up).
+- After 15:30: skip that day and log it. The owner must confirm this (see below).
+- Engine: starts only when auto engine start is ON and the run is before 09:15.
+  Later runs log in only, and the engine waits for the button.
+- Holidays: `config/calendar/holidays.csv`, read with the standard library.
+
+Open limits:
+- Windows: the logon trigger needs the user to sign in. A machine that is powered on
+  but has nobody logged in will not run the job until someone logs in. Storing a
+  password for an always-run task would need the owner to enter it on the machine.
+- Windows: a machine fully powered off (not sleep) cannot be woken. WakeToRun only
+  helps from sleep.
+- Ubuntu: `@reboot` runs as soon as the server boots, and the job waits for OpenAlgo
+  for up to 300 seconds. If the login fails, the marker stays and there is no retry
+  that day. The broker login cooldown also limits retries.
+
+Account name for the dashboard: Ravichandiran (owner, 2026-11-10). The password is
+still owner input and must be 12 or more characters.

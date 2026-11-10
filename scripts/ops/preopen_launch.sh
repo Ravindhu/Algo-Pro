@@ -73,7 +73,7 @@ OPEN_HHMM="0915"
 EARLIEST_HHMM="0800"
 LATEST_HHMM="0930"          # after this the open has passed; do not start
 
-FORCE=0; CHECK_ONLY=0; DRY_RUN=0; START_ENGINE_WANTED=1
+FORCE=0; CHECK_ONLY=0; DRY_RUN=0; START_ENGINE_WANTED=1; RUNNER_GATED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -81,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --check)      CHECK_ONLY=1; shift ;;
     --dry-run)    DRY_RUN=1; shift ;;
     --no-engine)  START_ENGINE_WANTED=0; shift ;;
+    --runner-gated) RUNNER_GATED=1; shift ;;   # run_preopen_once.py already checked day and time
     -h|--help)    sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -116,7 +117,7 @@ record_only() { write_result "$@" || true; }
 DOW="$(date +%u)"
 NOW_HHMM="$(date +%H%M)"
 
-if [[ "$FORCE" -eq 0 ]]; then
+if [[ "$FORCE" -eq 0 && "$RUNNER_GATED" -eq 0 ]]; then
   if [[ "$DOW" -gt 5 ]]; then
     info "weekend (day $DOW) - nothing to do"
     record_only 10 clock "weekend"
@@ -250,7 +251,7 @@ if [[ "$START_ENGINE_WANTED" -eq 0 ]]; then
 fi
 
 # auto engine start: read the dashboard toggle at run time (fails closed to OFF)
-if [[ -x "$VENV_PY" ]] && [[ "$("$VENV_PY" "$ROOT/scripts/ops/read_engine_flag.py" 2>/dev/null)" == "1" ]]; then
+if [[ "${PREOPEN_ENGINE_ALLOWED:-1}" != "0" ]] && [[ -x "$VENV_PY" ]] && [[ "$("$VENV_PY" "$ROOT/scripts/ops/read_engine_flag.py" 2>/dev/null)" == "1" ]]; then
   info "auto engine start is ON in the saved settings"
 else
   info "auto engine start is OFF - engine left stopped; use the dashboard START ENGINE button"

@@ -393,7 +393,7 @@
         <button type="submit">Save scheduler</button>
       </form>
       <p id="sc-msg" class="d"></p>
-      <p class="d">Broker login runs at the start time on weekdays once the scheduler is installed on this machine. OS and start time changes need one install run there.</p>
+      <p class="d">Broker login runs every trading day at the start time. If the machine is off then, the run happens as soon as it is on and the user is logged in (Windows) or the server boots (Ubuntu). It is never skipped; after 15:30 that day's run is skipped and logged. OS and start time changes need one install run on the machine.</p>
 
       <h3>Engine</h3>
       <form id="engform" autocomplete="off">
