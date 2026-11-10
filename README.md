@@ -23,64 +23,96 @@ flowchart LR
 
 ## Repository layout
 
-`Algo-Pro/
+```
+Algo-Pro/
 ├── README.md                    # entry point: status, quick start, doc links
-├── AGENTS.md                    # engineering rules (keep)
-├── INSTALL.md
-├── requirements.txt
-├── pyproject.toml               # package metadata, pytest config (new, replaces ad-hoc setup)
+├── AGENTS.md                    # engineering rules for this repo
+├── INSTALL.md                   # environment setup
+├── requirements.txt             # Python dependencies
+├── pyproject.toml               # package metadata and pytest config
 ├── .env.example                 # template only; real .env is gitignored
 ├── .gitignore  .gitattributes  .gitmodules
-├── install.bat                  # ONE Windows script (install, update, start)
-│   └── Servers/launch_ubuntu_server.sh  # ONE Ubuntu script
+├── install.bat                  # Windows install / update / start script
+├── openalgo.UPSTREAM_PIN        # pinned upstream OpenAlgo version
+├── quant_system_flow_v5.svg     # system flow diagram
 │
-├── config/
+├── config/                      # runtime configuration (YAML + calendars)
 │   ├── settings.yaml
 │   ├── risk_limits.yaml         # values stay null until a human sets them
+│   ├── conviction_tiers.yaml    # position-sizing tiers by conviction
+│   ├── data_sources.yaml
 │   ├── strategies/              # one YAML per strategy
-│   └── calendar/                # NSE holidays (holidays.csv = loader; nse_holidays_2026.csv = reference)
+│   └── calendar/                # holidays.csv (loader), nse_holidays_2026.csv (reference)
 │
-├── src/quant/                   # ALL trading code lives here
-│   ├── core/                    # types, config loader, clock, logging, db helpers, calendar, expiry/lot rules
+├── src/quant/                   # core trading code package
+│   ├── core/                    # types, config loader, clock, logging, db, calendar, expiry/lot rules
 │   ├── data/                    # market inputs, providers, feature store, QA
 │   ├── models/                  # regime, factors, signal, meta-label, calibration
 │   │   └── events/              # LLM/event scoring (advice only, never on trade path)
 │   ├── strategies/              # strategy classes, registered by name
 │   ├── portfolio/               # sizing, Kelly, allocator, covariance, HRP, rebalance
 │   ├── risk/                    # gate (only path to orders), pretrade, liquidity,
-│   │                            #   loss breaker, kill switch, exits, squareoff
+│   │                            #   money checks, loss breaker, kill switch, exits, squareoff
 │   ├── execution/               # order queue, router, FSM, OpenAlgo client, POV
 │   ├── research/                # backtest, walk-forward, DSR/PBO, trial log, costs
 │   ├── monitor/                 # ledger, TCA, strategy health, drift, session
 │   ├── feedback/                # champion/challenger, re-optimization
 │   ├── audit/                   # append-only audit and override logs
 │   ├── reporting/               # dashboard data, accounting (P&L-gated view)
-│   └── notify/                  # alerts by severity
+│   ├── notify/                  # alerts by severity
+│   ├── openalgo_platform/       # OpenAlgo integration layer
+│   ├── vendor/                  # vendored third-party code
+│   └── tests/                   # package-level tests
 │
-├── scripts/
+├── Blue_engine/                 # earlier engine package; still used by Quick start commands
+│   ├── alpha/  backtest/  configs/  core/  database/  economics/
+│   ├── infrastructure/  input/  jobs/  market/  ml/  optimizer/
+│   ├── portfolio/  pov/  screener/  sectors/  tests/
+│   └── valuation_engine.py  runtime_paths.py  pyproject.toml  README.md
+│
+├── scripts/                     # entry points: run, research, train, ops
 │   ├── run/                     # run_paper.py, run_live.py, run_supervised.py
-│   ├── research/                # backtest, optimize
+│   ├── research/                # backtest and optimization helpers
 │   ├── train/                   # model training
-│   └── ops/                     # maintenance, recon
+│   ├── ops/                     # maintenance, recon
+│   ├── diagnostics/  verify/    # diagnostic and verification tools
+│   └── run_backtest.py  run_paper.py  run_pov.py  smoke_test.py  ...
 │
-├── dashboard/                   # the ONE dashboard (app.py + assets)
+├── dashboard/                   # the one dashboard
+│   ├── app.py                   # FastAPI app
+│   ├── main_dashboard.html
+│   └── assets/
 │
-├── tests/
+├── Servers/                     # Ubuntu server setup and launch
+│   ├── install_ubuntu.sh
+│   ├── launch_ubuntu_server.sh
+│   ├── provision_desktop_remote.sh
+│   ├── DEPLOY_UBUNTU.md
+│   └── deploy.env.example
+│
+├── tests/                       # repo-level test suite
+│   ├── conftest.py
 │   ├── unit/                    # includes test_layout.py (order-path rule)
 │   ├── integration/
+│   ├── parity/                  # money-check parity tests
 │   ├── replay/
 │   └── fixtures/
 │
-├── docs/
-│   ├── quant_system_flow_v5.md  + .svg
-│   ├── IMPLEMENTATION_PLAN.md
-│   ├── SOP.md
-│   ├── decisions/               # one note per design decision
+├── docs/                        # plans, status notes, audits, decisions
+│   ├── quant_system_flow_v5.md
+│   ├── IMPLEMENTATION_PLAN*.md  # phase plans (dated where applicable)
+│   ├── STATUS_*.md              # dated status snapshots
+│   ├── My_trading_system_SOP/   # SOP and pre-session checklist
 │   ├── audits/                  # dated audit reports
-│   └── skills/                  # per-stage agent skill docs (moved from Blue_engine)
+│   ├── decisions/               # one note per design decision
+│   ├── compliance/
+│   ├── skills/                  # per-stage agent skill docs
+│   └── images/
 │
-├── rules/                       # project rules
-└── patches/                     # upstream OpenAlgo patches
+├── rules/                       # project rules (e.g. token-optimization.md)
+├── patches/                     # patches applied to upstream OpenAlgo
+└── Temp/                        # git submodule: openalgo-python-library
+```
 
 **Lane → package map**
 
