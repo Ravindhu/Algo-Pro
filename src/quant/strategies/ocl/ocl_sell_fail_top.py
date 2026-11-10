@@ -1,6 +1,6 @@
 """
 Flow stage: Strategy (OCL sell-failure, TOP ladder).
-Status: PROVISIONAL. Source choice for sell-fail needs owner confirmation (engulfing_ocl vs Algo-Pro file). Smoke tests pass.
+Status: PORTED. Candle check replaced with engulfing candle logic (owner decision). DV-ATR kept from Algo-Pro. Tests: src/quant/tests/test_signals_engulfing.py, test_strategies_ocl.py.
 PORTED COPY of Blue_engine/alpha/Statergy/ocl_keylevel.py (conformation entry model removed).
 Tests: src/quant/tests/test_strategies_ocl.py
 
@@ -120,6 +120,7 @@ from typing import Any, Dict, Optional
 
 from quant.core.session_clock import ist_now
 
+from quant.indicators.engulfing import engulfing_bear_pair
 from quant.indicators.pattern import (
     extract_ohlc,
     validate_pattern,
@@ -1275,8 +1276,8 @@ class OclSellFailTopSignal(BaseSignal):
             use_body = self._failure_body_filter()
             for cand, pos in ((w4[:3] if w4 else None, [0, 1, 2]),
                               (w3, [1, 2, 3])):
-                if not cand or not self._is_sell_sequence(
-                        cand[0], cand[1], cand[2]):
+                if not cand or not self._is_sell_engulfing(
+                        cand[1], cand[2]):
                     continue
                 if use_body and not bodies(cand[1], cand[2]):
                     continue
@@ -1311,6 +1312,14 @@ class OclSellFailTopSignal(BaseSignal):
             self._core_positions = [1, 2, 3]
             return w4[1:]
         return None
+
+    def _is_sell_engulfing(self, prev, cur) -> bool:
+        """Sell-failure candle check: cur (C3) is a bearish engulfing of prev (C2).
+
+        Replaces the colour test of _is_sell_sequence with the engulfing candle logic
+        (Algo-Lab engulfing_strategy.engulfing). Body filter = min_body_pct_c23.
+        """
+        return engulfing_bear_pair(prev, cur, self.min_body_pct_c23)
 
     @staticmethod
     def _is_sell_sequence(c1, c2, c3) -> bool:
