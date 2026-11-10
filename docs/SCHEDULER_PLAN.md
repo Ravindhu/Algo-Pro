@@ -1,6 +1,6 @@
 # Pre-open scheduler and single switch — plan
 
-Status: IN PROGRESS (2026-11-10). Updated before each commit.
+Status: PHASES A-C BUILT (2026-11-10); the account password is still owner input. Updated before each commit.
 
 ## What the owner asked for
 
@@ -52,8 +52,8 @@ The dashboard has only one token today. This plan adds named accounts:
 | Phase | Work | Status |
 |---|---|---|
 | A | Plan doc, settings store (D2, D3), installer with OS detection (D4-D7), cron and schtasks builders, `record_only` fix, 08:50 change, mstock preflight check (D10), unit tests | this change |
-| B | Dashboard: `GET/POST /api/schedule` with token (D9); `POST /api/login`, account store | next |
-| C | Dashboard header popup for the switch and settings | next |
+| B | Dashboard: `GET/POST /api/schedule`, account login, engine start, infrastructure list | built (`dashboard/app.py`) |
+| C | SETTINGS popup: infrastructure, account, schedule switch, engine start button | built (`dashboard/main_dashboard.html`) |
 | D | SOP section 20 rule change ("read-only, no POST routes" is no longer true) | with phase B |
 
 ## Limits
@@ -64,3 +64,20 @@ The dashboard has only one token today. This plan adds named accounts:
   against a live account.
 - Tests here cover the pure logic only. The OpenAlgo and FastAPI suites need
   the owner's machine.
+
+## Engine start rule (owner, 2026-11-10)
+
+- Auto engine start ON: the schedule starts the engine after a good broker login.
+- Auto engine start OFF: login only. The engine waits for the START ENGINE button.
+- The button refuses while the kill switch is on or an engine is already running.
+  The supervisor's own gates still decide whether anything trades.
+
+## Known gaps
+
+- `/api/schedule` saves settings but does not change the machine's scheduler.
+  Root is needed, so run `scripts/ops/install_schedule.py --apply` once after a change.
+- Account name: the owner wrote both `Ravindhu` and `Ravi`. Not created yet.
+- Default password: owner input. Set `DASHBOARD_DEFAULT_PASSWORD` and run
+  `scripts/ops/create_dashboard_user.py --name <name>`.
+- `DASHBOARD_SESSION_SECRET` must be set on the server, or account login is off.
+- FastAPI routes were NOT run here (FastAPI cannot be installed in the sandbox).
