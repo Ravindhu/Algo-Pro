@@ -1,4 +1,4 @@
-"""Flow stage: Strategy (signal indicators).
+"""Flow stage: Signal and conviction (indicators, shared by strategies).
 Status: PORTED COPY of Blue_engine/alpha/indicators/hilega_milega.py. Tests: src/quant/tests/test_signals_indicators.py.
 
 Hilega-Milega indicator math (simplified NK rule) plus EMA, ATR and WMA helpers.

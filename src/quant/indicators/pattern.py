@@ -1,4 +1,4 @@
-"""Flow stage: Strategy (signal patterns).
+"""Flow stage: Signal and conviction (candle patterns, shared by strategies).
 Status: PORTED COPY of Blue_engine/alpha/signals/_pattern.py. Tests: src/quant/tests/test_signals_indicators.py.
 
 Shared OCL candlestick-pattern helpers.

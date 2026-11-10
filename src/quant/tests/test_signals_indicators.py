@@ -1,12 +1,12 @@
-"""Flow stage: Strategy (signal indicators and patterns).
+"""Flow stage: Signal and conviction (indicators and patterns).
 Status: TESTS WRITTEN; run result is in the commit message.
 
 Tests for the ported indicator math (indicators.py) and pattern helpers (pattern.py).
 """
 import pytest
 
-from quant.strategies.signals.indicators import atr, ema, hilega_milega_rsi, wma
-from quant.strategies.signals.pattern import (
+from quant.indicators.indicators import atr, ema, hilega_milega_rsi, wma
+from quant.indicators.pattern import (
     action_for_pattern,
     calculate_trigger_level,
     extract_ohlc,
