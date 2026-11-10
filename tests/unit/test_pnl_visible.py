@@ -51,10 +51,13 @@ def test_page_reads_overview_and_writes_only_known_routes():
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     # Kill switch removed from the page (owner request 2026-11-09). Backend routes stay in app.py.
+    # Settings popup routes added 2026-11-10: account, schedule, engine, infrastructure.
     assert routes == {"/api/overview", "/api/limits", "/api/setup", "/api/portfolio",
-                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop"}
-    # saveLimits, saveSetup, postMode, postLoop only
-    assert text.count('method: "POST"') == 4
+                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop",
+                      "/api/account", "/api/account/login", "/api/account/logout",
+                      "/api/engine", "/api/engine/start", "/api/infrastructure", "/api/schedule"}
+    # saveLimits, saveSetup, postMode, postLoop, plus the jpost helper for settings writes
+    assert text.count('method: "POST"') == 5
     assert '"X-Dashboard-Token"' in text
 
 
