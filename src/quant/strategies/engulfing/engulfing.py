@@ -1,0 +1,109 @@
+"""Flow stage: Strategy (engulfing with fib entries, separate from OCL).
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
+Tests: src/quant/tests/test_engulfing_strategy.py.
+
+Rules (from the source):
+  - Pattern: a bullish (BUY) or bearish (SELL) engulfing on closed bars, with both candle bodies above
+    min_body_pct of their range, and a Hilega-Milega direction that agrees on the pattern bar.
+  - Entry: the fib level inside the engulfing candle (fib_pct, default 88.6%). The trade fires on the
+    FIRST closed bar whose range reaches that level, within max_wait bars of the pattern. Earlier
+    touches void that pattern.
+  - Exits: stop = sl_mult * ATR, target = tp_mult * ATR (distances returned in the signal).
+
+The base class is a copy of Algo-Lab's Strategy base, with the forex symbol type removed. Signals are
+returned as dicts. The live contract (qty, sl, tp) is applied later by the risk gate.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from quant.indicators.engulfing import DEFAULT_MIN_BODY_PCT, FIB_ENTRY, engulfing, fib_entry_level
+from quant.indicators.hm import hm_direction
+from quant.indicators.indicators import atr as atr_series
+
+
+class Strategy(ABC):
+    """Base class copied from Algo-Lab. Subclasses set ``name`` and implement ``signal``."""
+
+    name: str = "strategy"
+
+    def __init__(self, symbol: str, timeframe: str = "H4", count: int = 300, **params: Any):
+        self.symbol = str(symbol).upper().strip()
+        self.timeframe = str(timeframe).strip()
+        self.count = int(count)
+        self.params = dict(params)
+
+    @abstractmethod
+    def signal(self, df: pd.DataFrame) -> dict | None:
+        """Return {"side": "BUY"|"SELL", ...} for the closed bar, or None."""
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.symbol}, {self.timeframe}, {self.params})"
+
+
+class Engulfing(Strategy):
+    name = "engulfing"
+
+    def __init__(self, symbol, timeframe="H4", count=300, rsi_period=9, ema_period=3,
+                 atr_period=14, sl_mult=1.5, tp_mult=3.0, fib_pct=FIB_ENTRY,
+                 min_body_pct=DEFAULT_MIN_BODY_PCT, max_wait=5, **extra):
+        super().__init__(symbol, timeframe, count, rsi_period=rsi_period,
+                         ema_period=ema_period, atr_period=atr_period, sl_mult=sl_mult,
+                         tp_mult=tp_mult, fib_pct=fib_pct, min_body_pct=min_body_pct,
+                         max_wait=max_wait, **extra)
+        if not 0.0 < fib_pct < 1.0:
+            raise ValueError("fib_pct must be within (0, 1)")
+        if max_wait < 1:
+            raise ValueError("max_wait must be >= 1 bar")
+        self.rsi_period = rsi_period
+        self.ema_period = ema_period
+        self.atr_period = atr_period
+        self.sl_mult = sl_mult
+        self.tp_mult = tp_mult
+        self.fib_pct = fib_pct
+        self.min_body_pct = min_body_pct
+        self.max_wait = int(max_wait)
+
+    def signal(self, df: pd.DataFrame) -> dict | None:
+        if len(df) < max(self.rsi_period + self.ema_period + 3, self.atr_period + 2):
+            return None
+        last = len(df) - 2            # newest CLOSED candle; the final row is still forming
+        eng = engulfing(df, self.min_body_pct).to_numpy()
+        hm = hm_direction([float(x) for x in df["close"].iloc[: last + 1]],
+                          self.rsi_period, self.ema_period)
+        lows = df["low"].to_numpy(dtype=float)
+        highs = df["high"].to_numpy(dtype=float)
+
+        hit = None
+        # Newest pattern first. The pattern bar j must be before the touch bar and inside the wait window.
+        for j in range(last - 1, max(0, last - self.max_wait) - 1, -1):
+            direction = int(eng[j])
+            if direction == 0 or int(hm[j]) != direction:
+                continue
+            level = fib_entry_level(highs[j], lows[j], direction, self.fib_pct)
+            touched = [k for k in range(j + 1, last + 1)
+                       if (lows[k] <= level if direction > 0 else highs[k] >= level)]
+            if touched and touched[0] == last:          # first touch is the newest closed bar
+                hit = (j, direction, level)
+                break
+        if hit is None:
+            return None
+
+        j, direction, level = hit
+        closes = [float(x) for x in df["close"].iloc[: last + 1]]
+        highs_l = [float(x) for x in highs[: last + 1]]
+        lows_l = [float(x) for x in lows[: last + 1]]
+        atr_value = atr_series(highs_l, lows_l, closes, period=self.atr_period)[-1]
+        if atr_value is None or atr_value <= 0:
+            return None
+        return {"side": "BUY" if direction > 0 else "SELL",
+                "entry": float(level), "fib_pct": self.fib_pct,
+                "pattern_time": str(df.index[j]),
+                "atr": float(atr_value),
+                "sl_dist": self.sl_mult * float(atr_value),
+                "tp_dist": self.tp_mult * float(atr_value),
+                "time": str(df.index[last])}

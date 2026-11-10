@@ -1,5 +1,5 @@
 """Flow stage: Strategy (signal package).
-Status: SAMPLE TEMPLATE. Copy this file to start a new strategy. Never enabled by default.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 How to add a strategy:
   1. Copy this file to src/quant/strategies/signals/<your_name>.py.
