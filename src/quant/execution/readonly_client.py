@@ -22,6 +22,7 @@ class OpenAlgoReadOnly:
     ORDERBOOK_PATH = "/api/v1/orderbook"
     FUNDS_PATH = "/api/v1/funds"
     POSITIONBOOK_PATH = "/api/v1/positionbook"
+    HISTORY_PATH = "/api/v1/history"
 
     def __init__(self, base_url: str, transport: Transport) -> None:
         self.base_url = base_url.rstrip("/")
@@ -53,3 +54,11 @@ class OpenAlgoReadOnly:
     def positionbook(self, api_key: str) -> Dict:
         self._need_key(api_key)
         return self._transport(self.base_url + self.POSITIONBOOK_PATH, {"apikey": api_key})
+
+    def history(self, api_key: str, symbol: str, exchange: str, interval: str,
+                start_date: str, end_date: str) -> Dict:
+        """Bars for one window (OpenAlgo /history). Read only; returns the raw reply."""
+        self._need_key(api_key)
+        payload = {"apikey": api_key, "symbol": symbol, "exchange": exchange, "interval": interval,
+                   "start_date": start_date, "end_date": end_date, "source": "api"}
+        return self._transport(self.base_url + self.HISTORY_PATH, payload)

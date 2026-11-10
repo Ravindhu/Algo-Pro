@@ -52,7 +52,7 @@ def test_empty_key_refused_without_sending(ro, calls, call):
 def test_no_order_capable_method_exists():
     """Reads cannot place or cancel: no attribute name carries an order verb."""
     names = [n for n in dir(OpenAlgoReadOnly) if not n.startswith("_") and n.islower()]
-    assert sorted(names) == ["depth", "funds", "orderbook", "positionbook", "quotes"]
+    assert sorted(names) == ["depth", "funds", "history", "orderbook", "positionbook", "quotes"]
     for name in names:
         assert not any(verb in name for verb in ("place", "cancel", "modify", "order_", "close", "exit"))
 

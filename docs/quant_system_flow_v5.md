@@ -1,6 +1,6 @@
 # Quant System Flow v5 (Design)
 
-**Status: Phases 1-3 implemented as code and tests. Paper only. Nothing is live.**
+**Status: Phases 1-3 implemented as code and tests. The strategy bot runs in paper or analyze (OpenAlgo sandbox) mode only. Live mode is refused in code. The live market-data source is NOT approved (config/data_sources.yaml), so the bot skips every cycle until the owner approves one. Nothing is live.**
 Source diagram: `quant_system_flow_v5.svg` (repo root).
 
 Legend:
@@ -59,6 +59,8 @@ Support inputs to backtest and risk:
 | Relative strength | Stock vs Nifty and sector indices |
 | Intraday microstructure | Order-book imbalance, volume profile |
 | Filings and circulars | NSE, BSE and SEBI documents parsed into events |
+| Live bars and daily stats | Read-only OpenAlgo history: closed intraday bars for signals, ADV and previous close from days before today. Returns nothing when the feed is stale, errored or too short (`data/live_bars.py`). |
+| Screen input | Screener output file (`data/screened/latest.json`). Only fresh, selected, non-ASM symbols with a known circuit limit pass. Missing or stale file means no symbols. |
 
 ### 2.3 Data and features
 
@@ -127,6 +129,7 @@ Support inputs to backtest and risk:
 | Approved order queue | Gated intents only |
 | Algo router | POV, VWAP, IS, auction |
 | Order state machine | Idempotent, with retries |
+| Strategy bot (5-min cycle) | Reads the screen, runs strategies on closed bars, gates each parent at full size, then slices children each cycle through the POV executor. Modes: `paper` (simulated fills) and `analyze` (OpenAlgo sandbox). `live` is refused in code. Needs the live data source approved (`execution/strategy_bot.py`, `config/bot.yaml`). |
 | OpenAlgo | Orders and quotes via the bridge |
 | Protection | Stop placed at fill |
 
@@ -186,7 +189,7 @@ flowchart LR
     F --> G[Pre-trade + liquidity checks]
     G --> H{Risk gate}
     H -->|pass| I[Order queue + router]
-    I --> J[OpenAlgo]
+    I --> J[OpenAlgo sandbox or paper broker]
     J --> K[Ledger + recon]
     K --> L[TCA + strategy health]
     L -->|breach| M[Kill switch] -.-> H
@@ -204,12 +207,12 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 | Flow lane | Package |
 |---|---|
 | Research validation | `src/quant/research/` |
-| Market inputs | `src/quant/data/market_inputs.py` |
+| Market inputs | `src/quant/data/market_inputs.py`, `src/quant/data/live_bars.py` (read-only history, stale-feed checks) |
 | Data and features | `src/quant/data/` |
-| Signal and conviction | `src/quant/models/` |
+| Signal and conviction | `src/quant/models/`; candle and strategy ports in `src/quant/strategies/` and `src/quant/indicators/`; signal-to-intent adapter `src/quant/strategies/signals/risk_adapter.py` |
 | Sizing and portfolio | `src/quant/portfolio/` |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` |
-| Execution | `src/quant/execution/` |
+| Execution | `src/quant/execution/` (includes `strategy_bot.py`: 5-min bot, paper and analyze only) |
 | Post-trade | `src/quant/monitor/` |
 | Audit | `src/quant/audit/` |
 | Improvement loop | `src/quant/feedback/` |
@@ -249,5 +252,12 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 ## 6. Open items
 
 - Confirm each reuse target in `Blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
+- **Live data source not chosen.** `config/data_sources.yaml` has `live_allowed: false`. The owner must pick a licensed source and set it to true. Until then the bot runs no cycles. Live funds, positions and orders are read through the read-only OpenAlgo client.
+- **No exit management yet.** The bot opens and slices entries only. Stop-loss and take-profit monitoring, breakeven and trailing exits are the next step. Sandbox and paper only until then.
+- **No screener writer yet.** Nothing writes `data/screened/latest.json`. The screener must add `asm_gsm` and `circuit_pct` per symbol.
+- **OCL strategies are not in the bot yet.** They need a bar adapter for their client interface. Engulfing is the only strategy in bot v1.
+- **Equity for sizing is available cash** from OpenAlgo funds. Confirm this on the live account.
+- **Order-rate and audit records** for the bot use the hash-chained audit log. The SVG (`quant_system_flow_v5.svg`) is not yet updated for the bot stage.
+- Pre-existing failure: `tests/unit/test_upgrade_pin.py` (vendored OpenAlgo hash). Fails on a clean tree too.
 - Items 13, 15 and 17 are regulatory or audit requirements. Treat them as blocking before live trading.
 - Keep this doc, the SVG, `AGENTS.md` and `README.md` in sync. Change them in the same commit.
