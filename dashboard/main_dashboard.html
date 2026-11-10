@@ -62,6 +62,35 @@
   /* flow popup */
   .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
   .modal[hidden] { display: none; }
+  .sec { border-top: 1px solid #1d2a3a; padding: 8px 0; }
+  .seg { display: inline-flex; gap: 8px; margin: 0 0 6px; }
+  .sechead { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
+  .sec h3 { margin: 0 0 6px; font-size: 11px; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
+  #infra { list-style: none; margin: 0; padding: 0; columns: 2; }
+  #infra li { padding: 2px 0; }
+  #setmodal label { display: inline-flex; gap: 4px; align-items: center; margin-right: 12px; }
+  /* settings popup: always dark, even if the browser asks for light */
+  #setmodal { color-scheme: dark; color: var(--txt); }
+  #setmodal input[type=time], #setmodal select { background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; color-scheme: dark; }
+  #setmodal select option { background: #050b14; color: var(--txt); }
+  #setmodal button { background: #0a1420; }
+  #setmodal button:hover:not(:disabled) { background: #0f2233; }
+  #setmodal button.go { background: #072a1e; }
+  /* engine mode buttons: smooth colour change and a short pulse on click */
+  .seg button { transition: background-color .25s ease, color .25s ease, border-color .25s ease, transform .15s ease; }
+  .seg button:active { transform: scale(.96); }
+  .seg button.go { box-shadow: inset 0 0 0 1px rgba(46,230,166,.35); }
+  .seg button.pop { animation: modepop .5s ease-out; }
+  @keyframes modepop {
+    0% { box-shadow: 0 0 0 0 rgba(46,230,166,.7); }
+    70% { box-shadow: 0 0 0 10px rgba(46,230,166,0); }
+    100% { box-shadow: 0 0 0 0 rgba(46,230,166,0); }
+  }
+  #eng-state, #eng-msg { transition: opacity .3s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .seg button, #eng-state, #eng-msg { transition: none; }
+    .seg button.pop { animation: none; }
+  }
   .sheet { background: #05080d; border: 1px solid var(--cyan); border-radius: 4px; width: min(1320px, 100%); max-height: 100%; overflow: auto; }
   .sheet-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #05080d; }
   .sheet-h b { color: var(--cyan); }
@@ -130,6 +159,8 @@
   </span>
   <span id="modemsg" class="d"></span>
   <span class="sp"></span>
+  <button id="setbtn" type="button" title="Settings: infrastructure, account, schedule, engine">SETTINGS</button>
+  <span id="enginechip" class="chip">engine —</span>
   <button id="flowbtn" type="button">FLOW</button>
   <button id="pfbtn" type="button" title="Broker holdings popup (read-only)">PORTFOLIO</button>
   <button id="sbbtn" type="button" title="Paper trade history popup (view only)">SANDBOX</button>
@@ -139,6 +170,8 @@
   <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
   <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions">STOP</button>
   <span id="loopmsg" class="d"></span>
+  <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
+  <span id="engmsg" class="d"></span>
 </header>
 <div class="clock" id="clock"></div>
 
@@ -366,6 +399,50 @@
   </div>
 </div>
 
+<div class="modal" id="setmodal" hidden role="dialog" aria-modal="true" aria-labelledby="settitle">
+  <div class="sheet">
+    <div class="sheet-h">
+      <div><b id="settitle">Settings</b></div>
+      <button type="button" id="setclose">Close ×</button>
+    </div>
+
+    <div class="sec">
+      <h2 class="sechead">Infrastructure</h2>
+      <ul id="infra"></ul>
+
+      <h3>Scheduler</h3>
+      <form id="schedform" autocomplete="off">
+        <label>OS <select id="sc-os"><option value="auto">Auto-detect</option><option value="windows">Windows</option><option value="ubuntu">Ubuntu</option></select></label>
+        <label>Broker <select id="sc-broker"><option value="mstock">mstock</option></select></label>
+        <label>Start time (IST) <input id="sc-time" type="time"></label>
+        <button type="submit">Save scheduler</button>
+      </form>
+      <p id="sc-msg" class="d"></p>
+      <p class="d">Broker login runs every trading day at the start time. If the machine is off then, the run happens as soon as it is on and the user is logged in (Windows) or the server boots (Ubuntu). It is never skipped; after 15:30 that day's run is skipped and logged. OS and start time changes need one install run on the machine.</p>
+
+      <h3>Engine</h3>
+      <div class="seg" role="group" aria-label="Engine start mode">
+        <button type="button" id="mode-auto-eng" aria-pressed="false">Auto engine start</button>
+        <button type="button" id="mode-manual-eng" aria-pressed="false">Manual engine start</button>
+      </div>
+      <p class="d">Both modes log in to the broker at the start time. Auto: the engine then starts, if that is before 09:15. Manual: the engine waits for the button.</p>
+      <p id="eng-state" class="d"></p>
+      <p id="eng-msg" class="d"></p>
+    </div>
+
+    <div class="sec">
+      <h2 class="sechead">Account</h2>
+      <p id="acct-who" class="d"></p>
+      <form id="acctform" autocomplete="off">
+        <input id="acct-name" placeholder="Account name" autocomplete="username">
+        <input id="acct-pass" type="password" placeholder="Password" autocomplete="current-password">
+        <button type="submit">Sign in</button>
+      </form>
+      <button type="button" id="acctout" hidden>Sign out</button>
+      <p id="acct-msg" class="d"></p>
+    </div>
+  </div>
+</div>
 <script src="/assets/flow_svg.js"></script>
 <script>
   const $ = id => document.getElementById(id);
@@ -843,5 +920,131 @@
 
   loadSetup();
   refresh();
+  // ---------- Settings popup: Infrastructure (scheduler, engine) and Account ----------
+  function sMsg(id, text, cls) { const m = $(id); m.textContent = text; m.className = "d " + (cls || ""); }
+  function writeHeaders() {
+    const h = {"Content-Type": "application/json"};
+    const t = $("token").value;
+    if (t) h["X-Dashboard-Token"] = t;
+    return h;
+  }
+  async function jget(url) {
+    const r = await fetch(url, {cache: "no-store"});
+    return {ok: r.ok, status: r.status, j: await r.json().catch(() => ({}))};
+  }
+  async function jpost(url, body) {
+    const r = await fetch(url, {method: "POST", headers: writeHeaders(),
+      body: body === undefined ? undefined : JSON.stringify(body)});
+    return {ok: r.ok, status: r.status, j: await r.json().catch(() => ({}))};
+  }
+  function describeFail(res) {
+    if (res.status === 401) return "Not allowed: sign in to the account, or enter the dashboard token in the header.";
+    if (res.status === 503) return "Writes are off: the server is missing a secret (DASHBOARD_API_TOKEN or DASHBOARD_SESSION_SECRET).";
+    return res.j.error || ("Failed (HTTP " + res.status + ").");
+  }
+
+  async function loadInfra() {
+    const res = await jget("/api/infrastructure");
+    const ul = $("infra");
+    ul.innerHTML = "";
+    (res.j.items || []).forEach(it => {
+      const li = document.createElement("li");
+      const mark = it.ok === null ? "–" : (it.ok ? "●" : "○");
+      li.textContent = mark + " " + it.name + " — " + it.detail;
+      li.className = it.ok === null ? "d" : (it.ok ? "g" : "r");
+      ul.appendChild(li);
+    });
+  }
+
+  async function loadSchedule() {
+    const res = await jget("/api/schedule");
+    const s = res.j.settings || {};
+    $("sc-os").value = s.os_target || "auto";
+    $("sc-broker").value = s.broker || "mstock";
+    $("sc-time").value = s.start_time || "08:50";
+    setModeButtons(!!s.engine_start);
+    const p = res.j.preview || {};
+    const where = p.refused ? "This machine: " + p.refused
+      : "This machine: " + (p.detected_os || "unknown") + (p.scheduler ? " · scheduler: " + p.scheduler : "");
+    sMsg("sc-msg", where + (res.j.warning ? " · " + res.j.warning : ""), (p.refused || res.j.warning) ? "r" : "d");
+  }
+  $("schedform").onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await jpost("/api/schedule", {
+      os_target: $("sc-os").value, broker: $("sc-broker").value, start_time: $("sc-time").value});
+    if (res.ok) sMsg("sc-msg", res.j.note, "g");
+    else sMsg("sc-msg", describeFail(res), "r");
+    loadSchedule();
+  };
+  function setModeButtons(auto) {
+    const a = $("mode-auto-eng"), m = $("mode-manual-eng");
+    a.setAttribute("aria-pressed", String(auto));
+    m.setAttribute("aria-pressed", String(!auto));
+    a.classList.toggle("go", auto);
+    m.classList.toggle("go", !auto);
+  }
+  function popMode(btn) {
+    btn.classList.remove("pop");
+    void btn.offsetWidth; // restart animation
+    btn.classList.add("pop");
+    btn.addEventListener("animationend", () => btn.classList.remove("pop"), { once: true });
+  }
+  async function setEngineMode(auto) {
+    sMsg("eng-msg", "Saving…", "d");
+    const res = await jpost("/api/schedule", {engine_start: auto});
+    if (res.ok) sMsg("eng-msg", auto ? "Auto engine start on." : "Manual engine start on.", "g");
+    else sMsg("eng-msg", describeFail(res), "r");
+    loadSchedule();
+  }
+  $("mode-auto-eng").onclick = () => { popMode($("mode-auto-eng")); setEngineMode(true); };
+  $("mode-manual-eng").onclick = () => { popMode($("mode-manual-eng")); setEngineMode(false); };
+
+  async function loadEngine() {
+    const res = await jget("/api/engine");
+    const running = !!res.j.running;
+    $("eng-state").textContent = running ? "Engine: running (pid " + res.j.pid + ")" : "Engine: stopped";
+    $("enginechip").textContent = "engine " + (running ? "running" : "stopped");
+    $("enginechip").className = "chip " + (running ? "g" : "");
+  }
+  $("engstart").onclick = async () => {
+    sMsg("engmsg", "Sending…", "d");
+    const res = await jpost("/api/engine/start");
+    if (res.ok) sMsg("engmsg", res.j.message, "g");
+    else sMsg("engmsg", describeFail(res), "r");
+    loadEngine();
+  };
+
+  async function loadAccount() {
+    const res = await jget("/api/account");
+    const who = res.j.signed_in;
+    $("acct-who").textContent = who ? "Signed in as " + who : "Not signed in.";
+    $("acctform").hidden = !!who;
+    $("acctout").hidden = !who;
+    if (res.j.login_enabled === false) sMsg("acct-msg", "Account login is off: set DASHBOARD_SESSION_SECRET on the server.", "r");
+    else sMsg("acct-msg", "");
+  }
+  $("acctform").onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await jpost("/api/account/login", {name: $("acct-name").value.trim(), password: $("acct-pass").value});
+    $("acct-pass").value = "";
+    if (res.ok) sMsg("acct-msg", "Signed in.", "g");
+    else sMsg("acct-msg", res.j.error || ("Failed (HTTP " + res.status + ")."), "r");
+    loadAccount();
+  };
+  $("acctout").onclick = async () => { await jpost("/api/account/logout"); loadAccount(); };
+
+  function openSettings() {
+    $("setmodal").hidden = false;
+    $("setclose").focus();
+    loadInfra(); loadSchedule(); loadEngine(); loadAccount();
+  }
+  function closeSettings() { $("setmodal").hidden = true; $("setbtn").focus(); }
+  $("setbtn").onclick = openSettings;
+  $("setclose").onclick = closeSettings;
+  $("setmodal").addEventListener("click", e => { if (e.target === $("setmodal")) closeSettings(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setmodal").hidden) closeSettings(); });
+  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); }, 10000);
+  loadEngine();
+
   setInterval(refresh, POLL_MS);
 </script>

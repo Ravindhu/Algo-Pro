@@ -15,7 +15,7 @@
 #   9. Reconcile ............... write a JSON record of what happened
 #
 # WHY EVERY STEP IS A GATE
-#   An order-placing process that starts because "it was 08:45" is not an
+#   An order-placing process that starts because "it was 08:50" is not an
 #   automated desk, it is an unattended risk. Each gate fails CLOSED: the
 #   default outcome of any error here is "the engine is not running", which is
 #   always the safe state. AGENTS.md: Capital Protection before everything.
@@ -28,7 +28,7 @@
 #   * It does not run on weekends or NSE holidays it knows about (see below).
 #
 # MARKET CLOCK
-#   NSE cash session: 09:15-15:30 IST. The script is scheduled at 08:45 IST.
+#   NSE cash session: 09:15-15:30 IST. The script is scheduled at 08:50 IST.
 #   `--force` bypasses the time window (a human decision, for testing).
 #   There is no holiday calendar in this file. A holiday run is harmless -
 #   the broker/login legs fail and the engine never starts - but it will log a
@@ -73,7 +73,7 @@ OPEN_HHMM="0915"
 EARLIEST_HHMM="0800"
 LATEST_HHMM="0930"          # after this the open has passed; do not start
 
-FORCE=0; CHECK_ONLY=0; DRY_RUN=0; START_ENGINE_WANTED=1
+FORCE=0; CHECK_ONLY=0; DRY_RUN=0; START_ENGINE_WANTED=1; RUNNER_GATED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -81,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --check)      CHECK_ONLY=1; shift ;;
     --dry-run)    DRY_RUN=1; shift ;;
     --no-engine)  START_ENGINE_WANTED=0; shift ;;
+    --runner-gated) RUNNER_GATED=1; shift ;;   # run_preopen_once.py already checked day and time
     -h|--help)    sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -107,12 +108,16 @@ write_result() {          # write_result <exit_code> <stage> <detail>
   } > "$RESULT_JSON"
 }
 
+# record_only: write the JSON record without tripping `set -e` in the caller.
+# Defined BEFORE the clock gate, which calls it first (was defined later: silent bug).
+record_only() { write_result "$@" || true; }
+
 # ------------------------------------------------------------------ 1. clock
 # Weekday + a window around the open. `date +%u`: 1=Mon ... 7=Sun.
 DOW="$(date +%u)"
 NOW_HHMM="$(date +%H%M)"
 
-if [[ "$FORCE" -eq 0 ]]; then
+if [[ "$FORCE" -eq 0 && "$RUNNER_GATED" -eq 0 ]]; then
   if [[ "$DOW" -gt 5 ]]; then
     info "weekend (day $DOW) - nothing to do"
     record_only 10 clock "weekend"
@@ -174,8 +179,6 @@ maybe() {           # echo the command, or just print it under --dry-run
   "$@"
 }
 
-# record_only: write the JSON record without tripping `set -e` in the caller.
-record_only() { write_result "$@" || true; }
 
 # ------------------------------------------------------------------ 3. platform
 info "starting the platform (openalgo, openalgo-ws)"
@@ -197,15 +200,15 @@ else
 fi
 
 # ------------------------------------------------------------------ 5. login
-# scheduled_login.py is itself opt-in (BROKER_AUTOLOGIN=1). We never pass
-# --enable and never pass --force: those are human decisions.
+# The schedule itself is the opt-in: BROKER_AUTOLOGIN=1 is set for this run only.
+# We never pass --enable and never pass --force: those are human decisions.
 if [[ -x "$VENV_PY" ]]; then
   info "broker session: scheduled_login.py (honours BROKER_AUTOLOGIN)"
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[dry-run] $VENV_PY scripts/ops/scheduled_login.py"
   else
     LOGIN_LOG="$LOG_DIR/$(date +%F)_login.log"
-    if "$VENV_PY" "$ROOT/scripts/ops/scheduled_login.py" >>"$LOGIN_LOG" 2>&1; then
+    if BROKER_AUTOLOGIN=1 "$VENV_PY" "$ROOT/scripts/ops/scheduled_login.py" >>"$LOGIN_LOG" 2>&1; then
       ok "broker session ready"
     else
       _rc=$?
@@ -244,6 +247,15 @@ fi
 if [[ "$START_ENGINE_WANTED" -eq 0 ]]; then
   info "--no-engine: platform and session are up, engine left stopped"
   record_only 0 engine "skipped by flag"
+  exit 0
+fi
+
+# auto engine start: read the dashboard toggle at run time (fails closed to OFF)
+if [[ "${PREOPEN_ENGINE_ALLOWED:-1}" != "0" ]] && [[ -x "$VENV_PY" ]] && [[ "$("$VENV_PY" "$ROOT/scripts/ops/read_engine_flag.py" 2>/dev/null)" == "1" ]]; then
+  info "auto engine start is ON in the saved settings"
+else
+  info "auto engine start is OFF - engine left stopped; use the dashboard START ENGINE button"
+  record_only 0 engine "auto engine start off"
   exit 0
 fi
 

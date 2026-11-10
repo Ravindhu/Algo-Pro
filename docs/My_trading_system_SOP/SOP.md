@@ -1313,7 +1313,7 @@ this SOP's location, `scripts/diagnostics/` and `scripts/verify/` (depth-based p
 
 ## 20. FastAPI dashboard (2026-11-05)
 
-Plain-English summary: a read-only web page served by FastAPI. It shows mode, kill switch,
+Plain-English summary: a web page served by FastAPI. Reads are open; writes go only through token-protected POST routes (rule revised 2026-11-10, see below). It shows mode, kill switch,
 risk limits, positions, realized and unrealized P&L, win rate, profit factor, risk use,
 safety events and rule-based "AI insight" lines. It never sends orders.
 
@@ -1325,7 +1325,7 @@ Open `http://127.0.0.1:8050`. Data is read from `data/paper/` (ledger, audit log
 Missing files show an empty, safe state.
 
 **Rules built in:** P&L is shown by default (`config/settings.yaml`, key `dashboard.pnl_visible_default`).
-EV, MAE/MFE and rule compliance are not in the payload (AGENTS rule 8). No POST routes. Feed status says "not connected" (no live feed exists).
+EV, MAE/MFE and rule compliance are not in the payload (AGENTS rule 8). POST routes exist only behind the token (`DASHBOARD_API_TOKEN`). Revised rule (2026-11-10, owner): the dashboard may change the pre-open schedule switch and manage named dashboard accounts. It never places, sizes or cancels orders and never starts the engine directly - the engine starts only through the schedule gates. Feed status says "not connected" (no live feed exists).
 
 **Not verified in the cloud sandbox:** FastAPI routes and the page in a browser (FastAPI cannot be installed there).
 Profit factor with closed trades needs `openalgo` (Blue_engine). The test for it skips until `openalgo` is installed.

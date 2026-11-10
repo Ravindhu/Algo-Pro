@@ -71,7 +71,7 @@ sudo bash /opt/my-trading-system/Servers/launch_ubuntu_server.sh --domain trade.
 
 `launch_ubuntu_server.sh` runs six stages: preflight, `install_ubuntu.sh`,
 `provision_desktop_remote.sh` (XFCE + xrdp + Chrome + Node/PM2 + UFW), the
-08:45 pre-open schedule, the 16:00 backup job, and verification. Stage flags:
+08:50 pre-open schedule, the 16:00 backup job, and verification. Stage flags:
 `--skip-platform --skip-desktop --skip-schedule --skip-backup --dry-run
 --start-engine --no-chrome --no-rdp`. See sections 12-14.
 
@@ -390,7 +390,7 @@ sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
 
 ## 14. Pre-open automation (`scripts/ops/preopen_launch.sh`)
 
-Scheduled at **08:45 IST, Mon-Fri** (`pov-preopen.timer`). Each step is a gate;
+Scheduled at **08:50 IST, Mon-Fri** (`pov-preopen.timer`). Each step is a gate;
 any failure stops the chain and the engine does **not** start.
 
 ```
@@ -418,7 +418,7 @@ Exit codes: `10` outside window · `11` lock held · `12` platform down ·
 
 A commented crontab line is written to `/etc/cron.d/mts-preopen`. Use the
 timer **or** cron, never both. The timer is the default because it has
-`Persistent=true` (a missed 08:45 runs after boot, still inside the launcher's
+`Persistent=true` (a missed 08:50 runs after boot, still inside the launcher's
 own gate) and its output goes to journald instead of a mailbox nobody reads.
 
 **`pov-runner` is still not enabled at boot.** A reboot does not start the

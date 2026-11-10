@@ -13,7 +13,7 @@
 #   STAGE 2  Platform ............. install_ubuntu.sh (OpenAlgo + engine + nginx)
 #   STAGE 3  Desktop/Remote ....... provision_desktop_remote.sh (XFCE, xrdp,
 #                                   Chrome, Node, PM2, UFW)
-#   STAGE 4  Pre-open schedule .... weekday 08:45 launch, via systemd timer or
+#   STAGE 4  Pre-open schedule .... weekday 08:50 launch, via systemd timer or
 #                                   cron (see "WHY THE DEFAULT IS A TIMER")
 #   STAGE 5  Backup schedule ...... daily .env + db backup, 16:00 IST
 #   STAGE 6  Verify ............... ports, units, and one honest summary
@@ -71,7 +71,7 @@ OPENALGO_PORT="5000"
 DASH_PORT="8050"
 WS_PORT="8765"
 RDP_PORT="3389"
-PREOPEN_TIME="08:45"          # 30 min before the 09:15 open
+PREOPEN_TIME="08:50"          # 25 min before the 09:15 open (owner, 2026-11-10)
 BACKUP_TIME="16:00"           # after the 15:30 close
 
 RUN_PLATFORM=1
@@ -340,13 +340,13 @@ UNIT
 
   cat > /etc/systemd/system/pov-preopen.timer <<'UNIT'
 [Unit]
-Description=Run pov-preopen on NSE weekdays at 08:45 IST
+Description=Run pov-preopen on NSE weekdays at 08:50 IST
 
 [Timer]
-# Persistent=true: if the VPS was off at 08:45, run once on the next boot -
+# Persistent=true: if the VPS was off at 08:50, run once on the next boot -
 # still inside the launcher's own 08:00-09:30 gate, so it fails closed after
 # the open instead of starting an engine mid-session.
-OnCalendar=Mon..Fri *-*-* 08:45:00
+OnCalendar=Mon..Fri *-*-* 08:50:00
 Persistent=true
 RandomizedDelaySec=30
 Unit=pov-preopen.service
@@ -370,7 +370,7 @@ SUDO
   # --- cron alternative (present but commented) ---------------------------- #
   cat > /etc/cron.d/mts-preopen <<CRON
 # Alternative to pov-preopen.timer. Enable ONE of the two, never both.
-# 45 8 * * 1-5 ${SERVICE_USER} cd ${INSTALL_ROOT} && /bin/bash ${PREOPEN_SH} >> ${INSTALL_ROOT}/log/preopen/cron.log 2>&1
+# 50 8 * * 1-5 ${SERVICE_USER} cd ${INSTALL_ROOT} && /bin/bash ${PREOPEN_SH} >> ${INSTALL_ROOT}/log/preopen/cron.log 2>&1
 CRON
   chmod 644 /etc/cron.d/mts-preopen
   ok "/etc/cron.d/mts-preopen written (commented - pick timer OR cron)"
@@ -461,7 +461,7 @@ if [[ "$START_ENGINE" -eq 1 ]]; then
 else
   note "engine left stopped - start it with:"
   note "  sudo systemctl start pov-dash pov-runner"
-  note "  # or wait for the 08:45 timer (which runs the smoke gate first)"
+  note "  # or wait for the 08:50 timer (which runs the smoke gate first)"
 fi
 
 REMOTE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

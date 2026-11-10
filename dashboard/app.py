@@ -18,6 +18,7 @@ Data logic: src/quant/reporting/dashboard_data.py
 import hmac
 import json
 import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -40,6 +41,9 @@ from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
+from quant.core import dashboard_accounts as accounts  # noqa: E402
+from quant.core import engine_control  # noqa: E402
+from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 
@@ -61,6 +65,8 @@ DEFAULT_PATHS = {
     "holidays": ROOT / "config" / "calendar" / "holidays.csv",
     "mode_state": ROOT / "data" / "mode.json",          # requested mode (decision 0030)
     "live_approval": ROOT / "data" / "live_approval.json",  # human sign-off; written only by scripts/ops/approve_live.py
+    "schedule": ROOT / "data" / "schedule_settings.json",
+    "users": ROOT / "data" / "dashboard_users.json",
 }
 LOOP_INTERVAL_S = 60  # paper loop cycle (decision 0029)
 
@@ -72,9 +78,22 @@ API_INDEX = {
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
         "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live needs approval)",
         "/api/loop", "POST /api/loop/start (token)", "POST /api/loop/stop (token)",
-        "/api/portfolio",
+        "/api/portfolio", "/api/infrastructure", "/api/account",
+        "POST /api/account/login", "POST /api/account/logout",
+        "/api/schedule", "POST /api/schedule (token or account)",
+        "/api/engine", "POST /api/engine/start (token or account)",
     ],
 }
+
+
+def _installer_module():
+    """scripts/ops/install_schedule.py loaded by path (it is a script, not a package)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("install_schedule", ROOT / "scripts" / "ops" / "install_schedule.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def read_settings(path: Path) -> Dict[str, object]:
@@ -292,6 +311,148 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         ok, message = stop_loop(paths["loop"], LOOP_INTERVAL_S)
         AuditLog(paths["audit"]).append("loop_stop_requested", {"message": message, "actor": ACTOR})
         return JSONResponse({"message": message})
+
+    # ---------------- accounts, schedule, engine, infrastructure ----------------
+    SESSION_COOKIE = "algo_session"
+
+    def session_secret() -> str:
+        return os.environ.get("DASHBOARD_SESSION_SECRET", "")
+
+    def signed_in(request: Request) -> Optional[str]:
+        return accounts.read_session(request.cookies.get(SESSION_COOKIE, ""), session_secret())
+
+    def write_denied(request: Request):
+        """None when the caller may write: a good token OR a signed-in account."""
+        if signed_in(request):
+            return None
+        return token_error(request)
+
+    @app.get("/api/account")
+    def account_status(request: Request):
+        return JSONResponse({"signed_in": signed_in(request),
+                             "login_enabled": bool(session_secret())})
+
+    @app.post("/api/account/login")
+    async def account_login(request: Request):
+        if not session_secret():
+            return JSONResponse({"error": "account login is off: DASHBOARD_SESSION_SECRET is not set"},
+                                status_code=503)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        name = body.get("name") if isinstance(body, dict) else None
+        password = body.get("password") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not isinstance(password, str):
+            return JSONResponse({"error": "name and password are required"}, status_code=422)
+        ok, reason = accounts.verify_login(name, password, paths["users"])
+        AuditLog(paths["audit"]).append("account_login", {"accepted": ok, "reason": reason,
+                                                         "name": name[:32], "actor": ACTOR})
+        if not ok:
+            return JSONResponse({"error": reason}, status_code=401)
+        response = JSONResponse({"signed_in": name})
+        response.set_cookie(SESSION_COOKIE, accounts.make_session(name, session_secret()),
+                            httponly=True, samesite="strict", max_age=accounts.SESSION_TTL)
+        return response
+
+    @app.post("/api/account/logout")
+    def account_logout():
+        response = JSONResponse({"signed_in": None})
+        response.delete_cookie(SESSION_COOKIE)
+        return response
+
+    @app.get("/api/schedule")
+    def schedule_get():
+        settings, warning = sched.load(paths["schedule"])
+        installer = _installer_module()
+        plan = installer.build_plan(settings, detected=installer.detect_os(
+            platform.system(), installer._has_systemd()), utc_offset_seconds=installer._utc_offset_seconds())
+        return JSONResponse({"settings": settings.to_dict(), "warning": warning,
+                             "errors": settings.errors(), "preview": plan})
+
+    @app.post("/api/schedule")
+    async def schedule_save(request: Request):
+        """Save scheduler details and the engine toggle. OS/time changes need an install run (root)."""
+        denied = write_denied(request)
+        if denied is not None:
+            return denied
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "JSON object expected"}, status_code=422)
+        current, _ = sched.load(paths["schedule"])
+        fields = {k: body[k] for k in sched.ScheduleSettings.__dataclass_fields__ if k in body}
+        candidate = sched.ScheduleSettings(**{**current.to_dict(), **fields})
+        if candidate.errors():
+            return JSONResponse({"error": "; ".join(candidate.errors())}, status_code=422)
+        sched.save(candidate, paths["schedule"])
+        AuditLog(paths["audit"]).append("schedule_saved", {"settings": candidate.to_dict(), "actor": ACTOR})
+        return JSONResponse({"saved": candidate.to_dict(),
+                             "note": "saved. Auto engine start applies at the next run. OS or start time changes need scripts/ops/install_schedule.py --apply once on this machine."})
+
+    @app.get("/api/engine")
+    def engine_status():
+        pid = engine_control.running_pid()
+        return JSONResponse({"running": pid is not None, "pid": pid})
+
+    @app.post("/api/engine/start")
+    async def engine_start(request: Request):
+        """Button: broker login, then engine start. The supervisor's own gates still decide whether anything trades."""
+        denied = write_denied(request)
+        if denied is not None:
+            return denied
+        kill_active = KillSwitch(paths["kill"]).active
+        ok, message, pid = engine_control.request_manual_start(kill_active=kill_active)
+        AuditLog(paths["audit"]).append("engine_start_requested", {"accepted": ok, "message": message,
+                                                                  "actor": ACTOR})
+        if not ok:
+            return JSONResponse({"error": message}, status_code=409)
+        return JSONResponse({"message": message, "pid": pid})
+
+    @app.get("/api/infrastructure")
+    def infrastructure():
+        """Plain list of what the desk depends on. Read-only; a closed port is a fact, not an error."""
+        import socket
+        from urllib.parse import urlparse
+
+        def port_up(url: str, default_port: int) -> bool:
+            parsed = urlparse(url)
+            try:
+                with socket.create_connection((parsed.hostname or "127.0.0.1", parsed.port or default_port),
+                                              timeout=0.5):
+                    return True
+            except OSError:
+                return False
+
+        settings, _ = sched.load(paths["schedule"])
+        installer = _installer_module()
+        detected = installer.detect_os(platform.system(), installer._has_systemd())
+        cron_present = installer.CRON_FILE.exists()
+        users_present = paths["users"].is_file()
+        items = [
+            {"name": "Dashboard server", "ok": True, "detail": "this page is being served"},
+            {"name": "OpenAlgo platform", "ok": port_up(os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"), 5000),
+             "detail": "port 5000"},
+            {"name": "WebSocket proxy", "ok": port_up("http://127.0.0.1:8765", 8765), "detail": "port 8765"},
+            {"name": "Kill switch", "ok": not KillSwitch(paths["kill"]).active,
+             "detail": "tripped = engine blocked"},
+            {"name": "Engine", "ok": engine_control.running_pid() is not None,
+             "detail": "started by the button or the schedule"},
+            {"name": "Machine OS", "ok": detected != "unsupported", "detail": detected},
+            {"name": "Scheduler", "ok": detected != "unsupported" and settings.valid,
+             "detail": f"{detected} · start {settings.start_time} IST · broker {settings.broker}"},
+            {"name": "Auto engine start", "ok": settings.engine_start,
+             "detail": "ON: engine starts after login" if settings.engine_start else "OFF: use the START ENGINE button"},
+            {"name": "Cron job installed", "ok": cron_present if detected == "ubuntu" else None,
+             "detail": "Ubuntu only" if detected != "ubuntu" else ("present" if cron_present else "absent")},
+            {"name": "Dashboard accounts", "ok": users_present, "detail": "data/dashboard_users.json"},
+            {"name": "Account login secret", "ok": bool(session_secret()),
+             "detail": "DASHBOARD_SESSION_SECRET"},
+            {"name": "Write token", "ok": bool(os.environ.get(TOKEN_ENV)), "detail": TOKEN_ENV},
+        ]
+        return JSONResponse({"items": items})
 
     @app.get("/api/portfolio")
     def portfolio_header():
