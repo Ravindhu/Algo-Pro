@@ -54,7 +54,7 @@ class Signal:
     name = "fixed"
 
     def signal(self, df):
-        return {"side": "BUY", "entry": 100.0, "sl_dist": 2.0, "tp_dist": 6.0, "time": "T1"}
+        return {"side": "BUY", "entry": 100.0, "sl_dist": 2.0, "tp_dist": 6.0, "time": "T1", "atr": 1.0}
 
 
 class RejectingBroker:

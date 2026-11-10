@@ -36,7 +36,8 @@ from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
-from quant.strategies.signals.risk_adapter import gate_signal
+from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
+from quant.strategies.signals.risk_adapter import gate_signal, levels_from_signal
 
 ALLOWED_MODES = ("paper", "analyze")
 
@@ -80,6 +81,8 @@ class BotConfig:
     pov: float = 0.1
     risk_per_trade: float = 0.0025
     max_cycles: int = 12
+    breakeven_r: float = 1.0
+    trail_mult: float = 2.0
     max_screen_age_minutes: float = 10.0
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
@@ -139,6 +142,12 @@ class _Parent:
     intent: TradeIntent
     remaining: int
     circuit_pct: float
+    stop: float = 0.0
+    target: float = 0.0
+    atr: float = 0.0
+    strategy: str = ""
+    adv_shares: Optional[float] = None
+    prev_close: Optional[float] = None
     cycles: int = 0
     seq: int = 0
 
@@ -180,6 +189,8 @@ class StrategyBot:
         self.state = state or RiskState()
         self._funds = 0.0
         self._parents: Dict[str, _Parent] = {}
+        self._positions: Dict[str, Position] = {}
+        self._exit_cfg = ExitConfig(breakeven_r=cfg.breakeven_r, trail_mult=cfg.trail_mult)
         self._done: set = set()
         self._executor = PovExecutor(
             gate=self._child_gate, sender=sender, api_key=api_key, audit=audit, pov=cfg.pov,
@@ -223,6 +234,7 @@ class StrategyBot:
             for strat in self._strategies:
                 self._scan(strat, sym, df, item["circuit_pct"], stats, now, report)
 
+        self._manage_exits(bars_cache, now, report)
         self._slice_parents(bars_cache, now, report)
         return report
 
@@ -241,6 +253,9 @@ class StrategyBot:
             return
         if sig is None:
             return
+        if not isinstance(sig.get("atr"), (int, float)) or float(sig["atr"]) <= 0:
+            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="no ATR in signal")
+            return
         key = f"{sym}|{strat.name}|{str(sig.get('side'))}|{sig.get('time')}"
         if key in self._parents or key in self._done:
             return
@@ -256,8 +271,11 @@ class StrategyBot:
             return
         self.state.seen_ids.add(res.intent.intent_id)
         self._done.add(key)
+        _, stop, target = levels_from_signal(sig)
         self._parents[key] = _Parent(key=key, intent=res.intent, remaining=res.intent.qty,
-                                     circuit_pct=circuit_pct)
+                                     circuit_pct=circuit_pct, stop=stop, target=target,
+                                     atr=float(sig["atr"]), strategy=strat.name,
+                                     adv_shares=stats["adv_shares"], prev_close=stats["prev_close"])
         report["parents_opened"] += 1
 
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
@@ -293,7 +311,76 @@ class StrategyBot:
                 continue
             p.remaining -= qty
             self.state.open_notional += qty * p.intent.ref_price  # sent counts as exposure (conservative)
+            self._record_fill(p, qty, outcome.response or {})
             report["children_sent"] += 1
+
+    def _record_fill(self, p: _Parent, qty: int, response: Dict[str, Any]) -> None:
+        """First accepted child opens the position. Later children add quantity only.
+
+        Entry price is the first fill price (used for breakeven and the risk unit R)."""
+        avg = response.get("avg_price")
+        fill = float(avg) if isinstance(avg, (int, float)) and avg > 0 else float(p.intent.ref_price)
+        pos = self._positions.get(p.key)
+        if pos is None:
+            self._positions[p.key] = Position(
+                key=p.key, symbol=p.intent.symbol, side=p.intent.side, qty=qty, entry=fill,
+                stop=p.stop, target=p.target, atr=p.atr, adv_shares=p.adv_shares,
+                prev_close=p.prev_close, circuit_pct=p.circuit_pct, strategy=p.strategy,
+            )
+            self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
+        else:
+            pos.qty += qty
+            self._log("position_add", key=p.key, qty=qty, total=pos.qty)
+
+    def _manage_exits(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
+        """Check each open position on its last closed bar. Stop, target, breakeven and trail."""
+        for key, pos in list(self._positions.items()):
+            if pos.exit_halted:
+                continue
+            df = bars_cache.get(pos.symbol)
+            if df is None:
+                df = self._bars.bars(pos.symbol, now)
+            if df is None:
+                self._log("exit_no_bars", key=key, symbol=pos.symbol)
+                report["skipped"].append(f"{pos.symbol}: no bars to manage position")
+                continue
+            bar = df.iloc[-2]  # last closed bar
+            old_stop = pos.stop
+            price, reason = evaluate_bar(pos, float(bar["open"]), float(bar["high"]),
+                                         float(bar["low"]), self._exit_cfg)
+            if price is None:
+                if pos.stop != old_stop:
+                    self._log("stop_moved", key=key, old=old_stop, new=pos.stop, be=pos.be_done)
+                continue
+            self._send_exit(key, pos, price, reason, now, report)
+
+    def _send_exit(self, key: str, pos: Position, price: float, reason: str,
+                   now: datetime, report: Dict[str, Any]) -> None:
+        intent = TradeIntent(
+            intent_id=f"{key}-EXIT", strategy_id=pos.strategy, symbol=pos.symbol,
+            side=pos.exit_side, qty=pos.qty, ref_price=float(price), kind="exit",
+            prev_close=pos.prev_close, circuit_pct=pos.circuit_pct, adv_shares=pos.adv_shares,
+            trade_day=now.date(),
+        )
+        try:
+            outcome = self._executor.submit_child(intent)
+        except Exception as exc:
+            pos.exit_halted = True
+            self._log("exit_halted", key=key, error=repr(exc))
+            return
+        if not outcome.sent:
+            self._log("exit_not_sent", key=key, reason=reason, reasons=list(outcome.reasons))
+            return
+        status = str((outcome.response or {}).get("status", "")).lower()
+        if status != "success":
+            pos.exit_halted = True
+            self._log("exit_halted", key=key, status=status or "missing",
+                      note="exit reply unclear; not resent; check the broker")
+            return
+        self._positions.pop(key, None)
+        self.state.open_notional = max(0.0, self.state.open_notional - pos.qty * pos.entry)
+        self._log("exit_sent", key=key, reason=reason, qty=pos.qty, price=price)
+        report["exits_sent"] = report.get("exits_sent", 0) + 1
 
     def _close(self, key: str, reason: str) -> None:
         self._parents.pop(key, None)

@@ -131,7 +131,7 @@ Support inputs to backtest and risk:
 | Order state machine | Idempotent, with retries |
 | Strategy bot (5-min cycle) | Reads the screen, runs strategies on closed bars, gates each parent at full size, then slices children each cycle through the POV executor. Modes: `paper` (simulated fills) and `analyze` (OpenAlgo sandbox). `live` is refused in code. Needs the live data source approved (`execution/strategy_bot.py`, `config/bot.yaml`). |
 | OpenAlgo | Orders and quotes via the bridge |
-| Protection | Stop placed at fill |
+| Protection | Stop, target, breakeven and ATR trail checked per closed bar; exits go through the gate (`execution/exit_manager.py`) |
 
 ### 2.10 Post-trade
 
@@ -253,7 +253,8 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 
 - Confirm each reuse target in `Blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
 - **Live data source not chosen.** `config/data_sources.yaml` has `live_allowed: false`. The owner must pick a licensed source and set it to true. Until then the bot runs no cycles. Live funds, positions and orders are read through the read-only OpenAlgo client.
-- **No exit management yet.** The bot opens and slices entries only. Stop-loss and take-profit monitoring, breakeven and trailing exits are the next step. Sandbox and paper only until then.
+- **Exits are in, with limits.** Each open position is checked on its last closed bar: stop (gap fills at open), target, breakeven at 1R, and a 2×ATR trail (`execution/exit_manager.py`). A bar that touches both stop and target counts as a stop. ATR is the entry-time value. DV-ATR is not implemented (no definition in the source yet). An exit with an unclear reply is halted and never resent. Exit orders go through the same gate as entries. Halt-all mode blocks them (see the next item).
+- **Halt-all blocks stop exits.** The gate blocks non-kill exits in halt-all mode. A stop-loss could be stuck in that state. Decide whether stop exits should always pass.
 - **No screener writer yet.** Nothing writes `data/screened/latest.json`. The screener must add `asm_gsm` and `circuit_pct` per symbol.
 - **OCL strategies are not in the bot yet.** They need a bar adapter for their client interface. Engulfing is the only strategy in bot v1.
 - **Equity for sizing is available cash** from OpenAlgo funds. Confirm this on the live account.
