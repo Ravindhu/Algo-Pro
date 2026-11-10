@@ -765,7 +765,7 @@ These rules describe the code on `master`. Change them only with a reviewed comm
 * **Live is refused in code.** The bot runs only in `paper` or `analyze` mode. `live_enabled` must be `false`. Real-money orders need a recorded human `LiveApproval` (`execution/openalgo_client.py`), and none is created by the bot.
 * **Live market-data source must be approved.** The bot runs no cycle until `config/data_sources.yaml` sets `live_feed.live_allowed: true`. Only the owner can set it, after a licence check.
 * **Startup reconciliation gates entries.** Entries stay blocked until the broker position book matches the bot's book (`monitor/broker_recon.py`). "unavailable" and "mismatch" block entries. Paper with no broker reader is "skipped" and allows entries. Exits are never blocked by reconciliation.
-* **Verification first.** An exit is sent only from a verified closed bar and a known position. If the bar feed is missing, the position is held and the event is audited (`exit_no_bars`). The bot never exits on a guess.
+* **Verification first.** An exit is sent only from a known position and a closed bar. If the bar feed is down, the position is managed on the last known closed bar (owner decision 2026-11-10). Each bar is evaluated once per position, and each fallback is audited with the bar's timestamp (`exit_used_last_bar`). If no bar was ever seen, the position is held (`exit_no_bars`). The bot never exits on a guess.
 * **Unclear exit reply halts the position.** A non-success reply, or an exception on an exit, marks the position `exit_halted`. The bot never resends it automatically. A person checks the broker.
 * **Only the gate approves intents.** Every entry, child and exit goes through `check_intent`. The order client is named only in `execution/openalgo_client.py`.
 * **Auto-tune cannot touch risk.** Promotion refuses any risk-bounding key, and then writes nothing. Risk-bounding keys match: `max_`, `risk`, `kill`, `circuit`, `blocked`, `require_`, `allow`, `daily_loss`, `drawdown`, `exposure`, `live`, `dry_run`, `stop_loss`, `stoploss`, `trailing`.
@@ -774,14 +774,14 @@ These rules describe the code on `master`. Change them only with a reviewed comm
 * **Secrets.** Never committed. Keep them in local `.env` files.
 
 Known gaps, not yet changed:
-* A bar-feed outage holds open positions without stop checks (`exit_no_bars`). Decide whether protective exits should use the last known bar or the broker.
+* The last known bar has no age limit (owner decision 2026-11-10). A long outage means stops act on old prices. Consider an age limit later.
 * Halt-all blocks entries and BUY exits. A stop exit on a long is allowed. Confirm that a SELL exit is always risk-reducing for every book state.
 * Analyze mode treats an accepted order reply as filled. Fill confirmation is not yet wired.
 * Sizing does not clamp to portfolio caps. The gate rejects an oversized order instead.
 * Only the engulfing strategy is wired into the bot. OCL strategies need a bar adapter.
 * The screener does not yet write `data/screened/latest.json` (it needs `asm_gsm` and `circuit_pct` per symbol).
 * The `paper-buy-scanner` runtime (`strategies/paper_runtime.py`, `scanner.py`, `positions.py`, `protect.py`, `state_store.py`) is not merged. It duplicates the bot. Its strategies stay in branch history.
-* Not adopted from `fix/audit-2026-11-03` and `fix/audit-2026-11-03-security`: their rewrites of the architecture and dashboard text, and removal of the IBM section and the Algo Flow v5 section. Owner to decide.
+* Not adopted from `fix/audit-2026-11-03` and `fix/audit-2026-11-03-security`: their rewrites of the architecture and dashboard text, and removal of the IBM section and the Algo Flow v5 section. Owner decision 2026-11-10: not adopted.
 
 ## Strategy Bot and Modes (2026-11-10)
 
@@ -911,7 +911,7 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 
 ## Terminal & IBM Corporate Laptop Guardrails (Auto-Mode Hardened)
 
-> Kept from `master` on 2026-11-10. The audit branches removed this section. Owner to confirm it stays.
+> Kept from `master`. The audit branches removed this section. Owner decision 2026-11-10: it stays.
 
 
 ### 0. Authorized Host & Execution Scope

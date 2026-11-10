@@ -201,6 +201,7 @@ class StrategyBot:
         self._funds = 0.0
         self._parents: Dict[str, _Parent] = {}
         self._positions: Dict[str, Position] = {}
+        self._last_bar: Dict[str, Dict[str, Any]] = {}  # last closed bar per symbol, used during a feed outage
         self.recon: Optional[ReconGate] = None  # set by run_startup_recon; None = not yet run (entries blocked)
         self._exit_cfg = ExitConfig(breakeven_r=cfg.breakeven_r, trail_mult=cfg.trail_mult)
         self._done: set = set()
@@ -258,6 +259,7 @@ class StrategyBot:
                 report["skipped"].append(f"{sym}: no fresh bars")
                 continue
             bars_cache[sym] = df
+            self._remember_bar(sym, df)
             stats = self._bars.daily_stats(sym, now)
             if stats is None:
                 report["skipped"].append(f"{sym}: no daily stats")
@@ -367,6 +369,13 @@ class StrategyBot:
             pos.qty += qty
             self._log("position_add", key=p.key, qty=qty, total=pos.qty)
 
+    def _remember_bar(self, sym: str, df) -> Dict[str, Any]:
+        """Store the last closed bar of a symbol. Used only when the feed is down."""
+        bar = {"open": float(df["open"].iloc[-2]), "high": float(df["high"].iloc[-2]),
+               "low": float(df["low"].iloc[-2]), "time": str(df.index[-2])}
+        self._last_bar[sym] = bar
+        return bar
+
     def _manage_exits(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         """Check each open position on its last closed bar. Stop, target, breakeven and trail."""
         for key, pos in list(self._positions.items()):
@@ -375,14 +384,22 @@ class StrategyBot:
             df = bars_cache.get(pos.symbol)
             if df is None:
                 df = self._bars.bars(pos.symbol, now)
-            if df is None:
-                self._log("exit_no_bars", key=key, symbol=pos.symbol)
-                report["skipped"].append(f"{pos.symbol}: no bars to manage position")
-                continue
-            bar = df.iloc[-2]  # last closed bar
+            if df is not None:
+                bar = self._remember_bar(pos.symbol, df)
+            else:
+                # Feed outage: manage the position on the last known closed bar (owner decision 2026-11-10).
+                bar = self._last_bar.get(pos.symbol)
+                if bar is None:
+                    self._log("exit_no_bars", key=key, symbol=pos.symbol, note="no bar ever seen; held")
+                    report["skipped"].append(f"{pos.symbol}: no bars to manage position")
+                    continue
+                self._log("exit_used_last_bar", key=key, symbol=pos.symbol, bar_time=bar["time"])
+                report["skipped"].append(f"{pos.symbol}: feed down, managed on last known bar")
+            if pos.last_bar_time == bar["time"]:
+                continue  # this bar was already evaluated for this position
+            pos.last_bar_time = bar["time"]
             old_stop = pos.stop
-            price, reason = evaluate_bar(pos, float(bar["open"]), float(bar["high"]),
-                                         float(bar["low"]), self._exit_cfg)
+            price, reason = evaluate_bar(pos, bar["open"], bar["high"], bar["low"], self._exit_cfg)
             if price is None:
                 if pos.stop != old_stop:
                     self._log("stop_moved", key=key, old=old_stop, new=pos.stop, be=pos.be_done)

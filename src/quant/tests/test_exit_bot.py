@@ -153,14 +153,58 @@ def test_breakeven_move_is_logged_and_no_exit(tmp_path):
     assert pos.be_done is True and pos.stop > 100.0
 
 
-def test_missing_bars_keep_position_open_and_say_so(tmp_path):
+def test_outage_uses_last_known_bar_and_keeps_flat_position(tmp_path):
     bars = ScriptedBars()
     bot, audit = _bot(tmp_path, PaperBroker(), bars)
     _open_position(bot, bars)
     bars.missing = True
     bot.cycle(NOW + timedelta(minutes=5))
     assert len(bot._positions) == 1
+    assert audit.get("exit_used_last_bar")
+    assert audit.get("exit_no_bars") == []
+
+
+def test_outage_with_no_bar_ever_seen_holds_and_says_so(tmp_path):
+    bars = ScriptedBars()
+    bars.missing = True
+    bot, audit = _bot(tmp_path, PaperBroker(), bars)
+    bot._positions["k"] = _fake_position()
+    bot.cycle(NOW)
+    assert "k" in bot._positions
     assert audit.get("exit_no_bars")
+
+
+def test_outage_stop_is_taken_on_last_known_bar(tmp_path):
+    bars = ScriptedBars()
+    bot, audit = _bot(tmp_path, PaperBroker(), bars)
+    _open_position(bot, bars)
+    # Last closed bar seen before the outage breaches the stop.
+    bot._last_bar["INFY"] = {"open": 99.0, "high": 99.5, "low": 97.0, "time": "2026-11-10 10:10:00"}
+    bars.missing = True
+    bot.cycle(NOW + timedelta(minutes=5))
+    exits = audit.get("exit_sent")
+    assert len(exits) == 1 and exits[0]["reason"] == "stop"
+    assert bot._positions == {}
+
+
+def test_same_last_bar_is_never_evaluated_twice(tmp_path):
+    bars = ScriptedBars()
+    bot, audit = _bot(tmp_path, PaperBroker(), bars)
+    _open_position(bot, bars)
+    bot._last_bar["INFY"] = {"open": 101.0, "high": 102.5, "low": 100.0, "time": "2026-11-10 10:10:00"}
+    bars.missing = True
+    bot.cycle(NOW + timedelta(minutes=5))
+    pos = list(bot._positions.values())[0]
+    stop_after_first = pos.stop
+    bot.cycle(NOW + timedelta(minutes=10))
+    assert pos.stop == stop_after_first
+    assert pos.last_bar_time == "2026-11-10 10:10:00"
+
+
+def _fake_position():
+    from quant.execution.exit_manager import Position
+    return Position(key="k", symbol="INFY", side="BUY", qty=10, entry=100.0, stop=98.0,
+                    target=106.0, atr=1.0)
 
 
 def test_unclear_exit_reply_halts_position_without_resend(tmp_path):

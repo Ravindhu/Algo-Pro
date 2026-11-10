@@ -50,6 +50,7 @@ class Position:
     prev_close: Optional[float] = None
     circuit_pct: Optional[float] = None
     strategy: str = ""
+    last_bar_time: Optional[str] = None  # bar already evaluated; never evaluate the same bar twice
     risk_r: float = field(init=False)
 
     def __post_init__(self) -> None:
