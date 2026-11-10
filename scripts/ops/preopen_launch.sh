@@ -15,7 +15,7 @@
 #   9. Reconcile ............... write a JSON record of what happened
 #
 # WHY EVERY STEP IS A GATE
-#   An order-placing process that starts because "it was 08:45" is not an
+#   An order-placing process that starts because "it was 08:50" is not an
 #   automated desk, it is an unattended risk. Each gate fails CLOSED: the
 #   default outcome of any error here is "the engine is not running", which is
 #   always the safe state. AGENTS.md: Capital Protection before everything.
@@ -28,7 +28,7 @@
 #   * It does not run on weekends or NSE holidays it knows about (see below).
 #
 # MARKET CLOCK
-#   NSE cash session: 09:15-15:30 IST. The script is scheduled at 08:45 IST.
+#   NSE cash session: 09:15-15:30 IST. The script is scheduled at 08:50 IST.
 #   `--force` bypasses the time window (a human decision, for testing).
 #   There is no holiday calendar in this file. A holiday run is harmless -
 #   the broker/login legs fail and the engine never starts - but it will log a
@@ -107,6 +107,10 @@ write_result() {          # write_result <exit_code> <stage> <detail>
   } > "$RESULT_JSON"
 }
 
+# record_only: write the JSON record without tripping `set -e` in the caller.
+# Defined BEFORE the clock gate, which calls it first (was defined later: silent bug).
+record_only() { write_result "$@" || true; }
+
 # ------------------------------------------------------------------ 1. clock
 # Weekday + a window around the open. `date +%u`: 1=Mon ... 7=Sun.
 DOW="$(date +%u)"
@@ -174,8 +178,6 @@ maybe() {           # echo the command, or just print it under --dry-run
   "$@"
 }
 
-# record_only: write the JSON record without tripping `set -e` in the caller.
-record_only() { write_result "$@" || true; }
 
 # ------------------------------------------------------------------ 3. platform
 info "starting the platform (openalgo, openalgo-ws)"

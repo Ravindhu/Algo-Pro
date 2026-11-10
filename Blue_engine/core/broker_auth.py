@@ -481,6 +481,20 @@ class BrokerAuth:
             result.reason = "broker TOTP secret is unusable: " + totp_check["reason"]
             return result
 
+        # mstock (plan D10): its clientcode and API key come from the env that
+        # OpenAlgo's broker module reads. Check them here, before any POST, so a
+        # missing key is reported instead of burning a login attempt.
+        if (self.credentials.broker_name or "").strip().lower() == "mstock":
+            absent = [n for n in ("BROKER_API_KEY", "BROKER_API_SECRET")
+                      if not has_secret(n)]
+            if absent:
+                result.ok = False
+                result.reason = ("mstock needs " + ", ".join(absent)
+                                 + " set (clientcode and API key)")
+                result.add("mstock_keys", False, result.reason)
+                return result
+            result.add("mstock_keys", True, "clientcode and API key present")
+
         if not self.session.reachable():
             result.ok = False
             result.reason = ("OpenAlgo is not reachable at "

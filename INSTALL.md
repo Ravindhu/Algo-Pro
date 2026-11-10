@@ -73,7 +73,7 @@ Useful flags: `--allow-plain-http` (LAN lab only, never on the internet),
 `--skip-desktop`, `--skip-schedule`, `--skip-backup`, `--dry-run` (print stages
 only), `--start-engine`, `--no-chrome`, `--no-rdp`.
 
-The run has six stages: preflight, platform, desktop/remote, the 08:45 IST
+The run has six stages: preflight, platform, desktop/remote, the 08:50 IST
 pre-open timer, the 16:00 backup job, and a final verify. Each stage reports
 OK, WARN or FAIL, and one failing stage does not stop the others.
 
@@ -106,10 +106,10 @@ domain>`), log in to your broker, and confirm the platform is in analyzer
 | Windows | When you sign in | `install.bat --scheduled` (start only) | `scripts\ops\register_start_jobs.ps1` (run once) |
 | Windows | Mon-Fri 08:40 IST, wakes the PC | `install.bat --scheduled` (start only) | same script |
 | Ubuntu | At every boot | `launch_ubuntu_server.sh --start-only` (start only) | the launcher (stage 4) |
-| Ubuntu | Mon-Fri 08:45 IST | `preopen_launch.sh`: clock, login, smoke test, then engine | the launcher (stage 4, existing timer) |
+| Ubuntu | Mon-Fri 08:50 IST | `preopen_launch.sh`: clock, login, smoke test, then engine | the launcher (stage 4, existing timer) |
 
 Scheduled runs **never update code** and **never start the trading engine**
-at boot or on Windows. The Ubuntu 08:45 timer is the only scheduled path that
+at boot or on Windows. The Ubuntu 08:50 timer is the only scheduled path that
 starts the engine, and it runs behind the smoke gate.
 
 Windows setup, once, in the repo folder:
@@ -129,7 +129,7 @@ Ubuntu, when you want new code.
 
 - The engine (`pov-runner`) is **not** enabled at boot. A reboot does not start
   order placement.
-- It starts only by the pre-open timer (weekdays 08:45 IST, behind a smoke gate
+- It starts only by the pre-open timer (weekdays 08:50 IST, behind a smoke gate
   and a broker login check), or by hand: `sudo systemctl start pov-runner pov-dash`.
 - Both timers and cron are available. Use the timer. Do not run both.
 
