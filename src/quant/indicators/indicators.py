@@ -1,5 +1,5 @@
 """Flow stage: Signal and conviction (indicators, shared by strategies).
-Status: PORTED COPY of Blue_engine/alpha/indicators/hilega_milega.py. Tests: src/quant/tests/test_signals_indicators.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 Hilega-Milega indicator math (simplified NK rule) plus EMA, ATR and WMA helpers.
 Reference: the "HILEGA_MILEGA" TradingView indicator (Nitish Kumar): RSI (default 9)

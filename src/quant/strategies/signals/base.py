@@ -1,5 +1,5 @@
 """Flow stage: Strategy (signal interface, separate from the Phase 5 weight interface).
-Status: LOGIC AND TESTS PASS (10/10, sandbox run; see src/quant/tests/test_signals_base.py).
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 Signal strategy base, copied from Algo-Lab and made quant-native (no forex imports).
 Phase 5 strategies in src/quant/strategies/base.py return target weights; this package

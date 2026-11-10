@@ -1,5 +1,5 @@
 """Flow stage: Strategy (engulfing with fib entries, separate from OCL).
-Status: PORTED COPY of Algo-Lab src/algolab/framework/strategies/engulfing_strategy.py (class Engulfing).
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 Tests: src/quant/tests/test_engulfing_strategy.py.
 
 Rules (from the source):

@@ -1,6 +1,6 @@
 """
 Flow stage: Strategy (OCL sell-failure, TOP ladder).
-Status: PORTED. Candle check replaced with engulfing candle logic (owner decision). DV-ATR kept from Algo-Pro. Tests: src/quant/tests/test_signals_engulfing.py, test_strategies_ocl.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 PORTED COPY of Blue_engine/alpha/Statergy/ocl_keylevel.py (conformation entry model removed).
 Tests: src/quant/tests/test_strategies_ocl.py
 

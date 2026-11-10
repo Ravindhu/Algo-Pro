@@ -1,5 +1,5 @@
 """Flow stage: Signal and conviction (engulfing candle logic, shared by strategies).
-Status: PORTED COPY of the candle logic in Algo-Lab src/algolab/framework/strategies/engulfing_strategy.py
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 (body_ratio, engulfing, fib_entry_level). Tests: src/quant/tests/test_signals_engulfing.py.
 
 Candle logic only. Used by the OCL sell-failure top and bottom strategies (pattern check) and by the

@@ -1,5 +1,5 @@
 """Flow stage: Strategy (signal confirmation state machine).
-Status: PORTED COPY of Blue_engine/alpha/confirm/state.py. Tests: src/quant/tests/test_signals_roc_state.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 Confirmation state machine for keylevel reversal setups.
 

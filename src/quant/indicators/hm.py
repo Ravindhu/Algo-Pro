@@ -1,5 +1,5 @@
 """Flow stage: Signal and conviction (Hilega-Milega, numpy form, shared by strategies).
-Status: PORTED COPY of Algo-Lab src/algolab/framework/strategies/indicators/hm.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 Tests: src/quant/tests/test_engulfing_strategy.py.
 Note: src/quant/indicators/indicators.py has a list-based Hilega-Milega RSI and EMA. Both are kept
 for now; consolidating them into one module is a later clean-up.

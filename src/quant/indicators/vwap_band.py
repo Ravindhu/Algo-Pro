@@ -1,6 +1,6 @@
 """
 Flow stage: Signal and conviction (VWAP band indicator, shared by strategies).
-Status: PORTED COPY of Blue_engine/core/band.py. Tests: src/quant/tests/test_signals_vwap_band.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 band.py - VWAP Value Filter Band (Phase 1, Feature 13).
 

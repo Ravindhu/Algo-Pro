@@ -1,6 +1,6 @@
 """
 Flow stage: Strategy (OCL keylevel, normal blueprint).
-Status: PORTED; 13 smoke tests pass in sandbox (src/quant/tests/test_strategies_ocl.py)
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 PORTED COPY of Blue_engine/alpha/Statergy/ocl_keylevel.py (conformation entry model removed).
 Tests: src/quant/tests/test_strategies_ocl.py
 

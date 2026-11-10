@@ -1,5 +1,5 @@
 """Flow stage: Signal and conviction (candle patterns, shared by strategies).
-Status: PORTED COPY of Blue_engine/alpha/signals/_pattern.py. Tests: src/quant/tests/test_signals_indicators.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 Shared OCL candlestick-pattern helpers.
   - RRG (Red-Red-Green): two bearish candles then a bullish candle -> BUY

@@ -1,5 +1,5 @@
 """Flow stage: Signal and conviction (indicators, shared by strategies).
-Status: PORTED COPY of Blue_engine/alpha/confirm/roc.py. Tests: src/quant/tests/test_signals_roc_state.py.
+Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
 
 z-scored Rate-of-Change momentum confirmation.
 
