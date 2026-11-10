@@ -148,6 +148,8 @@
   <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
   <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions">STOP</button>
   <span id="loopmsg" class="d"></span>
+  <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
+  <span id="engmsg" class="d"></span>
 </header>
 <div class="clock" id="clock"></div>
 
@@ -403,8 +405,6 @@
       </div>
       <p class="d">Both modes log in to the broker at the start time. Auto: the engine then starts, if that is before 09:15. Manual: the engine waits for the button.</p>
       <p id="eng-state" class="d"></p>
-      <button class="go" type="button" id="engstart">Log in and start engine</button>
-      <p class="d">Runs the broker login first, then the engine. Refused while the kill switch is on or an engine is running.</p>
       <p id="eng-msg" class="d"></p>
     </div>
 
@@ -979,10 +979,10 @@
     $("enginechip").className = "chip " + (running ? "g" : "");
   }
   $("engstart").onclick = async () => {
-    sMsg("eng-msg", "Sending…", "d");
+    sMsg("engmsg", "Sending…", "d");
     const res = await jpost("/api/engine/start");
-    if (res.ok) sMsg("eng-msg", res.j.message, "g");
-    else sMsg("eng-msg", describeFail(res), "r");
+    if (res.ok) sMsg("engmsg", res.j.message, "g");
+    else sMsg("engmsg", describeFail(res), "r");
     loadEngine();
   };
 

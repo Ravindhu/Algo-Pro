@@ -278,3 +278,11 @@ def test_popup_has_two_mode_buttons_and_no_checkbox():
     html = (ROOT / "dashboard" / "main_dashboard.html").read_text()
     assert 'id="mode-auto-eng"' in html and 'id="mode-manual-eng"' in html
     assert 'id="sc-engine"' not in html and 'id="engform"' not in html
+
+
+def test_start_engine_button_is_in_header_not_popup():
+    html = (ROOT / "dashboard" / "main_dashboard.html").read_text()
+    header = html[html.index("<header>"):html.index("</header>")]
+    popup = html[html.index('id="setmodal"'):html.index('<script src="/assets/flow_svg.js">')]
+    assert 'id="engstart"' in header and 'id="engstart"' not in popup
+    assert 'id="mode-auto-eng"' in popup  # auto/manual setting stays in the popup

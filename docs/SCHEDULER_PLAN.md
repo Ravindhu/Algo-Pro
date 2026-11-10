@@ -138,3 +138,9 @@ still owner input and must be 12 or more characters.
   then starts the engine. It is `scripts/ops/run_preopen_once.py --manual`.
   A failed login means no engine. The kill switch and a running engine still refuse it.
 - The manual path does not write the daily marker, so it never blocks the scheduled run.
+
+## START ENGINE placement (owner, 2026-11-10)
+
+- The START ENGINE button is in the main dashboard header, next to the loop controls.
+  It is no longer in the Settings popup. Its message shows beside it.
+- The Auto / Manual engine start setting stays in the Settings popup, as before.
