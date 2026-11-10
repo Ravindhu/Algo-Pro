@@ -199,15 +199,15 @@ else
 fi
 
 # ------------------------------------------------------------------ 5. login
-# scheduled_login.py is itself opt-in (BROKER_AUTOLOGIN=1). We never pass
-# --enable and never pass --force: those are human decisions.
+# The schedule itself is the opt-in: BROKER_AUTOLOGIN=1 is set for this run only.
+# We never pass --enable and never pass --force: those are human decisions.
 if [[ -x "$VENV_PY" ]]; then
   info "broker session: scheduled_login.py (honours BROKER_AUTOLOGIN)"
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[dry-run] $VENV_PY scripts/ops/scheduled_login.py"
   else
     LOGIN_LOG="$LOG_DIR/$(date +%F)_login.log"
-    if "$VENV_PY" "$ROOT/scripts/ops/scheduled_login.py" >>"$LOGIN_LOG" 2>&1; then
+    if BROKER_AUTOLOGIN=1 "$VENV_PY" "$ROOT/scripts/ops/scheduled_login.py" >>"$LOGIN_LOG" 2>&1; then
       ok "broker session ready"
     else
       _rc=$?
@@ -246,6 +246,15 @@ fi
 if [[ "$START_ENGINE_WANTED" -eq 0 ]]; then
   info "--no-engine: platform and session are up, engine left stopped"
   record_only 0 engine "skipped by flag"
+  exit 0
+fi
+
+# auto engine start: read the dashboard toggle at run time (fails closed to OFF)
+if [[ -x "$VENV_PY" ]] && [[ "$("$VENV_PY" "$ROOT/scripts/ops/read_engine_flag.py" 2>/dev/null)" == "1" ]]; then
+  info "auto engine start is ON in the saved settings"
+else
+  info "auto engine start is OFF - engine left stopped; use the dashboard START ENGINE button"
+  record_only 0 engine "auto engine start off"
   exit 0
 fi
 

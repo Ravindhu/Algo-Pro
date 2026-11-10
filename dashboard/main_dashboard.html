@@ -63,6 +63,7 @@
   .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
   .modal[hidden] { display: none; }
   .sec { border-top: 1px solid #1d2a3a; padding: 8px 0; }
+  .sechead { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
   .sec h3 { margin: 0 0 6px; font-size: 11px; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
   #infra { list-style: none; margin: 0; padding: 0; columns: 2; }
   #infra li { padding: 2px 0; }
@@ -376,37 +377,45 @@
 <div class="modal" id="setmodal" hidden role="dialog" aria-modal="true" aria-labelledby="settitle">
   <div class="sheet">
     <div class="sheet-h">
-      <div><b id="settitle">SETTINGS</b> <span class="d">infrastructure · account · schedule · engine</span></div>
-      <button type="button" id="setclose">CLOSE ×</button>
+      <div><b id="settitle">Settings</b></div>
+      <button type="button" id="setclose">Close ×</button>
     </div>
-    <div class="sec"><h3>Infrastructure</h3><ul id="infra"></ul></div>
-    <div class="sec"><h3>Account</h3>
-      <p id="acct-who" class="d"></p>
-      <form id="acctform" autocomplete="off">
-        <input id="acct-name" placeholder="account name" autocomplete="username">
-        <input id="acct-pass" type="password" placeholder="password" autocomplete="current-password">
-        <button type="submit">SIGN IN</button>
-      </form>
-      <button type="button" id="acctout" hidden>SIGN OUT</button>
-      <p id="acct-msg" class="d"></p>
-    </div>
-    <div class="sec"><h3>Schedule (before the open)</h3>
+
+    <div class="sec">
+      <h2 class="sechead">Infrastructure</h2>
+      <ul id="infra"></ul>
+
+      <h3>Scheduler</h3>
       <form id="schedform" autocomplete="off">
-        <label><input type="checkbox" id="sc-enabled"> Schedule switch ON</label>
-        <label><input type="checkbox" id="sc-login"> Auto broker login</label>
-        <label><input type="checkbox" id="sc-engine"> Auto engine start (after login)</label><br>
-        <label>OS <select id="sc-os"><option value="auto">auto-detect</option><option value="windows">Windows</option><option value="ubuntu">Ubuntu</option></select></label>
+        <label>OS <select id="sc-os"><option value="auto">Auto-detect</option><option value="windows">Windows</option><option value="ubuntu">Ubuntu</option></select></label>
         <label>Broker <select id="sc-broker"><option value="mstock">mstock</option></select></label>
         <label>Start time (IST) <input id="sc-time" type="time"></label>
-        <button type="submit">SAVE SCHEDULE</button>
+        <button type="submit">Save scheduler</button>
       </form>
       <p id="sc-msg" class="d"></p>
-    </div>
-    <div class="sec"><h3>Engine</h3>
-      <p class="d">With auto engine start OFF, the engine starts only from this button (after broker login, if that is on).</p>
+      <p class="d">Broker login runs at the start time on weekdays once the scheduler is installed on this machine. OS and start time changes need one install run there.</p>
+
+      <h3>Engine</h3>
+      <form id="engform" autocomplete="off">
+        <label><input type="checkbox" id="sc-engine"> Auto engine start (after login)</label>
+        <button type="submit">Save</button>
+      </form>
+      <p class="d">On: the engine starts after the morning login. Off: the engine waits for the button below.</p>
       <p id="eng-state" class="d"></p>
-      <button class="go" type="button" id="engstart">START ENGINE</button>
+      <button class="go" type="button" id="engstart">Start engine</button>
       <p id="eng-msg" class="d"></p>
+    </div>
+
+    <div class="sec">
+      <h2 class="sechead">Account</h2>
+      <p id="acct-who" class="d"></p>
+      <form id="acctform" autocomplete="off">
+        <input id="acct-name" placeholder="Account name" autocomplete="username">
+        <input id="acct-pass" type="password" placeholder="Password" autocomplete="current-password">
+        <button type="submit">Sign in</button>
+      </form>
+      <button type="button" id="acctout" hidden>Sign out</button>
+      <p id="acct-msg" class="d"></p>
     </div>
   </div>
 </div>
@@ -887,7 +896,7 @@
 
   loadSetup();
   refresh();
-  // ---------- SETTINGS popup: infrastructure, account, schedule, engine ----------
+  // ---------- Settings popup: Infrastructure (scheduler, engine) and Account ----------
   function sMsg(id, text, cls) { const m = $(id); m.textContent = text; m.className = "d " + (cls || ""); }
   function writeHeaders() {
     const h = {"Content-Type": "application/json"};
@@ -923,6 +932,49 @@
     });
   }
 
+  async function loadSchedule() {
+    const res = await jget("/api/schedule");
+    const s = res.j.settings || {};
+    $("sc-os").value = s.os_target || "auto";
+    $("sc-broker").value = s.broker || "mstock";
+    $("sc-time").value = s.start_time || "08:50";
+    $("sc-engine").checked = !!s.engine_start;
+    const p = res.j.preview || {};
+    const where = p.refused ? "This machine: " + p.refused
+      : "This machine: " + (p.detected_os || "unknown") + (p.scheduler ? " · scheduler: " + p.scheduler : "");
+    sMsg("sc-msg", where + (res.j.warning ? " · " + res.j.warning : ""), (p.refused || res.j.warning) ? "r" : "d");
+  }
+  $("schedform").onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await jpost("/api/schedule", {
+      os_target: $("sc-os").value, broker: $("sc-broker").value, start_time: $("sc-time").value});
+    if (res.ok) sMsg("sc-msg", res.j.note, "g");
+    else sMsg("sc-msg", describeFail(res), "r");
+    loadSchedule();
+  };
+  $("engform").onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await jpost("/api/schedule", {engine_start: $("sc-engine").checked});
+    if (res.ok) sMsg("eng-msg", "Auto engine start " + ($("sc-engine").checked ? "on." : "off."), "g");
+    else sMsg("eng-msg", describeFail(res), "r");
+    loadSchedule();
+  };
+
+  async function loadEngine() {
+    const res = await jget("/api/engine");
+    const running = !!res.j.running;
+    $("eng-state").textContent = running ? "Engine: running (pid " + res.j.pid + ")" : "Engine: stopped";
+    $("enginechip").textContent = "engine " + (running ? "running" : "stopped");
+    $("enginechip").className = "chip " + (running ? "g" : "");
+  }
+  $("engstart").onclick = async () => {
+    sMsg("eng-msg", "Sending…", "d");
+    const res = await jpost("/api/engine/start");
+    if (res.ok) sMsg("eng-msg", res.j.message, "g");
+    else sMsg("eng-msg", describeFail(res), "r");
+    loadEngine();
+  };
+
   async function loadAccount() {
     const res = await jget("/api/account");
     const who = res.j.signed_in;
@@ -942,50 +994,10 @@
   };
   $("acctout").onclick = async () => { await jpost("/api/account/logout"); loadAccount(); };
 
-  async function loadSchedule() {
-    const res = await jget("/api/schedule");
-    const s = res.j.settings || {};
-    $("sc-enabled").checked = !!s.enabled;
-    $("sc-login").checked = !!s.broker_login;
-    $("sc-engine").checked = !!s.engine_start;
-    $("sc-os").value = s.os_target || "auto";
-    $("sc-broker").value = s.broker || "mstock";
-    $("sc-time").value = s.start_time || "08:50";
-    const p = res.j.preview || {};
-    const where = p.refused ? "This machine: " + p.refused
-      : "This machine: " + (p.detected_os || "unknown") + (p.scheduler ? " · scheduler: " + p.scheduler : "");
-    sMsg("sc-msg", where + (res.j.warning ? " · " + res.j.warning : ""), (p.refused || res.j.warning) ? "r" : "d");
-  }
-  $("schedform").onsubmit = async (e) => {
-    e.preventDefault();
-    const res = await jpost("/api/schedule", {
-      enabled: $("sc-enabled").checked, broker_login: $("sc-login").checked,
-      engine_start: $("sc-engine").checked, os_target: $("sc-os").value,
-      broker: $("sc-broker").value, start_time: $("sc-time").value});
-    if (res.ok) sMsg("sc-msg", res.j.note, "g");
-    else sMsg("sc-msg", describeFail(res), "r");
-    loadSchedule();
-  };
-
-  async function loadEngine() {
-    const res = await jget("/api/engine");
-    const running = !!res.j.running;
-    $("eng-state").textContent = running ? "Engine: running (pid " + res.j.pid + ")" : "Engine: stopped";
-    $("enginechip").textContent = "engine " + (running ? "running" : "stopped");
-    $("enginechip").className = "chip " + (running ? "g" : "");
-  }
-  $("engstart").onclick = async () => {
-    sMsg("eng-msg", "Sending…", "d");
-    const res = await jpost("/api/engine/start");
-    if (res.ok) sMsg("eng-msg", res.j.message, "g");
-    else sMsg("eng-msg", describeFail(res), "r");
-    loadEngine();
-  };
-
   function openSettings() {
     $("setmodal").hidden = false;
     $("setclose").focus();
-    loadInfra(); loadAccount(); loadSchedule(); loadEngine();
+    loadInfra(); loadSchedule(); loadEngine(); loadAccount();
   }
   function closeSettings() { $("setmodal").hidden = true; $("setbtn").focus(); }
   $("setbtn").onclick = openSettings;

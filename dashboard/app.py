@@ -372,7 +372,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.post("/api/schedule")
     async def schedule_save(request: Request):
-        """Save the switch and settings. Does not change the machine's scheduler (needs root)."""
+        """Save scheduler details and the engine toggle. OS/time changes need an install run (root)."""
         denied = write_denied(request)
         if denied is not None:
             return denied
@@ -389,8 +389,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             return JSONResponse({"error": "; ".join(candidate.errors())}, status_code=422)
         sched.save(candidate, paths["schedule"])
         AuditLog(paths["audit"]).append("schedule_saved", {"settings": candidate.to_dict(), "actor": ACTOR})
-        return JSONResponse({"saved": candidate.to_dict(), "apply_required": True,
-                             "note": "saved. Run scripts/ops/install_schedule.py --apply on this machine to change its scheduler."})
+        return JSONResponse({"saved": candidate.to_dict(),
+                             "note": "saved. Auto engine start applies at the next run. OS or start time changes need scripts/ops/install_schedule.py --apply once on this machine."})
 
     @app.get("/api/engine")
     def engine_status():
@@ -441,8 +441,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             {"name": "Engine", "ok": engine_control.running_pid() is not None,
              "detail": "started by the button or the schedule"},
             {"name": "Machine OS", "ok": detected != "unsupported", "detail": detected},
-            {"name": "Schedule switch", "ok": settings.enabled,
-             "detail": f"{'ON' if settings.enabled else 'OFF'} at {settings.start_time} IST"},
+            {"name": "Scheduler", "ok": detected != "unsupported" and settings.valid,
+             "detail": f"{detected} · start {settings.start_time} IST · broker {settings.broker}"},
+            {"name": "Auto engine start", "ok": settings.engine_start,
+             "detail": "ON: engine starts after login" if settings.engine_start else "OFF: use the START ENGINE button"},
             {"name": "Cron job installed", "ok": cron_present if detected == "ubuntu" else None,
              "detail": "Ubuntu only" if detected != "ubuntu" else ("present" if cron_present else "absent")},
             {"name": "Dashboard accounts", "ok": users_present, "detail": "data/dashboard_users.json"},

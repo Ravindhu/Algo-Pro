@@ -81,3 +81,23 @@ The dashboard has only one token today. This plan adds named accounts:
   `scripts/ops/create_dashboard_user.py --name <name>`.
 - `DASHBOARD_SESSION_SECRET` must be set on the server, or account login is off.
 - FastAPI routes were NOT run here (FastAPI cannot be installed in the sandbox).
+
+## Change of decision (owner, 2026-11-10, later)
+
+The owner removed the schedule on/off switch and the auto broker login switch.
+Only these controls remain:
+
+- Scheduler details: OS, broker, start time. Changes need one install run on the machine.
+- Auto engine start (ON or OFF). Read at run time by `scripts/ops/read_engine_flag.py`,
+  so a change takes effect at the next run without reinstalling. Default is OFF.
+- START ENGINE button. It refuses while the kill switch is on or an engine is running.
+
+Effects to know about:
+
+- Once the scheduler is installed, broker login runs every weekday at the start time.
+  To stop that, an operator runs `scripts/ops/install_schedule.py --remove --apply`.
+  The dashboard does not remove the schedule.
+- The `enabled` and `broker_login` fields were removed from `schedule_settings.json`.
+  Old files that still contain them load without error. The keys are ignored.
+- Popup layout: two headers, Infrastructure (checks, scheduler, engine, START ENGINE)
+  and Account (dashboard login only).
