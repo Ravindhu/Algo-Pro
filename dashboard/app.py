@@ -399,12 +399,12 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.post("/api/engine/start")
     async def engine_start(request: Request):
-        """Manual start. The supervisor's own gates still decide whether anything trades."""
+        """Button: broker login, then engine start. The supervisor's own gates still decide whether anything trades."""
         denied = write_denied(request)
         if denied is not None:
             return denied
         kill_active = KillSwitch(paths["kill"]).active
-        ok, message, pid = engine_control.start_engine(kill_active=kill_active)
+        ok, message, pid = engine_control.request_manual_start(kill_active=kill_active)
         AuditLog(paths["audit"]).append("engine_start_requested", {"accepted": ok, "message": message,
                                                                   "actor": ACTOR})
         if not ok:

@@ -63,6 +63,7 @@
   .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
   .modal[hidden] { display: none; }
   .sec { border-top: 1px solid #1d2a3a; padding: 8px 0; }
+  .seg { display: inline-flex; gap: 8px; margin: 0 0 6px; }
   .sechead { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
   .sec h3 { margin: 0 0 6px; font-size: 11px; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
   #infra { list-style: none; margin: 0; padding: 0; columns: 2; }
@@ -396,13 +397,14 @@
       <p class="d">Broker login runs every trading day at the start time. If the machine is off then, the run happens as soon as it is on and the user is logged in (Windows) or the server boots (Ubuntu). It is never skipped; after 15:30 that day's run is skipped and logged. OS and start time changes need one install run on the machine.</p>
 
       <h3>Engine</h3>
-      <form id="engform" autocomplete="off">
-        <label><input type="checkbox" id="sc-engine"> Auto engine start (after login)</label>
-        <button type="submit">Save</button>
-      </form>
-      <p class="d">On: the engine starts after the morning login. Off: the engine waits for the button below.</p>
+      <div class="seg" role="group" aria-label="Engine start mode">
+        <button type="button" id="mode-auto-eng" aria-pressed="false">Auto engine start</button>
+        <button type="button" id="mode-manual-eng" aria-pressed="false">Manual engine start</button>
+      </div>
+      <p class="d">Both modes log in to the broker at the start time. Auto: the engine then starts, if that is before 09:15. Manual: the engine waits for the button.</p>
       <p id="eng-state" class="d"></p>
-      <button class="go" type="button" id="engstart">Start engine</button>
+      <button class="go" type="button" id="engstart">Log in and start engine</button>
+      <p class="d">Runs the broker login first, then the engine. Refused while the kill switch is on or an engine is running.</p>
       <p id="eng-msg" class="d"></p>
     </div>
 
@@ -938,7 +940,7 @@
     $("sc-os").value = s.os_target || "auto";
     $("sc-broker").value = s.broker || "mstock";
     $("sc-time").value = s.start_time || "08:50";
-    $("sc-engine").checked = !!s.engine_start;
+    setModeButtons(!!s.engine_start);
     const p = res.j.preview || {};
     const where = p.refused ? "This machine: " + p.refused
       : "This machine: " + (p.detected_os || "unknown") + (p.scheduler ? " · scheduler: " + p.scheduler : "");
@@ -952,13 +954,22 @@
     else sMsg("sc-msg", describeFail(res), "r");
     loadSchedule();
   };
-  $("engform").onsubmit = async (e) => {
-    e.preventDefault();
-    const res = await jpost("/api/schedule", {engine_start: $("sc-engine").checked});
-    if (res.ok) sMsg("eng-msg", "Auto engine start " + ($("sc-engine").checked ? "on." : "off."), "g");
+  function setModeButtons(auto) {
+    const a = $("mode-auto-eng"), m = $("mode-manual-eng");
+    a.setAttribute("aria-pressed", String(auto));
+    m.setAttribute("aria-pressed", String(!auto));
+    a.className = auto ? "go" : "";
+    m.className = auto ? "" : "go";
+  }
+  async function setEngineMode(auto) {
+    sMsg("eng-msg", "Saving…", "d");
+    const res = await jpost("/api/schedule", {engine_start: auto});
+    if (res.ok) sMsg("eng-msg", auto ? "Auto engine start on." : "Manual engine start on.", "g");
     else sMsg("eng-msg", describeFail(res), "r");
     loadSchedule();
-  };
+  }
+  $("mode-auto-eng").onclick = () => setEngineMode(true);
+  $("mode-manual-eng").onclick = () => setEngineMode(false);
 
   async function loadEngine() {
     const res = await jget("/api/engine");

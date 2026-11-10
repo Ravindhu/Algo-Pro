@@ -87,3 +87,32 @@ def start_engine(*, kill_active: bool, pid_path: Path = PID_FILE, log_path: Path
     pid_path.write_text(json.dumps({"pid": proc.pid, "started": int(now or time.time())}) + "\n",
                         encoding="utf-8")
     return True, f"engine started (pid {proc.pid}); its gates decide whether it trades", proc.pid
+
+
+MANUAL_LOG = ROOT / "Temp" / "run" / "manual_start.log"
+RUNNER = ROOT / "scripts" / "ops" / "run_preopen_once.py"
+
+
+def request_manual_start(*, kill_active: bool, pid_path: Path = PID_FILE, log_path: Path = MANUAL_LOG,
+                         runner: Path = RUNNER) -> Tuple[bool, str, Optional[int]]:
+    """Button press: broker login first, then engine start. The runner does both, in order.
+
+    Refused when the kill switch is on or an engine is already running. The
+    login step still honours the broker cooldown, and a failed login means no engine.
+    """
+    existing = running_pid(pid_path)
+    allowed, message = decide_start(kill_active, existing is not None)
+    if not allowed:
+        return False, message, existing
+    if not runner.is_file():
+        return False, f"refused: runner not found at {runner}", None
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "ab") as log:
+        log.write(f"\n--- manual login + start {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n".encode())
+        kwargs = {"stdout": log, "stderr": log, "stdin": subprocess.DEVNULL, "cwd": str(ROOT)}
+        if os.name == "nt":
+            kwargs["creationflags"] = 0x00000008 | 0x00000200
+        else:
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen([sys.executable, str(runner), "--manual"], **kwargs)
+    return True, f"login, then engine start, requested (progress in {log_path.name})", proc.pid

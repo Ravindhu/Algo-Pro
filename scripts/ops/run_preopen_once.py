@@ -122,14 +122,40 @@ def _wait(seconds: float) -> None:
         time.sleep(min(60.0, left))
 
 
+def run_manual() -> int:
+    """Login first (the platform script with the engine turned off), then start the engine.
+
+    Only a successful login starts the engine. The manual path does not write the
+    daily marker, so the scheduled run is not affected.
+    """
+    from quant.core import engine_control
+    from quant.risk.kill_switch import KillSwitch
+
+    env = dict(os.environ, BROKER_AUTOLOGIN="1", PREOPEN_ENGINE_ALLOWED="0")
+    print(f"[{ist_now().isoformat(timespec='seconds')}] manual: broker login first")
+    login = subprocess.run(script_command(platform.system(), ROOT, sys.executable),
+                           cwd=str(ROOT), env=env, check=False)
+    if login.returncode != 0:
+        print(f"broker login failed (exit {login.returncode}) - engine NOT started")
+        return login.returncode
+    ok, message, pid = engine_control.start_engine(
+        kill_active=KillSwitch(ROOT / "data" / "paper" / "kill_switch.json").active)
+    print(message)
+    return 0 if ok else 4
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run the pre-open job once per trading day.")
     parser.add_argument("--dry-run", action="store_true", help="print the decision, run nothing")
+    parser.add_argument("--manual", action="store_true",
+                        help="dashboard button: login now, then start the engine (no day or time rules)")
     args = parser.parse_args(argv)
 
     settings, warning = load()
     if warning:
         print(f"WARN: {warning}")
+    if args.manual:
+        return run_manual()
     start = _dt.time(*map(int, settings.start_time.split(":")))
     now = ist_now()
     holidays = load_holidays()

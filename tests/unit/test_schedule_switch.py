@@ -244,3 +244,37 @@ def test_windows_wrapper_logs_in_and_honours_engine_permission():
 def test_pre_open_time_is_0850_in_launcher():
     launch = (ROOT / "Servers" / "launch_ubuntu_server.sh").read_text()
     assert 'PREOPEN_TIME="08:50"' in launch and "08:45" not in launch
+
+
+# ------------------------------------------- engine button: login, then engine
+from quant.core import engine_control as eng  # noqa: E402
+
+
+def test_button_refused_when_kill_switch_on(tmp_path):
+    ok, msg, pid = eng.request_manual_start(kill_active=True, pid_path=tmp_path / "e.pid",
+                                            log_path=tmp_path / "m.log", runner=ROOT / "scripts" / "ops" / "run_preopen_once.py")
+    assert ok is False and pid is None and "kill switch" in msg
+    assert not (tmp_path / "m.log").exists()  # nothing started, not even a log line
+
+
+def test_button_refused_when_engine_already_running(tmp_path):
+    import json as _json
+    import os as _os
+    pid_file = tmp_path / "e.pid"
+    pid_file.write_text(_json.dumps({"pid": _os.getpid()}), encoding="utf-8")  # a live pid
+    ok, msg, _ = eng.request_manual_start(kill_active=False, pid_path=pid_file,
+                                          log_path=tmp_path / "m.log", runner=ROOT / "scripts" / "ops" / "run_preopen_once.py")
+    assert ok is False and "already running" in msg
+
+
+def test_runner_has_manual_path_that_logs_in_before_engine():
+    text = (ROOT / "scripts" / "ops" / "run_preopen_once.py").read_text()
+    assert "def run_manual" in text
+    assert text.index('script_command(platform.system()') < text.index("engine_control.start_engine(")
+    assert 'PREOPEN_ENGINE_ALLOWED="0"' in text and 'BROKER_AUTOLOGIN="1"' in text
+
+
+def test_popup_has_two_mode_buttons_and_no_checkbox():
+    html = (ROOT / "dashboard" / "main_dashboard.html").read_text()
+    assert 'id="mode-auto-eng"' in html and 'id="mode-manual-eng"' in html
+    assert 'id="sc-engine"' not in html and 'id="engform"' not in html

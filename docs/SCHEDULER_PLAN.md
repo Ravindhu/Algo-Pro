@@ -128,3 +128,13 @@ Open limits:
 
 Account name for the dashboard: Ravichandiran (owner, 2026-11-10). The password is
 still owner input and must be 12 or more characters.
+
+## Engine controls (owner, 2026-11-10, latest)
+
+- One control in the Engine section: Auto engine start or Manual engine start.
+- Both modes log in to the broker at the start time, every trading day.
+  Auto: the engine then starts, if the run is before 09:15. Manual: it waits.
+- START button (labelled "Log in and start engine") runs the broker login first,
+  then starts the engine. It is `scripts/ops/run_preopen_once.py --manual`.
+  A failed login means no engine. The kill switch and a running engine still refuse it.
+- The manual path does not write the daily marker, so it never blocks the scheduled run.
