@@ -111,12 +111,14 @@ def _bot(tmp_path, *, strategies=None, bars=None, sender=None, audit=None, funds
     if kill_on:
         kill.trip("test")
     audit = audit or FakeAudit()
-    return StrategyBot(
+    bot = StrategyBot(
         cfg=cfg, strategies=strategies or [FixedSignal()], bars=bars or FakeBars(),
         sender=sender or FakeSender(), audit=audit, api_key="KEY",
         read_funds=lambda: funds, limits=_limits(), kill=kill, safe=SafeMode(),
         halt=HaltHandler(), state=RiskState(),
-    ), audit
+    )
+    bot.run_startup_recon(None)  # paper-style startup: no broker to compare
+    return bot, audit
 
 
 # --- configuration and refusals ---
@@ -290,12 +292,21 @@ def test_every_decision_is_audited(tmp_path):
     assert {"screen", "parent_gate", "gate", "child_sent"} <= kinds
 
 
-def test_short_side_parent_is_supported(tmp_path):
+def test_sell_signal_is_refused_long_only(tmp_path):
     sender = FakeSender()
-    bot, _ = _bot(tmp_path, sender=sender, strategies=[FixedSignal(side="SELL", time="S1")])
+    bot, audit = _bot(tmp_path, sender=sender, strategies=[FixedSignal(side="SELL", time="S1")])
     bot.cycle(NOW)
-    assert [q for _, q in sender.sent] == [500]  # 10% of bar volume 5000, not the full 1250
-    assert "SELL" in sender.sent[0][0]
+    assert sender.sent == []
+    assert "long_only_refused" in audit.kinds()
+
+
+def test_entries_blocked_until_startup_recon_runs(tmp_path):
+    sender = FakeSender()
+    bot, audit = _bot(tmp_path, sender=sender)
+    bot.recon = None  # simulate: recon never run
+    bot.cycle(NOW)
+    assert sender.sent == []
+    assert "entries_blocked" in audit.kinds()
 
 
 # --- loop ---

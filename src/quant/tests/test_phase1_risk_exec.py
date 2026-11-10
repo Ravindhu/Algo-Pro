@@ -59,7 +59,9 @@ def test_halt_all_blocks_everything_reduce_only_blocks_entries(kill):
     assert not check_intent(intent(), RiskState(), FULL, kill, s).approved
     assert check_intent(intent(kind="exit", side="SELL"), RiskState(), FULL, kill, s).approved
     s.set(Mode.HALT_ALL, "test")
-    assert not check_intent(intent(kind="exit", side="SELL"), RiskState(), FULL, kill, s).approved
+    # Owner decision 2026-11-08: a risk-reducing SELL exit (closes a long) passes HALT_ALL; a BUY exit does not.
+    assert check_intent(intent(kind="exit", side="SELL"), RiskState(), FULL, kill, s).approved
+    assert not check_intent(intent(kind="exit", side="BUY"), RiskState(), FULL, kill, s).approved
 
 
 def test_duplicate_intent_blocked(kill, safe):

@@ -53,12 +53,17 @@ def check_intent(
         reasons.append(f"insufficient funds: need {intent.notional:.2f}, available {available_funds:.2f}")
     # Kill closes pass halt-all, but only while the kill switch is on (decision 0020).
     is_kill_close = kill.active and intent.kind == "exit" and intent.strategy_id == KILL_STRATEGY_ID
+    # Risk-reducing exit (owner decision 2026-11-08): a SELL exit closes a long position, so it lowers risk
+    # and passes HALT_ALL like a kill close. The book is long-only, so a SELL exit never opens a short.
+    # Limit: the gate does not see held quantity, so the caller must send exactly the held qty (the
+    # position manager does). Entries and BUY exits stay blocked under HALT_ALL.
+    is_risk_reducing_exit = intent.kind == "exit" and intent.side == "SELL"
 
     if limits.blocked:
         reasons.append("risk_limits.blocked is set")
     if kill.active and is_entry:
         reasons.append(f"kill switch: {kill.reason}")
-    if safe.mode is Mode.HALT_ALL and not is_kill_close:
+    if safe.mode is Mode.HALT_ALL and not (is_kill_close or is_risk_reducing_exit):
         reasons.append("safe mode: halt-all")
     if safe.mode is Mode.REDUCE_ONLY and is_entry:
         reasons.append("safe mode: reduce-only")

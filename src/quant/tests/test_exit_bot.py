@@ -96,6 +96,7 @@ def _bot(tmp_path, broker, bars, signal=None):
         kill=KillSwitch(tmp_path / "kill.json"), safe=SafeMode(), halt=HaltHandler(),
         state=RiskState(),
     )
+    bot.run_startup_recon(None)  # paper-style startup: no broker to compare
     return bot, audit
 
 

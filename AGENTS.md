@@ -1,5 +1,11 @@
 # File: AGENTS.md
 
+> New version 2026-11-10. Combines `master` with the safety and self-learning sections from the audit branches, and the strategy bot rules. See the commit message for what was not adopted.
+
+## Agent Self-Learning — DISABLED
+
+Do NOT create or update `agent_learings.ps1` (or any other agent-learning script) under any circumstances. This practice has been retired by the user.
+
 # User Setup
 
 You act as an combination of quant analyst, insitutional quant trader,coding engineer, and trader, investor,Porfolio manager,portfolio allocator,porfolio balancer, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester,stock screening specilist, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst,structured system creater, professional UI designer,Data Analyst,web application developer,algo trading terminal developer, frontline agentic ai model 
@@ -749,6 +755,55 @@ Recovery is not optional: if the process dies, the supervisor restarts it throug
 gates. But **restart is not resume**. Resuming live trading needs all checks passed;
 otherwise the system stays parked and asks for a human.
 
+## Safety Rules In Force (updated 2026-11-10)
+
+These rules describe the code on `master`. Change them only with a reviewed commit that updates this section.
+
+* **Halt stops new risk only.** Entries and BUY exits are blocked under HALT_ALL. A risk-reducing SELL exit (it closes a long) passes HALT_ALL, as do kill closes while the kill switch is on (owner decision 2026-11-08; `quant/risk/gate.py`). Only the gate decides this.
+* **Kill switch blocks new entries.** While the kill switch is on, no new entry is approved. The bot checks it on every order.
+* **Long-only book.** The investment book is BUY and ADD only (owner, 2026-11-09). A SELL signal is refused at scan time (`long_only_refused`). A SELL order is an exit that closes a long. Short entries are never sent.
+* **Live is refused in code.** The bot runs only in `paper` or `analyze` mode. `live_enabled` must be `false`. Real-money orders need a recorded human `LiveApproval` (`execution/openalgo_client.py`), and none is created by the bot.
+* **Live market-data source must be approved.** The bot runs no cycle until `config/data_sources.yaml` sets `live_feed.live_allowed: true`. Only the owner can set it, after a licence check.
+* **Startup reconciliation gates entries.** Entries stay blocked until the broker position book matches the bot's book (`monitor/broker_recon.py`). "unavailable" and "mismatch" block entries. Paper with no broker reader is "skipped" and allows entries. Exits are never blocked by reconciliation.
+* **Verification first.** An exit is sent only from a verified closed bar and a known position. If the bar feed is missing, the position is held and the event is audited (`exit_no_bars`). The bot never exits on a guess.
+* **Unclear exit reply halts the position.** A non-success reply, or an exception on an exit, marks the position `exit_halted`. The bot never resends it automatically. A person checks the broker.
+* **Only the gate approves intents.** Every entry, child and exit goes through `check_intent`. The order client is named only in `execution/openalgo_client.py`.
+* **Auto-tune cannot touch risk.** Promotion refuses any risk-bounding key, and then writes nothing. Risk-bounding keys match: `max_`, `risk`, `kill`, `circuit`, `blocked`, `require_`, `allow`, `daily_loss`, `drawdown`, `exposure`, `live`, `dry_run`, `stop_loss`, `stoploss`, `trailing`.
+* **POV sizing fails closed.** Sizing uses the executed symbol's own verified price. Missing capital or price refuses the slice.
+* **Pinned install.** `install.sh` requires `MTS_REF` (a reviewed tag or commit SHA). `MTS_ALLOW_UNPINNED=1` is for throwaway lab hosts only.
+* **Secrets.** Never committed. Keep them in local `.env` files.
+
+Known gaps, not yet changed:
+* A bar-feed outage holds open positions without stop checks (`exit_no_bars`). Decide whether protective exits should use the last known bar or the broker.
+* Halt-all blocks entries and BUY exits. A stop exit on a long is allowed. Confirm that a SELL exit is always risk-reducing for every book state.
+* Analyze mode treats an accepted order reply as filled. Fill confirmation is not yet wired.
+* Sizing does not clamp to portfolio caps. The gate rejects an oversized order instead.
+* Only the engulfing strategy is wired into the bot. OCL strategies need a bar adapter.
+* The screener does not yet write `data/screened/latest.json` (it needs `asm_gsm` and `circuit_pct` per symbol).
+* The `paper-buy-scanner` runtime (`strategies/paper_runtime.py`, `scanner.py`, `positions.py`, `protect.py`, `state_store.py`) is not merged. It duplicates the bot. Its strategies stay in branch history.
+* Not adopted from `fix/audit-2026-11-03` and `fix/audit-2026-11-03-security`: their rewrites of the architecture and dashboard text, and removal of the IBM section and the Algo Flow v5 section. Owner to decide.
+
+## Strategy Bot and Modes (2026-11-10)
+
+Files:
+- `src/quant/execution/strategy_bot.py`: the 5-minute bot (screen, strategies, gate, POV child slices, exits, recon gate).
+- `src/quant/execution/exit_manager.py`: stop, target, breakeven at 1R, and 2×ATR trail. Pure rules.
+- `src/quant/data/live_bars.py`: read-only closed bars and daily stats (ADV and previous close from days before today). Returns nothing on error or stale data.
+- `src/quant/strategies/signals/risk_adapter.py`: signal to live contract to `TradeIntent`, then the existing `check_intent`.
+- `config/bot.yaml`, `config/data_sources.yaml`.
+
+Modes: `paper` (simulated fills via `PaperSender`) and `analyze` (OpenAlgo sandbox via `AnalyzeSender`). The sender must match the bot mode, or the bot refuses to start.
+
+One cycle (every `interval_minutes`):
+1. Skip the cycle if the live data source is not approved.
+2. Read the screen. Keep fresh, selected, non-ASM symbols with a known circuit limit.
+3. Read closed bars and daily stats for each symbol.
+4. Run each strategy. Refuse SELL and any signal without ATR. Gate the parent at full size. Store it once.
+5. Manage open positions (exits go through the gate). Then slice open parents, one child per cycle, sized at `pov` of the last closed bar's volume.
+6. Every decision is written to the hash-chained audit log.
+
+Entries (scan and slice) run only when startup reconciliation allows them. Exits always run.
+
 ## Agentic AI model
 
 Local models: Ollama. Fallback: OpenRouter. Every call is metered — see **Token Optimization**.
@@ -855,6 +910,9 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 
 
 ## Terminal & IBM Corporate Laptop Guardrails (Auto-Mode Hardened)
+
+> Kept from `master` on 2026-11-10. The audit branches removed this section. Owner to confirm it stays.
+
 
 ### 0. Authorized Host & Execution Scope
 - **Target Device Only:** This workspace is running on IBM-managed Windows laptop **`IBM-PF3PD7E7`**. Before running commands, verify the host matches `IBM-PF3PD7E7` (`hostname`).

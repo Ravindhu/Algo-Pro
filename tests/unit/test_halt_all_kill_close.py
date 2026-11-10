@@ -30,9 +30,10 @@ def halt():
     return s
 
 
-def test_halt_all_blocks_a_normal_exit(kill, halt):
+def test_halt_all_passes_a_risk_reducing_sell_exit(kill, halt):
+    # Owner decision 2026-11-08: a SELL exit closes a long, so it passes HALT_ALL.
     d = check_intent(exit_intent(), RiskState(), FULL, kill, halt)
-    assert not d.approved and "halt-all" in " ".join(d.reasons)
+    assert d.approved, d.reasons
 
 
 def test_halt_all_lets_a_kill_close_through_when_switch_is_on(kill, halt):
@@ -42,7 +43,10 @@ def test_halt_all_lets_a_kill_close_through_when_switch_is_on(kill, halt):
 
 
 def test_halt_all_does_not_pass_a_fake_kill_close_when_switch_is_off(kill, halt):
-    d = check_intent(exit_intent(strategy_id="KILL", intent_id="KILL-A-1"), RiskState(), FULL, kill, halt)
+    # The KILL name alone grants nothing. A BUY exit with that name is not risk-reducing (long-only book).
+    buy = exit_intent(strategy_id="KILL", intent_id="KILL-A-1")
+    buy = TradeIntent(**{**buy.__dict__, "side": "BUY"})
+    d = check_intent(buy, RiskState(), FULL, kill, halt)
     assert not d.approved and "halt-all" in " ".join(d.reasons)
 
 

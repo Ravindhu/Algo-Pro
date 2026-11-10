@@ -32,6 +32,7 @@ import yaml
 from quant.core.config import RiskLimits
 from quant.core.types import TradeIntent
 from quant.execution.pov_executor import PovExecutor
+from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
@@ -152,6 +153,16 @@ class _Parent:
     seq: int = 0
 
 
+class _BotBook:
+    """Read-only view of the bot's open positions, shaped for monitor/broker_recon.PositionsView."""
+
+    def __init__(self, bot: "StrategyBot") -> None:
+        self._bot = bot
+
+    def open_positions(self) -> Dict[str, Position]:
+        return dict(self._bot._positions)
+
+
 class StrategyBot:
     def __init__(
         self,
@@ -190,6 +201,7 @@ class StrategyBot:
         self._funds = 0.0
         self._parents: Dict[str, _Parent] = {}
         self._positions: Dict[str, Position] = {}
+        self.recon: Optional[ReconGate] = None  # set by run_startup_recon; None = not yet run (entries blocked)
         self._exit_cfg = ExitConfig(breakeven_r=cfg.breakeven_r, trail_mult=cfg.trail_mult)
         self._done: set = set()
         self._executor = PovExecutor(
@@ -206,6 +218,19 @@ class StrategyBot:
     def _log(self, kind: str, **payload: Any) -> None:
         self._audit.append(kind, payload)
 
+    def run_startup_recon(self, fetch_broker_positions, *, require_broker: bool = False) -> ReconGate:
+        """Call once at startup, after restoring state. Entries stay blocked until it allows them.
+
+        fetch_broker_positions None in paper mode gives "skipped" (entries allowed). Live must pass a reader."""
+        self.recon = startup_reconcile(_BotBook(self), fetch_broker_positions,
+                                       audit=self._audit, require_broker=require_broker)
+        self._log("startup_recon", status=self.recon.status, mismatches=self.recon.mismatches,
+                  error=self.recon.error)
+        return self.recon
+
+    def _entries_allowed(self) -> bool:
+        return self.recon is not None and self.recon.entries_allowed
+
     # --- one cycle ---
     def cycle(self, now: datetime) -> Dict[str, Any]:
         report: Dict[str, Any] = {"time": now.isoformat(), "parents_opened": 0, "children_sent": 0,
@@ -220,6 +245,12 @@ class StrategyBot:
         self._log("screen", count=len(symbols), symbols=[s["symbol"] for s in symbols])
 
         bars_cache: Dict[str, Any] = {}
+        entries_ok = self._entries_allowed()
+        if not entries_ok:
+            self._log("entries_blocked", reason="startup recon not allowed entries",
+                      status=getattr(self.recon, "status", "not run"))
+            report["skipped"].append("entries blocked: startup recon")
+            symbols = []
         for item in symbols:
             sym = item["symbol"]
             df = self._bars.bars(sym, now)
@@ -235,7 +266,8 @@ class StrategyBot:
                 self._scan(strat, sym, df, item["circuit_pct"], stats, now, report)
 
         self._manage_exits(bars_cache, now, report)
-        self._slice_parents(bars_cache, now, report)
+        if entries_ok:
+            self._slice_parents(bars_cache, now, report)
         return report
 
     def _safe_funds(self) -> float:
@@ -252,6 +284,9 @@ class StrategyBot:
             self._log("strategy_error", strategy=strat.name, symbol=sym, error=repr(exc))
             return
         if sig is None:
+            return
+        if str(sig.get("side", "")).upper() != "BUY":
+            self._log("long_only_refused", strategy=strat.name, symbol=sym, side=str(sig.get("side")))
             return
         if not isinstance(sig.get("atr"), (int, float)) or float(sig["atr"]) <= 0:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="no ATR in signal")
