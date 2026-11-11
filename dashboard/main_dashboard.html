@@ -167,11 +167,9 @@
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
   <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
-  <button class="kill" id="engstop" type="button" title="Stop the engine process only. No broker logout, no kill switch, no order or position change. Needs token">STOP ENGINE</button>
   <span id="engmsg" class="d"></span>
-  <span id="killchip" class="chip">kill —</span>
-  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Needs token; reason asked">STOP</button>
-  <button class="go" id="killreset" type="button" title="Kill switch OFF. Needs token and a reason; written to the override log">RESET</button>
+  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Needs token">STOP</button>
+  <button class="go" id="killreset" type="button" title="Kill switch OFF. Needs token; written to the override log">RESET</button>
   <span id="killmsg" class="d"></span>
 </header>
 <div class="clock" id="clock"></div>
@@ -308,7 +306,6 @@
     <div style="margin:8px 0">
       <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START PAPER TRADING</button>
       <button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button>
-      <span id="loopchip" class="chip">loop —</span>
       <small class="d">paper only · simulated fills · stop does not close positions · needs token in header</small>
       <span id="loopmsg" class="d"></span>
     </div>
@@ -529,11 +526,6 @@
     if (o.market) {
       setChip("market", o.market.open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED · " + o.market.reason, o.market.open ? "ok" : "d");
       $("market").title = o.market.verified ? o.market.holidays_loaded + " holidays loaded (NSE CM circular)" : "holiday calendar not verified";
-    }
-    if (o.loop) {
-      const running = o.loop.status === "running";
-      setChip("loopchip", "loop " + o.loop.status + (running && o.loop.session ? " · " + o.loop.session : ""), running ? "on" : "d");
-      $("loopchip").title = o.loop.last_error || o.loop.last_result || "";
     }
     setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
     setChip("feed", "feed " + o.feed.status, "warn");
@@ -1019,13 +1011,6 @@
     else sMsg("engmsg", describeFail(res), "r");
     loadEngine();
   };
-  $("engstop").onclick = async () => {
-    sMsg("engmsg", "Sending…", "d");
-    const res = await jpost("/api/engine/stop");
-    if (res.ok) sMsg("engmsg", res.j.message, "g");
-    else sMsg("engmsg", describeFail(res), "r");
-    loadEngine();
-  };
 
   async function loadAccount() {
     const res = await jget("/api/account");
@@ -1056,28 +1041,17 @@
   $("setclose").onclick = closeSettings;
   $("setmodal").addEventListener("click", e => { if (e.target === $("setmodal")) closeSettings(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setmodal").hidden) closeSettings(); });
-  async function loadKill() {
-    const res = await jget("/api/kill");
-    const on = !!res.j.active;
-    $("killchip").textContent = on ? "kill ON" : "kill off";
-    $("killchip").className = "chip " + (on ? "bad" : "");
-    $("killchip").title = res.j.reason || "";
-  }
-  async function killAction(url, verb) {
-    const reason = window.prompt(verb + " the kill switch: enter a reason (required)", "");
-    if (reason === null) return;
-    if (!reason.trim()) { sMsg("killmsg", "A reason is required.", "r"); return; }
+  // Kill switch buttons send a fixed reason (no prompt). The audit log records it.
+  async function killAction(url, reason) {
     sMsg("killmsg", "Sending…", "d");
-    const res = await jpost(url, {reason: reason.trim()});
+    const res = await jpost(url, {reason});
     if (res.ok) sMsg("killmsg", res.j.message || "Done.", "g");
     else sMsg("killmsg", describeFail(res), "r");
-    loadKill();
   }
-  $("killstop").onclick = () => killAction("/api/kill/trip", "STOP");
-  $("killreset").onclick = () => killAction("/api/kill/reset", "RESET");
-  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); loadKill(); }, 10000);
+  $("killstop").onclick = () => killAction("/api/kill/trip", "dashboard STOP button");
+  $("killreset").onclick = () => killAction("/api/kill/reset", "dashboard RESET button");
+  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); }, 10000);
   loadEngine();
-  loadKill();
 
   setInterval(refresh, POLL_MS);
 </script>

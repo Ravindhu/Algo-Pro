@@ -41,7 +41,7 @@ def test_paper_loop_controls_live_in_the_paper_trading_panel():
     text = PAGE.read_text(encoding="utf-8")
     header = text[text.index("<header>"):text.index("</header>")]
     panel = text[text.index('id="sbmodal"'):text.index('id="pfmodal"')]
-    for element_id in ("loopstart", "sbstop", "loopchip", "loopmsg"):
+    for element_id in ("loopstart", "sbstop", "loopmsg"):
         assert f'id="{element_id}"' in panel, element_id
         assert f'id="{element_id}"' not in header, element_id
     assert '"/api/loop/start"' in text and '"/api/loop/stop"' in text
@@ -50,10 +50,12 @@ def test_paper_loop_controls_live_in_the_paper_trading_panel():
 def test_header_has_engine_start_only_and_kill_stop_reset():
     text = PAGE.read_text(encoding="utf-8")
     header = text[text.index("<header>"):text.index("</header>")]
-    for element_id in ("engstart", "engstop", "killstop", "killreset", "killchip", "killmsg"):
+    for element_id in ("engstart", "killstop", "killreset", "killmsg"):
         assert f'id="{element_id}"' in header, element_id
-    assert '"/api/engine/stop"' in text
+    for element_id in ("engstop", "killchip"):
+        assert f'id="{element_id}"' not in text, element_id
     assert '"/api/kill/trip"' in text and '"/api/kill/reset"' in text
+    assert "window.prompt" not in text
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
