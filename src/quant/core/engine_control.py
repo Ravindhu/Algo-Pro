@@ -90,6 +90,30 @@ def start_engine(*, kill_active: bool, pid_path: Path = PID_FILE, log_path: Path
     return True, f"engine started (pid {proc.pid}); its gates decide whether it trades", proc.pid
 
 
+def stop_engine(*, pid_path: Path = PID_FILE) -> Tuple[bool, str, Optional[int]]:
+    """Stop the engine process only. Returns (ok, message, pid).
+
+    This does NOT log out of the broker, does NOT change the kill switch and does NOT
+    change any open order or position. It sends a terminate signal to the PID in the
+    PID file, then removes the file. Open positions are left as they are.
+    """
+    pid = running_pid(pid_path)
+    if pid is None:
+        return False, "refused: no engine is running", None
+    import signal as _signal
+    try:
+        os.kill(pid, _signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError as exc:
+        return False, f"refused: could not signal engine pid {pid}: {exc}", pid
+    try:
+        pid_path.unlink()
+    except OSError:
+        pass
+    return True, f"engine stop sent (pid {pid}). Broker session and positions are not changed.", pid
+
+
 MANUAL_LOG = ROOT / "Temp" / "run" / "manual_start.log"
 RUNNER = ROOT / "scripts" / "ops" / "run_preopen_once.py"
 

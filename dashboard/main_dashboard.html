@@ -21,6 +21,20 @@
   button.kill { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
   button.go { color: var(--ok); border-color: var(--ok); }
   button.stop { color: var(--bad); border-color: var(--bad); }
+  /* header buttons: press feedback on every click, and a filled look while the thing they control is on */
+  header button { transition: background-color .25s ease, color .25s ease, border-color .25s ease, box-shadow .25s ease, transform .15s ease; }
+  header button:active { transform: scale(.96); }
+  header button.active { background: var(--cyan); color: #03140d; border-color: var(--cyan); font-weight: 700; }
+  header button.go.active { background: var(--ok); color: #03140d; border-color: var(--ok); }
+  header button.kill.active { background: var(--bad); color: #fff; border-color: var(--bad); animation: killglow 1.2s ease-in-out infinite; }
+  @keyframes killglow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,80,80,.0); }
+    50% { box-shadow: 0 0 0 4px rgba(255,80,80,.55); }
+  }
+  header button.pop { animation: modepop .5s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    header button, header button.pop, header button.kill.active { transition: none; animation: none; }
+  }
   .clock { color: var(--dim); padding: 6px 0; }
   .banner { display: none; margin: 4px 0 0; padding: 8px 12px; border: 1px solid var(--bad); color: var(--bad); border-radius: 3px; }
   .banner.on { display: block; }
@@ -166,12 +180,11 @@
   <button id="sbbtn" type="button" title="Paper trade history popup (view only)">SANDBOX</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
-  <span id="loopchip" class="chip">loop —</span>
-  <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
-  <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions">STOP</button>
-  <span id="loopmsg" class="d"></span>
   <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
   <span id="engmsg" class="d"></span>
+  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Needs token">STOP</button>
+  <button class="go" id="killreset" type="button" title="Kill switch OFF. Needs token; written to the override log">RESET</button>
+  <span id="killmsg" class="d"></span>
 </header>
 <div class="clock" id="clock"></div>
 
@@ -304,7 +317,12 @@
   <section class="panel">
     <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money · ₹</span></div>
     <div class="big" id="pnl">—</div>
-    <div style="margin:8px 0"><button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button> <small class="d">stops the paper loop only · does not close positions · needs token in header</small></div>
+    <div style="margin:8px 0">
+      <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START PAPER TRADING</button>
+      <button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button>
+      <small class="d">paper only · simulated fills · stop does not close positions · needs token in header</small>
+      <span id="loopmsg" class="d"></span>
+    </div>
     <div class="sbhead">
       <div><small>Capital base</small><b id="sb-capital">—</b></div>
       <div><small>Paper equity</small><b id="sb-equity">—</b></div>
@@ -460,6 +478,8 @@
   const sign = v => v == null ? "d" : v > 0 ? "g" : v < 0 ? "r" : "d";
 
   function setChip(id, text, cls) { const e = $(id); e.textContent = text; e.className = "chip " + cls; }
+  // Live state for the header highlight (read by syncActive below).
+  let engineRunning = false, killOn = false, loopRunning = false;
 
   function emptyRow(cols, text) {
     const tr = document.createElement("tr"), td = cell(text, "d");
@@ -512,7 +532,6 @@
     }
   }
   $("loopstart").onclick = () => postLoop("/api/loop/start");
-  $("loopstop").onclick = () => postLoop("/api/loop/stop");
   $("sbstop").onclick = () => postLoop("/api/loop/stop");
   $("mode-paper").onclick = () => postMode("paper");
   $("mode-live").onclick = () => postMode("live");
@@ -524,11 +543,7 @@
       setChip("market", o.market.open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED · " + o.market.reason, o.market.open ? "ok" : "d");
       $("market").title = o.market.verified ? o.market.holidays_loaded + " holidays loaded (NSE CM circular)" : "holiday calendar not verified";
     }
-    if (o.loop) {
-      const running = o.loop.status === "running";
-      setChip("loopchip", "loop " + o.loop.status + (running && o.loop.session ? " · " + o.loop.session : ""), running ? "on" : "d");
-      $("loopchip").title = o.loop.last_error || o.loop.last_result || "";
-    }
+    loopRunning = !!(o.loop && o.loop.status === "running");
     setChip("mode", "mode " + o.mode, o.mode === "normal" ? "on" : "warn");
     setChip("feed", "feed " + o.feed.status, "warn");
 
@@ -1002,6 +1017,7 @@
   async function loadEngine() {
     const res = await jget("/api/engine");
     const running = !!res.j.running;
+    engineRunning = running;
     $("eng-state").textContent = running ? "Engine: running (pid " + res.j.pid + ")" : "Engine: stopped";
     $("enginechip").textContent = "engine " + (running ? "running" : "stopped");
     $("enginechip").className = "chip " + (running ? "g" : "");
@@ -1043,7 +1059,35 @@
   $("setclose").onclick = closeSettings;
   $("setmodal").addEventListener("click", e => { if (e.target === $("setmodal")) closeSettings(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setmodal").hidden) closeSettings(); });
-  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); }, 10000);
+  // Read-only kill switch state, used only to highlight the STOP button.
+  async function loadKill() {
+    const res = await jget("/api/kill");
+    killOn = !!res.j.active;
+  }
+  // Every header button gets press feedback. Buttons for an on state or an open popup get a filled look.
+  function syncActive() {
+    const open = id => !$(id).hidden;
+    $("engstart").classList.toggle("active", engineRunning);
+    $("killstop").classList.toggle("active", killOn);
+    $("flowbtn").classList.toggle("active", open("flowmodal"));
+    $("pfbtn").classList.toggle("active", open("pfmodal"));
+    $("sbbtn").classList.toggle("active", open("sbmodal"));
+    $("setbtn").classList.toggle("active", open("setmodal"));
+    $("setupbtn").classList.toggle("active", !$("setup").hidden);
+  }
+  document.querySelectorAll("header button").forEach(b => b.addEventListener("click", () => popMode(b)));
+  setInterval(syncActive, 500);
+  loadKill();
+  // Kill switch buttons send a fixed reason (no prompt). The audit log records it.
+  async function killAction(url, reason) {
+    sMsg("killmsg", "Sending…", "d");
+    const res = await jpost(url, {reason});
+    if (res.ok) sMsg("killmsg", res.j.message || "Done.", "g");
+    else sMsg("killmsg", describeFail(res), "r");
+  }
+  $("killstop").onclick = () => killAction("/api/kill/trip", "dashboard STOP button");
+  $("killreset").onclick = () => killAction("/api/kill/reset", "dashboard RESET button");
+  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); loadKill(); }, 10000);
   loadEngine();
 
   setInterval(refresh, POLL_MS);
