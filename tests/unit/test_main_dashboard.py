@@ -58,6 +58,14 @@ def test_header_has_engine_start_only_and_kill_stop_reset():
     assert "window.prompt" not in text
 
 
+def test_header_buttons_show_press_and_active_state():
+    text = PAGE.read_text(encoding="utf-8")
+    assert "header button:active" in text and "header button.active" in text
+    assert 'querySelectorAll("header button")' in text and "popMode(b)" in text
+    assert 'classList.toggle("active", engineRunning)' in text
+    assert 'classList.toggle("active", killOn)' in text
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_main_dashboard_script_parses(tmp_path):
     scripts = re.findall(r"<script>(.*?)</script>", PAGE.read_text(encoding="utf-8"), re.S)
