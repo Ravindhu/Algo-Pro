@@ -765,8 +765,12 @@ These rules describe the code on `master`. Change them only with a reviewed comm
 * **Live is refused in code.** The bot runs only in `paper` or `analyze` mode. `live_enabled` must be `false`. Real-money orders need a recorded human `LiveApproval` (`execution/openalgo_client.py`), and none is created by the bot.
 * **Live market-data source must be approved.** The bot runs no cycle until `config/data_sources.yaml` sets `live_feed.live_allowed: true`. Only the owner can set it, after a licence check.
 * **Startup reconciliation gates entries.** Entries stay blocked until the broker position book matches the bot's book (`monitor/broker_recon.py`). "unavailable" and "mismatch" block entries. Paper with no broker reader is "skipped" and allows entries. Exits are never blocked by reconciliation.
-* **Verification first.** An exit is sent only from a known position and a closed bar. If the bar feed is down, the position is managed on the last known closed bar (owner decision 2026-11-10). Each bar is evaluated once per position, and each fallback is audited with the bar's timestamp (`exit_used_last_bar`). If no bar was ever seen, the position is held (`exit_no_bars`). The bot never exits on a guess.
-* **Unclear exit reply halts the position.** A non-success reply, or an exception on an exit, marks the position `exit_halted`. The bot never resends it automatically. A person checks the broker.
+* **Verification first.** An exit is sent only from a known position and a closed bar. If the bar feed is down, the position is managed on the last known closed bar (owner decision 2026-11-10), for at most `max_outage_cycles` cycles (default 3). Older bars are not used: the exit is held (`exit_held_stale_bar`) and a CRITICAL alert is raised. Each bar is evaluated once per position, and each fallback is audited with the bar's timestamp (`exit_used_last_bar`). If no bar was ever seen, the position is held (`exit_no_bars`). The bot never exits on a guess.
+* **Unclear exit reply halts the position.** A non-success reply, or an exception on an exit, marks the position `exit_halted` and raises a CRITICAL alert. The bot never resends it automatically. A person checks the broker.
+* **Daily loss trips the kill switch.** Realized P&L from exits feeds the bot's daily and per-strategy counters. A daily loss at `max_daily_loss` trips the kill switch. Counters reset each trading day. Open positions are not marked to market.
+* **A stop-out closes its parent.** An exit closes the parent order, so the bot never buys the rest of a parent after its position has exited.
+* **SELL exits never exceed the held quantity.** When the bot sends an exit it passes the held quantity to the gate, which refuses any SELL larger than that.
+* **Analyze fills are confirmed.** In analyze mode a child is filled only when OpenAlgo's order status is `complete` with a positive average price.
 * **Only the gate approves intents.** Every entry, child and exit goes through `check_intent`. The order client is named only in `execution/openalgo_client.py`.
 * **Auto-tune cannot touch risk.** Promotion refuses any risk-bounding key, and then writes nothing. Risk-bounding keys match: `max_`, `risk`, `kill`, `circuit`, `blocked`, `require_`, `allow`, `daily_loss`, `drawdown`, `exposure`, `live`, `dry_run`, `stop_loss`, `stoploss`, `trailing`.
 * **POV sizing fails closed.** Sizing uses the executed symbol's own verified price. Missing capital or price refuses the slice.
@@ -774,11 +778,12 @@ These rules describe the code on `master`. Change them only with a reviewed comm
 * **Secrets.** Never committed. Keep them in local `.env` files.
 
 Known gaps, not yet changed:
-* The last known bar has no age limit (owner decision 2026-11-10). A long outage means stops act on old prices. Consider an age limit later.
-* Halt-all blocks entries and BUY exits. A stop exit on a long is allowed. Confirm that a SELL exit is always risk-reducing for every book state.
-* Analyze mode treats an accepted order reply as filled. Fill confirmation is not yet wired.
-* Sizing does not clamp to portfolio caps. The gate rejects an oversized order instead.
+* Realized P&L counters reset on process restart. Persisting them is open. Open positions are not marked to market, so unrealized losses are not counted against the daily limit.
+* Halt-all blocks entries and BUY exits. A SELL exit passes (owner decision 2026-11-08). Its held-quantity check runs only when the caller passes `held_qty`.
+* The vendored OpenAlgo tree no longer matches the pin in `openalgo.UPSTREAM_PIN` (`tests/unit/test_upgrade_pin.py`). Owner must check the diff against upstream before any re-pin.
 * Only the engulfing strategy is wired into the bot. OCL strategies need a bar adapter.
+* The paper runner gets no broker funds; `--paper-capital` sets simulated capital, and the default 0 approves no entries.
+* Lot size comes from the bot default (1). The daily stats do not yet carry the SME broker lot size.
 * The screener does not yet write `data/screened/latest.json` (it needs `asm_gsm` and `circuit_pct` per symbol).
 * The `paper-buy-scanner` runtime (`strategies/paper_runtime.py`, `scanner.py`, `positions.py`, `protect.py`, `state_store.py`) is not merged. It duplicates the bot. Its strategies stay in branch history.
 * Not adopted from `fix/audit-2026-11-03` and `fix/audit-2026-11-03-security`: their rewrites of the architecture and dashboard text, and removal of the IBM section and the Algo Flow v5 section. Owner decision 2026-11-10: not adopted.

@@ -1,5 +1,6 @@
 """Named dashboard accounts and signed session cookies.
 
+Status: PHASE 3 IMPLEMENTED (accounts and signed cookies; tests in tests/unit/test_dashboard_accounts.py)
 Plan: docs/SCHEDULER_PLAN.md (Accounts section).
 
 * Passwords are never stored. Only a PBKDF2-SHA256 hash with a per-user salt.

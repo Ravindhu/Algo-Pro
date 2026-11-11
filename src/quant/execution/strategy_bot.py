@@ -11,14 +11,18 @@ One cycle (run every interval_minutes):
   3. For each symbol: read closed bars and daily stats (ADV, previous close). No data means skip.
   4. Run each strategy's signal(df). An approved signal becomes a parent plan (full quantity
      checked by the gate). A parent is stored once, however many cycles it appears.
-  5. Slice every open parent: child qty = pov share of the last closed bar's volume, never more
+  5. Manage open positions on their last closed bar: stop, target, breakeven and ATR trail
+     (exit_manager.py). Exits go through the same gate. A stale last bar is used only for
+     max_outage_cycles cycles; after that the exit is held and a CRITICAL alert is raised.
+  6. Slice every open parent: child qty = pov share of the last closed bar's volume, never more
      than what is left. Each child goes through the POV executor (gate, queue, client).
-  6. A parent is closed when fully sliced, when it is older than max_cycles, or when a child
-     order gets a non-success reply (then the parent halts; it is never resent blindly).
+  7. A parent is closed when fully sliced, when it is older than max_cycles, when its position
+     exits, or when a child order gets a non-success reply (then the parent halts; never resent).
+  8. Realized P&L feeds the daily and per-strategy loss counters. A daily loss over the limit
+     trips the kill switch.
 
 Every decision is written to the audit log. The bot never builds an order client. The caller
 injects the sender, so this module cannot place an order by itself.
-Exits, stop-loss and take-profit monitoring are NOT in this step (see the flow doc).
 """
 from __future__ import annotations
 
@@ -67,7 +71,21 @@ class AnalyzeSender:
         self._client = client
 
     def place_child(self, intent, api_key, decision, price_type="MARKET", limit_price=None):
-        return self._client.place_child(intent, api_key, decision, price_type, limit_price)
+        """Place, then confirm the fill with the order status. Only 'complete' counts as filled."""
+        placed = self._client.place_child(intent, api_key, decision, price_type, limit_price)
+        if str(placed.get("status", "")).lower() != "success":
+            return placed
+        order_id = str(placed.get("orderid", ""))
+        if not order_id:
+            return {"status": "error", "orderid": "", "reason": "no order id; fill not confirmed"}
+        st = self._client.get_order_status(api_key, order_id, intent.strategy_id)
+        data = st.get("data") if isinstance(st, dict) and isinstance(st.get("data"), dict) else {}
+        state = str(data.get("order_status", "")).lower()
+        avg = data.get("average_price")
+        if state == "complete" and isinstance(avg, (int, float)) and avg > 0:
+            return {"status": "success", "orderid": order_id, "avg_price": float(avg),
+                    "filled_qty": int(intent.qty)}
+        return {"status": "error", "orderid": order_id, "reason": f"fill not confirmed: {state or 'no status'}"}
 
 
 class BotRefused(RuntimeError):
@@ -82,6 +100,7 @@ class BotConfig:
     pov: float = 0.1
     risk_per_trade: float = 0.0025
     max_cycles: int = 12
+    max_outage_cycles: int = 3   # last known bar used for exits for at most this many cycles (3 x 5 min = 15 min)
     breakeven_r: float = 1.0
     trail_mult: float = 2.0
     max_screen_age_minutes: float = 10.0
@@ -179,6 +198,7 @@ class StrategyBot:
         safe: SafeMode,
         halt: HaltHandler,
         state: Optional[RiskState] = None,
+        alerts=None,
     ) -> None:
         if cfg.live_enabled:
             raise BotRefused("live_enabled must stay false for the bot in this phase")
@@ -205,19 +225,53 @@ class StrategyBot:
         self.recon: Optional[ReconGate] = None  # set by run_startup_recon; None = not yet run (entries blocked)
         self._exit_cfg = ExitConfig(breakeven_r=cfg.breakeven_r, trail_mult=cfg.trail_mult)
         self._done: set = set()
+        self.alerts = alerts                      # CRITICAL/WARNING go here; None = audit log only
+        self._booked: Dict[str, float] = {}       # notional added to open exposure, per position key
+        self._cycle_no = 0                        # cycle counter, used to age the last known bar
+        self._pnl_day = None                      # day the realized P&L counters belong to
+        self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
         self._executor = PovExecutor(
             gate=self._child_gate, sender=sender, api_key=api_key, audit=audit, pov=cfg.pov,
         )
 
     # --- gate used by the POV executor for every child ---
     def _child_gate(self, intent: TradeIntent):
+        held = self._exit_held_qty if intent.kind == "exit" else None
         return check_intent(
             intent, self.state, self._limits, self._kill, self._safe,
-            available_funds=self._funds, halt=self._halt,
+            available_funds=self._funds, halt=self._halt, held_qty=held,
         )
 
     def _log(self, kind: str, **payload: Any) -> None:
         self._audit.append(kind, payload)
+
+    def _alert(self, level: str, message: str) -> None:
+        self._log("alert", level=level, message=message)
+        if self.alerts is not None:
+            self.alerts.emit(level, "strategy_bot", message)
+
+    def _roll_day(self, now: datetime) -> None:
+        """New trading day: daily and per-strategy realized P&L start again at zero."""
+        if self._pnl_day == now.date():
+            return
+        self._pnl_day = now.date()
+        self.state.daily_pnl = 0.0
+        self.state.strategy_pnl = {}
+        self._done.clear()
+        self._log("pnl_day_reset", day=now.date().isoformat())
+
+    def _record_pnl(self, strategy: str, realized: float) -> None:
+        """Add a realized P&L amount. Trips the kill switch when the daily loss limit is reached."""
+        self.state.daily_pnl += realized
+        self.state.strategy_pnl[strategy] = self.state.strategy_pnl.get(strategy, 0.0) + realized
+        self._log("pnl_realized", strategy=strategy, amount=round(realized, 2),
+                  daily_pnl=round(self.state.daily_pnl, 2))
+        limit = self._limits.max_daily_loss
+        if limit is not None and self.state.daily_pnl <= -abs(float(limit)):
+            if not self._kill.active:
+                self._kill.trip(f"daily loss {self.state.daily_pnl:.2f} reached limit {abs(float(limit)):.2f}",
+                                source="automatic")
+            self._alert("CRITICAL", "daily loss limit reached: kill switch on, no new entries")
 
     def run_startup_recon(self, fetch_broker_positions, *, require_broker: bool = False) -> ReconGate:
         """Call once at startup, after restoring state. Entries stay blocked until it allows them.
@@ -236,9 +290,16 @@ class StrategyBot:
     def cycle(self, now: datetime) -> Dict[str, Any]:
         report: Dict[str, Any] = {"time": now.isoformat(), "parents_opened": 0, "children_sent": 0,
                                   "skipped": []}
+        self._cycle_no += 1
+        self._roll_day(now)
         if not live_feed_approved(self.cfg.data_sources_path):
             self._log("cycle_skipped", reason="live data source not approved (data_sources.yaml)")
             report["skipped"].append("data source not approved")
+            if self._positions:
+                # No bars means no stop checks. Open positions are unmanaged until the source is approved.
+                self._log("positions_unmanaged", count=len(self._positions), keys=list(self._positions))
+                self._alert("CRITICAL", f"{len(self._positions)} open position(s) unmanaged: "
+                                        "live data source not approved")
             return report
 
         self._funds = self._safe_funds()
@@ -296,12 +357,16 @@ class StrategyBot:
         key = f"{sym}|{strat.name}|{str(sig.get('side'))}|{sig.get('time')}"
         if key in self._parents or key in self._done:
             return
+        lot = stats.get("lot_size", 1)
+        if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
+            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
+            return
         res = gate_signal(
             sig, symbol=sym, strategy_id=strat.name, equity=self._funds,
             risk_fraction=self.cfg.risk_per_trade, state=self.state, limits=self._limits,
             kill=self._kill, safe=self._safe, halt=self._halt, available_funds=self._funds,
             adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
-            circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(),
+            circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
         )
         self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
         if not res.ok or res.intent is None:
@@ -347,14 +412,16 @@ class StrategyBot:
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
             p.remaining -= qty
-            self.state.open_notional += qty * p.intent.ref_price  # sent counts as exposure (conservative)
+            added = qty * p.intent.ref_price  # sent counts as exposure (conservative)
+            self.state.open_notional += added
+            self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit
             self._record_fill(p, qty, outcome.response or {})
             report["children_sent"] += 1
 
     def _record_fill(self, p: _Parent, qty: int, response: Dict[str, Any]) -> None:
-        """First accepted child opens the position. Later children add quantity only.
+        """First accepted child opens the position. Later children add quantity.
 
-        Entry price is the first fill price (used for breakeven and the risk unit R)."""
+        Entry is the volume-weighted average fill price. It drives breakeven, the risk unit R and P&L."""
         avg = response.get("avg_price")
         fill = float(avg) if isinstance(avg, (int, float)) and avg > 0 else float(p.intent.ref_price)
         pos = self._positions.get(p.key)
@@ -366,13 +433,14 @@ class StrategyBot:
             )
             self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
         else:
+            pos.entry = (pos.entry * pos.qty + fill * qty) / (pos.qty + qty)
             pos.qty += qty
-            self._log("position_add", key=p.key, qty=qty, total=pos.qty)
+            self._log("position_add", key=p.key, qty=qty, total=pos.qty, avg_entry=round(pos.entry, 4))
 
     def _remember_bar(self, sym: str, df) -> Dict[str, Any]:
-        """Store the last closed bar of a symbol. Used only when the feed is down."""
+        """Store the last closed bar of a symbol, with the cycle it was seen in. Used only when the feed is down."""
         bar = {"open": float(df["open"].iloc[-2]), "high": float(df["high"].iloc[-2]),
-               "low": float(df["low"].iloc[-2]), "time": str(df.index[-2])}
+               "low": float(df["low"].iloc[-2]), "time": str(df.index[-2]), "cycle": self._cycle_no}
         self._last_bar[sym] = bar
         return bar
 
@@ -391,9 +459,18 @@ class StrategyBot:
                 bar = self._last_bar.get(pos.symbol)
                 if bar is None:
                     self._log("exit_no_bars", key=key, symbol=pos.symbol, note="no bar ever seen; held")
+                    self._alert("WARNING", f"{pos.symbol}: no bar seen; position held")
                     report["skipped"].append(f"{pos.symbol}: no bars to manage position")
                     continue
-                self._log("exit_used_last_bar", key=key, symbol=pos.symbol, bar_time=bar["time"])
+                age = self._cycle_no - int(bar.get("cycle", self._cycle_no))
+                if age > self.cfg.max_outage_cycles:
+                    # Old prices are not used for a stop. The position is held and a person is alerted.
+                    self._log("exit_held_stale_bar", key=key, symbol=pos.symbol, bar_time=bar["time"],
+                              age_cycles=age, max_outage_cycles=self.cfg.max_outage_cycles)
+                    self._alert("CRITICAL", f"{pos.symbol}: bar feed down {age} cycles; exit held, check the position")
+                    report["skipped"].append(f"{pos.symbol}: feed down too long, exit held")
+                    continue
+                self._log("exit_used_last_bar", key=key, symbol=pos.symbol, bar_time=bar["time"], age_cycles=age)
                 report["skipped"].append(f"{pos.symbol}: feed down, managed on last known bar")
             if pos.last_bar_time == bar["time"]:
                 continue  # this bar was already evaluated for this position
@@ -414,24 +491,38 @@ class StrategyBot:
             prev_close=pos.prev_close, circuit_pct=pos.circuit_pct, adv_shares=pos.adv_shares,
             trade_day=now.date(),
         )
+        self._exit_held_qty = pos.qty  # the gate refuses a SELL larger than this
         try:
             outcome = self._executor.submit_child(intent)
         except Exception as exc:
             pos.exit_halted = True
+            self._alert("CRITICAL", f"{pos.symbol}: exit error, position halted: {exc!r}")
             self._log("exit_halted", key=key, error=repr(exc))
             return
+        finally:
+            self._exit_held_qty = None
         if not outcome.sent:
             self._log("exit_not_sent", key=key, reason=reason, reasons=list(outcome.reasons))
+            self._alert("WARNING", f"{pos.symbol}: exit not sent ({reason}); will retry on next bar")
             return
-        status = str((outcome.response or {}).get("status", "")).lower()
+        response = outcome.response or {}
+        status = str(response.get("status", "")).lower()
         if status != "success":
             pos.exit_halted = True
+            self._alert("CRITICAL", f"{pos.symbol}: exit reply unclear, position halted; check the broker")
             self._log("exit_halted", key=key, status=status or "missing",
                       note="exit reply unclear; not resent; check the broker")
             return
+        # Close the position and its parent. A parent still slicing must not buy again after a stop-out.
         self._positions.pop(key, None)
-        self.state.open_notional = max(0.0, self.state.open_notional - pos.qty * pos.entry)
-        self._log("exit_sent", key=key, reason=reason, qty=pos.qty, price=price)
+        self._close(key, f"position exited ({reason}); parent closed")
+        booked = self._booked.pop(key, pos.qty * pos.entry)
+        self.state.open_notional = max(0.0, self.state.open_notional - booked)
+        fill = response.get("avg_price")
+        fill_px = float(fill) if isinstance(fill, (int, float)) and fill > 0 else float(price)
+        sign = 1.0 if pos.side == "BUY" else -1.0
+        self._record_pnl(pos.strategy, sign * (fill_px - pos.entry) * pos.qty)
+        self._log("exit_sent", key=key, reason=reason, qty=pos.qty, price=price, fill=fill_px)
         report["exits_sent"] = report.get("exits_sent", 0) + 1
 
     def _close(self, key: str, reason: str) -> None:

@@ -44,6 +44,7 @@ def check_intent(
     safe: SafeMode,
     available_funds: Optional[float] = None,
     halt: Optional[HaltHandler] = None,
+    held_qty: Optional[int] = None,
 ) -> GateDecision:
     reasons: List[str] = []
     is_entry = intent.kind == "entry"
@@ -55,9 +56,12 @@ def check_intent(
     is_kill_close = kill.active and intent.kind == "exit" and intent.strategy_id == KILL_STRATEGY_ID
     # Risk-reducing exit (owner decision 2026-11-08): a SELL exit closes a long position, so it lowers risk
     # and passes HALT_ALL like a kill close. The book is long-only, so a SELL exit never opens a short.
-    # Limit: the gate does not see held quantity, so the caller must send exactly the held qty (the
-    # position manager does). Entries and BUY exits stay blocked under HALT_ALL.
+    # Held quantity: when the caller passes held_qty, a SELL exit may not be larger than what is held.
+    # The gate cannot see the broker book, so callers must pass held_qty (the bot does). Entries and
+    # BUY exits stay blocked under HALT_ALL.
     is_risk_reducing_exit = intent.kind == "exit" and intent.side == "SELL"
+    if is_risk_reducing_exit and not is_kill_close and held_qty is not None and intent.qty > max(held_qty, 0):
+        reasons.append(f"exit qty {intent.qty} exceeds held qty {held_qty}; a SELL exit must not open a short")
 
     if limits.blocked:
         reasons.append("risk_limits.blocked is set")
