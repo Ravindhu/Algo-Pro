@@ -397,6 +397,19 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         pid = engine_control.running_pid()
         return JSONResponse({"running": pid is not None, "pid": pid})
 
+    @app.post("/api/engine/stop")
+    async def engine_stop(request: Request):
+        """Button: stop the engine process only. No broker logout, no kill switch, no order or position change."""
+        denied = write_denied(request)
+        if denied is not None:
+            return denied
+        ok, message, pid = engine_control.stop_engine()
+        AuditLog(paths["audit"]).append("engine_stop_requested", {"accepted": ok, "message": message,
+                                                                 "pid": pid, "actor": ACTOR})
+        if not ok:
+            return JSONResponse({"error": message}, status_code=409)
+        return JSONResponse({"ok": True, "message": message, "pid": pid})
+
     @app.post("/api/engine/start")
     async def engine_start(request: Request):
         """Button: broker login, then engine start. The supervisor's own gates still decide whether anything trades."""
