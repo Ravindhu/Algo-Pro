@@ -50,10 +50,9 @@ def test_paper_loop_controls_live_in_the_paper_trading_panel():
 def test_header_has_engine_start_only_and_kill_stop_reset():
     text = PAGE.read_text(encoding="utf-8")
     header = text[text.index("<header>"):text.index("</header>")]
-    assert 'id="engstart"' in header
-    assert 'id="engstop"' not in text
-    for element_id in ("killstop", "killreset", "killchip", "killmsg"):
+    for element_id in ("engstart", "engstop", "killstop", "killreset", "killchip", "killmsg"):
         assert f'id="{element_id}"' in header, element_id
+    assert '"/api/engine/stop"' in text
     assert '"/api/kill/trip"' in text and '"/api/kill/reset"' in text
 
 

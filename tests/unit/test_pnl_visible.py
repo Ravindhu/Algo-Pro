@@ -55,7 +55,7 @@ def test_page_reads_overview_and_writes_only_known_routes():
     assert routes == {"/api/overview", "/api/limits", "/api/setup", "/api/portfolio",
                       "/api/trading-mode", "/api/loop/start", "/api/loop/stop",
                       "/api/account", "/api/account/login", "/api/account/logout",
-                      "/api/engine", "/api/engine/start", "/api/infrastructure", "/api/schedule"}
+                      "/api/engine", "/api/engine/start", "/api/engine/stop", "/api/infrastructure", "/api/schedule"}
     # saveLimits, saveSetup, postMode, postLoop, plus the jpost helper for settings writes
     assert text.count('method: "POST"') == 5
     assert '"X-Dashboard-Token"' in text
