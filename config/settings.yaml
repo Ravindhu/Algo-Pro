@@ -9,3 +9,10 @@ sizing:
 dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.
   pnl_visible_default: true
+
+# PAPER trading (2026-11-08). Paper only; no broker orders.
+paper:
+  # Paper capital (INR). Owner decision 2026-11-08. Used by portfolio/paper_qty.py.
+  capital: 1000000
+  # Dates when the scanner does not enter trades. 2026-11-08 = Muhurat session (owner: skip).
+  skip_dates: ["2026-11-08"]
