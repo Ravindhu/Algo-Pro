@@ -1,13 +1,16 @@
-# Hard limits (INR). Minimum starter values set on 2026-11-04 for PAPER trading.
+# Hard limits (INR). Minimum starter values set on 2026-11-04 for PAPER trading. Dates updated 2026-11-09.
 # 2026-11-06: owner approved these minimums for PAPER (decision 0015) and set LIVE = same values
 # (decision 0016). Live trading still blocked by the Phase 3 gate.
+# 2026-11-09: owner set max_symbols_per_portfolio = 8 (paper).
 # Change only after a human review. Any null value makes the gate reject entries
 # (fail closed). Mirrors RiskGate keys in Blue_engine/core/risk_gate.py.
 max_order_quantity: 10          # shares per order
 max_order_notional: 10000       # INR per order
 max_open_exposure: 20000        # INR across all open entries
+max_symbols_per_portfolio: 8    # distinct symbols held at once (set 2026-11-09)
 max_daily_loss: 1000            # INR, daily loss budget
 max_strategy_loss: 500          # INR, loss budget per strategy per day
 max_adv_pct: 0.01               # max 1% of average daily volume per order
 max_symbols_per_portfolio: 8    # distinct symbols held; owner set 8 on 2026-11-08
 blocked: false                  # true = stop all entries
+max_symbols_per_portfolio: 8    # owner decision 2026-11-08
