@@ -50,22 +50,26 @@ def test_page_reads_overview_and_writes_only_known_routes():
     text = PAGE.read_text(encoding="utf-8")
     assert 'fetch("/api/overview"' in text
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
-    # Kill switch removed from the page (owner request 2026-11-09). Backend routes stay in app.py.
     # Settings popup routes added 2026-11-10: account, schedule, engine, infrastructure.
+    # Kill switch STOP/RESET and its read-only state added 2026-11-11 (owner request in the header).
     assert routes == {"/api/overview", "/api/limits", "/api/setup", "/api/portfolio",
                       "/api/trading-mode", "/api/loop/start", "/api/loop/stop",
                       "/api/account", "/api/account/login", "/api/account/logout",
-                      "/api/engine", "/api/engine/start", "/api/infrastructure", "/api/schedule"}
+                      "/api/engine", "/api/engine/start", "/api/infrastructure", "/api/schedule",
+                      "/api/kill", "/api/kill/trip", "/api/kill/reset"}
     # saveLimits, saveSetup, postMode, postLoop, plus the jpost helper for settings writes
     assert text.count('method: "POST"') == 5
     assert '"X-Dashboard-Token"' in text
 
 
-def test_page_has_no_kill_switch_controls():
-    # Owner request 2026-11-09: kill switch removed from the page.
+def test_page_kill_switch_controls_are_stop_and_reset_only():
+    # 2026-11-11 owner request: header has STOP (trip) and RESET only. No reason prompt, no on/off chip.
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("killtrip", "killreset", "killreason", "killmsg", "headkill", "killbanner", "r-kill"):
+    for element_id in ("killstop", "killreset", "killmsg"):
+        assert f'id="{element_id}"' in text, element_id
+    for element_id in ("killtrip", "killreason", "headkill", "killbanner", "r-kill", "killchip", "engstop"):
         assert f'id="{element_id}"' not in text, element_id
+    assert "window.prompt" not in text
     assert 'id="token"' in text
 
 
