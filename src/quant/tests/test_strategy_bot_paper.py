@@ -23,7 +23,7 @@ from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
 
-NOW = datetime(2026, 11, 10, 10, 15)
+NOW = datetime(2026, 11, 17, 10, 15)
 
 
 class Audit:
@@ -43,8 +43,9 @@ class Bars:
         self.volume = volume
 
     def bars(self, symbol, now):
-        return pd.DataFrame({"open": [1.0] * 40, "high": [1.0] * 40, "low": [1.0] * 40,
-                             "close": [1.0] * 40, "volume": [self.volume] * 40})
+        # Price 100 matches the signal entry: mark-to-market is flat, no stop is hit.
+        return pd.DataFrame({"open": [100.0] * 40, "high": [100.0] * 40, "low": [100.0] * 40,
+                             "close": [100.0] * 40, "volume": [self.volume] * 40})
 
     def daily_stats(self, symbol, now):
         return {"adv_shares": 5_000_000.0, "prev_close": 100.0}

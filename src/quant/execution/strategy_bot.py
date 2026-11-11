@@ -35,12 +35,14 @@ import yaml
 
 from quant.core.config import RiskLimits
 from quant.core.types import TradeIntent
+from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
+from quant.risk.pre_gate import PreGate, PreGateConfig
 from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
 from quant.strategies.signals.risk_adapter import gate_signal, levels_from_signal
 
@@ -199,6 +201,8 @@ class StrategyBot:
         halt: HaltHandler,
         state: Optional[RiskState] = None,
         alerts=None,
+        pre_gate: Optional[PreGate] = None,
+        pnl_store: Optional[PnlStore] = None,
     ) -> None:
         if cfg.live_enabled:
             raise BotRefused("live_enabled must stay false for the bot in this phase")
@@ -229,7 +233,11 @@ class StrategyBot:
         self._booked: Dict[str, float] = {}       # notional added to open exposure, per position key
         self._cycle_no = 0                        # cycle counter, used to age the last known bar
         self._pnl_day = None                      # day the realized P&L counters belong to
+        self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
+        # Pre-gate: capital-protection checks BEFORE the risk gate (calendar, blackout, gap,
+        # handoff contract, stress/VaR). Exits bypass it; it can only refuse, never approve.
+        self._pre_gate = pre_gate if pre_gate is not None else PreGate(PreGateConfig())
         self._executor = PovExecutor(
             gate=self._child_gate, sender=sender, api_key=api_key, audit=audit, pov=cfg.pov,
         )
@@ -257,8 +265,37 @@ class StrategyBot:
         self._pnl_day = now.date()
         self.state.daily_pnl = 0.0
         self.state.strategy_pnl = {}
+        self._restore_counters(now)
         self._done.clear()
         self._log("pnl_day_reset", day=now.date().isoformat())
+
+    def _restore_counters(self, now: datetime) -> None:
+        """Restart-safe counters: reload today's P&L from the store if it is newer.
+
+        A process restart must not forget the morning's losses (AGENTS gap, fixed 2026-11-11).
+        After restore, the kill switch is tripped again if the stored day already breached.
+        """
+        if self._pnl_store is None:
+            return
+        stored = self._pnl_store.load(now.date())
+        if stored is None:
+            return
+        restored = stored["daily_pnl"]
+        if abs(restored) > abs(self.state.daily_pnl) or \
+                sum(abs(v) for v in stored["strategy_pnl"].values()) > \
+                sum(abs(v) for v in self.state.strategy_pnl.values()):
+            self.state.daily_pnl = stored["daily_pnl"]
+            self.state.strategy_pnl = dict(stored["strategy_pnl"])
+            self._log("pnl_counters_restored", daily_pnl=self.state.daily_pnl)
+            limit = self._limits.max_daily_loss
+            if limit is not None and self.state.daily_pnl <= -abs(float(limit)) and not self._kill.active:
+                self._kill.trip(f"restored daily loss {self.state.daily_pnl:.2f} at or past limit",
+                                source="automatic")
+                self._alert("CRITICAL", "restored daily loss at limit: kill switch on")
+
+    def _persist_counters(self) -> None:
+        if self._pnl_store is not None and self._pnl_day is not None:
+            self._pnl_store.save(self._pnl_day, self.state.daily_pnl, self.state.strategy_pnl)
 
     def _record_pnl(self, strategy: str, realized: float) -> None:
         """Add a realized P&L amount. Trips the kill switch when the daily loss limit is reached."""
@@ -266,6 +303,7 @@ class StrategyBot:
         self.state.strategy_pnl[strategy] = self.state.strategy_pnl.get(strategy, 0.0) + realized
         self._log("pnl_realized", strategy=strategy, amount=round(realized, 2),
                   daily_pnl=round(self.state.daily_pnl, 2))
+        self._persist_counters()
         limit = self._limits.max_daily_loss
         if limit is not None and self.state.daily_pnl <= -abs(float(limit)):
             if not self._kill.active:
@@ -331,7 +369,46 @@ class StrategyBot:
         self._manage_exits(bars_cache, now, report)
         if entries_ok:
             self._slice_parents(bars_cache, now, report)
+        self._mark_positions_to_market(bars_cache, now, report)
         return report
+
+    def _mark_positions_to_market(self, bars_cache: Dict[str, Any], now: datetime,
+                                  report: Dict[str, Any]) -> None:
+        """Delivery-style mark-to-market: unrealized P&L of open positions joins the daily
+        and per-strategy counters on every cycle, so a falling book trips the daily loss
+        limit BEFORE the stop realizes the loss (AGENTS gap, fixed 2026-11-11).
+
+        Only the DELTA from the previous mark is added; realized exits keep working the same
+        because a realized exit removes the position (its last mark is re-based on close).
+        """
+        if not self._positions:
+            return
+        marks: Dict[str, float] = {}
+        for key, pos in self._positions.items():
+            df = bars_cache.get(pos.symbol)
+            if df is None:
+                continue  # no fresh mark without bars; keep the previous mark
+            px = float(df["close"].iloc[-2])  # last closed bar
+            sign = 1.0 if pos.side == "BUY" else -1.0
+            marks[key] = sign * (px - pos.entry) * pos.qty
+        # Replace the unrealized component wholesale (delta-only adds would drift).
+        unrealized_now = sum(marks.values())
+        marked_before = getattr(self, "_mtm_unrealized", 0.0)
+        delta = unrealized_now - marked_before
+        if abs(delta) < 0.005:
+            return
+        self._mtm_unrealized = unrealized_now
+        self.state.daily_pnl += delta
+        # Spread the delta across each position's strategy counter.
+        for sym_key, m in marks.items():
+            strategy = self._positions[sym_key].strategy
+            self.state.strategy_pnl[strategy] = self.state.strategy_pnl.get(strategy, 0.0) + delta
+        self._log("mtm_update", unrealized=round(unrealized_now, 2), delta=round(delta, 2))
+        limit = self._limits.max_daily_loss
+        if limit is not None and self.state.daily_pnl <= -abs(float(limit)) and not self._kill.active:
+            self._kill.trip(f"daily loss incl. unrealized {self.state.daily_pnl:.2f} "
+                            f"reached limit {abs(float(limit)):.2f}", source="automatic")
+            self._alert("CRITICAL", "daily loss limit (mark-to-market) reached: kill switch on")
 
     def _safe_funds(self) -> float:
         try:
@@ -361,12 +438,23 @@ class StrategyBot:
         if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
             return
+        # Pre-gate (capital protection): calendar, handoff contract. The overnight gap and
+        # stress/VaR checks run inside gate_signal on the real intent (proper ref price + size).
+        pre = self._pre_gate.check(
+            TradeIntent(intent_id=f"{key}-PRE", strategy_id=strat.name, symbol=sym,
+                        side="BUY", qty=1, ref_price=float(df["close"].iloc[-2]), kind="entry",
+                        prev_close=None, trade_day=now.date()),
+        )
+        if not pre.ok:
+            self._log("pre_gate_refused", key=key, reasons=list(pre.reasons))
+            return
         res = gate_signal(
             sig, symbol=sym, strategy_id=strat.name, equity=self._funds,
             risk_fraction=self.cfg.risk_per_trade, state=self.state, limits=self._limits,
             kill=self._kill, safe=self._safe, halt=self._halt, available_funds=self._funds,
             adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
             circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
+            pre_gate=self._pre_gate,
         )
         self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
         if not res.ok or res.intent is None:
@@ -440,7 +528,8 @@ class StrategyBot:
     def _remember_bar(self, sym: str, df) -> Dict[str, Any]:
         """Store the last closed bar of a symbol, with the cycle it was seen in. Used only when the feed is down."""
         bar = {"open": float(df["open"].iloc[-2]), "high": float(df["high"].iloc[-2]),
-               "low": float(df["low"].iloc[-2]), "time": str(df.index[-2]), "cycle": self._cycle_no}
+               "low": float(df["low"].iloc[-2]), "close": float(df["close"].iloc[-2]),
+               "time": str(df.index[-2]), "cycle": self._cycle_no}
         self._last_bar[sym] = bar
         return bar
 
@@ -515,6 +604,9 @@ class StrategyBot:
             return
         # Close the position and its parent. A parent still slicing must not buy again after a stop-out.
         self._positions.pop(key, None)
+        # Drop this position's mark: it is realized now, so the next mark-to-market must not
+        # compare against a stale unrealized value (otherwise the realized P&L is double-counted).
+        self._mtm_unrealized = getattr(self, "_mtm_unrealized", 0.0) - self._position_mark(key, pos)
         self._close(key, f"position exited ({reason}); parent closed")
         booked = self._booked.pop(key, pos.qty * pos.entry)
         self.state.open_notional = max(0.0, self.state.open_notional - booked)
@@ -524,6 +616,14 @@ class StrategyBot:
         self._record_pnl(pos.strategy, sign * (fill_px - pos.entry) * pos.qty)
         self._log("exit_sent", key=key, reason=reason, qty=pos.qty, price=price, fill=fill_px)
         report["exits_sent"] = report.get("exits_sent", 0) + 1
+
+    def _position_mark(self, key: str, pos: Position) -> float:
+        """Last closed-bar mark used by the exit, or 0 when the symbol has no cached bar."""
+        bar = self._last_bar.get(pos.symbol)
+        if bar is None:
+            return 0.0
+        sign = 1.0 if pos.side == "BUY" else -1.0
+        return sign * (float(bar.get("close", pos.entry)) - pos.entry) * pos.qty
 
     def _close(self, key: str, reason: str) -> None:
         self._parents.pop(key, None)

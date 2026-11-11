@@ -25,6 +25,7 @@ from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
+from quant.risk.pre_gate import PreGate
 from quant.strategies.signals.base import check_signal
 
 
@@ -110,6 +111,7 @@ def gate_signal(
     lot_size: int = 1,
     asm_gsm: bool = False,
     algo_id: Optional[str] = None,
+    pre_gate: Optional[PreGate] = None,
 ) -> GatedSignal:
     """Turn one signal into an approved or rejected intent. The caller records approved ids in state.seen_ids.
 
@@ -132,6 +134,7 @@ def gate_signal(
     if not ok:
         return GatedSignal(False, reason)
 
+    # Build the intent first so the pre-gate checks the REAL size and ref price.
     side = str(live["side"]).upper()
     intent = TradeIntent(
         intent_id=f"{strategy_id}:{symbol}:{side}:{live.get('time', '')}",
@@ -149,6 +152,13 @@ def gate_signal(
         trade_day=trade_day,
         algo_id=algo_id,
     )
+    # Pre-gate (capital protection): calendar, event blackout, overnight gap, handoff
+    # contract, stress/VaR. Runs BEFORE the risk gate. It can only refuse, never approve.
+    if pre_gate is not None:
+        pre = pre_gate.check(intent)
+        if not pre.ok:
+            return GatedSignal(False, "pre-gate: " + "; ".join(pre.reasons))
+
     decision = check_intent(
         intent, state, limits, kill, safe, available_funds=available_funds, halt=halt
     )

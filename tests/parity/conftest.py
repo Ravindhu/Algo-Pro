@@ -19,9 +19,17 @@ PACKAGES = ["", "core", "portfolio", "portfolio.risk", "portfolio.optim", "portf
 
 @pytest.fixture
 def blue(monkeypatch):
-    """Returns get(modname) -> real Blue module, e.g. get("portfolio.risk.tail")."""
+    """Returns get(modname) -> real Blue module, e.g. get("portfolio.risk.tail").
+
+    Teardown pops only the modules PARITY CREATED. Modules that other suites
+    (collected earlier in the session, e.g. Blue_engine/tests) already imported
+    must keep their identity: dropping them forces a re-import, and a second
+    module object breaks isinstance() identity checks like the TokenGovernor's
+    ChatMessage cache test (full-suite ordering bug, fixed 2026-11-11).
+    """
     noop = lambda *a, **k: None  # noqa: E731
     logger = types.SimpleNamespace(info=noop, warning=noop, debug=noop)
+    preexisting = {k for k in sys.modules if k == "blue_engine" or k.startswith("blue_engine.")}
     for pkg in PACKAGES:
         name = "blue_engine" + ("." + pkg if pkg else "")
         mod = types.ModuleType(name)
@@ -34,4 +42,5 @@ def blue(monkeypatch):
 
     yield get
     for key in [k for k in sys.modules if k == "blue_engine" or k.startswith("blue_engine.")]:
-        sys.modules.pop(key, None)
+        if key not in preexisting:
+            sys.modules.pop(key, None)

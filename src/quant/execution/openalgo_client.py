@@ -102,12 +102,16 @@ class OpenAlgoClient:
         mode: str,
         live_approval: Optional[LiveApproval] = None,
         limits_path: Optional[Path] = None,
+        compliance: Optional[object] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self._transport = transport
         self.mode = mode
         self.live_approval = live_approval
         self.limits_path = Path(limits_path) if limits_path is not None else None
+        # Live-only compliance gate (SEBI algo tagging, audit storage, NTP clock).
+        # None means "not configured", which refuses live orders (fail closed).
+        self.compliance = compliance
 
     @staticmethod
     def api_key_from_env() -> str:
@@ -135,6 +139,12 @@ class OpenAlgoClient:
             raise PermissionError("live trading needs the limits file path to check the approval")
         if file_sha256(self.limits_path) != self.live_approval.limits_sha256:
             raise PermissionError("risk_limits.yaml changed since approval; approval is void")
+        # SEBI compliance: algo tagging, audit-log storage, NTP clock sync. Fail closed.
+        if self.compliance is None:
+            raise PermissionError("live refused: compliance gate not configured")
+        result = self.compliance.check()
+        if not getattr(result, "ok", False):
+            raise PermissionError("live refused: compliance - " + "; ".join(getattr(result, "reasons", ())))
 
     def _require_analyzer_on(self, api_key: str) -> None:
         """Analyze only: ask OpenAlgo to confirm the sandbox is on. Anything unclear is refused."""

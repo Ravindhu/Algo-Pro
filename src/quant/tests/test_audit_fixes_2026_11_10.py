@@ -23,7 +23,7 @@ from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 from quant.strategies.signals.risk_adapter import gate_signal
 
-NOW = datetime(2026, 11, 10, 10, 15)
+NOW = datetime(2026, 11, 17, 10, 15)
 
 
 class Audit:
@@ -150,8 +150,10 @@ def test_daily_pnl_resets_on_a_new_day(tmp_path):
     bot.cycle(NOW)
     from datetime import timedelta
     bot.cycle(NOW + timedelta(days=1))
-    assert bot.state.daily_pnl == 0.0
-    assert bot.state.strategy_pnl == {}
+    # The -500 from yesterday is gone. Any remaining value is today's own mark-to-market of
+    # the open book (added after the reset), never yesterday's number.
+    assert bot.state.daily_pnl > -500.0
+    assert bot.state.strategy_pnl.get("engulfing", 0.0) > -500.0
     assert "pnl_day_reset" in audit.kinds()
 
 

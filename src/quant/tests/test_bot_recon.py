@@ -17,7 +17,7 @@ from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
 
-NOW = datetime(2026, 11, 10, 10, 15)
+NOW = datetime(2026, 11, 17, 10, 15)
 
 
 class Audit:

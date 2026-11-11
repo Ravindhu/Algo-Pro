@@ -114,7 +114,7 @@ def test_a_bool_is_not_accepted_as_a_metric():
 # --------------------------------------------------------------------------- #
 def test_this_module_never_calls_promote():
     """A regression that wires promote() into the loop is the whole risk."""
-    src = (ROOT / "src" / "quant" / "feedback" / "improvement_loop.py").read_text()
+    src = (ROOT / "src" / "quant" / "feedback" / "improvement_loop.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Attribute) and n.attr == "promote"]

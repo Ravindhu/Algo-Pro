@@ -35,6 +35,7 @@ from quant.risk.controls import HaltHandler  # noqa: E402
 from quant.risk.gate import RiskState  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.strategies.engulfing.engulfing import Engulfing  # noqa: E402
+from quant.strategies.ocl.adapter import OCL_STRATEGIES, OclStrategyAdapter  # noqa: E402
 
 STOP_FLAG = "stop.flag"
 PAPER_SYMBOL_LABEL = "PORTFOLIO"  # the engulfing class needs a symbol; the bot uses the screen's symbols instead
@@ -43,6 +44,11 @@ PAPER_SYMBOL_LABEL = "PORTFOLIO"  # the engulfing class needs a symbol; the bot 
 def _make_strategy(name: str):
     if name == "engulfing":
         return Engulfing(PAPER_SYMBOL_LABEL)
+    # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
+    # they poll a client, so the adapter serves them the bot's own closed bars.
+    ocl = OCL_STRATEGIES()
+    if name in ocl:
+        return OclStrategyAdapter(name, ocl[name], {"symbol": PAPER_SYMBOL_LABEL})
     raise BotRefused(f"strategy {name!r} is not wired into the bot runner")
 
 

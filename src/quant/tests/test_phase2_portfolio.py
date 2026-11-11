@@ -132,5 +132,5 @@ def test_no_llm_code_in_risk_execution_or_portfolio():
     root = Path(__file__).resolve().parents[3] / "src" / "quant"
     for folder in ("risk", "execution", "portfolio"):
         for py in (root / folder).rglob("*.py"):
-            text = py.read_text()
+            text = py.read_text(encoding="utf-8")
             assert "core.llm" not in text and "openai" not in text.lower(), py

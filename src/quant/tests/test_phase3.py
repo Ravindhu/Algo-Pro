@@ -177,7 +177,7 @@ def test_only_broker_adapter_and_scripts_import_openalgo_client():
         # call path, and the old substring check flagged it. A real reach-in is an
         # import or a direct attribute use, so match those forms only.
         import re
-        text = py.read_text()
+        text = py.read_text(encoding="utf-8")
         assert not re.search(
             r"^\s*(from|import)\s+[\w.]*openalgo_client\b"
             r"|\bopenalgo_client\.(place|modify|cancel|order|\.)",

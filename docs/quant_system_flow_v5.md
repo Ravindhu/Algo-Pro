@@ -116,10 +116,12 @@ Support inputs to backtest and risk:
 
 | Stage | What it does |
 |---|---|
+| **Pre-gate safety** (`risk/pre_gate.py`, 2026-11-11) | Runs BEFORE the risk gate on every entry: trading calendar (NSE holiday CSV, fail closed), event blackout, overnight gap vs previous close, trade-intent handoff contract (ids, qty, price, side, long-only), stress/VaR of the whole book. Can only refuse. Exits bypass it |
+| **Compliance gate** (`risk/compliance.py`, 2026-11-11) | Live only: SEBI algo registration + exchange algo-ID tagging, audit-log storage writable with free space, NTP clock skew within limit. Any failure refuses the live order |
 | Pre-trade checks | Fat finger, lot size, OPS limit, algo ID |
 | Price band + ASM/GSM | Circuit limits and surveillance flags |
 | Liquidity cap | Max percent of ADV |
-| Loss budget breaker | Daily and per-strategy loss limits |
+| Loss budget breaker | Daily and per-strategy loss limits. Counters persist across restart (`execution/pnl_store.py`) and include mark-to-market of open delivery positions |
 | **Risk gate** | Every intent, hard limits, including max symbols per portfolio (a new symbol is blocked at the cap; unset cap blocks new symbols). Only exit to execution |
 
 ### 2.9 Execution

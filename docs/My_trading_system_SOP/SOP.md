@@ -1367,3 +1367,78 @@ Plain-English summary: the `rich` terminal console (`Blue_engine/dashboard/`, co
   The existing `pov-preopen.timer` (08:45) remains the only scheduled engine start.
 - Scheduled runs never update code. Updates stay manual.
 - Not run here: the PowerShell script (no `pwsh` in the sandbox) and the boot unit (no systemd). Owner test pending.
+
+## 24. Capital-protection gates, live data source, NSE inputs (2026-11-11)
+
+### 24.1 Live data source (approved)
+- `config/data_sources.yaml` now sets `sources.live_feed.live_allowed: true`, approved by the
+  owner on 2026-11-11. The source is the **broker's own market-data feed through OpenAlgo**,
+  the same licensed connection that carries orders. No third-party scraper prices an order.
+- `sources.nse_public` (nsepython) is `live_allowed: false`: delayed/end-of-day NSE public data,
+  used for calendar, deals, events, FII/DII, index and beta inputs only.
+- The bot still refuses to run a cycle unless `live_allowed` is true, and still refuses live
+  mode in code (`live_enabled` must stay false; a human `LiveApproval` is required).
+
+### 24.2 OpenAlgo bridge and broker connection
+- `config/data_sources.yaml` → `openalgo:` block: `base_url`, `api_key_env`, `mode`,
+  `broker_login` (autologin, broker name, TOTP env) and `compliance` (algo ID, SEBI
+  registration, audit dir, max clock skew).
+- Secrets stay in `.env` (`OPENALGO_API_KEY`, `BROKER_*`, `SEBI_ALGO_ID`, `SEBI_REGISTRATION`).
+  Never commit them.
+- Two login legs must both pass before an order can be placed: OpenAlgo platform login and
+  broker TOTP (`Blue_engine/core/broker_auth.py`).
+
+### 24.3 Pre-gate safety (before the risk gate)
+`src/quant/risk/pre_gate.py`. Runs on every **entry**; exits bypass it. It can only refuse.
+| Check | Rule | Fail-closed behaviour |
+|---|---|---|
+| Trading calendar | NSE equity holiday CSV (`config/calendar/nse_holidays_2026.csv`) + weekend | unreadable calendar refuses the day |
+| Event blackout | results / RBI / Budget / Fed dates | blocked date refuses the entry |
+| Overnight gap | entry ref price vs previous close, default 10% | gap beyond limit refuses the entry |
+| Trade-intent handoff | ids, symbol, qty, price, side, kind, lot size, long-only | any bad field refuses |
+| Stress / VaR | whole book shocked by `shock` (default -10%), loss vs `var_limit` (default 5% of capital) | no capital known refuses |
+
+Wiring: `StrategyBot._scan` runs calendar + handoff before sizing; `gate_signal` runs the full
+check on the real intent (correct ref price and size) before `check_intent`.
+
+### 24.4 Compliance gate (live only)
+`src/quant/risk/compliance.py`, called from `OpenAlgoClient._check_live_session`.
+| Check | Requirement |
+|---|---|
+| SEBI algo tagging | exchange-approved algo ID + SEBI registration number on file |
+| Audit-log storage | audit dir exists, is writable, has free space |
+| NTP clock sync | skew within `max_clock_skew_seconds` (default 1.0 s) |
+
+Any failure raises `PermissionError` and the live order is not sent. Paper and analyze are not
+gated (no real order leaves the machine).
+
+### 24.5 Daily loss counters (restart-safe, mark-to-market)
+- `src/quant/execution/pnl_store.py` persists `daily_pnl` and per-strategy P&L per day.
+  A restart reloads today's counters and re-trips the kill switch if the day already breached.
+- `StrategyBot._mark_positions_to_market` adds the unrealized P&L of open delivery positions
+  to the counters every cycle, so a falling book trips the daily limit before the stop realizes.
+
+### 24.6 Screener output file
+- `quant.data.screener_engine.write_screen_file(payload, "data/screened/latest.json")` writes
+  the bot's screen file atomically. Rows without a usable circuit limit, or with an ASM/GSM
+  flag, are dropped. `select_universe` (Blue wrap) supplies the ordering.
+
+### 24.7 OCL strategies in the bot
+- `quant.strategies.ocl.adapter.OclStrategyAdapter` serves the bot's closed bars to the OCL
+  classes through a local `BarsHistoryClient` (no network). Selectable in `config/bot.yaml`:
+  `ocl`, `ocl_sell_fail_top`, `ocl_sell_fail_bottom`.
+
+### 24.8 NSE public data (nsepython)
+- `quant.data.nse_api` wraps nsepython 2.101: `nse_holidays`, `nse_blockdeal`,
+  `get_bulkdeals`, `nse_annual_reports`, `nse_events`, `nse_fiidii`, `nse_get_index_quote`,
+  `index_history`, `nse_circular`, `get_beta`. Function names were read from the installed
+  package, not guessed. Every call raises `NseUnavailable` on failure.
+- Install: `py -m pip install nsepython` (already in the host environment).
+
+### 24.9 Pre-session checks added
+| # | Check | Pass looks like |
+|---|---|---|
+| 7 | Live data source approved | `live_feed_approved("config/data_sources.yaml")` is `True` |
+| 8 | Trading calendar readable | `PreGate().calendar_ok(today).ok` is `True` |
+| 9 | Compliance (live only) | `ComplianceGate(...).check().ok` is `True` |
+| 10 | Screen file fresh | `data/screened/latest.json` `as_of` within `max_screen_age_minutes` |

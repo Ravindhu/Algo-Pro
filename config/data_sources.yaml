@@ -1,14 +1,53 @@
 # Data sources and licence status (decision 0017).
 # live_allowed: false = research or test use only. Never used for live orders.
 # A source may be live only if it has a licence note and the owner has approved it.
+#
+# 2026-11-11: the owner picked the live source. It is the broker's own market-data feed,
+# reached through OpenAlgo (the same licensed connection that carries the orders). No
+# third-party scraper is used for order generation.
 sources:
   infy_sample:
     description: "INFY daily bars from Blue_engine/database/sample_data.py (owner machine only)"
     purpose: test_only
     live_allowed: false
     licence: "personal, non-commercial, educational research only; commercial automated trading needs written permission"
+
   live_feed:
-    description: "Not chosen. Owner must pick a licensed live market-data source."
-    purpose: none
+    description: "Broker market-data feed through OpenAlgo (quotes, 5-minute bars, daily stats)"
+    purpose: live_orders
+    live_allowed: true
+    licence: "covered by the owner's broker trading account and data subscription; the broker's terms govern redistribution"
+    approved_by: "owner"
+    approved_on: "2026-11-11"
+    transport: openalgo
+    # The feed is only usable when OpenAlgo is reachable and the broker session is logged in.
+    # Both are checked at startup; either failing blocks entries (never exits).
+    requires:
+      openalgo_reachable: true
+      broker_session: true
+
+  nse_public:
+    description: "NSE public endpoints through nsepython (holidays, deals, events, FII/DII, index, beta)"
+    purpose: research_and_inputs
     live_allowed: false
-    licence: null
+    licence: "NSE public website data; delayed/end-of-day. Not a licensed real-time feed and never used to price an order."
+    used_by: "quant.data.nse_api"
+
+# --- OpenAlgo bridge and broker connection -------------------------------------
+# The engine talks to the broker ONLY through OpenAlgo. Secrets live in .env, never here.
+openalgo:
+  base_url: "http://127.0.0.1:5000"
+  api_key_env: OPENALGO_API_KEY
+  # analyze = OpenAlgo sandbox (no real money). live needs a recorded human LiveApproval.
+  mode: analyze
+  # Broker login is a separate leg (Blue_engine/core/broker_auth.py). Both legs must pass.
+  broker_login:
+    autologin_env: BROKER_AUTOLOGIN
+    broker_name_env: BROKER_NAME
+    totp_env: BROKER_TOTP_SECRET
+  # Live orders are refused unless every compliance check passes (quant.risk.compliance).
+  compliance:
+    algo_id_env: SEBI_ALGO_ID
+    sebi_registration_env: SEBI_REGISTRATION
+    audit_dir: data/audit
+    max_clock_skew_seconds: 1.0

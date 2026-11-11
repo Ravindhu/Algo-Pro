@@ -23,7 +23,7 @@ from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
 
-NOW = datetime(2026, 11, 10, 10, 15)
+NOW = datetime(2026, 11, 17, 10, 15)
 
 
 class FakeAudit:
@@ -51,16 +51,19 @@ class FakeSender:
 
 
 class FakeBars:
-    def __init__(self, volume=5000.0, bars_ok=True, stats_ok=True):
+    # Price 100 matches FixedSignal's entry, so mark-to-market is flat and no stop is hit.
+    def __init__(self, volume=5000.0, bars_ok=True, stats_ok=True, price=100.0):
         self.volume = volume
         self.bars_ok = bars_ok
         self.stats_ok = stats_ok
+        self.price = price
 
     def bars(self, symbol, now):
         if not self.bars_ok:
             return None
-        return pd.DataFrame({"open": [1.0] * 40, "high": [1.0] * 40, "low": [1.0] * 40,
-                             "close": [1.0] * 40, "volume": [self.volume] * 40})
+        p = self.price
+        return pd.DataFrame({"open": [p] * 40, "high": [p] * 40, "low": [p] * 40,
+                             "close": [p] * 40, "volume": [self.volume] * 40})
 
     def daily_stats(self, symbol, now):
         return {"adv_shares": 5_000_000.0, "prev_close": 100.0} if self.stats_ok else None
@@ -145,10 +148,11 @@ def test_repo_bot_config_loads_and_is_paper_or_analyze():
     assert cfg.mode in ("paper", "analyze") and cfg.live_enabled is False and cfg.interval_minutes == 5
 
 
-def test_repo_data_source_is_not_approved_for_live():
+def test_repo_data_source_is_approved_for_live():
+    """Owner approved the broker feed through OpenAlgo on 2026-11-11 (config/data_sources.yaml)."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[3]
-    assert live_feed_approved(root / "config" / "data_sources.yaml") is False
+    assert live_feed_approved(root / "config" / "data_sources.yaml") is True
 
 
 # --- data-source gate (set live inputs) ---

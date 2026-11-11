@@ -9,6 +9,7 @@ import pytest
 
 from quant.core.types import GateDecision, TradeIntent
 from quant.execution.openalgo_client import LiveApproval, OpenAlgoClient, file_sha256
+from quant.risk.compliance import ComplianceResult
 
 
 def intent(intent_id="I1"):
@@ -39,7 +40,12 @@ def transport(calls):
 
 
 def client(transport, limits, approval, mode="live"):
-    return OpenAlgoClient("http://x", transport, mode=mode, live_approval=approval, limits_path=limits)
+    # Passing compliance gates: this suite tests the order guards, not compliance
+    # (quant/tests/test_compliance.py covers the gate itself).
+    ok = ComplianceResult(True, ())
+    gate = type("OkGate", (), {"check": staticmethod(lambda *a, **k: ok)})()
+    return OpenAlgoClient("http://x", transport, mode=mode, live_approval=approval,
+                          limits_path=limits, compliance=gate)
 
 
 APPROVED = GateDecision("I1", True, ())
@@ -60,7 +66,10 @@ def test_paper_mode_refused_even_with_approval(transport, limits, approval, call
 
 
 def test_plain_string_approval_refused(transport, limits, calls):
-    c = OpenAlgoClient("http://x", transport, mode="live", live_approval="ravi-2026-11-03", limits_path=limits)
+    ok = ComplianceResult(True, ())
+    gate = type("OkGate", (), {"check": staticmethod(lambda *a, **k: ok)})()
+    c = OpenAlgoClient("http://x", transport, mode="live", live_approval="ravi-2026-11-03",
+                       limits_path=limits, compliance=gate)
     with pytest.raises(PermissionError, match="LiveApproval"):
         c.place(intent(), "key", APPROVED)
     assert calls == []
@@ -80,7 +89,10 @@ def test_blank_approver_refused(transport, limits, calls):
 
 
 def test_missing_limits_path_refused(transport, approval, calls):
-    c = OpenAlgoClient("http://x", transport, mode="live", live_approval=approval, limits_path=None)
+    ok = ComplianceResult(True, ())
+    gate = type("OkGate", (), {"check": staticmethod(lambda *a, **k: ok)})()
+    c = OpenAlgoClient("http://x", transport, mode="live", live_approval=approval,
+                       limits_path=None, compliance=gate)
     with pytest.raises(PermissionError, match="limits file path"):
         c.place(intent(), "key", APPROVED)
     assert calls == []

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 """run_screener_bridge.py - launch the screener -> OCL -> POV bridge.
 
 Reads symbols from a screener export (``filtered_summary.csv`` written by

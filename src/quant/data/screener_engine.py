@@ -155,3 +155,59 @@ def select_universe(payload: Dict[str, Any], *,
             raise ValueError("max_symbols must be zero or more")
         out = out[:max_symbols]
     return out
+
+def screen_rows(payload: Dict[str, Any], *, as_of=None, max_symbols: int = 50) -> Dict[str, Any]:
+    """Turn a screen payload into the bot's screen file format (read_screen in strategy_bot).
+
+    Fail closed rows: a symbol without a usable circuit limit or with an ASM/GSM flag is
+    excluded. ``selected`` follows select_universe ordering (first N symbols).
+
+    Flow stage: Liquidity screener -> screen file
+    Status: IMPLEMENTED 2026-11-11 (wraps select_universe; no order path here).
+    """
+    from datetime import datetime, timezone
+
+    payload_for_universe = dict(payload)
+    # select_universe reads "symbols"/"selected" lists, not "candidates": shape it so.
+    if "symbols" not in payload_for_universe and "selected" not in payload_for_universe:
+        payload_for_universe["symbols"] = [c.get("symbol") for c in payload.get("candidates", [])
+                                           if isinstance(c.get("symbol"), str)]
+    ordered = select_universe(payload_for_universe)
+    candidates = {c.get("symbol"): c for c in payload.get("candidates", []) if c.get("symbol")}
+    results = []
+    for sym in ordered[:max_symbols]:
+        c = candidates.get(sym) or {}
+        circuit = c.get("circuit_pct")
+        asm_gsm = bool(c.get("asm_gsm") or c.get("asm") or c.get("gsm"))
+        if not isinstance(circuit, (int, float)) or not 0 < float(circuit) <= 1:
+            continue  # unknown circuit limit: not safe to trade, skip
+        if asm_gsm:
+            continue
+        results.append({"symbol": str(sym).upper(), "selected": True,
+                        "asm_gsm": False, "circuit_pct": float(circuit)})
+    stamp = as_of.isoformat() if hasattr(as_of, "isoformat") else (as_of or datetime.now(timezone.utc).isoformat())
+    return {"as_of": stamp, "results": results}
+
+
+def write_screen_file(payload: Dict[str, Any], path, *, as_of=None, max_symbols: int = 50) -> int:
+    """Write data/screened/latest.json atomically. Returns the number of rows."""
+    import json as _json
+    import os
+    import tempfile
+    from pathlib import Path as _Path
+
+    doc = screen_rows(payload, as_of=as_of, max_symbols=max_symbols)
+    target = _Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            _json.dump(doc, fh, indent=1)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return len(doc["results"])

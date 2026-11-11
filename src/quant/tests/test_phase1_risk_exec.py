@@ -9,7 +9,16 @@ from quant.execution.order_fsm import InvalidTransition, OrderFSM, OrderState
 from quant.execution.queue import ApprovedOrderQueue
 from quant.monitor.ledger import Ledger
 from quant.monitor.safe_mode import Mode, SafeMode
+from quant.execution.pnl_store import PnlStore  # noqa: F401  (import guard: module must exist)
+from quant.risk.compliance import ComplianceResult
 from quant.risk.gate import RiskState, check_intent
+
+
+def _ok_gate():
+    """Passing compliance gate: this suite tests order guards, not compliance."""
+    ok = ComplianceResult(True, ())
+    return type("OkGate", (), {"check": staticmethod(lambda *a, **k: ok)})()
+
 from quant.risk.kill_switch import KillSwitch
 
 FULL = RiskLimits(
@@ -146,13 +155,13 @@ def test_openalgo_refuses_in_paper_and_without_approval(tmp_path):
     transport = lambda url, payload: calls.append((url, payload)) or {"status": "ok"}
     with pytest.raises(PermissionError):
         OpenAlgoClient("http://x", transport, mode="paper", live_approval=approval,
-                       limits_path=limits).place(intent(), "k", ok)
+                       limits_path=limits, compliance=_ok_gate()).place(intent(), "k", ok)
     with pytest.raises(PermissionError):
         OpenAlgoClient("http://x", transport, mode="live", live_approval=None,
                        limits_path=limits).place(intent(), "k", ok)
     assert calls == []
     OpenAlgoClient("http://x", transport, mode="live", live_approval=approval,
-                   limits_path=limits).place(intent(), "k", ok)
+                   limits_path=limits, compliance=_ok_gate()).place(intent(), "k", ok)
     assert calls and calls[0][0].endswith("/api/v1/placeorder")
 
 

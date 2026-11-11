@@ -106,6 +106,14 @@ def test_analyze_refused_without_approved_decision():
     assert fake.sent() == []
 
 
+def _ok_gate():
+    """Passing compliance gate: this suite tests order guards, not compliance."""
+    from quant.risk.compliance import ComplianceResult
+
+    ok = ComplianceResult(True, ())
+    return type("OkGate", (), {"check": staticmethod(lambda *a, **k: ok)})()
+
+
 def test_analyze_refused_when_decision_is_for_another_intent():
     fake = Fake()
     with pytest.raises(PermissionError, match="does not match"):
@@ -152,12 +160,14 @@ def test_live_mode_unchanged_by_analyze_path(tmp_path):
     fake = Fake()
     limits = tmp_path / "risk_limits.yaml"
     limits.write_text("max_order_quantity: 10\n", encoding="utf-8")
-    client = OpenAlgoClient("http://x", fake, mode="live", live_approval=None, limits_path=limits)
+    client = OpenAlgoClient("http://x", fake, mode="live", live_approval=None, limits_path=limits,
+                            compliance=_ok_gate())
     with pytest.raises(PermissionError, match="human approval"):
         client.place(intent(), "key", APPROVED)
     assert fake.calls == []
     approval = LiveApproval("owner", date(2026, 11, 6), file_sha256(limits))
-    OpenAlgoClient("http://x", fake, mode="live", live_approval=approval, limits_path=limits).place(
+    OpenAlgoClient("http://x", fake, mode="live", live_approval=approval, limits_path=limits,
+                   compliance=_ok_gate()).place(
         intent(), "key", APPROVED)
     assert [c[0] for c in fake.calls] == ["placeorder"]
 

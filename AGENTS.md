@@ -10,7 +10,7 @@ Do NOT create or update `agent_learings.ps1` (or any other agent-learning script
 
 You act as an combination of quant analyst, insitutional quant trader,coding engineer, and trader, investor,Porfolio manager,portfolio allocator,porfolio balancer, HFT trader, algo trading statergy developer, economist,business analyst,financial analyst,simulation engineer,system monitorng engineer,probability analyst,risk manager, stock analyst, ai ml dl engineer, systematic trader, algo system architech , quantitative trading system architech, data analyst,Statergy backtester,stock screening specilist, statergy optimizer,dashboard designer,statergy fine tunner, statergy visualizer,chart pattern analyst,structured system creater, professional UI designer,Data Analyst,web application developer,algo trading terminal developer, frontline agentic ai model 
 
-Build a world-class, fully automated algorithmic trading system for the Indian market.Always thing about advance implimentation of "My trading system" to make profitable and  maximum Sharpe ratio. The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform.
+Build a world-class, fully automated algorithmic trading system for the Indian market.Always thing about advance implimentation of "My trading system" to make profitable and  maximum Sharpe ratio. The objective is to develop a robust, modular, scalable, secure, research-driven, and production-ready quantitative trading platform to trade in live market.
 
 ## Repo paths (all paths are repo-relative)
 
@@ -267,7 +267,7 @@ Read both before changing pipeline, risk, execution, or dashboard code.
 | Data and features | `src/quant/data/` | implemented (Phase 1) |
 | Signal and conviction | `src/quant/models/`, `src/quant/strategies/`, `models/events/agent_team.py` | implemented (Phases 2, 5) |
 | Sizing and portfolio | `src/quant/portfolio/` | implemented (Phase 2) |
-| Portfolio risk, session guards, safety gate | `src/quant/risk/` | scaffold |
+| Portfolio risk, session guards, safety gate | `src/quant/risk/` | implemented (pre-gate + compliance 2026-11-11) |
 | Execution | `src/quant/execution/` | implemented (Phase 3; `pov_engine.py` plans only) |
 | Post-trade + support monitors | `src/quant/monitor/` | implemented (Phases 1-4; recovery 2026-11-08) |
 | Audit | `src/quant/audit/` | implemented (Phase 1) |
@@ -778,13 +778,13 @@ These rules describe the code on `master`. Change them only with a reviewed comm
 * **Secrets.** Never committed. Keep them in local `.env` files.
 
 Known gaps, not yet changed:
-* Realized P&L counters reset on process restart. Persisting them is open. Open positions are not marked to market, so unrealized losses are not counted against the daily limit.
+* ~~Realized P&L counters reset on process restart. Open positions are not marked to market.~~ **Fixed 2026-11-11**: `execution/pnl_store.py` persists the counters per day, and `StrategyBot._mark_positions_to_market` adds the unrealized P&L of open delivery positions to the daily and per-strategy counters every cycle.
 * Halt-all blocks entries and BUY exits. A SELL exit passes (owner decision 2026-11-08). Its held-quantity check runs only when the caller passes `held_qty`.
 * The vendored OpenAlgo tree no longer matches the pin in `openalgo.UPSTREAM_PIN` (`tests/unit/test_upgrade_pin.py`). Owner must check the diff against upstream before any re-pin.
-* Only the engulfing strategy is wired into the bot. OCL strategies need a bar adapter.
+* ~~Only the engulfing strategy is wired into the bot.~~ **Fixed 2026-11-11**: `strategies/ocl/adapter.py` serves the bot's closed bars to the OCL classes, so `ocl`, `ocl_sell_fail_top` and `ocl_sell_fail_bottom` are selectable in `config/bot.yaml`.
 * The paper runner gets no broker funds; `--paper-capital` sets simulated capital, and the default 0 approves no entries.
 * Lot size comes from the bot default (1). The daily stats do not yet carry the SME broker lot size.
-* The screener does not yet write `data/screened/latest.json` (it needs `asm_gsm` and `circuit_pct` per symbol).
+* ~~The screener does not yet write `data/screened/latest.json`.~~ **Fixed 2026-11-11**: `data/screener_engine.write_screen_file` writes it atomically; rows without a usable circuit limit or with an ASM/GSM flag are dropped.
 * The `paper-buy-scanner` runtime (`strategies/paper_runtime.py`, `scanner.py`, `positions.py`, `protect.py`, `state_store.py`) is not merged. It duplicates the bot. Its strategies stay in branch history.
 * Not adopted from `fix/audit-2026-11-03` and `fix/audit-2026-11-03-security`: their rewrites of the architecture and dashboard text, and removal of the IBM section and the Algo Flow v5 section. Owner decision 2026-11-10: not adopted.
 
@@ -915,8 +915,6 @@ When generating or refactoring code for my trading bot and Dash dashboard, the s
 
 
 ## Terminal & IBM Corporate Laptop Guardrails (Auto-Mode Hardened)
-
-> Kept from `master`. The audit branches removed this section. Owner decision 2026-11-10: it stays.
 
 
 ### 0. Authorized Host & Execution Scope

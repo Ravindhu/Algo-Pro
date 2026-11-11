@@ -46,7 +46,7 @@ def test_every_module_imports():
 
 def test_stage_modules_are_marked_scaffold():
     for path in _stage_files():
-        assert re.search(r"^Status: (SCAFFOLD|PHASE \d IMPLEMENTED)", path.read_text(), re.M), path
+        assert re.search(r"^Status: (SCAFFOLD|PHASE \d IMPLEMENTED)", path.read_text(encoding="utf-8"), re.M), path
 
 
 def test_only_openalgo_client_names_the_order_client():
@@ -57,7 +57,7 @@ def test_only_openalgo_client_names_the_order_client():
     for path in _stage_files():
         if path.name == "openalgo_client.py":
             continue
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         assert ".placeorder(" not in text, path
         assert "placeorder" not in text.lower(), path
 
@@ -78,12 +78,12 @@ def _svg_block_titles():
 def test_every_svg_block_is_mapped_to_a_module():
     """Each SVG block title must appear in a stage file's Flow stage line, or be a known gap."""
     titles = _svg_block_titles()
-    assert len(titles) == 77, len(titles)  # guards against the parser finding nothing
+    assert len(titles) == 79, len(titles)  # guards against the parser finding nothing
     scripts = list((ROOT / "scripts").glob("*.py"))
     stage_lines = "\n".join(
         line
         for path in _stage_files() + scripts
-        for line in path.read_text().splitlines()
+        for line in path.read_text(encoding="utf-8").splitlines()
         if line.startswith("Flow stage:")
     )
     missing = sorted(t for t in titles if t not in stage_lines and t not in KNOWN_GAPS)

@@ -92,6 +92,10 @@ statsmodels==0.15.0
 # once, at construction. Installed because the dashboard's parameter-importance
 # / slice / parallel-coordinate workflow is the documented optimisation path.
 optuna==5.0.0
+# NSE public data (quant/data/nse_api.py, 2026-11-11): holidays, block/bulk deals,
+# annual reports, events, FII/DII, index quotes/history, circulars, beta. Delayed
+# end-of-day data for research and frontline inputs only; never prices an order.
+nsepython==2.101
 
 
 # -----------------------------------------------------------------------------

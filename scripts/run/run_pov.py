@@ -1,4 +1,4 @@
-﻿"""
+"""
 run_pov.py -- POV engine launcher.
 
 COMPLETE STEP-BY-STEP GUIDE:
