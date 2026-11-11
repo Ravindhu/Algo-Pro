@@ -66,6 +66,30 @@ def to_live_signal(sig: dict, equity: float, risk_fraction: float) -> dict | Non
     return {**sig, "entry": entry, "sl": sl, "tp": tp, "qty": qty}
 
 
+def _clamp_to_caps(live: dict, limits: RiskLimits, state: RiskState) -> tuple[Optional[dict], str]:
+    """Lower qty to the per-order caps and the room left under max_open_exposure.
+
+    Returns (live, note), or (None, note) when the clamped qty is below 1. A cap that is None is
+    not applied here; the gate still refuses missing limits (fail closed)."""
+    qty = int(live["qty"])
+    entry = float(live["entry"])
+    caps = {"signal": qty}
+    if limits.max_order_quantity is not None:
+        caps["max_order_quantity"] = int(limits.max_order_quantity)
+    if limits.max_order_notional is not None and entry > 0:
+        caps["max_order_notional"] = math.floor(float(limits.max_order_notional) / entry)
+    if limits.max_open_exposure is not None and entry > 0:
+        room = max(float(limits.max_open_exposure) - float(state.open_notional), 0.0)
+        caps["open_exposure_room"] = math.floor(room / entry)
+    name = min(caps, key=lambda k: caps[k])
+    new_qty = int(caps[name])
+    if new_qty < 1:
+        return None, f"{name} allows 0 shares"
+    if new_qty < qty:
+        return {**live, "qty": new_qty}, f"qty {qty} clamped to {new_qty} by {name}"
+    return live, ""
+
+
 def gate_signal(
     sig: dict,
     *,
@@ -97,6 +121,12 @@ def gate_signal(
         return GatedSignal(False, f"bad signal: {exc}")
     if live is None:
         return GatedSignal(False, "size is zero (equity, risk or stop distance)")
+
+    # Clamp to hard caps before the gate, so a valid signal is sized down, not rejected.
+    # Only ever reduces qty. The gate still checks every limit after this.
+    live, clamp_note = _clamp_to_caps(live, limits, state)
+    if live is None:
+        return GatedSignal(False, f"size is zero after caps ({clamp_note})")
 
     ok, reason = check_signal(live, live=True)
     if not ok:
