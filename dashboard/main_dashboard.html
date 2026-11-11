@@ -166,12 +166,12 @@
   <button id="sbbtn" type="button" title="Paper trade history popup (view only)">SANDBOX</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
-  <span id="loopchip" class="chip">loop —</span>
-  <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START</button>
-  <button class="stop" id="loopstop" type="button" title="Stop the paper loop. Does not close positions">STOP</button>
-  <span id="loopmsg" class="d"></span>
   <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
   <span id="engmsg" class="d"></span>
+  <span id="killchip" class="chip">kill —</span>
+  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Needs token; reason asked">STOP</button>
+  <button class="go" id="killreset" type="button" title="Kill switch OFF. Needs token and a reason; written to the override log">RESET</button>
+  <span id="killmsg" class="d"></span>
 </header>
 <div class="clock" id="clock"></div>
 
@@ -304,7 +304,13 @@
   <section class="panel">
     <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money · ₹</span></div>
     <div class="big" id="pnl">—</div>
-    <div style="margin:8px 0"><button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button> <small class="d">stops the paper loop only · does not close positions · needs token in header</small></div>
+    <div style="margin:8px 0">
+      <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START PAPER TRADING</button>
+      <button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button>
+      <span id="loopchip" class="chip">loop —</span>
+      <small class="d">paper only · simulated fills · stop does not close positions · needs token in header</small>
+      <span id="loopmsg" class="d"></span>
+    </div>
     <div class="sbhead">
       <div><small>Capital base</small><b id="sb-capital">—</b></div>
       <div><small>Paper equity</small><b id="sb-equity">—</b></div>
@@ -512,7 +518,6 @@
     }
   }
   $("loopstart").onclick = () => postLoop("/api/loop/start");
-  $("loopstop").onclick = () => postLoop("/api/loop/stop");
   $("sbstop").onclick = () => postLoop("/api/loop/stop");
   $("mode-paper").onclick = () => postMode("paper");
   $("mode-live").onclick = () => postMode("live");
@@ -1043,8 +1048,28 @@
   $("setclose").onclick = closeSettings;
   $("setmodal").addEventListener("click", e => { if (e.target === $("setmodal")) closeSettings(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setmodal").hidden) closeSettings(); });
-  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); }, 10000);
+  async function loadKill() {
+    const res = await jget("/api/kill");
+    const on = !!res.j.active;
+    $("killchip").textContent = on ? "kill ON" : "kill off";
+    $("killchip").className = "chip " + (on ? "bad" : "");
+    $("killchip").title = res.j.reason || "";
+  }
+  async function killAction(url, verb) {
+    const reason = window.prompt(verb + " the kill switch: enter a reason (required)", "");
+    if (reason === null) return;
+    if (!reason.trim()) { sMsg("killmsg", "A reason is required.", "r"); return; }
+    sMsg("killmsg", "Sending…", "d");
+    const res = await jpost(url, {reason: reason.trim()});
+    if (res.ok) sMsg("killmsg", res.j.message || "Done.", "g");
+    else sMsg("killmsg", describeFail(res), "r");
+    loadKill();
+  }
+  $("killstop").onclick = () => killAction("/api/kill/trip", "STOP");
+  $("killreset").onclick = () => killAction("/api/kill/reset", "RESET");
+  setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); loadKill(); }, 10000);
   loadEngine();
+  loadKill();
 
   setInterval(refresh, POLL_MS);
 </script>

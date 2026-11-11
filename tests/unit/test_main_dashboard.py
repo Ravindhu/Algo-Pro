@@ -37,11 +37,24 @@ def test_page_has_no_order_code_or_simulated_random():
         assert banned not in text, banned
 
 
-def test_start_and_stop_are_wired_to_the_loop():
+def test_paper_loop_controls_live_in_the_paper_trading_panel():
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("loopstart", "loopstop", "loopchip", "loopmsg"):
-        assert f'id="{element_id}"' in text, element_id
+    header = text[text.index("<header>"):text.index("</header>")]
+    panel = text[text.index('id="sbmodal"'):text.index('id="pfmodal"')]
+    for element_id in ("loopstart", "sbstop", "loopchip", "loopmsg"):
+        assert f'id="{element_id}"' in panel, element_id
+        assert f'id="{element_id}"' not in header, element_id
     assert '"/api/loop/start"' in text and '"/api/loop/stop"' in text
+
+
+def test_header_has_engine_start_only_and_kill_stop_reset():
+    text = PAGE.read_text(encoding="utf-8")
+    header = text[text.index("<header>"):text.index("</header>")]
+    assert 'id="engstart"' in header
+    assert 'id="engstop"' not in text
+    for element_id in ("killstop", "killreset", "killchip", "killmsg"):
+        assert f'id="{element_id}"' in header, element_id
+    assert '"/api/kill/trip"' in text and '"/api/kill/reset"' in text
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
