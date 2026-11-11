@@ -84,7 +84,9 @@ Features: optimizer, screener, economics, agent pipeline, POV engine (see docs/d
 - Owner decision D2 = move into quant (2026-11-06, "yes move to quant").
 - 6.1 screener rules: DONE 2026-11-06. `src/quant/data/screen_rules.py` (rules, three-valued verdicts, sector gate, default two-rule screen, to_number subset). Parity: `tests/parity/test_screen_rules_parity.py` (826 cases). Hand-checked: `tests/unit/test_screen_rules.py` (20). Known difference: local refuses unknown `on_missing` values (stricter). Not ported: `to_number(unit_scale="absolute")`, unused by rules.
 - 6.2 screener.in client, annual-report PDF parsing, yfinance fallback, valuations (about 6,800 lines in Blue_engine/screener): PENDING. Network-bound; needs owner data access and a split into sub-steps.
-- 6.3 economics, 6.4 optimizer (HRP item 8 included), 6.5 POV, 6.6 agent: PENDING.
+- 6.4 optimizer phases 1-2: DONE 2026-11-09. `src/quant/portfolio/optimiser_base.py`, `optimiser_methods.py` (min variance, max Sharpe, ERC, inverse vol, HRP, NCO), `optimiser_registry.py`. Parity: `tests/parity/test_optimiser_parity.py` (91 cases, 1e-9). Hand-checked: `src/quant/tests/test_optimiser_phase12.py`. Deliberate difference: unknown optimiser names raise (Blue falls back to risk_parity). Not ported yet: Black-Litterman, min CVaR (owner later), `benchmark.py`, `significance.py`.
+- 6.5 POV: Phase B (band, guards, sizing) and Phase C (PEG, liquidity core) DONE locally, with parity. Phase D (engine loop, paper only) DONE as a paper-only loop; not yet a full port of Blue's POVSlicer (see plan doc).
+- 6.3 economics, 6.6 agent: PENDING.
 - Also pending for each sub-stage: SVG mapping and Flow stage lines.
 - Each sub-stage: move code into the owned src/quant package, re-structure to the layout, add tests (move the matching Blue tests), update the Flow stage line and SVG mapping, and keep behaviour (parity or golden where Blue loads).
 - Exit check per sub-stage: tests pass (or owner-only data noted), no import of blue_engine from that feature.
