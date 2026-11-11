@@ -10,4 +10,12 @@ max_cycles: 12               # a parent is dropped after 1 hour of 5-minute cycl
 max_screen_age_minutes: 10   # older screen file = no new symbols
 screen_path: data/screened/latest.json   # written by the screener; data/ is git-ignored
 data_sources_path: config/data_sources.yaml
-strategies: [engulfing]      # OCL strategies need a bar adapter; not in bot v1
+# Strategy list. Plain name = defaults. name+params = per-symbol OCL settings, passed
+# straight through to the OCL class (pattern, HTF/LTF intervals, trigger level, exec mode).
+# Examples:
+#   strategies:
+#     - engulfing
+#     - name: ocl
+#       params: {symbol: RELIANCE, htf_interval: 5m, ltf_interval: 1m, one_shot: true}
+strategies:
+  - engulfing

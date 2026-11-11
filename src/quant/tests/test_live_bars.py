@@ -33,11 +33,13 @@ def _daily_rows(today_volume=999_999.0):
 
 
 class _Reader:
-    def __init__(self, intraday=None, daily=None, status="success", raise_on_history=False):
+    def __init__(self, intraday=None, daily=None, status="success", raise_on_history=False,
+                 search_reply=None):
         self.intraday = intraday
         self.daily = daily
         self.status = status
         self.raise_on_history = raise_on_history
+        self.search_reply = search_reply
         self.calls = []
 
     def history(self, api_key, symbol, exchange, interval, start_date, end_date):
@@ -46,6 +48,11 @@ class _Reader:
             raise OSError("network")
         data = self.daily if interval == "D" else self.intraday
         return {"status": self.status, "data": data}
+
+    def search_symbol(self, api_key, symbol, exchange="NSE"):
+        if isinstance(self.search_reply, Exception):
+            raise self.search_reply
+        return self.search_reply or {"status": "success", "data": [{"symbol": symbol, "lotsize": 1}]}
 
 
 # --- read-only history call ---
@@ -160,3 +167,27 @@ def test_daily_stats_none_on_error():
 def test_livebars_needs_key():
     with pytest.raises(ValueError):
         LiveBars(_Reader(), "")
+
+
+# --- lot size (SME lots differ from cash equity; owner 2026-11-11) -------------------------
+
+def test_daily_stats_carries_lot_size_default_one():
+    stats = LiveBars(_Reader(daily=_daily_rows()), "KEY").daily_stats("INFY", NOW)
+    assert stats["lot_size"] == 1
+
+
+def test_daily_stats_lot_size_from_search():
+    reader = _Reader(daily=_daily_rows(), search_reply={"status": "success", "data": [
+        {"symbol": "OTHER", "lotsize": 100}, {"symbol": "SME-LTD", "lotsize": 3200}]})
+    assert LiveBars(reader, "KEY").daily_stats("SME-LTD", NOW)["lot_size"] == 3200
+
+
+def test_lot_size_fails_to_one_on_error_or_junk():
+    assert LiveBars(_Reader(daily=_daily_rows()), "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
+    bad = _Reader(daily=_daily_rows(), search_reply=OSError("down"))
+    assert LiveBars(bad, "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
+    junk = _Reader(daily=_daily_rows(), search_reply={"status": "error", "data": None})
+    assert LiveBars(junk, "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
+    nolot = _Reader(daily=_daily_rows(), search_reply={"status": "success",
+                                                       "data": [{"symbol": "INFY", "lotsize": "x"}]})
+    assert LiveBars(nolot, "KEY").daily_stats("INFY", NOW)["lot_size"] == 1

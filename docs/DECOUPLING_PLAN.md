@@ -1,7 +1,30 @@
 # Implementation plan: staged decoupling of src/quant from Blue_engine
 
-Status (2026-11-06): stages 1-2 DONE; stage 3 PARTIAL (items 6, 7, 9-12 local and parity-tested; item 8 HRP still via Blue bridge); stages 4, 5, 6 NOT STARTED (owner review / decision needed).
+Status (2026-11-11): stages 1-2 DONE; stage 3 PARTIAL (item 8 HRP still via Blue bridge — now moot in practice: `portfolio/optimiser_methods.py` has a local HRP, parity-tested); stage 4 CODE DONE (owner sign-off pending, D3); stage 6 advancing (6.1, 6.4, 6.5 done; 6.2, 6.3, 6.6 pending); stage 5 NOT STARTED.
 Started: 2026-11-05. Owner decision: "Staged decoupling" (docs/decisions/0011-decouple-from-blue-engine.md).
+
+## 0. 2026-11-11 update (this session)
+- Compliance gate (`src/quant/risk/compliance.py`): audit-log storage + NTP clock sync, live only.
+  OWNER REMOVED the SEBI algo-ID / registration fields from it (2026-11-11): registration is the
+  broker's obligation; OpenAlgo tags orders with the strategy id. Optional per-order algo tagging
+  stays a pretrade limit (`require_algo_id`), off by default.
+- Pre-gate safety (`src/quant/risk/pre_gate.py`): trading calendar, event blackout, overnight gap,
+  trade-intent handoff contract, stress/VaR — all before the risk gate, refuse-only.
+- P&L counters (`src/quant/execution/pnl_store.py`): restart-safe daily counters; open delivery
+  positions marked to market each cycle (two AGENTS.md known gaps closed).
+- Screener output (`data/screener_engine.write_screen_file`): `data/screened/latest.json` atomic.
+- OCL adapter (`src/quant/strategies/ocl/adapter.py`): bot runs OCL strategies on its own bars.
+- NSE inputs (`src/quant/data/nse_api.py`): nsepython wrapper (delayed data, frontline inputs only).
+- Data sources: `live_feed` approved (broker feed via OpenAlgo, 2026-11-11).
+- Test isolation fixed: `tests/parity/conftest.py` no longer pops modules other suites imported
+  (identity bug broke the Blue TokenGovernor cache tests in full-suite ordering).
+- Full regression after all of the above: 4606 passed, 7 skipped, 1 xfailed.
+- 2026-11-11 (second pass): SEBI ID/registration fields removed from the compliance gate by the
+  owner (registration is the broker's obligation; OpenAlgo tags with the strategy id). SVG, flow
+  doc, config and .env.example updated to match. Readonly client gained the read-only
+  \search_symbol\ path, and \LiveBars.daily_stats\ now carries the broker lot size (SME lots
+  differ from cash equity; fails to 1). OCL per-symbol params supported via
+  \strategies: [- name: ocl, params: {...}]\ in config/bot.yaml.
 
 ## 1. Goal
 `src/quant/` runs without importing `Blue_engine/`. Then `Blue_engine/` can move to `Temp/archive/` (git keeps history).
@@ -117,3 +140,6 @@ Features: optimizer, screener, economics, agent pipeline, POV engine (see docs/d
 ## 9. Work log
 - 2026-11-05: inventory and decision 0011. Stage 1 done and pushed (5df227f). D2 resolved: decision 0012, stage 6 added.
 - 2026-11-06: stage 4 item 14 (RiskGate money checks) ported to `src/quant/risk/money_checks.py`, parity zero diff, decision 0018. Item 13 and owner sign-off still open.
+- 2026-11-11: compliance gate (SEBI fields removed by owner), pre-gate safety, P&L persistence +
+  mark-to-market, screener output file, OCL adapter, NSE inputs, live-feed approval. Layout guards
+  fixed to read UTF-8. See section 0.

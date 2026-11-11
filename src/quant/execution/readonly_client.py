@@ -5,7 +5,7 @@ Status: PHASE 3 IMPLEMENTED (read-only; no order route in this module)
 
 Why it is separate: the POV loop needs market reads and order-state reads, but reads must never
 be able to place or cancel. This class has no place, cancel or modify method, and its transport
-is only ever called with the three read paths below. Tests check both rules.
+is only ever called with the read paths below. Tests check both rules.
 
 No live guard here: a read sends no order and changes no broker state.
 """
@@ -23,6 +23,7 @@ class OpenAlgoReadOnly:
     FUNDS_PATH = "/api/v1/funds"
     POSITIONBOOK_PATH = "/api/v1/positionbook"
     HISTORY_PATH = "/api/v1/history"
+    SEARCH_PATH = "/api/v1/search"
 
     def __init__(self, base_url: str, transport: Transport) -> None:
         self.base_url = base_url.rstrip("/")
@@ -62,3 +63,13 @@ class OpenAlgoReadOnly:
         payload = {"apikey": api_key, "symbol": symbol, "exchange": exchange, "interval": interval,
                    "start_date": start_date, "end_date": end_date, "source": "api"}
         return self._transport(self.base_url + self.HISTORY_PATH, payload)
+
+    def search_symbol(self, api_key: str, symbol: str, exchange: str = "NSE") -> Dict:
+        """Instrument-master lookup (OpenAlgo /search). Read only; raw reply.
+
+        Used for the broker lot size (SME lots differ from cash-equity lots). Returns the raw
+        reply dict; the caller validates the rows.
+        """
+        self._need_key(api_key)
+        payload = {"apikey": api_key, "symbol": symbol, "exchange": exchange}
+        return self._transport(self.base_url + self.SEARCH_PATH, payload)

@@ -90,7 +90,12 @@ class LiveBars:
         return df
 
     def daily_stats(self, symbol: str, now: datetime) -> Optional[Dict[str, float]]:
-        """{'adv_shares', 'prev_close'} from days before today only. None if not enough history."""
+        """{'adv_shares', 'prev_close', 'lot_size'} from days before today only.
+
+        lot_size comes from the broker's instrument master through OpenAlgo (search_symbol);
+        it differs per segment and is 1 for most NSE cash equities but larger for SME-listed
+        stocks. Anything unusable falls back to 1 (the bot default), never to a guess.
+        """
         df = self._window(symbol, "D", ADV_DAYS * 2, now)
         if df is None:
             return None
@@ -101,4 +106,29 @@ class LiveBars:
         prev_close = float(past["close"].iloc[-1])
         if adv <= 0 or prev_close <= 0:
             return None
-        return {"adv_shares": adv, "prev_close": prev_close}
+        return {"adv_shares": adv, "prev_close": prev_close, "lot_size": self._lot_size(symbol)}
+
+    def _lot_size(self, symbol: str) -> int:
+        """Broker instrument-master lot size for this symbol, minimum 1. Fails to 1."""
+        try:
+            reply = self._reader.search_symbol(self._key, symbol)
+        except Exception:
+            return 1
+        if not isinstance(reply, dict) or reply.get("status") != "success":
+            return 1
+        rows = reply.get("data")
+        if not isinstance(rows, list):
+            return 1
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("symbol", "")).upper() != symbol.upper():
+                continue
+            lot = row.get("lotsize", row.get("lot_size"))
+            try:
+                lot = int(lot)
+            except (TypeError, ValueError):
+                continue
+            if lot >= 1:
+                return lot
+        return 1

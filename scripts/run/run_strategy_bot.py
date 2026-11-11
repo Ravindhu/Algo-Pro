@@ -19,6 +19,8 @@ import time
 from datetime import datetime
 from typing import Callable, Optional, Tuple
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -38,17 +40,46 @@ from quant.strategies.engulfing.engulfing import Engulfing  # noqa: E402
 from quant.strategies.ocl.adapter import OCL_STRATEGIES, OclStrategyAdapter  # noqa: E402
 
 STOP_FLAG = "stop.flag"
+
+
+def _strategy_params(bot_cfg_path) -> dict:
+    """Read strategies.<name>.params from config/bot.yaml. Empty dict when absent.
+
+    Schema:
+      strategies:
+        - ocl
+          params:
+            symbol: RELIANCE
+            htf_interval: 5m
+    Unknown top-level keys are already refused by BotConfig.from_yaml; the params block is
+    read separately here so the dataclass schema stays untouched.
+    """
+    try:
+        data = yaml.safe_load(pathlib.Path(bot_cfg_path).read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    out = {}
+    for entry in data.get("strategies", []):
+        if isinstance(entry, str):
+            out.setdefault(entry, {})
+        elif isinstance(entry, dict) and isinstance(entry.get("name"), str):
+            out[entry["name"]] = entry.get("params") or {}
+    return out
 PAPER_SYMBOL_LABEL = "PORTFOLIO"  # the engulfing class needs a symbol; the bot uses the screen's symbols instead
 
 
-def _make_strategy(name: str):
+def _make_strategy(name: str, strategy_params: Optional[dict] = None):
     if name == "engulfing":
         return Engulfing(PAPER_SYMBOL_LABEL)
     # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
-    # they poll a client, so the adapter serves them the bot's own closed bars.
+    # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol
+    # settings come from config/bot.yaml strategies.<name>.params (pattern, HTF/LTF intervals,
+    # trigger level, exec mode...). Keys are passed straight through to the OCL class.
     ocl = OCL_STRATEGIES()
     if name in ocl:
-        return OclStrategyAdapter(name, ocl[name], {"symbol": PAPER_SYMBOL_LABEL})
+        params = dict((strategy_params or {}).get(name, {}))
+        params.setdefault("symbol", PAPER_SYMBOL_LABEL)
+        return OclStrategyAdapter(name, ocl[name], params)
     raise BotRefused(f"strategy {name!r} is not wired into the bot runner")
 
 
@@ -61,13 +92,14 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
         raise BotRefused(f"this runner is paper only; config mode is {cfg.mode!r}")
     if cfg.live_enabled:
         raise BotRefused("live_enabled must stay false")
+    strategy_params = _strategy_params(bot_cfg_path)
     state_dir = pathlib.Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     audit = AuditLog(state_dir / "audit.jsonl")
     alerts = alerts or Alerts(on_critical=on_critical)
     bot = StrategyBot(
         cfg=cfg,
-        strategies=[_make_strategy(n) for n in cfg.strategies],
+        strategies=[_make_strategy(n, strategy_params) for n in cfg.strategies],
         bars=LiveBars(reader, api_key),
         sender=PaperSender(broker or PaperBroker()),
         audit=audit,
