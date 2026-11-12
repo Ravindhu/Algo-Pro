@@ -217,6 +217,25 @@
         "catalog_paths": []
       },
       "_agentic_comment": "max_rounds/max_calls bound the optional read-only tool loop. Hard-clamped to 4 rounds / 6 calls in AgenticLLM so a misconfiguration cannot drain the OpenRouter free tier (50 req/day below 10 credits, 1000 above).",
+      "patch": {
+        "_comment": "JSON-patch edit mode (docs/FRONTLINE_PATCH_PROTOCOL_PLAN.md). enabled=false keeps full regeneration. edit_model routes the small edit call to the cheapest backend model (element 7); empty = normal chain order. A malformed patch falls back to a full call; the patched result still passes _SCHEMAS validation and the _CAPS clamp.",
+        "enabled": false,
+        "edit_model": ""
+      },
+      "cache": {
+        "_comment": "Per-stage TTL in seconds for the governed prompt cache (LLM_STAGE_TTL_PLAN). 0 = always call (default, unchanged behaviour). A cached answer still passes schema validation and the safe-direction clamp. risk and portfolio MUST stay 0: a cached veto answer is never acceptable.",
+        "stage_ttl_seconds": {
+          "economic": 0,
+          "sector": 0,
+          "market": 0,
+          "screener": 0,
+          "portfolio": 0,
+          "risk": 0,
+          "valuation": 0,
+          "backtest": 0,
+          "optimization": 0
+        }
+      },
       "llm": {
         "_chain_comment": "Order is fixed in code: ollama, then openrouter, then disabled. Set enabled=false to drop a backend from the chain.",
         "ollama": {

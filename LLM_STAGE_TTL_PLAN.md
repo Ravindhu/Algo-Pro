@@ -1,6 +1,6 @@
 # LLM Per-Stage TTL and Call Reduction: Implementation Plan
 
-Status: PLANNED. No code changed.
+Status: IMPLEMENTED (Phases 1-4, 2026-11-12). Phase 5 (paper measurement) pending.
 Target path in repo: `docs/LLM_STAGE_TTL_PLAN.md`
 Owner: Ravindhu. Date: 2026-11-12.
 

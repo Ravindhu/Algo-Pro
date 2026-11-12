@@ -307,7 +307,7 @@ def test_sector_advisor_falls_back_to_ollama_with_four_second_timeouts(monkeypat
     ]
 
 
-def test_sector_advisor_accepts_valid_openrouter_response(monkeypatch):
+def test_sector_advisor_accepts_valid_openrouter_response(monkeypatch, tmp_path):
     monkeypatch.setattr(
         sector_engine_module, "get_secret", lambda name: "test-sector-key")
 
@@ -349,6 +349,7 @@ def test_sector_advisor_accepts_valid_openrouter_response(monkeypatch):
         ],
         "synthetic context",
         ["NIFTY IT", "NIFTY AUTO"],
+        cache_dir=tmp_path,
     )
 
     assert result["method"] == "openrouter"

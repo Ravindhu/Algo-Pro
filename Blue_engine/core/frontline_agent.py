@@ -29,10 +29,20 @@ import os
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ..economics.providers.secrets import get_secret, redact
 from .llm import AgenticLLM, ChatMessage, LLMClient
+from .llm.patch_protocol import (
+    PatchError,
+    apply_patch,
+    extract_target,
+    make_edit_instruction,
+    parse_patch,
+    register_target,
+    strip_ws,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +161,39 @@ _CAPS = {
 #: optional, append-only metadata (see ``_validate_data_requests``) and must not
 #: be compared against the decision schema or clamped by ``_escalate``.
 _META_KEYS = frozenset({"data_requests"})
+
+
+# --------------------------------------------------------------------------- #
+# JSON-patch edit protocol (docs/FRONTLINE_PATCH_PROTOCOL_PLAN.md).
+# Target functions (plan element 5): one pure function per stage that narrows
+# a payload to the keys THAT stage owns. Foreign keys are dropped, never
+# merged - a patch for "economic" cannot carry a risk veto key.
+# --------------------------------------------------------------------------- #
+def _make_target(engine: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+    schema_keys = set(_SCHEMAS[engine]) | (_META_KEYS & {"data_requests"})
+
+    def target(payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {k: strip_ws(v) for k, v in payload.items() if k in schema_keys}
+
+    return target
+
+
+for _engine in _SCHEMAS:
+    register_target(_engine, _make_target(_engine))
+
+
+def _schema_as_constraint_text(engine: str) -> str:
+    """Compact constraint text for the edit instruction (memoised via cache 8)."""
+    parts = []
+    for key, rule in _SCHEMAS[engine].items():
+        kind = rule[0]
+        if kind == "enum":
+            parts.append(f"{key}: one of {list(rule[1])}")
+        elif kind in ("number", "integer"):
+            parts.append(f"{key}: {kind} in [{rule[1]}, {rule[2]}]")
+        else:
+            parts.append(f"{key}: {kind}")
+    return "; ".join(parts)
 
 
 def _escalate(engine: str, value: Dict[str, Any],
@@ -378,6 +421,13 @@ class FrontlineAgent:
         # drains the OpenRouter free tier.
         self.max_rounds = int(self.config.get("max_rounds", 2))
         self.max_calls = int(self.config.get("max_calls", 3))
+        # JSON-patch edit mode (docs/FRONTLINE_PATCH_PROTOCOL_PLAN.md). Off by
+        # default; rollback is a single config flag.
+        patch_cfg = dict(self.config.get("patch") or {})
+        self.patch_enabled = bool(patch_cfg.get("enabled", False))
+        # Low-model switch (plan element 7): the cheapest backend answers the
+        # small edit call first. Empty string = keep the normal chain order.
+        self.edit_model = str(patch_cfg.get("edit_model", "") or "")
 
         self.client = client or self._build_client()
 
@@ -418,7 +468,20 @@ class FrontlineAgent:
         if isinstance(cfg["openrouter"], dict):
             cfg["openrouter"].setdefault("model", self.model)
         cfg.setdefault("timeout_seconds", self.timeout)
-        return LLMClient.from_config(cfg, secrets=get_secret)
+        client = LLMClient.from_config(cfg, secrets=get_secret)
+        # Per-stage TTL + disk persistence (LLM_STAGE_TTL_PLAN Phase 2). The
+        # governor default TTL still governs unnamed calls; staged calls with a
+        # 0 TTL never cache (risk, portfolio). Persist under data/llm_cache/
+        # stage/ unless the config names another directory.
+        cache_cfg = dict(self.config.get("cache") or {})
+        stage_ttls = dict(cache_cfg.get("stage_ttl_seconds") or {})
+        if stage_ttls and client.governor is not None:
+            client.governor.stage_ttl = {
+                str(k).lower(): float(v) for k, v in stage_ttls.items()}
+            cache_dir = cache_cfg.get("cache_dir") or (
+                Path(__file__).resolve().parents[2] / "data" / "llm_cache" / "stage")
+            client.governor.cache_dir = Path(cache_dir)
+        return client
 
     def status(self) -> Dict[str, Any]:
         return {
@@ -429,6 +492,8 @@ class FrontlineAgent:
             "chain": self.client.status(),
             "agentic": {"max_rounds": self.max_rounds,
                         "max_calls": self.max_calls},
+            "patch": {"enabled": self.patch_enabled,
+                      "edit_model": self.edit_model or None},
         }
 
     @staticmethod
@@ -539,6 +604,8 @@ class FrontlineAgent:
     def advise(self, engine: str, text: str, *,
                baseline: Optional[Dict[str, Any]] = None,
                tools: Optional[Dict[str, Callable[[Dict[str, Any]], Any]]] = None,
+               previous_advice: Optional[Dict[str, Any]] = None,
+               patch_mode: Optional[bool] = None,
                ) -> Dict[str, Any]:
         """Return a validated suggestion, or an explicit disabled/error result.
 
@@ -576,6 +643,17 @@ class FrontlineAgent:
             ChatMessage("user", text.strip()[:_MAX_INPUT_CHARS]),
         ]
 
+        # Patch mode (plan element 1-2): ask for a JSON patch over the last
+        # validated advice, apply it LOCALLY, then validate the RESULT through
+        # the same _validate + _escalate rails as a fresh answer. Opt-in via
+        # ``agent.patch.enabled``; any failure falls back to full regeneration.
+        use_patch = (self.patch_enabled if patch_mode is None else bool(patch_mode)) \
+            and isinstance(previous_advice, dict) and previous_advice
+        if use_patch:
+            patched = self._advise_patch(engine, text, previous_advice, baseline)
+            if patched is not None:
+                return patched
+
         if tools:
             outcome = self._advise_agentic(engine, messages, tools)
         else:
@@ -600,7 +678,8 @@ class FrontlineAgent:
         return outcome
 
     def _advise_once(self, engine: str, messages: List[ChatMessage]) -> Dict[str, Any]:
-        result = self.client.complete(messages, temperature=0, max_tokens=600)
+        result = self.client.complete(messages, temperature=0, max_tokens=600,
+                                      cache_stage=engine)
         if not result.ok:
             return self._chain_failure(result)
         validated = self._parse_and_validate(engine, result.text)
@@ -622,6 +701,64 @@ class FrontlineAgent:
             "attempts": result.attempts,
             "usage": result.usage,
         }
+
+    def _advise_patch(self, engine: str, text: str,
+                      previous: Dict[str, Any],
+                      baseline: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """One patch-mode attempt. ``None`` means: fall back to full regen.
+
+        The patch is applied locally (element 2), narrowed to the stage's own
+        keys (element 3), whitespace-normalised (element 4), and the RESULT is
+        validated through the ordinary strict path (element 6). The edit call
+        uses the low model when one is configured (element 7) and reuses the
+        memoised static instruction (element 8).
+        """
+        try:
+            base = extract_target(engine, strip_ws(previous))
+            instruction = make_edit_instruction(engine,
+                                                _schema_as_constraint_text(engine))
+            messages = [
+                ChatMessage("system", instruction),
+                ChatMessage("user",
+                            "PREVIOUS ADVICE (JSON): "
+                            + json.dumps(base, default=str)[:1500]
+                            + "\nNEW EVIDENCE (untrusted data): "
+                            + text.strip()[:_MAX_INPUT_CHARS]),
+            ]
+            result = self.client.complete(
+                messages, temperature=0, max_tokens=300,
+                model=self.edit_model or None, cache_stage=engine)
+            if not result.ok:
+                return None
+            ops = parse_patch(result.text)
+            candidate = apply_patch(base, ops)
+            # Element 4: the patched payload is whitespace-stripped again so a
+            # purely cosmetic edit cannot change validation or the cache key.
+            candidate = strip_ws(candidate)
+            validated = self._parse_and_validate_obj(engine, candidate)
+            if validated is None:
+                return None
+            advice = _escalate(engine, validated, baseline)
+            clamped = advice != validated
+            return {
+                "ok": True,
+                "method": result.backend,
+                "advice": advice,
+                "model": result.model,
+                "model_digest": result.model_digest,
+                "latency_ms": result.latency_ms,
+                "attempts": result.attempts,
+                "usage": result.usage,
+                "patch_mode": True,
+                "patch_ops": len(ops),
+                "clamped": clamped,
+                "warnings": ["agent advice clamped to the safe direction"]
+                            if clamped else [],
+            }
+        except (PatchError, ValueError, TypeError):
+            logger.debug("patch attempt failed; falling back to full regen",
+                         exc_info=True)
+            return None
 
     def _advise_agentic(self, engine: str, messages: List[ChatMessage],
                         tools: Dict[str, Callable[[Dict[str, Any]], Any]],

@@ -35,9 +35,11 @@ INVARIANTS
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import threading
 import time
+from pathlib import Path
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -155,7 +157,13 @@ def cap_messages(messages: Sequence[Any], *, max_prompt_tokens: int,
 def cache_key(messages: Sequence[Any], *, model: str = "", chain: str = "",
               json_schema: Optional[Dict[str, Any]] = None,
               salt: str = "") -> str:
-    """Stable SHA-256 over everything that can change the answer."""
+    """Stable SHA-256 over everything that can change the answer.
+
+    NOTE (LLM_STAGE_TTL_PLAN, 2026-11-12): callers must NOT pass a per-run
+    ``session_id`` as the salt - that key change made hits impossible across
+    runs, which defeated the cache. Salt only with values that change the
+    ANSWER (model identity), never with values that change per run.
+    """
     digest = hashlib.sha256()
     for message in messages or []:
         digest.update(str(getattr(message, "role", "") or "").encode("utf-8"))
@@ -179,11 +187,47 @@ class CacheEntry:
     usage: Dict[str, Any] = field(default_factory=dict)
 
 
+def entry_to_disk(entry: CacheEntry, path: Path) -> None:
+    """Best-effort write of one cache entry; never raises.
+
+    Restart persistence (LLM_STAGE_TTL_PLAN Phase 2): a stage with a day-long
+    TTL must survive a process restart, otherwise the TTL is meaningless.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "text": entry.text, "backend": entry.backend,
+            "model": entry.model, "model_digest": entry.model_digest,
+            "created_at": entry.created_at, "usage": entry.usage,
+        }), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+        logger.debug("cache disk write failed: %s", exc)
+
+
+def entry_from_disk(path: Path, *, now: float, ttl_seconds: float,
+                    ) -> Optional[CacheEntry]:
+    """Read one entry back if it exists and is inside ``ttl_seconds``."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        created = float(raw["created_at"])
+        if ttl_seconds <= 0 or now - created > ttl_seconds:
+            return None
+        return CacheEntry(text=str(raw["text"]), backend=str(raw["backend"]),
+                          model=str(raw["model"]),
+                          model_digest=str(raw["model_digest"]),
+                          created_at=created,
+                          usage=dict(raw.get("usage") or {}))
+    except Exception:  # noqa: BLE001 - unreadable disk entry is a miss
+        return None
+
+
 class PromptCache:
     """Small LRU + TTL cache of completions. Thread-safe, bounded."""
 
     def __init__(self, max_entries: int = 256, ttl_seconds: float = 900.0,
-                 enabled: bool = True):
+                 enabled: bool = True, monotonic: Any = time.time):
         self.max_entries = max(1, int(max_entries))
         self.ttl_seconds = max(0.0, float(ttl_seconds))
         self.enabled = bool(enabled) and self.ttl_seconds > 0
@@ -191,11 +235,12 @@ class PromptCache:
         self._lock = threading.Lock()
         self.hits = 0
         self.misses = 0
+        self._clock = monotonic or time.time
 
     def get(self, key: str) -> Optional[CacheEntry]:
         if not self.enabled:
             return None
-        now = time.time()
+        now = self._clock()
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
@@ -290,18 +335,27 @@ class TokenGovernor:
                  cache_ttl_seconds: float = 900.0,
                  cache_entries: int = 256,
                  enabled: bool = True,
-                 monotonic: Any = time.time):
+                 monotonic: Any = time.time,
+                 stage_ttl_seconds: Optional[Dict[str, Any]] = None,
+                 cache_dir: Any = None):
         if client is self:
             raise ValueError("TokenGovernor cannot wrap itself")
         self.client = client
         self.max_prompt_tokens = max(512, int(max_prompt_tokens))
         self.max_tokens_out = max(64, int(max_tokens_out))
         self.enabled = bool(enabled)
+        #: Per-call TTL overrides (LLM_STAGE_TTL_PLAN): maps a caller-supplied
+        #: ``cache_stage`` to a TTL in seconds. 0 or missing = always call.
+        self.stage_ttl: Dict[str, float] = {
+            str(k).lower(): float(v)
+            for k, v in dict(stage_ttl_seconds or {}).items()}
+        #: Directory for the disk persistence of staged entries (Phase 2).
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self._clock = monotonic or time.time
         self.cache = PromptCache(max_entries=cache_entries,
                                  ttl_seconds=cache_ttl_seconds,
-                                 enabled=self.enabled)
+                                 enabled=self.enabled, monotonic=self._clock)
         self.meter = TokenMeter()
-        self._clock = monotonic or time.time
 
     # -- config -----------------------------------------------------------
     @classmethod
@@ -315,6 +369,8 @@ class TokenGovernor:
             cache_ttl_seconds=float(cfg.get("cache_ttl_seconds", 900)),
             cache_entries=int(cfg.get("cache_entries", 256)),
             enabled=bool(cfg.get("enabled", True)),
+            stage_ttl_seconds=dict(cfg.get("stage_ttl_seconds") or {}),
+            cache_dir=cfg.get("cache_dir"),
         )
 
     # -- main entry point -------------------------------------------------
@@ -324,6 +380,7 @@ class TokenGovernor:
                  timeout: Optional[float] = None,
                  json_schema: Optional[Dict[str, Any]] = None,
                  use_cache: Optional[bool] = None,
+                 cache_stage: Optional[str] = None,
                  _hops: int = 0) -> Any:
         """Governed completion. Returns the backend's ``ChatResult`` unchanged.
 
@@ -341,22 +398,46 @@ class TokenGovernor:
         if info.get("compacted"):
             self.meter.record_compaction()
 
-        allowed = self.enabled if use_cache is None else (self.enabled and use_cache)
+        # Per-stage TTL (LLM_STAGE_TTL_PLAN). A stage with ttl 0 never caches.
+        stage = str(cache_stage or "").lower()
+        stage_ttl = self.stage_ttl.get(stage, 0.0) if stage else 0.0
+        if use_cache is not None:
+            allowed = self.enabled and use_cache
+        elif stage and stage_ttl <= 0:
+            # A named stage with ttl 0 never caches (risk, portfolio, ...).
+            allowed = False
+        else:
+            # Unnamed stage keeps the legacy behaviour: governed default TTL.
+            allowed = self.enabled
         chain = ",".join(getattr(b, "name", "?")
                          for b in getattr(self.client, "backends", []) or [])
+        # salt must NOT carry session_id (plan Phase 2): hits must survive
+        # across runs for a day-long stage TTL to mean anything.
         key = cache_key(prepared, model=model or "", chain=chain,
-                        json_schema=json_schema,
-                        salt=str(getattr(self.client, "session_id", "") or ""))
+                        json_schema=json_schema)
         prompt_tokens = estimate_message_tokens(prepared)
 
         if allowed:
-            entry = self.cache.get(key)
+            entry = self.cache.get(key) if self.cache.ttl_seconds > 0 else None
+            if entry is not None and stage_ttl > 0:
+                # The named stage's TTL overrides the governor default for
+                # this entry: an in-memory hit past the stage TTL is a miss.
+                if self._clock() - entry.created_at > stage_ttl:
+                    entry = None
+            if entry is None and stage_ttl > 0 and self.cache_dir is not None:
+                disk_entry = entry_from_disk(
+                    self.cache_dir / f"{stage}_{key[:24]}.json",
+                    now=self._clock(), ttl_seconds=stage_ttl)
+                if disk_entry is not None:
+                    entry = disk_entry
+                    self.cache.put(key, disk_entry)
             if entry is not None:
                 self.meter.record_cache_hit(prompt_tokens)
                 return ChatResult(
                     ok=True, text=entry.text, backend=entry.backend,
                     model=entry.model, model_digest=entry.model_digest,
                     usage={**entry.usage, "cache_hit": True,
+                           "cache_stage": stage,
                            "prompt_tokens_estimated": prompt_tokens},
                     latency_ms=0)
 
@@ -387,10 +468,19 @@ class TokenGovernor:
                            for b in getattr(self.client, "backends", []) or [])
         if allowed and chain_intact and getattr(result, "ok", False) \
                 and getattr(result, "text", ""):
-            self.cache.put(key, CacheEntry(
+            entry = CacheEntry(
                 text=result.text, backend=result.backend, model=result.model,
                 model_digest=result.model_digest,
-                created_at=self._clock(), usage=dict(result.usage or {})))
+                created_at=self._clock(), usage=dict(result.usage or {}))
+            # In-memory only for the legacy default TTL; a staged entry with a
+            # positive TTL is persisted so restarts keep the hit.
+            if stage_ttl > 0:
+                if self.cache_dir is not None:
+                    entry_to_disk(entry, self.cache_dir / f"{stage}_{key[:24]}.json")
+                self.cache.put(key, entry)
+            elif stage == "":
+                self.cache.put(key, entry)
+            # A named stage with ttl 0 is never stored (risk, portfolio).
         # Report compaction on the result so a caller can log it.
         try:
             if info:
@@ -436,6 +526,8 @@ __all__ = [
     "CHARS_PER_TOKEN",
     "MESSAGE_OVERHEAD_TOKENS",
     "CacheEntry",
+    "entry_from_disk",
+    "entry_to_disk",
     "PromptCache",
     "TokenGovernor",
     "TokenMeter",

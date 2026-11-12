@@ -1442,3 +1442,9 @@ gated (no real order leaves the machine).
 | 8 | Trading calendar readable | `PreGate().calendar_ok(today).ok` is `True` |
 | 9 | Compliance (live only) | `ComplianceGate(...).check().ok` is `True` |
 | 10 | Screen file fresh | `data/screened/latest.json` `as_of` within `max_screen_age_minutes` |
+
+## 16. LLM call-cost reduction (2026-11-12)
+- Per-stage TTL prompt cache implemented (LLM_STAGE_TTL_PLAN.md): config under engines.agent.cache.stage_ttl_seconds in Blue_engine/input/macro_master.json; all default 0 (behaviour unchanged until opted in). risk and portfolio must stay 0. Entries persist to the runtime data root (llm_cache/stage) so restarts keep hits; session_id removed from the cache key.
+- JSON-patch edit protocol implemented (docs/FRONTLINE_PATCH_PROTOCOL_PLAN.md): agent.patch.enabled opt-in; the model returns a small JSON patch over the last validated advice, applied locally in core/llm/patch_protocol.py; the patched result still passes _SCHEMAS validation and _CAPS clamp. edit_model routes the edit call to the cheapest backend; the per-engine edit instruction is compiled once and memoised.
+- Sector advisor: validated advice cached on disk for SECTOR_ADVICE_TTL_SECONDS (default 86400) under runtime llm_cache/sector; a second identical run makes zero LLM calls. PM note cache now expires after PM_NOTE_TTL_SECONDS.
+- Verification: Blue_engine 1835 passed; src/quant 786 passed, 1 skipped, 1 xfailed.

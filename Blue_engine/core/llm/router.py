@@ -176,7 +176,8 @@ class LLMClient:
     def complete(self, messages: Sequence[ChatMessage], *,
                  model: Optional[str] = None, temperature: float = 0.0,
                  max_tokens: int = 600, timeout: Optional[float] = None,
-                 json_schema: Optional[Dict[str, Any]] = None) -> ChatResult:
+                 json_schema: Optional[Dict[str, Any]] = None,
+                 cache_stage: Optional[str] = None) -> ChatResult:
         """Try each backend in order; return the first success.
 
         A backend that is not ``available()`` (e.g. OpenRouter after a 429) is
@@ -193,7 +194,7 @@ class LLMClient:
                 return self.governor.complete(
                     messages, model=model, temperature=temperature,
                     max_tokens=max_tokens, timeout=timeout,
-                    json_schema=json_schema)
+                    json_schema=json_schema, cache_stage=cache_stage)
             finally:
                 _GOVERNING.set(False)
         attempts: List[Dict[str, str]] = []

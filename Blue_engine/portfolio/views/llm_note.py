@@ -36,6 +36,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -54,6 +55,13 @@ __all__ = ["extract_views", "write_pm_note", "available", "cache_path",
 # Blue_engine/portfolio/views/llm_note.py -> repo root is 4 parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CACHE_DIR = runtime_data_root() / "portfolio_llm"
+
+#: PM-note cache TTL in seconds (LLM_STAGE_TTL_PLAN Phase 3). The old cache had
+#: no expiry and its key held volatile weights/vol, so it almost never hit and
+#: never went stale. A day-long TTL keeps the note fresh once per run day while
+#: capping spend. 0 = never expire (legacy). Views cache keeps the legacy
+#: content-addressed behaviour (inputs are documents, acceptable per plan).
+PM_NOTE_TTL_SECONDS = float(os.getenv("PM_NOTE_TTL_SECONDS", "86400"))
 
 # NOTE: the JSON exemplar's literal braces are doubled (``{{``/``}}``) because
 # this string is consumed by ``str.format`` below; a single brace would make
@@ -114,11 +122,17 @@ def cache_path(text: str, *, cache_dir: Optional[Path] = None,
     return d / f"{tag}_{digest}.json"
 
 
-def _read_cache(path: Path) -> Optional[Any]:
+def _read_cache(path: Path, *, ttl_seconds: float = 0.0) -> Optional[Any]:
+    """Read a cache file; with a positive TTL reject entries older than it."""
     try:
         if path.is_file():
             with path.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
+                payload = json.load(fh)
+            if ttl_seconds > 0:
+                cached_at = float(payload.get("_cached_at", 0) or 0)
+                if time.time() - cached_at > ttl_seconds:
+                    return None
+            return payload
     except Exception:  # noqa: BLE001
         return None
     return None
@@ -127,8 +141,11 @@ def _read_cache(path: Path) -> Optional[Any]:
 def _write_cache(path: Path, payload: Any) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        stamped = payload
+        if isinstance(payload, dict):
+            stamped = {**payload, "_cached_at": time.time()}
         with path.open("w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2, default=str)
+            json.dump(stamped, fh, indent=2, default=str)
     except Exception as exc:  # noqa: BLE001 - cache is best-effort
         logger.debug("llm cache write failed: %s", exc)
 
@@ -266,7 +283,7 @@ def write_pm_note(numbers: Dict[str, Any], *,
     }
     prompt = NOTE_PROMPT.format(numbers=json.dumps(safe, default=str))
     path = cache_path(prompt, cache_dir=cache_dir, tag="note")
-    cached = _read_cache(path)
+    cached = _read_cache(path, ttl_seconds=PM_NOTE_TTL_SECONDS)
     if isinstance(cached, dict) and cached.get("note"):
         return {**cached, "cache": "hit"}
 

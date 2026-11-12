@@ -1,6 +1,7 @@
 """Mansfield relative-strength sector analysis with fail-closed advice."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -8,6 +9,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -19,6 +21,7 @@ from ..core.llm.backends import OllamaBackend, OpenRouterBackend
 from ..core.llm.protocol import ChatMessage
 from ..core.llm.router import LLMClient
 from ..economics.providers.secrets import get_secret
+from ..runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,11 @@ _MAX_BODY_BYTES = 32_768
 _MAX_CONTEXT_CHARS = 6_000
 _MAX_SECTORS = 50
 _MAX_CLOSES = 10_000
+#: Sector advice TTL in seconds (LLM_STAGE_TTL_PLAN Phase 3): one advice per
+#: day. Cached advice is still passed through _validate_advice, so a stale
+#: payload can never enter as valid. 0 disables the cache.
+SECTOR_ADVICE_TTL_SECONDS = float(
+    os.getenv("SECTOR_ADVICE_TTL_SECONDS", "86400"))
 _SECRET_TOKEN = re.compile(r"\b(?:sk-or-v1-|sk-proj-|sk-)[A-Za-z0-9_-]{20,}\b")
 _WRITE_LOCK = threading.RLock()
 _RUN_SEQUENCE = 0
@@ -61,6 +69,44 @@ _DEFAULT_LIMITS_PATH = (
 _DEFAULT_SNAPSHOT_PATH = (
     Path(__file__).resolve().parents[1] / "input" / "sector_engine_snapshot.json"
 )
+#: Disk cache for validated sector advice (LLM_STAGE_TTL_PLAN Phase 3).
+#: Under the runtime data root (honours BLUE_RUNTIME_DATA_ROOT) so test runs
+#: and production never share one cache file for the same synthetic prompt.
+_DEFAULT_ADVICE_CACHE_DIR = runtime_data_root() / "llm_cache" / "sector"
+
+
+def _advice_cache_path(prompt: str, cache_dir: Optional[Path] = None) -> Path:
+    """Deterministic cache path from a hash of the rounded, trimmed prompt."""
+    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:24]
+    return (Path(cache_dir) if cache_dir else _DEFAULT_ADVICE_CACHE_DIR) \
+        / f"advice_{digest}.json"
+
+
+def _read_advice_cache(path: Path, *, now: float,
+                       ttl_seconds: float) -> Optional[Any]:
+    """Return the cached advice payload only if fresh; best-effort, never raises."""
+    if ttl_seconds <= 0:
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if now - float(raw.get("cached_at", 0)) > ttl_seconds:
+            return None
+        return raw.get("advice")
+    except Exception:  # noqa: BLE001 - a broken cache entry is a miss
+        return None
+
+
+def _write_advice_cache(path: Path, advice: Dict[str, Any],
+                        *, now: float) -> None:
+    """Atomic best-effort write of one validated advice payload."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"cached_at": now, "advice": advice}),
+                       encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:  # noqa: BLE001 - cache is best-effort
+        logger.debug("sector advice cache write failed: %s", exc)
 
 
 def _finite_series(raw: Any, name: str) -> List[float]:
@@ -229,7 +275,8 @@ class SectorAdvisor:
         )
 
     def advise(self, sector_matrix: List[Dict[str, Any]], news_context: str,
-               sector_names: List[str]) -> Dict[str, Any]:
+               sector_names: List[str], *,
+               cache_dir: Optional[Path] = None) -> Dict[str, Any]:
         try:
             prompt = self._prompt(sector_matrix, news_context)
         except (TypeError, ValueError, OverflowError):
@@ -242,6 +289,20 @@ class SectorAdvisor:
                 "method": "safety_fallback",
                 "warning": "credential-like sector input was not sent to an advisor",
             }
+        # Disk cache first (LLM_STAGE_TTL_PLAN Phase 3). The cached payload was
+        # already validated when stored, but it is re-validated below anyway -
+        # validation is cheap and the answer must never skip it.
+        cache_path = _advice_cache_path(prompt, cache_dir=cache_dir)
+        cached = _read_advice_cache(cache_path, now=time.time(),
+                                    ttl_seconds=SECTOR_ADVICE_TTL_SECONDS)
+        if cached is not None:
+            scores = {
+                row["sector"]: row["relative_strength_score"]
+                for row in sector_matrix
+            }
+            validated = _validate_advice(cached, sector_names, scores)
+            if validated is not None:
+                return {"method": "cache", "advice": validated}
         key = get_secret("OPENROUTER_API_KEY")
         if key:
             cloud = self._openrouter(prompt, key)
@@ -252,6 +313,7 @@ class SectorAdvisor:
                 }
                 validated = _validate_advice(cloud, sector_names, scores)
                 if validated is not None:
+                    _write_advice_cache(cache_path, validated, now=time.time())
                     return {"method": "openrouter", "advice": validated}
         local = self._ollama(prompt)
         if local is not None:
@@ -261,6 +323,7 @@ class SectorAdvisor:
             }
             validated = _validate_advice(local, sector_names, scores)
             if validated is not None:
+                _write_advice_cache(cache_path, validated, now=time.time())
                 return {"method": "ollama", "advice": validated}
         return {
             "method": "safety_fallback",
