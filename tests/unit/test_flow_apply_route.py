@@ -58,10 +58,11 @@ def test_viewer_and_token_are_refused(env, monkeypatch):
     _sign_in(client, "Peon", "viewer-password")
     res = client.post("/api/flow/apply", json={"id": entry["id"]})
     assert res.status_code == 403
-    # the write token alone must not pass either
+    # signed out, the API token header must not pass either
+    client.cookies.clear()
     res = client.post("/api/flow/apply", json={"id": entry["id"]},
                       headers={"X-Dashboard-Token": "t"})
-    assert res.status_code == 403
+    assert res.status_code == 403  # this route's own owner guard
 
 
 def test_tightening_applies_without_phrase_and_audits_once(env):

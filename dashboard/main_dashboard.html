@@ -1036,7 +1036,8 @@
   }
   function describeFail(res) {
     if (res.status === 401) return "Not allowed: sign in as the owner (top right).";
-    if (res.status === 503) return "Writes are off: the server is missing a secret (DASHBOARD_API_TOKEN or DASHBOARD_SESSION_SECRET).";
+    if (res.status === 403) return "Not allowed: this account is a viewer. Owner needed.";
+    if (res.status === 503) return "Writes are off: the server could not create its login key.";
     return res.j.error || ("Failed (HTTP " + res.status + ").");
   }
 

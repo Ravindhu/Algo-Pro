@@ -1,7 +1,6 @@
 """FastAPI dashboard. Reads the paper ledger, audit log and kill switch. Never sends orders.
 
-Writes need the signed-in owner session (top-right sign-in) OR the DASHBOARD_API_TOKEN header
-(decision 0020; the token is for scripts, the page no longer has a token box, 2026-11-12):
+Writes need the signed-in owner account (no API token; login key is auto-created, 2026-11-12):
     POST /api/limits       save user-set risk limits
     POST /api/kill/trip    block new entries (reason required, audited)
     POST /api/kill/reset   clear the kill switch (reason required, audited)
@@ -49,8 +48,6 @@ from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 
-TOKEN_ENV = "DASHBOARD_API_TOKEN"
-TOKEN_HEADER = "X-Dashboard-Token"
 REASON_MAX = 200
 ACTOR = "dashboard-api"
 
@@ -70,6 +67,7 @@ DEFAULT_PATHS = {
     "schedule": ROOT / "data" / "schedule_settings.json",
     "users": ROOT / "data" / "dashboard_users.json",
     "recs": ROOT / "data" / "paper" / "recommendations.json",  # agent recommendations (Part B 1)
+    "session_secret": ROOT / "data" / "session_secret.key",  # login signing key, created on first start
 }
 LOOP_INTERVAL_S = 60  # paper loop cycle (decision 0029)
 
@@ -102,6 +100,25 @@ def _installer_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_or_create_secret(path: Path) -> str:
+    """The login signing key. Created once with a random value and reused on every start.
+
+    The file is written owner-read-only (0600). Nothing needs to be typed in.
+    """
+    import secrets
+
+    if path.exists():
+        value = path.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    value = secrets.token_urlsafe(48)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(value)
+    return value
 
 
 def read_settings(path: Path) -> Dict[str, object]:
@@ -153,16 +170,6 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     openalgo = OpenAlgoClient(os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"),
                               transport=http_transport, mode="analyze")
     portfolio = HoldingsReader(openalgo.get_holdings, OpenAlgoClient.api_key_from_env, time.time)
-
-    def token_error(request: Request):
-        """None when the token is good. Otherwise the error response (503 no server token, 401 wrong)."""
-        expected = os.environ.get(TOKEN_ENV, "")
-        if not expected:
-            return JSONResponse({"error": f"writes disabled: {TOKEN_ENV} is not set"}, status_code=503)
-        given = request.headers.get(TOKEN_HEADER, "")
-        if not hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8")):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return None
 
     async def reason_from(request: Request):
         """(reason, None) when valid, else (None, 422 response)."""
@@ -219,7 +226,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.post("/api/limits")
     async def set_limits(request: Request):
-        """Save user-set risk limits. Needs the DASHBOARD_API_TOKEN header. Refused if no token is set."""
+        """Save user-set risk limits. Owner account only."""
         denied = owner_denied(request)
         if denied is not None:
             return denied
@@ -351,27 +358,26 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     # ---------------- accounts, schedule, engine, infrastructure ----------------
     SESSION_COOKIE = "algo_session"
 
+    # Env DASHBOARD_SESSION_SECRET wins; otherwise the key is created once in data/ and reused.
+    SESSION_KEY = os.environ.get("DASHBOARD_SESSION_SECRET", "") or load_or_create_secret(paths["session_secret"])
+
     def session_secret() -> str:
-        return os.environ.get("DASHBOARD_SESSION_SECRET", "")
+        return SESSION_KEY
 
     def signed_in(request: Request) -> Optional[str]:
         return accounts.read_session(request.cookies.get(SESSION_COOKIE, ""), session_secret())
 
-    def write_denied(request: Request):
-        """None when the caller may write: a good token OR a signed-in account."""
-        if signed_in(request):
-            return None
-        return token_error(request)
-
     def owner_denied(request: Request):
-        """None when the caller may change settings: a good token (scripts) OR the signed-in owner.
+        """None only for the signed-in owner. Every write uses the account login (no API token).
 
-        Viewer accounts are refused. Used by the routes the page writes to (limits, kill,
-        setup, trading mode, paper loop) since the page no longer has a token box.
+        401 = not signed in. 403 = signed in as a viewer.
         """
-        if accounts.is_owner(signed_in(request), paths["users"]):
+        name = signed_in(request)
+        if accounts.is_owner(name, paths["users"]):
             return None
-        return token_error(request)
+        if name:
+            return JSONResponse({"error": "forbidden: owner account needed"}, status_code=403)
+        return JSONResponse({"error": "unauthorized: sign in as the owner"}, status_code=401)
 
     @app.get("/api/account")
     def account_status(request: Request):
@@ -381,7 +387,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
                              "is_owner": accounts.is_owner(name, paths["users"]),
                              "avatar": f"/avatars/{name}.png" if name and accounts.avatar_file(name) else None,
                              "totp_enabled": accounts.totp_pending(name) if name else False,
-                             "login_enabled": bool(session_secret())})
+                             "login_enabled": True})
 
     @app.post("/api/account/login")
     async def account_login(request: Request):
@@ -567,7 +573,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/schedule")
     async def schedule_save(request: Request):
         """Save scheduler details and the engine toggle. OS/time changes need an install run (root)."""
-        denied = write_denied(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         try:
@@ -594,7 +600,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/engine/stop")
     async def engine_stop(request: Request):
         """Button: stop the engine process only. No broker logout, no kill switch, no order or position change."""
-        denied = write_denied(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         ok, message, pid = engine_control.stop_engine()
@@ -607,7 +613,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/engine/start")
     async def engine_start(request: Request):
         """Button: broker login, then engine start. The supervisor's own gates still decide whether anything trades."""
-        denied = write_denied(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         kill_active = KillSwitch(paths["kill"]).active
@@ -655,9 +661,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             {"name": "Cron job installed", "ok": cron_present if detected == "ubuntu" else None,
              "detail": "Ubuntu only" if detected != "ubuntu" else ("present" if cron_present else "absent")},
             {"name": "Dashboard accounts", "ok": users_present, "detail": "data/dashboard_users.json"},
-            {"name": "Account login secret", "ok": bool(session_secret()),
-             "detail": "DASHBOARD_SESSION_SECRET"},
-            {"name": "Write token", "ok": bool(os.environ.get(TOKEN_ENV)), "detail": TOKEN_ENV},
+            {"name": "Login key", "ok": True,
+             "detail": "auto-created in data/session_secret.key (or DASHBOARD_SESSION_SECRET)"},
         ]
         return JSONResponse({"items": items})
 
