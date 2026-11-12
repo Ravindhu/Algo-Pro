@@ -196,6 +196,26 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     def flow_asset():
         return FileResponse(paths["flow"], media_type="application/javascript")
 
+    # Phone install files (M2). The service worker must be served from the root to cover /ui.
+    PWA = ROOT / "dashboard" / "assets"
+
+    @app.get("/manifest.webmanifest")
+    def pwa_manifest():
+        return FileResponse(PWA / "manifest.webmanifest", media_type="application/manifest+json")
+
+    @app.get("/sw.js")
+    def pwa_service_worker():
+        return FileResponse(PWA / "sw.js", media_type="application/javascript",
+                            headers={"Cache-Control": "no-cache"})
+
+    @app.get("/assets/pwa.js")
+    def pwa_script():
+        return FileResponse(PWA / "pwa.js", media_type="application/javascript")
+
+    @app.get("/assets/icon.svg")
+    def pwa_icon():
+        return FileResponse(PWA / "icon.svg", media_type="image/svg+xml")
+
     @app.post("/api/limits")
     async def set_limits(request: Request):
         """Save user-set risk limits. Needs the DASHBOARD_API_TOKEN header. Refused if no token is set."""

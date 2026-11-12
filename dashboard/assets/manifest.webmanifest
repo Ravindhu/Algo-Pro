@@ -1,0 +1,9 @@
+{
+  "name": "Algo Pro NSE BSE Dashboard",
+  "short_name": "Algo Pro",
+  "start_url": "/ui",
+  "display": "standalone",
+  "background_color": "#050a12",
+  "theme_color": "#050a12",
+  "icons": [{"src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}

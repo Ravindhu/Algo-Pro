@@ -1,6 +1,6 @@
 # Mobile Dashboard Plan
 
-Status: PLANNED. No code changed yet.
+Status: PARTIAL. M1, M2, M4 (reset hidden on phone), M5 tests and an M3 proxy example are in. M3 needs your domain. M6 docs are partial (no work-log entry: `Temp/` is git-ignored).
 Flow stage: Dashboard, alerts (`src/quant/reporting/`, `dashboard/`)
 
 ## Decisions (owner, 2026-11-12)
@@ -40,3 +40,12 @@ Flow stage: Dashboard, alerts (`src/quant/reporting/`, `dashboard/`)
 - Live market-data feed: not connected (AGENTS.md: owner approval needed).
 - Alerts to phone (push notifications): PENDING. Not in v1.
 - Owner must choose the domain name and TLS method for the proxy.
+
+## Build log (2026-11-12)
+
+- M1: viewport meta, phone CSS breakpoint (max-width 600 px) in `main_dashboard.html`.
+- M2: `assets/manifest.webmanifest`, `assets/icon.svg`, `assets/pwa.js`, `assets/sw.js` (shell only; `/api/*` and non-GET never cached). Routes in `dashboard/app.py`.
+- M3: `Servers/Caddyfile.example` (replace the domain on the engine server).
+- M4: kill-switch trip button already exists. Kill reset hidden on phone widths (server still needs token).
+- M5: `tests/unit/test_mobile_dashboard.py`.
+- Pre-existing failures (also fail on the old code, not changed here): `test_dashboard_data::test_load_state_reads_files_and_missing_files_are_safe`, `test_pnl_visible::test_page_reads_overview_and_writes_only_known_routes`, `test_upgrade_pin::test_repo_pin_matches_vendored_copy`, `src/quant/tests/test_layout::test_stage_modules_are_marked_scaffold`.

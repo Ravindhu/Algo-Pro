@@ -1,0 +1,11 @@
+# Phone access (M3). Copy to /etc/caddy/Caddyfile on the ENGINE server and edit the host.
+# Caddy gets a TLS certificate automatically for a real domain you own.
+# The dashboard itself stays on 127.0.0.1:8050; only Caddy listens on the public port.
+dashboard.example.com {
+    reverse_proxy 127.0.0.1:8050
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+    }
+}
