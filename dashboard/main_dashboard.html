@@ -1,4 +1,4 @@
-<!-- Flow stage: Dashboard. Status: MAIN DASHBOARD (decision 0027). Reads /api/* and writes only through token-protected routes. -->
+<!-- Flow stage: Dashboard. Status: MAIN DASHBOARD (decision 0027). Reads /api/* and writes only through owner-protected routes (owner sign-in, or the server token for scripts). -->
 <title>Algo Pro NSE BSE Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#050a12">
@@ -89,7 +89,17 @@
     .big { font-size: 22px; }
     table { font-size: 11px; }
     #killreset { display: none; } /* reset is desktop-only (M4); server still needs the token */
+    .acctbox { width: 100%; }
   }
+
+  /* top-right account box (moved from Settings, owner request 2026-11-12) */
+  .topright { display: flex; justify-content: flex-end; padding-top: 8px; }
+  .acctbox { width: min(380px, 100%); }
+  .acctbox .sechead { font-size: 13px; margin: 0 0 4px; color: var(--cyan); }
+  .acctbox input[type=password], .acctbox input[type=text], .acctbox input, .acctbox select { margin-bottom: 4px; }
+  .acctbox button { margin: 2px 4px 2px 0; }
+  .acctbox details { margin-top: 4px; }
+  .acctbox summary { color: var(--dim); cursor: pointer; }
 
   /* flow popup */
   .modal { position: fixed; inset: 0; background: rgba(2,5,9,.82); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 20; }
@@ -179,6 +189,59 @@
   }
 </style>
 
+<div class="topright">
+  <section class="panel acctbox" id="acctbox">
+      <h2 class="sechead">Account</h2>
+      <p id="acct-who" class="d"></p>
+      <!-- signed-in panel: avatar + TOTP enrollment -->
+      <div id="acct-in" hidden>
+        <img id="acct-avatar" alt="avatar" width="48" height="48" style="border-radius:50%;vertical-align:middle;display:none">
+        <input id="acct-avatar-file" type="file" accept="image/png,image/jpeg">
+        <button type="button" id="acct-avatar-up">Upload picture</button>
+        <p class="d">Profile picture: PNG or JPEG, up to 256 KB.</p>
+        <div id="totp-box">
+          <p class="d">Two-factor (TOTP / Google Authenticator)</p>
+          <button type="button" id="totp-gen">Create TOTP key</button>
+          <button type="button" id="totp-remove" hidden>Remove TOTP</button>
+          <pre id="totp-key" class="d" style="white-space:pre-wrap;word-break:break-all"></pre>
+        </div>
+        <details>
+          <summary>Change password</summary>
+          <input id="pw-old" type="password" placeholder="Current password" autocomplete="current-password">
+          <input id="pw-new" type="password" placeholder="New password (12+ chars)" autocomplete="new-password">
+          <button type="button" id="pw-change">Change password</button>
+        </details>
+      </div>
+      <!-- signed-out panel: sign in / sign up / forgot -->
+      <form id="acctform" autocomplete="off">
+        <input id="acct-name" placeholder="Account name" autocomplete="username">
+        <input id="acct-pass" type="password" placeholder="Password" autocomplete="current-password">
+        <input id="acct-totp" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" hidden>
+        <button type="submit">Sign in</button>
+        <button type="button" id="acct-tab-signup">Sign up</button>
+        <button type="button" id="acct-tab-forgot">Forgot password?</button>
+      </form>
+      <form id="signupform" autocomplete="off" hidden>
+        <p class="d">Self-signup creates a viewer account. The owner account is created only on the server machine.</p>
+        <input id="su-name" placeholder="Account name" autocomplete="username">
+        <input id="su-pass" type="password" placeholder="Password (12+ chars)" autocomplete="new-password">
+        <button type="submit">Create account</button>
+        <button type="button" id="su-back">Back to sign in</button>
+      </form>
+      <form id="forgotform" autocomplete="off" hidden>
+        <p class="d">A one-use reset token is printed on the server console (15 min validity).</p>
+        <input id="fp-name" placeholder="Account name" autocomplete="username">
+        <button type="button" id="fp-request">Request token</button>
+        <input id="fp-token" placeholder="Reset token" hidden>
+        <input id="fp-new" type="password" placeholder="New password (12+ chars)" hidden>
+        <button type="button" id="fp-reset" hidden>Set new password</button>
+        <button type="button" id="fp-back">Back to sign in</button>
+      </form>
+      <button type="button" id="acctout" hidden>Sign out</button>
+      <p id="acct-msg" class="d"></p>
+  </section>
+</div>
+
 <header>
   <span class="brand">ALGO PRO // NSE·BSE</span>
   <span class="chip" id="mode">mode —</span>
@@ -197,17 +260,16 @@
   <button id="pfbtn" type="button" title="Broker holdings popup (read-only)">PORTFOLIO</button>
   <button id="sbbtn" type="button" title="Paper trade history popup (view only)">SANDBOX</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
-  <input type="password" id="token" placeholder="dashboard token (memory only)" autocomplete="off">
   <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
   <span id="engmsg" class="d"></span>
-  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Needs token">STOP</button>
-  <button class="go" id="killreset" type="button" title="Kill switch OFF. Needs token; written to the override log">RESET</button>
+  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Owner sign-in needed">STOP</button>
+  <button class="go" id="killreset" type="button" title="Kill switch OFF. Owner sign-in needed; written to the override log">RESET</button>
   <span id="killmsg" class="d"></span>
 </header>
 <div class="clock" id="clock"></div>
 
 <div class="setup" id="setup" hidden>
-  <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · token needed (header)</span></h2>
+  <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · owner sign-in needed</span></h2>
   <form id="setupform" autocomplete="off">
     <div class="fields">
       <div><label for="su-risk">Risk per trade (% of equity)</label>
@@ -246,7 +308,7 @@
 
 <div class="one">
   <section class="panel">
-    <div class="ph">Limits <span>current values · set new values below (token needed) · <span id="unset"></span></span></div>
+    <div class="ph">Limits <span>current values · set new values below (owner sign-in needed) · <span id="unset"></span></span></div>
     <div class="limgrid">
       <div>
         <div class="d" style="margin-bottom:4px">Current (saved to config)</div>
@@ -277,7 +339,7 @@
           <button class="go" type="submit">Save limits</button>
           <span id="msg"></span>
         </div>
-        <p class="d">Empty = not set (entries fail closed). The token is not stored; reload the page to clear it.</p>
+        <p class="d">Empty = not set (entries fail closed). Sign out at the top right to end write access.</p>
       </form>
     </div>
   </section>
@@ -338,7 +400,7 @@
     <div style="margin:8px 0">
       <button class="go" id="loopstart" type="button" title="Start the paper loop (paper only, background)">START PAPER TRADING</button>
       <button class="stop" id="sbstop" type="button" title="Stop the paper loop. Does not close positions">STOP PAPER TRADING</button>
-      <small class="d">paper only · simulated fills · stop does not close positions · needs token in header</small>
+      <small class="d">paper only · simulated fills · stop does not close positions · owner sign-in needed</small>
       <span id="loopmsg" class="d"></span>
     </div>
     <div class="sbhead">
@@ -466,56 +528,6 @@
       <p id="eng-msg" class="d"></p>
     </div>
 
-    <div class="sec">
-      <h2 class="sechead">Account</h2>
-      <p id="acct-who" class="d"></p>
-      <!-- signed-in panel: avatar + TOTP enrollment -->
-      <div id="acct-in" hidden>
-        <img id="acct-avatar" alt="avatar" width="48" height="48" style="border-radius:50%;vertical-align:middle;display:none">
-        <input id="acct-avatar-file" type="file" accept="image/png,image/jpeg">
-        <button type="button" id="acct-avatar-up">Upload picture</button>
-        <p class="d">Profile picture: PNG or JPEG, up to 256 KB.</p>
-        <div id="totp-box">
-          <p class="d">Two-factor (TOTP / Google Authenticator)</p>
-          <button type="button" id="totp-gen">Create TOTP key</button>
-          <button type="button" id="totp-remove" hidden>Remove TOTP</button>
-          <pre id="totp-key" class="d" style="white-space:pre-wrap;word-break:break-all"></pre>
-        </div>
-        <details>
-          <summary>Change password</summary>
-          <input id="pw-old" type="password" placeholder="Current password" autocomplete="current-password">
-          <input id="pw-new" type="password" placeholder="New password (12+ chars)" autocomplete="new-password">
-          <button type="button" id="pw-change">Change password</button>
-        </details>
-      </div>
-      <!-- signed-out panel: sign in / sign up / forgot -->
-      <form id="acctform" autocomplete="off">
-        <input id="acct-name" placeholder="Account name" autocomplete="username">
-        <input id="acct-pass" type="password" placeholder="Password" autocomplete="current-password">
-        <input id="acct-totp" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" hidden>
-        <button type="submit">Sign in</button>
-        <button type="button" id="acct-tab-signup">Sign up</button>
-        <button type="button" id="acct-tab-forgot">Forgot password?</button>
-      </form>
-      <form id="signupform" autocomplete="off" hidden>
-        <p class="d">Self-signup creates a viewer account. The owner account is created only on the server machine.</p>
-        <input id="su-name" placeholder="Account name" autocomplete="username">
-        <input id="su-pass" type="password" placeholder="Password (12+ chars)" autocomplete="new-password">
-        <button type="submit">Create account</button>
-        <button type="button" id="su-back">Back to sign in</button>
-      </form>
-      <form id="forgotform" autocomplete="off" hidden>
-        <p class="d">A one-use reset token is printed on the server console (15 min validity).</p>
-        <input id="fp-name" placeholder="Account name" autocomplete="username">
-        <button type="button" id="fp-request">Request token</button>
-        <input id="fp-token" placeholder="Reset token" hidden>
-        <input id="fp-new" type="password" placeholder="New password (12+ chars)" hidden>
-        <button type="button" id="fp-reset" hidden>Set new password</button>
-        <button type="button" id="fp-back">Back to sign in</button>
-      </form>
-      <button type="button" id="acctout" hidden>Sign out</button>
-      <p id="acct-msg" class="d"></p>
-    </div>
   </div>
 </div>
 <script src="/assets/flow_svg.js"></script>
@@ -557,16 +569,14 @@
   function modeMsg(text, cls) { const m = $("modemsg"); m.textContent = text; m.className = "d " + (cls || ""); }
 
   async function postMode(mode) {
-    const token = $("token").value;
-    if (!token) return modeMsg("Enter the dashboard token in the header.", "r");
     try {
       const r = await fetch("/api/trading-mode", {method: "POST",
-        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({mode})});
       const j = await r.json().catch(() => ({}));
       if (r.ok) { modeMsg(j.message, "g"); refresh(); }
-      else if (r.status === 401) modeMsg("Token rejected.", "r");
-      else if (r.status === 503) modeMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else if (r.status === 401) modeMsg("Sign in as the owner (top right) to change this.", "r");
+      else if (r.status === 503) modeMsg("Writes are off on the server (secret not set).", "r");
       else modeMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
     } catch (e) {
       modeMsg("Failed: " + e.message, "r");
@@ -575,15 +585,13 @@
   function loopMsg(text, cls) { const m = $("loopmsg"); m.textContent = text; m.className = "d " + (cls || ""); }
 
   async function postLoop(url) {
-    const token = $("token").value;
-    if (!token) return loopMsg("Enter the dashboard token in the header.", "r");
     loopMsg("Sending…", "d");
     try {
-      const r = await fetch(url, {method: "POST", headers: {"X-Dashboard-Token": token}});
+      const r = await fetch(url, {method: "POST"});
       const j = await r.json().catch(() => ({}));
       if (r.ok) { loopMsg(j.message, "g"); refresh(); }
-      else if (r.status === 401) loopMsg("Token rejected.", "r");
-      else if (r.status === 503) loopMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else if (r.status === 401) loopMsg("Sign in as the owner (top right) to change this.", "r");
+      else if (r.status === 503) loopMsg("Writes are off on the server (secret not set).", "r");
       else loopMsg(j.error || "Failed (HTTP " + r.status + ").", "r");
     } catch (e) {
       loopMsg("Failed: " + e.message, "r");
@@ -732,8 +740,6 @@
 
   async function saveLimits(ev) {
     ev.preventDefault();
-    const token = $("token").value;
-    if (!token) return setMsg("Enter the dashboard token.", "r");
     const body = {};
     for (const f of LIMIT_FIELDS) {
       const raw = $("lim-" + f).value.trim();
@@ -749,15 +755,15 @@
     setMsg("Saving…", "d");
     try {
       const r = await fetch("/api/limits", {method: "POST",
-        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify(send)});
       const j = await r.json().catch(() => ({}));
       if (r.ok) {
         setMsg("Saved " + Object.keys(j.changed.new).length + " value(s).", "g");
         formLoaded = false;
         refresh();
-      } else if (r.status === 401) setMsg("Token rejected.", "r");
-      else if (r.status === 503) setMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      } else if (r.status === 401) setMsg("Sign in as the owner (top right) to change this.", "r");
+      else if (r.status === 503) setMsg("Writes are off on the server (secret not set).", "r");
       else setMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
     } catch (e) {
       setMsg("Save failed: " + e.message, "r");
@@ -788,8 +794,6 @@
 
   async function saveSetup(ev) {
     ev.preventDefault();
-    const token = $("token").value;
-    if (!token) return setSetupMsg("Enter the dashboard token in the header.", "r");
     const pctVal = Number($("su-risk").value);
     if (!Number.isFinite(pctVal) || pctVal <= 0 || pctVal > 5) return setSetupMsg("Risk per trade must be between 0 and 5 %.", "r");
     const symbols = Number($("su-symbols").value);
@@ -799,12 +803,12 @@
     setSetupMsg("Saving…", "d");
     try {
       const r = await fetch("/api/setup", {method: "POST",
-        headers: {"Content-Type": "application/json", "X-Dashboard-Token": token},
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({risk_per_trade: pctVal / 100, max_symbols_per_portfolio: symbols, strategy})});
       const j = await r.json().catch(() => ({}));
       if (r.ok) { setSetupMsg("Saved.", "g"); loadSetup(); }
-      else if (r.status === 401) setSetupMsg("Token rejected.", "r");
-      else if (r.status === 503) setSetupMsg("Writes are off: the server has no DASHBOARD_API_TOKEN.", "r");
+      else if (r.status === 401) setSetupMsg("Sign in as the owner (top right) to change this.", "r");
+      else if (r.status === 503) setSetupMsg("Writes are off on the server (secret not set).", "r");
       else setSetupMsg(j.error || "Save failed (HTTP " + r.status + ").", "r");
     } catch (e) {
       setSetupMsg("Save failed: " + e.message, "r");
@@ -1014,14 +1018,12 @@
   tick(); setInterval(tick, 1000);
 
   loadSetup();
+  loadAccount();
   refresh();
   // ---------- Settings popup: Infrastructure (scheduler, engine) and Account ----------
   function sMsg(id, text, cls) { const m = $(id); m.textContent = text; m.className = "d " + (cls || ""); }
   function writeHeaders() {
-    const h = {"Content-Type": "application/json"};
-    const t = $("token").value;
-    if (t) h["X-Dashboard-Token"] = t;
-    return h;
+    return {"Content-Type": "application/json"}; // the signed-in owner session cookie is sent automatically
   }
   async function jget(url) {
     const r = await fetch(url, {cache: "no-store"});
@@ -1033,7 +1035,7 @@
     return {ok: r.ok, status: r.status, j: await r.json().catch(() => ({}))};
   }
   function describeFail(res) {
-    if (res.status === 401) return "Not allowed: sign in to the account, or enter the dashboard token in the header.";
+    if (res.status === 401) return "Not allowed: sign in as the owner (top right).";
     if (res.status === 503) return "Writes are off: the server is missing a secret (DASHBOARD_API_TOKEN or DASHBOARD_SESSION_SECRET).";
     return res.j.error || ("Failed (HTTP " + res.status + ").");
   }

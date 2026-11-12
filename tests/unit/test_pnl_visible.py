@@ -52,14 +52,12 @@ def test_page_reads_overview_and_writes_only_known_routes():
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     # Settings popup routes added 2026-11-10: account, schedule, engine, infrastructure.
     # Kill switch STOP/RESET and its read-only state added 2026-11-11 (owner request in the header).
-    assert routes == {"/api/overview", "/api/limits", "/api/setup", "/api/portfolio",
-                      "/api/trading-mode", "/api/loop/start", "/api/loop/stop",
-                      "/api/account", "/api/account/login", "/api/account/logout",
-                      "/api/engine", "/api/engine/start", "/api/infrastructure", "/api/schedule",
-                      "/api/kill", "/api/kill/trip", "/api/kill/reset"}
-    # saveLimits, saveSetup, postMode, postLoop, plus the jpost helper for settings writes
-    assert text.count('method: "POST"') == 5
-    assert '"X-Dashboard-Token"' in text
+    assert routes == {"/api/account", "/api/account/avatar", "/api/account/change-password", "/api/account/forgot-password", "/api/account/login", "/api/account/logout", "/api/account/reset-password", "/api/account/signup", "/api/account/totp/enroll", "/api/account/totp/remove", "/api/engine", "/api/engine/start", "/api/flow/apply", "/api/infrastructure", "/api/kill", "/api/kill/reset", "/api/kill/trip", "/api/limits", "/api/loop/start", "/api/loop/stop", "/api/overview", "/api/portfolio", "/api/schedule", "/api/setup", "/api/trading-mode"}
+    # postMode, postLoop, saveLimits, saveSetup, jpost helper (settings writes), avatar upload (2026-11-10)
+    assert text.count('method: "POST"') == 6
+    # 2026-11-12: the token box is gone; writes use the owner sign-in (top right) or the server token for scripts
+    assert '"X-Dashboard-Token"' not in text
+    assert 'id="token"' not in text
 
 
 def test_page_kill_switch_controls_are_stop_and_reset_only():
@@ -70,7 +68,7 @@ def test_page_kill_switch_controls_are_stop_and_reset_only():
     for element_id in ("killtrip", "killreason", "headkill", "killbanner", "r-kill", "killchip", "engstop"):
         assert f'id="{element_id}"' not in text, element_id
     assert "window.prompt" not in text
-    assert 'id="token"' in text
+    assert 'id="token"' not in text  # token box removed 2026-11-12
 
 
 def test_page_never_stores_the_token():

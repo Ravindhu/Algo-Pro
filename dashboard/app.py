@@ -1,6 +1,7 @@
 """FastAPI dashboard. Reads the paper ledger, audit log and kill switch. Never sends orders.
 
-Writes (all need the DASHBOARD_API_TOKEN header, decision 0020):
+Writes need the signed-in owner session (top-right sign-in) OR the DASHBOARD_API_TOKEN header
+(decision 0020; the token is for scripts, the page no longer has a token box, 2026-11-12):
     POST /api/limits       save user-set risk limits
     POST /api/kill/trip    block new entries (reason required, audited)
     POST /api/kill/reset   clear the kill switch (reason required, audited)
@@ -219,7 +220,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/limits")
     async def set_limits(request: Request):
         """Save user-set risk limits. Needs the DASHBOARD_API_TOKEN header. Refused if no token is set."""
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         try:
@@ -237,7 +238,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/kill/trip")
     async def kill_trip(request: Request):
         """Block new entries. Open positions are closed by the paper runner, never by this API."""
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         reason, bad = await reason_from(request)
@@ -251,7 +252,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/kill/reset")
     async def kill_reset(request: Request):
         """Clear the kill switch. The reset is written to the override log."""
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         reason, bad = await reason_from(request)
@@ -268,7 +269,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/setup")
     async def setup_save(request: Request):
         """Save risk per trade, trades per day and strategy. Needs the token."""
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         try:
@@ -298,7 +299,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         risk gate. A live request without a valid approval is refused with 409 and audited,
         so a mis-click writes one audit row and nothing else.
         """
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         try:
@@ -326,7 +327,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/loop/start")
     async def loop_start(request: Request):
         """Start the paper loop in the background. Refused while the kill switch is on. Needs the token."""
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         kill_active = KillSwitch(paths["kill"]).active
@@ -340,7 +341,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.post("/api/loop/stop")
     async def loop_stop(request: Request):
         """Ask the paper loop to stop. Does not close positions (the kill switch does that). Needs the token."""
-        denied = token_error(request)
+        denied = owner_denied(request)
         if denied is not None:
             return denied
         ok, message = stop_loop(paths["loop"], LOOP_INTERVAL_S)
@@ -359,6 +360,16 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     def write_denied(request: Request):
         """None when the caller may write: a good token OR a signed-in account."""
         if signed_in(request):
+            return None
+        return token_error(request)
+
+    def owner_denied(request: Request):
+        """None when the caller may change settings: a good token (scripts) OR the signed-in owner.
+
+        Viewer accounts are refused. Used by the routes the page writes to (limits, kill,
+        setup, trading mode, paper loop) since the page no longer has a token box.
+        """
+        if accounts.is_owner(signed_in(request), paths["users"]):
             return None
         return token_error(request)
 
