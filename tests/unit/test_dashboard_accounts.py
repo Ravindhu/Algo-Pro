@@ -116,3 +116,110 @@ def test_stale_pid_file_is_removed(tmp_path):
     pid_file.write_text(json.dumps({"pid": 999999999}), encoding="utf-8")
     assert eng.running_pid(pid_file) is None
     assert not pid_file.exists()
+
+
+# --- roles (plan Part A) -----------------------------------------------------
+def test_role_defaults_to_viewer_and_owner_check(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Viewer", PW, path, now=1000)
+    acc.create_user("Boss", PW, path, now=1000, role="owner")
+    assert acc.account_role("Viewer", path) == "viewer"
+    assert acc.is_owner("Boss", path) is True
+    assert acc.is_owner("Viewer", path) is False
+    assert acc.is_owner(None, path) is False
+    assert acc.is_owner("ghost", path) is False
+
+
+def test_bad_role_refused(tmp_path):
+    with pytest.raises(ValueError):
+        acc.create_user("X", PW, tmp_path / "u.json", role="admin")
+
+
+# --- signup / reset / avatar / totp ------------------------------------------
+def test_signup_is_always_a_viewer(tmp_path):
+    path = tmp_path / "users.json"
+    acc.signup("Newbie", PW, path, now=1000)
+    assert acc.account_role("Newbie", path) == "viewer"
+
+
+def test_forgot_and_reset_flow(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Ravi", PW, path, now=1000)
+    token = acc.issue_reset_token("Ravi", path, now=2000)
+    assert token and token not in path.read_text()  # raw token never stored
+    ok, _ = acc.reset_password("Ravi", token, "new-password-99", path, now=2100)
+    assert ok and acc.verify_login("Ravi", "new-password-99", path, now=2200)[0]
+    # one use: the same token cannot reset again
+    assert acc.reset_password("Ravi", token, "another-pass-999", path, now=2300)[0] is False
+
+
+def test_reset_token_expires(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Ravi", PW, path, now=1000)
+    token = acc.issue_reset_token("Ravi", path, now=2000)
+    later = 2000 + acc.RESET_TTL + 1
+    assert acc.reset_password("Ravi", token, "new-password-99", path, now=later)[0] is False
+
+
+def test_issue_reset_for_unknown_name_returns_none(tmp_path):
+    assert acc.issue_reset_token("ghost", tmp_path / "u.json", now=1000) is None
+
+
+def test_change_password_requires_the_old_one(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Ravi", PW, path, now=1000)
+    assert acc.change_password("Ravi", "wrong", "new-password-99", path)[0] is False
+    ok, _ = acc.change_password("Ravi", PW, "new-password-99", path)
+    assert ok and acc.verify_login("Ravi", "new-password-99", path, now=9999)[0]
+
+
+def test_avatar_stores_png_and_rejects_other_types(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Ravi", PW, path, now=1000)
+    avatars = tmp_path / "avatars"
+    png = b"\x89PNG\r\n\x1a\n" + b"x" * 100
+    served = acc.set_avatar("Ravi", png, path, avatars_dir=avatars)
+    assert served == "/avatars/Ravi.png"
+    assert acc.avatar_file("Ravi", avatars) == avatars / "Ravi.png"
+    with pytest.raises(ValueError):
+        acc.set_avatar("Ravi", b"GIF89a" + b"x" * 50, path, avatars_dir=avatars)
+    with pytest.raises(ValueError):
+        acc.set_avatar("Ravi", b"\x89PNG\r\n\x1a\n" + b"x" * (acc.MAX_AVATAR_BYTES + 1),
+                       path, avatars_dir=avatars)
+
+
+def test_avatar_path_never_escapes(tmp_path):
+    assert acc.avatar_file("../etc/passwd", tmp_path) is None
+    assert acc.avatar_file("a/b", tmp_path) is None
+
+
+def test_totp_enroll_verify_and_login_gate(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Ravi", PW, path, now=1000)
+    secret = acc.generate_totp_secret()
+    assert len(secret) == 32
+    uri = acc.totp_enroll("Ravi", secret, path)
+    assert uri.startswith("otpauth://totp/Algo-Pro:Ravi?")
+    now = 1_700_000_000.0
+    code = acc.totp_now(secret, now=now)
+    # password alone is no longer enough
+    ok, reason = acc.verify_login("Ravi", PW, path, now=now)
+    assert not ok and reason == "totp_required"
+    # password + current code opens
+    assert acc.verify_login("Ravi", PW, path, now=now, totp_code=code)[0]
+    # adjacent window is accepted (+/- 30 s drift)
+    assert acc.verify_login("Ravi", PW, path, now=now + acc.TOTP_PERIOD,
+                            totp_code=code)[0]
+    # wrong code fails
+    assert acc.verify_login("Ravi", PW, path, now=now, totp_code="000000")[0] is False \
+        or acc.totp_verify(secret, "000000", now=now) is False
+    # un-enroll restores password-only login
+    assert acc.totp_remove("Ravi", path) is True
+    assert acc.verify_login("Ravi", PW, path, now=now)[0]
+
+
+def test_totp_bad_secret_refused(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Ravi", PW, path, now=1000)
+    with pytest.raises(ValueError):
+        acc.totp_enroll("Ravi", "not-base32!!", path)

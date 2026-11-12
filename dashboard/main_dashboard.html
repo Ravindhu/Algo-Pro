@@ -451,10 +451,49 @@
     <div class="sec">
       <h2 class="sechead">Account</h2>
       <p id="acct-who" class="d"></p>
+      <!-- signed-in panel: avatar + TOTP enrollment -->
+      <div id="acct-in" hidden>
+        <img id="acct-avatar" alt="avatar" width="48" height="48" style="border-radius:50%;vertical-align:middle;display:none">
+        <input id="acct-avatar-file" type="file" accept="image/png,image/jpeg">
+        <button type="button" id="acct-avatar-up">Upload picture</button>
+        <p class="d">Profile picture: PNG or JPEG, up to 256 KB.</p>
+        <div id="totp-box">
+          <p class="d">Two-factor (TOTP / Google Authenticator)</p>
+          <button type="button" id="totp-gen">Create TOTP key</button>
+          <button type="button" id="totp-remove" hidden>Remove TOTP</button>
+          <pre id="totp-key" class="d" style="white-space:pre-wrap;word-break:break-all"></pre>
+        </div>
+        <details>
+          <summary>Change password</summary>
+          <input id="pw-old" type="password" placeholder="Current password" autocomplete="current-password">
+          <input id="pw-new" type="password" placeholder="New password (12+ chars)" autocomplete="new-password">
+          <button type="button" id="pw-change">Change password</button>
+        </details>
+      </div>
+      <!-- signed-out panel: sign in / sign up / forgot -->
       <form id="acctform" autocomplete="off">
         <input id="acct-name" placeholder="Account name" autocomplete="username">
         <input id="acct-pass" type="password" placeholder="Password" autocomplete="current-password">
+        <input id="acct-totp" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" hidden>
         <button type="submit">Sign in</button>
+        <button type="button" id="acct-tab-signup">Sign up</button>
+        <button type="button" id="acct-tab-forgot">Forgot password?</button>
+      </form>
+      <form id="signupform" autocomplete="off" hidden>
+        <p class="d">Self-signup creates a viewer account. The owner account is created only on the server machine.</p>
+        <input id="su-name" placeholder="Account name" autocomplete="username">
+        <input id="su-pass" type="password" placeholder="Password (12+ chars)" autocomplete="new-password">
+        <button type="submit">Create account</button>
+        <button type="button" id="su-back">Back to sign in</button>
+      </form>
+      <form id="forgotform" autocomplete="off" hidden>
+        <p class="d">A one-use reset token is printed on the server console (15 min validity).</p>
+        <input id="fp-name" placeholder="Account name" autocomplete="username">
+        <button type="button" id="fp-request">Request token</button>
+        <input id="fp-token" placeholder="Reset token" hidden>
+        <input id="fp-new" type="password" placeholder="New password (12+ chars)" hidden>
+        <button type="button" id="fp-reset" hidden>Set new password</button>
+        <button type="button" id="fp-back">Back to sign in</button>
       </form>
       <button type="button" id="acctout" hidden>Sign out</button>
       <p id="acct-msg" class="d"></p>
@@ -1033,21 +1072,90 @@
   async function loadAccount() {
     const res = await jget("/api/account");
     const who = res.j.signed_in;
-    $("acct-who").textContent = who ? "Signed in as " + who : "Not signed in.";
+    $("acct-who").textContent = who ? ("Signed in as " + who + " (" + (res.j.role || "viewer") + ")") : "Not signed in.";
     $("acctform").hidden = !!who;
+    $("signupform").hidden = true;
+    $("forgotform").hidden = true;
+    $("acct-in").hidden = !who;
     $("acctout").hidden = !who;
+    const img = $("acct-avatar");
+    if (who && res.j.avatar) { img.src = res.j.avatar; img.style.display = "inline"; }
+    else img.style.display = "none";
+    $("totp-remove").hidden = !res.j.totp_enabled;
+    $("totp-key").textContent = "";
     if (res.j.login_enabled === false) sMsg("acct-msg", "Account login is off: set DASHBOARD_SESSION_SECRET on the server.", "r");
     else sMsg("acct-msg", "");
   }
   $("acctform").onsubmit = async (e) => {
     e.preventDefault();
-    const res = await jpost("/api/account/login", {name: $("acct-name").value.trim(), password: $("acct-pass").value});
+    const body = {name: $("acct-name").value.trim(), password: $("acct-pass").value};
+    const code = $("acct-totp").value.trim();
+    if (code) body.totp_code = code;
+    const res = await jpost("/api/account/login", body);
     $("acct-pass").value = "";
-    if (res.ok) sMsg("acct-msg", "Signed in.", "g");
+    $("acct-totp").value = "";
+    if (res.ok) { $("acct-totp").hidden = true; sMsg("acct-msg", "Signed in.", "g"); }
+    else if (res.j.totp_required) { $("acct-totp").hidden = false; sMsg("acct-msg", "Enter the 6-digit code from Google Authenticator.", "a"); }
     else sMsg("acct-msg", res.j.error || ("Failed (HTTP " + res.status + ")."), "r");
     loadAccount();
   };
   $("acctout").onclick = async () => { await jpost("/api/account/logout"); loadAccount(); };
+  // --- sign up / forgot password tabs ---------------------------------------
+  const showTab = (tab) => {
+    $("acctform").hidden = tab !== "in";
+    $("signupform").hidden = tab !== "up";
+    $("forgotform").hidden = tab !== "fp";
+  };
+  $("acct-tab-signup").onclick = () => showTab("up");
+  $("acct-tab-forgot").onclick = () => showTab("fp");
+  $("su-back").onclick = () => showTab("in");
+  $("fp-back").onclick = () => showTab("in");
+  $("signupform").onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await jpost("/api/account/signup", {name: $("su-name").value.trim(), password: $("su-pass").value});
+    if (res.ok) { sMsg("acct-msg", "Account created (viewer). Sign in.", "g"); showTab("in"); $("acct-name").value = $("su-name").value.trim(); }
+    else sMsg("acct-msg", res.j.error || ("Failed (HTTP " + res.status + ")."), "r");
+  };
+  $("fp-request").onclick = async () => {
+    const res = await jpost("/api/account/forgot-password", {name: $("fp-name").value.trim()});
+    if (res.ok) {
+      $("fp-token").hidden = false; $("fp-new").hidden = false; $("fp-reset").hidden = false;
+      sMsg("acct-msg", res.j.note || "Check the server console for the token.", "a");
+    } else sMsg("acct-msg", res.j.error || "Failed.", "r");
+  };
+  $("fp-reset").onclick = async () => {
+    const res = await jpost("/api/account/reset-password", {name: $("fp-name").value.trim(), token: $("fp-token").value.trim(), password: $("fp-new").value});
+    if (res.ok) { sMsg("acct-msg", "Password set. Sign in.", "g"); showTab("in"); }
+    else sMsg("acct-msg", res.j.error || "Failed.", "r");
+  };
+  // --- signed-in: avatar, password change, TOTP ------------------------------
+  $("acct-avatar-up").onclick = async () => {
+    const file = $("acct-avatar-file").files[0];
+    if (!file) { sMsg("acct-msg", "Choose a PNG/JPEG picture first.", "a"); return; }
+    const res = await fetch("/api/account/avatar", {method: "POST", headers: {"Content-Type": file.type}, body: file});
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) { sMsg("acct-msg", "Picture saved.", "g"); loadAccount(); }
+    else sMsg("acct-msg", j.error || "Failed.", "r");
+  };
+  $("pw-change").onclick = async () => {
+    const res = await jpost("/api/account/change-password", {old_password: $("pw-old").value, new_password: $("pw-new").value});
+    $("pw-old").value = ""; $("pw-new").value = "";
+    if (res.ok) sMsg("acct-msg", "Password changed.", "g");
+    else sMsg("acct-msg", res.j.error || "Failed.", "r");
+  };
+  $("totp-gen").onclick = async () => {
+    const res = await jpost("/api/account/totp/enroll", {});
+    if (res.ok) {
+      $("totp-key").textContent = res.j.secret + "\n" + res.j.otpauth_uri;
+      sMsg("acct-msg", "Key created - type it into Google Authenticator NOW (shown once per enrolment).", "g");
+      $("totp-remove").hidden = false;
+    } else sMsg("acct-msg", res.j.error || "Failed.", "r");
+  };
+  $("totp-remove").onclick = async () => {
+    const res = await jpost("/api/account/totp/remove", {});
+    if (res.ok) { $("totp-key").textContent = ""; $("totp-remove").hidden = true; sMsg("acct-msg", "TOTP removed.", "g"); }
+    else sMsg("acct-msg", res.j.error || "Failed.", "r");
+  };
 
   function openSettings() {
     $("setmodal").hidden = false;

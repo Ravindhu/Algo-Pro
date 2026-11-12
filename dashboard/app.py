@@ -79,7 +79,11 @@ API_INDEX = {
         "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live needs approval)",
         "/api/loop", "POST /api/loop/start (token)", "POST /api/loop/stop (token)",
         "/api/portfolio", "/api/infrastructure", "/api/account",
-        "POST /api/account/login", "POST /api/account/logout",
+        "POST /api/account/login", "POST /api/account/signup", "POST /api/account/logout",
+        "POST /api/account/forgot-password", "POST /api/account/reset-password",
+        "POST /api/account/change-password (account)", "POST /api/account/avatar (account)",
+        "POST /api/account/totp/enroll (owner)", "GET /api/account/totp (owner)",
+        "POST /api/account/totp/remove (owner)",
         "/api/schedule", "POST /api/schedule (token or account)",
         "/api/engine", "POST /api/engine/start (token or account)",
     ],
@@ -167,6 +171,14 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             return None, JSONResponse({"error": f"reason is required (1-{REASON_MAX} characters)"},
                                       status_code=422)
         return reason.strip(), None
+
+    async def _json_body(request: Request):
+        """Parsed JSON body dict, or {}. Never raises."""
+        try:
+            body = await request.json()
+        except ValueError:
+            return {}
+        return body if isinstance(body, dict) else {}
 
     @app.get("/")
     def index():
@@ -329,7 +341,12 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.get("/api/account")
     def account_status(request: Request):
-        return JSONResponse({"signed_in": signed_in(request),
+        name = signed_in(request)
+        return JSONResponse({"signed_in": name,
+                             "role": accounts.account_role(name, paths["users"]) if name else None,
+                             "is_owner": accounts.is_owner(name, paths["users"]),
+                             "avatar": f"/avatars/{name}.png" if name and accounts.avatar_file(name) else None,
+                             "totp_enabled": accounts.totp_pending(name) if name else False,
                              "login_enabled": bool(session_secret())})
 
     @app.post("/api/account/login")
@@ -343,17 +360,160 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             body = None
         name = body.get("name") if isinstance(body, dict) else None
         password = body.get("password") if isinstance(body, dict) else None
+        totp = body.get("totp_code") if isinstance(body, dict) else None
         if not isinstance(name, str) or not isinstance(password, str):
             return JSONResponse({"error": "name and password are required"}, status_code=422)
-        ok, reason = accounts.verify_login(name, password, paths["users"])
+        ok, reason = accounts.verify_login(name, password, paths["users"], totp_code=str(totp or ""))
         AuditLog(paths["audit"]).append("account_login", {"accepted": ok, "reason": reason,
                                                          "name": name[:32], "actor": ACTOR})
         if not ok:
-            return JSONResponse({"error": reason}, status_code=401)
-        response = JSONResponse({"signed_in": name})
+            status = 401 if reason != "totp_required" else 403
+            return JSONResponse({"error": reason, "totp_required": reason == "totp_required"},
+                                status_code=status)
+        response = JSONResponse({"signed_in": name,
+                                 "role": accounts.account_role(name, paths["users"]),
+                                 "avatar": (accounts.avatar_file(name) is not None)})
         response.set_cookie(SESSION_COOKIE, accounts.make_session(name, session_secret()),
                             httponly=True, samesite="strict", max_age=accounts.SESSION_TTL)
         return response
+
+    @app.post("/api/account/signup")
+    async def account_signup(request: Request):
+        """Self-signup always creates a VIEWER: no route can raise privilege."""
+        if not session_secret():
+            return JSONResponse({"error": "signup is off: DASHBOARD_SESSION_SECRET is not set"},
+                                status_code=503)
+        body = await _json_body(request)
+        name = body.get("name") if isinstance(body, dict) else None
+        password = body.get("password") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not isinstance(password, str):
+            return JSONResponse({"error": "name and password are required"}, status_code=422)
+        try:
+            accounts.signup(name, password, paths["users"])
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        AuditLog(paths["audit"]).append("account_created", {"name": name[:32], "role": "viewer",
+                                                            "actor": "signup:" + name[:32]})
+        return JSONResponse({"created": name, "role": "viewer"})
+
+    @app.post("/api/account/forgot-password")
+    async def account_forgot(request: Request):
+        """Start a reset: a one-use token, printed to the SERVER console only.
+
+        The response never says whether the name exists (no enumeration). The
+        owner copies the token from the machine that runs the dashboard.
+        """
+        body = await _json_body(request)
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not name:
+            return JSONResponse({"error": "name is required"}, status_code=422)
+        raw = accounts.issue_reset_token(name, paths["users"])
+        if raw:
+            print(f"[dashboard] password reset token for {name!r}: {raw}", flush=True)
+        AuditLog(paths["audit"]).append("password_reset_requested", {"name": name[:32], "actor": ACTOR})
+        return JSONResponse({"requested": True,
+                             "note": "if the account exists, a one-use token was printed on the server console (15 min)"})
+
+    @app.post("/api/account/reset-password")
+    async def account_reset(request: Request):
+        body = await _json_body(request)
+        name = body.get("name") if isinstance(body, dict) else None
+        token = body.get("token") if isinstance(body, dict) else None
+        password = body.get("password") if isinstance(body, dict) else None
+        if not all(isinstance(x, str) and x for x in (name, token, password)):
+            return JSONResponse({"error": "name, token and password are required"}, status_code=422)
+        ok, reason = accounts.reset_password(name, token, password, paths["users"])
+        AuditLog(paths["audit"]).append("password_reset", {"accepted": ok, "reason": reason,
+                                                           "name": name[:32], "actor": ACTOR})
+        if not ok:
+            return JSONResponse({"error": reason}, status_code=401)
+        return JSONResponse({"reset": True})
+
+    @app.post("/api/account/change-password")
+    async def account_change_password(request: Request):
+        name = signed_in(request)
+        if not name:
+            return JSONResponse({"error": "sign in first"}, status_code=401)
+        body = await _json_body(request)
+        old = body.get("old_password") if isinstance(body, dict) else None
+        new = body.get("new_password") if isinstance(body, dict) else None
+        if not all(isinstance(x, str) for x in (old, new)):
+            return JSONResponse({"error": "old_password and new_password are required"}, status_code=422)
+        ok, reason = accounts.change_password(name, old, new, paths["users"])
+        AuditLog(paths["audit"]).append("password_changed", {"accepted": ok, "reason": reason,
+                                                             "name": name[:32], "actor": ACTOR})
+        if not ok:
+            return JSONResponse({"error": reason}, status_code=401)
+        return JSONResponse({"changed": True})
+
+    @app.post("/api/account/avatar")
+    async def account_avatar(request: Request):
+        """Upload a profile picture (PNG/JPEG, <=256 KB) for the signed-in account."""
+        name = signed_in(request)
+        if not name:
+            return JSONResponse({"error": "sign in first"}, status_code=401)
+        ctype = request.headers.get("content-type", "")
+        if ctype not in ("image/png", "image/jpeg"):
+            return JSONResponse({"error": "send the raw picture with content-type image/png or image/jpeg"},
+                                status_code=422)
+        data = await request.body()
+        try:
+            served = accounts.set_avatar(name, data, paths["users"])
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        AuditLog(paths["audit"]).append("avatar_set", {"name": name[:32], "actor": ACTOR})
+        return JSONResponse({"avatar": served})
+
+    @app.get("/avatars/{name}.{ext}")
+    def avatar_serve(name: str, ext: str):
+        from fastapi.responses import Response
+
+        path = accounts.avatar_file(name)
+        if path is None or not path.is_file():
+            return JSONResponse({"error": "no picture"}, status_code=404)
+        media = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return Response(content=path.read_bytes(), media_type=media)
+
+    @app.post("/api/account/totp/enroll")
+    async def totp_enroll_route(request: Request):
+        """Owner-only: generate a TOTP secret and return the otpauth:// URI.
+
+        The URI (and the plain key) is shown ONCE so it can be typed into
+        Google Authenticator. From then on, login needs the 6-digit code.
+        """
+        name = signed_in(request)
+        if not accounts.is_owner(name, paths["users"]):
+            return JSONResponse({"error": "owner account required"}, status_code=403)
+        secret = accounts.generate_totp_secret()
+        try:
+            uri = accounts.totp_enroll(name, secret, paths["users"])
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        AuditLog(paths["audit"]).append("totp_enrolled", {"name": name[:32], "actor": ACTOR})
+        return JSONResponse({"secret": secret, "otpauth_uri": uri,
+                             "note": "store this key now; it is shown once. Login will require the 6-digit code."})
+
+    @app.get("/api/account/totp")
+    def totp_show(request: Request):
+        """Owner-only: re-show the enrolled key + otpauth URI for re-enrolment in a new app."""
+        name = signed_in(request)
+        if not accounts.is_owner(name, paths["users"]):
+            return JSONResponse({"error": "owner account required"}, status_code=403)
+        try:
+            secret, uri = accounts.totp_provision(name, paths["users"])
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=404)
+        return JSONResponse({"secret": secret, "otpauth_uri": uri})
+
+    @app.post("/api/account/totp/remove")
+    async def totp_remove_route(request: Request):
+        name = signed_in(request)
+        if not accounts.is_owner(name, paths["users"]):
+            return JSONResponse({"error": "owner account required"}, status_code=403)
+        removed = accounts.totp_remove(name, paths["users"])
+        AuditLog(paths["audit"]).append("totp_removed", {"name": name[:32], "removed": removed,
+                                                         "actor": ACTOR})
+        return JSONResponse({"removed": removed})
 
     @app.post("/api/account/logout")
     def account_logout():
