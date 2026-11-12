@@ -173,3 +173,6 @@ Temp/*
 # Deployment config with the API key - the .example template IS tracked
 Servers/deploy.env
 
+
+# Agent working memory (runtime artifact, never a trading input)
+_memory/
