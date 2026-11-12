@@ -64,6 +64,7 @@ from typing import Any, Dict, List, Mapping, Optional
 __all__ = [
     "DEFAULT_CONFIG",
     "load_base_config",
+    "llm_calls",
     "research_config",
     "run_paper_shift",
     "main",
@@ -249,6 +250,22 @@ def collect_metrics(cycles: List[Mapping[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def llm_calls(cycles: List[Mapping[str, Any]]) -> Dict[str, int]:
+    """Sum the governor meter across cycles (Phase E measurement helper).
+
+    Returns ``{"calls", "cache_hits", "tokens_saved"}``; all zero when the
+    governor was absent (offline runs). ``tokens_saved`` maps to the meter's
+    ``prompt_tokens_saved``. Never raises.
+    """
+    totals = {"calls": 0, "cache_hits": 0, "tokens_saved": 0}
+    for cycle in cycles:
+        meter = ((cycle.get("llm_tokens") or {}).get("meter")) or {}
+        totals["calls"] += int(meter.get("calls") or 0)
+        totals["cache_hits"] += int(meter.get("cache_hits") or 0)
+        totals["tokens_saved"] += int(meter.get("prompt_tokens_saved") or 0)
+    return totals
+
+
 def _interpret(gate_blocks: Mapping[str, int], advised: int,
                allowed: int, runs: int, *, unavailable: int = 0,
                rejected: int = 0) -> List[str]:
@@ -317,6 +334,9 @@ def run_paper_shift(*, cycles: int = 3,
             "skill_writes": report.get("skill_writes") or {},
             "agent_telemetry": report.get("agent_telemetry") or {},
             "shift": report.get("shift") or {},
+            # Phase E (LLM_STAGE_TTL_PLAN): the governor's per-cycle meter, so
+            # a before/after call-count comparison needs no second harness.
+            "llm_tokens": report.get("llm_tokens") or {},
         })
 
     metrics = collect_metrics(reports)

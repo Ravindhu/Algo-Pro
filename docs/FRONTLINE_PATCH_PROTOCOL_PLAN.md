@@ -37,7 +37,12 @@ cycle. Advice stays advisory-only: same `_SCHEMAS` validation, same
   ops/keys, whitespace invariance, target-function narrowing, low-model
   routing, schema-cache single-compile, clamp still applied after patch.
 - **Phase E.** Measure calls/tokens before vs after on paper_shift; SOP 16
-  update; work log.
+  update; work log. STATUS: instrumentation done (`paper_shift.llm_calls`,
+  per-cycle `llm_tokens`); live comparison blocked on this host - no Ollama,
+  no OPENROUTER_API_KEY. Run `py Temp/measure_llm_calls.py --cycles 4
+  --live-llm` when a backend is reachable. Offline plumbing pass: 12 advised
+  stage-runs over 4 cycles, meter wired, 0 schema rejections, patch answers 0
+  (expected offline).
 
 ## 4. Safety
 

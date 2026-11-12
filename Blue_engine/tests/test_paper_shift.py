@@ -241,3 +241,21 @@ def test_the_result_records_the_measurement_flags():
 def test_cycles_carry_telemetry_for_reproducibility():
     result = run_paper_shift(cycles=1, config=BASE, gate=True)
     assert "agent_telemetry" in result["cycles"][0]
+
+# --- Phase E: the governor meter is surfaced per cycle (LLM_STAGE_TTL_PLAN) ---
+def test_llm_calls_totals_the_meter_across_cycles():
+    from blue_engine.core.paper_shift import llm_calls
+    cycles = [
+        {"llm_tokens": {"meter": {"calls": 2, "cache_hits": 1,
+                                  "prompt_tokens_saved": 300}}},
+        {"llm_tokens": {"meter": {"calls": 1, "cache_hits": 1,
+                                  "prompt_tokens_saved": 150}}},
+        {"llm_tokens": {}},  # governor absent that cycle: contributes zero
+    ]
+    assert llm_calls(cycles) == {"calls": 3, "cache_hits": 2,
+                                 "tokens_saved": 450}
+
+
+def test_paper_shift_cycles_carry_the_llm_meter():
+    result = run_paper_shift(cycles=1, config=BASE, offline=True)
+    assert "llm_tokens" in result["cycles"][0]

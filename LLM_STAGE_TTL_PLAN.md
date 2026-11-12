@@ -1,6 +1,12 @@
 # LLM Per-Stage TTL and Call Reduction: Implementation Plan
 
-Status: IMPLEMENTED (Phases 1-4, 2026-11-12). Phase 5 (paper measurement) pending.
+Status: IMPLEMENTED (Phases 1-4 + Phase 5 instrumentation, 2026-11-12).
+Phase 5 live comparison PENDING on this host: no LLM backend reachable
+(no Ollama installed, no OPENROUTER_API_KEY). One command when a backend is up:
+`py Temp/measure_llm_calls.py --cycles 4 --live-llm`.
+Instrumentation added: `paper_shift.llm_calls()` + per-cycle `llm_tokens`
+snapshot; offline plumbing pass verified (12 advised stage-runs / 4 cycles,
+meter wired, 0 schema rejections).
 Target path in repo: `docs/LLM_STAGE_TTL_PLAN.md`
 Owner: Ravindhu. Date: 2026-11-12.
 
