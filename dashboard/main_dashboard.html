@@ -824,15 +824,37 @@
       paintNode(g, n ? n.status : "ok", n ? n.message : "");
       if (!n) continue;
       if (n.status === "err") errs++; else warns++;
-      issues.push([label, n.status, n.message]);
+      issues.push([label, n.status, n.message,
+                   n.can_apply ? {id: n.recommendation, current: n.current_value,
+                                  recommended: n.recommended_value, reason: n.reason} : null]);
     }
     issues.sort((a, b) => (a[1] === "err" ? 0 : 1) - (b[1] === "err" ? 0 : 1));
     $("flowsum").textContent = errs || warns ? errs + " error · " + warns + " warning" : "all nodes ok";
     $("flowsum").className = errs ? "r" : warns ? "a" : "g";
-    $("flowissues").replaceChildren(...issues.map(([label, st, msg]) => {
+    $("flowissues").replaceChildren(...issues.map(([label, st, msg, rec]) => {
       const li = document.createElement("li");
       li.className = st === "err" ? "r" : "a";
       li.textContent = label + " — " + (st === "err" ? "ERROR" : "WARNING") + ": " + msg;
+      // Agent recommendation for this node (owner-only apply). The browser
+      // sends ONLY the id; the server decides the value, checks staleness,
+      // asks for a typed phrase on a loosening, and writes the backend.
+      if (rec) {
+        const det = document.createElement("div");
+        det.className = "d";
+        det.textContent = "  agent: " + rec.current + " -> " + rec.recommended
+          + (rec.reason ? " (" + rec.reason + ")" : "");
+        li.appendChild(det);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = "Take recommended value";
+        btn.onclick = async () => {
+          const phrase = rec.phrase_needed ? prompt("Type " + rec.phrase_needed + " to confirm:") : undefined;
+          const res = await jpost("/api/flow/apply", {id: rec.id, phrase: phrase});
+          if (res.ok) { btn.textContent = "Applied"; btn.disabled = true; }
+          else { btn.textContent = "Apply failed"; btn.title = res.j.error || "Apply failed."; }
+        };
+        li.appendChild(btn);
+      }
       return li;
     }));
   }

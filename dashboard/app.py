@@ -32,11 +32,12 @@ if str(SRC) not in sys.path:
 from quant.audit.log import AuditLog  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.core.env import load_env_file  # noqa: E402
-from quant.core.limits_store import apply_limit_updates  # noqa: E402
+from quant.core.limits_store import apply_limit_updates, validate_limit_updates  # noqa: E402
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.reporting.flow_status import node_statuses  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
+from quant.core import recommendations as recs  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
@@ -67,6 +68,7 @@ DEFAULT_PATHS = {
     "live_approval": ROOT / "data" / "live_approval.json",  # human sign-off; written only by scripts/ops/approve_live.py
     "schedule": ROOT / "data" / "schedule_settings.json",
     "users": ROOT / "data" / "dashboard_users.json",
+    "recs": ROOT / "data" / "paper" / "recommendations.json",  # agent recommendations (Part B 1)
 }
 LOOP_INTERVAL_S = 60  # paper loop cycle (decision 0029)
 
@@ -86,6 +88,7 @@ API_INDEX = {
         "POST /api/account/totp/remove (owner)",
         "/api/schedule", "POST /api/schedule (token or account)",
         "/api/engine", "POST /api/engine/start (token or account)",
+        "/api/flow/recommendations", "POST /api/flow/apply (owner; loosening needs the typed phrase)",
     ],
 }
 
@@ -133,7 +136,7 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     overview["market"] = {"open": is_open, "reason": reason, "verified": cal.verified,
                           "holidays_loaded": len(cal.holidays)}
     overview["loop"] = loop_status(Path(paths.get("loop", DEFAULT_PATHS["loop"])), time.time(), LOOP_INTERVAL_S)
-    overview["flow"] = node_statuses(overview)  # flow popup node colours (decision 0030)
+    overview["flow"] = node_statuses(overview, recs.live(paths["recs"]))  # popup nodes + agent recommendations
     return overview
 
 
@@ -631,6 +634,94 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     def portfolio_header():
         """Broker holdings for the portfolio popup. Read-only; the reader caches for 30 s."""
         return JSONResponse(portfolio.read())
+
+    # ---------------- agent recommendations (apply-to-backend) ----------------
+    # A recommendation is the agent's ADVICE for one parameter, stored by the
+    # pipeline in data/paper/recommendations.json. Applying it is a WRITE to
+    # the real backend (config/risk_limits.yaml), so the route is owner-only,
+    # one-use, and guarded by the same validation as a manual limit save
+    # (plan: docs/IMPLEMENTATION_PLAN_ACCOUNTS_AND_RECOMMENDATIONS.md Part B).
+    LOOSEN_PHRASE_PAPER = "APPLY LIMIT"
+    LOOSEN_PHRASE_LIVE = "APPLY LIVE LIMIT"
+
+    def _loosens(current, recommended, parameter: str) -> bool:
+        """True when the recommended value RAISES a limit (or sets an unset
+        one, which opens entries). Tightening is never a loosening."""
+        if parameter == "blocked":
+            return recommended is False  # unblocking entries is loosening
+        try:
+            rec, cur = float(recommended), float(current) if current is not None else None
+        except (TypeError, ValueError):
+            return True  # cannot prove it is not a loosening: demand the phrase
+        return cur is None or rec > cur
+
+    @app.get("/api/flow/recommendations")
+    def flow_recommendations():
+        """Live recommendations for the node popups. Public read."""
+        return JSONResponse({"recommendations": recs.live(paths["recs"])})
+
+    @app.post("/api/flow/apply")
+    async def flow_apply(request: Request):
+        """Apply ONE recommendation to the backend limits file. Owner only.
+
+        Checks in order (plan Part B step 4): owner session (the write token is
+        NOT accepted here), recommendation exists and is not expired, the
+        stored current value still matches the live file (else 409, refresh),
+        the value passes validate_limit_updates, a veto is never turned off,
+        and a LOOSENING needs the typed phrase. Then: write through
+        apply_limit_updates, one audit row, remove the entry (one use).
+        """
+        name = signed_in(request)
+        if not accounts.is_owner(name, paths["users"]):
+            return JSONResponse({"error": "owner account required"}, status_code=403)
+        body = await _json_body(request)
+        rec_id = body.get("id")
+        if not isinstance(rec_id, str) or not rec_id:
+            return JSONResponse({"error": "id is required"}, status_code=422)
+        entry = recs.get(rec_id, paths["recs"])
+        if entry is None:
+            return JSONResponse({"error": "recommendation is gone or expired"}, status_code=409)
+        parameter = str(entry["parameter"])
+        recommended = entry["recommended"]
+        stored_current = entry.get("current")
+        # The current value in the file must still equal what the advice was
+        # made against: a drifted file means the popup is stale.
+        import yaml as _yaml
+        live_limits = _yaml.safe_load(paths["limits"].read_text(encoding="utf-8")) or {} \
+            if paths["limits"].exists() else {}
+        if live_limits.get(parameter, None) != stored_current \
+                and not (stored_current is None and parameter not in live_limits):
+            return JSONResponse({"error": "the value has changed since the advice; refresh the popup",
+                                 "stale": True}, status_code=409)
+        try:
+            clean = validate_limit_updates({parameter: recommended})
+        except ValueError as exc:
+            return JSONResponse({"error": f"the recommended value is not valid: {exc}"}, status_code=422)
+        # A risk veto is never turned off by an agent recommendation.
+        if parameter == "blocked" and clean.get("blocked") is False:
+            return JSONResponse({"error": "a risk veto is never turned off by a recommendation"},
+                                status_code=422)
+        loosening = _loosens(stored_current, recommended, parameter)
+        mode = trading_mode_status(state_path=paths.get("mode_state"),
+                                   approval_path=paths.get("live_approval"),
+                                   limits_path=paths.get("limits")).get("mode", "paper")
+        needed = (LOOSEN_PHRASE_LIVE if mode == "live" else LOOSEN_PHRASE_PAPER) if loosening else None
+        phrase = body.get("phrase") if isinstance(body.get("phrase"), str) else ""
+        if needed and phrase.strip() != needed:
+            return JSONResponse({"error": f"typing exactly '{needed}' is required to loosen this limit",
+                                 "phrase_required": needed}, status_code=422)
+        try:
+            result = apply_limit_updates(paths["limits"], clean)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        recs.remove(rec_id, paths["recs"])  # one use: a second click cannot apply twice
+        AuditLog(paths["audit"]).append("recommendation_applied", {
+            "id": rec_id, "parameter": parameter, "old": result["old"].get(parameter),
+            "new": result["new"].get(parameter), "mode": mode, "actor": name,
+            "phrase_used": bool(needed and phrase.strip() == needed)})
+        return JSONResponse({"applied": True, "parameter": parameter,
+                             "old": result["old"].get(parameter),
+                             "new": result["new"].get(parameter)})
 
     @app.get("/api/overview")
     def overview():

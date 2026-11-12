@@ -13,7 +13,7 @@ Status: PHASE 3 IMPLEMENTED (paper data only)
 """
 from __future__ import annotations
 
-from typing import Dict, Mapping
+from typing import Any, Dict, Iterable, Mapping
 
 WARN, ERR = "warn", "err"
 RANK = {WARN: 1, ERR: 2}
@@ -39,8 +39,25 @@ def _add(board: Dict[str, Dict[str, str]], label: str, status: str, message: str
         cur["message"] = cur["message"] + "; " + message
 
 
-def node_statuses(overview: Mapping[str, object]) -> Dict[str, Dict[str, str]]:
-    board: Dict[str, Dict[str, str]] = {}
+def node_statuses(overview: Mapping[str, object],
+                  recommendations: Iterable[Mapping[str, Any]] = (),
+                  ) -> Dict[str, Dict[str, Any]]:
+    """Node board, extended with agent recommendation fields (plan Part B 2).
+
+    Each issue entry gains: ``recommendation`` (the agent's calculated value),
+    ``current_value``, ``recommended_value`` and ``can_apply`` (True for
+    risk-limit parameters the apply route can write). Recommendation ids are
+    NOT returned to anonymous readers... they are only useful with an owner
+    session anyway, and the popup never sends numbers, only the id.
+    """
+    rec_by_node: Dict[str, Dict[str, Any]] = {}
+    for rec in recommendations or ():
+        if not isinstance(rec, Mapping):
+            continue
+        node = LIMIT_NODES.get(str(rec.get("parameter", "")))
+        if node:
+            rec_by_node.setdefault(node, rec)
+    board: Dict[str, Dict[str, Any]] = {}
 
     kill = overview.get("kill_switch") or {}
     if kill.get("active"):
@@ -69,5 +86,13 @@ def node_statuses(overview: Mapping[str, object]) -> Dict[str, Dict[str, str]]:
         label = LIMIT_NODES.get(name)
         if label:
             _add(board, label, WARN, name + " not set: entries fail closed")
+            rec = rec_by_node.get(label)
+            if rec is not None:
+                entry = board[label]
+                entry["recommendation"] = rec.get("id")
+                entry["current_value"] = rec.get("current")
+                entry["recommended_value"] = rec.get("recommended")
+                entry["reason"] = rec.get("reason", "")
+                entry["can_apply"] = True
 
     return board
