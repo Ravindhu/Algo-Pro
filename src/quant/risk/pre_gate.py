@@ -183,6 +183,30 @@ class PreGate:
                                         pnl_history=pnl_history)
         return PreGateResult(not reasons, tuple(f"portfolio: {r}" for r in reasons))
 
+    # 5c: index circuit breaker -------------------------------------------------------
+    def market_halt_ok(self, index_change_pct: Optional[float], now=None
+                       ) -> PreGateResult:
+        """Refuse an entry while the index circuit is halted.
+
+        NSE halts the cash market at 10/15/20% index moves. An order queued into a
+        reopening auction executes at a price nobody has seen, so entries stop for
+        the duration. Exits are never blocked: a stop must still work.
+        """
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+
+        from quant.risk.market_halt import evaluate_halt, halt_blocks_entries
+
+        # India has no DST, so a fixed +05:30 offset is exact and needs no tzdata.
+        reference = now or (_dt.utcnow() + _td(hours=5, minutes=30))
+        state = evaluate_halt(index_change_pct, reference)
+        # The halt LENGTH is measured from when the band was breached, which this
+        # stateless check cannot know. So a resumed halt is decided by the caller
+        # passing ``now`` after ``state.resume_at``: without a clock the check
+        # cannot tell "halted now" from "halted an hour ago".
+        blocked, reason = halt_blocks_entries(state, now)
+        return PreGateResult(not blocked, (f"market halt: {reason}",) if blocked else ())
+
     # 6: session / auction window ---------------------------------------------------
     def session_ok(self, now=None) -> PreGateResult:
         """Refuse an entry inside (or just before) an auction window.
@@ -221,7 +245,8 @@ class PreGate:
     def check(self, intent: TradeIntent, *, blackout_days: Sequence[date] = (),
               weights: Optional[Dict[str, float]] = None, capital: float = 0.0,
               betas: Optional[Dict[str, float]] = None, now=None,
-              feed_book=None, check_book_limits: bool = False) -> PreGateResult:
+              feed_book=None, check_book_limits: bool = False,
+              index_change_pct: Optional[float] = None) -> PreGateResult:
         """All pre-gate checks. Exits and protection are never pre-gated.
 
         ``now`` and ``feed_book`` are opt-in: supply them to enable the session and
@@ -246,6 +271,8 @@ class PreGate:
         # explicit act, and unset caps fail closed only once it is enabled.
         if check_book_limits and weights:
             results.append(self.portfolio_caps_ok(weights))
+        if index_change_pct is not None:
+            results.append(self.market_halt_ok(index_change_pct, now))
         if now is not None:
             results.append(self.session_ok(now))
         if feed_book is not None:
