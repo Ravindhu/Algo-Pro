@@ -2,7 +2,7 @@
 
 Flow stage: Price band + ASM/GSM
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/band.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/band.py
 """
 from __future__ import annotations
 

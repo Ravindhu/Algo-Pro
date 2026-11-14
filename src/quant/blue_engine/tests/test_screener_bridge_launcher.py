@@ -3,7 +3,8 @@ import csv
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+# parents: tests -> blue_engine -> quant -> src -> repo root (4 levels up).
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts" / "run"))
 from run_screener_bridge import read_symbols_from_csv  # noqa: E402
 
 

@@ -2,7 +2,7 @@
 
 Flow stage: Algo router
 Status: PHASE 3 IMPLEMENTED (pure port; lot-size lookup is injected, no broker or DB import)
-Existing code to reuse or wrap (do not copy): Blue_engine/core/lot.py (lot_quantity, resolve_lot_size).
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/lot.py (lot_quantity, resolve_lot_size).
 Not ported on purpose: Blue's master-DB and SDK lookups. Those are broker and data adapters.
 A caller passes a lookup function instead (decision 0022).
 

@@ -2,7 +2,7 @@
 
 Flow stage: Market data live, Broker feeds, Feed health monitor
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/quote_health.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/quote_health.py
 """
 from __future__ import annotations
 

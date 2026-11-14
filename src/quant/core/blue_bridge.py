@@ -1,15 +1,16 @@
-"""The only import bridge from src/quant to the existing Blue_engine package.
+"""The only import bridge from src/quant to the vendored engine package.
 
 Flow stage: none (shared infrastructure, used by wrappers in every stage)
 Status: PHASE 0 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ (whole package)
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ (whole package)
 
 WHY THIS FILE EXISTS
 --------------------
-Blue_engine code imports the package name ``blue_engine``. The folder on disk is
-``Blue_engine/``. The installed package maps one to the other (Blue_engine/pyproject.toml).
-The test suite does the same mapping by hand (Blue_engine/tests/conftest.py).
-Production code had no such mapping, so this module adds it once, for everyone.
+The engine source lives at ``src/quant/blue_engine/`` and imports itself as
+``blue_engine``. The folder name and the package name now differ only by case,
+so on Windows a plain import would find it, but on Linux (case-sensitive) it
+would not. This module installs the package mapping once, for everyone, so the
+same code runs on both.
 
 RULES
 -----
@@ -28,9 +29,8 @@ from types import ModuleType
 
 __all__ = ["BlueEngineUnavailable", "load"]
 
-#: src/quant/core/blue_bridge.py -> repo root is three levels up from ``core``.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_SOURCE_DIR = _REPO_ROOT / "Blue_engine"
+#: src/quant/core/blue_bridge.py -> src/quant is two levels up from ``core``.
+_SOURCE_DIR = Path(__file__).resolve().parents[1] / "blue_engine"
 
 
 class BlueEngineUnavailable(ImportError):
@@ -62,7 +62,7 @@ def _ensure_package() -> None:
 
     init_file = _SOURCE_DIR / "__init__.py"
     if not init_file.is_file():
-        raise BlueEngineUnavailable(f"Blue_engine source not found at {_SOURCE_DIR}")
+        raise BlueEngineUnavailable(f"blue_engine source not found at {_SOURCE_DIR}")
     spec = importlib.util.spec_from_file_location(
         "blue_engine", init_file, submodule_search_locations=[str(_SOURCE_DIR)])
     if spec is None or spec.loader is None:
@@ -74,7 +74,7 @@ def _ensure_package() -> None:
     except Exception as exc:  # noqa: BLE001 - leave no half-loaded package behind
         sys.modules.pop("blue_engine", None)
         raise BlueEngineUnavailable(
-            f"Blue_engine failed to load (is openalgo installed?): {exc}") from exc
+            f"blue_engine failed to load (is openalgo installed?): {exc}") from exc
 
 
 def load(name: str) -> ModuleType:

@@ -2,7 +2,7 @@
 
 Flow stage: Trial logger + DSR/PBO, Bootstrap of trades
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/evaluation/metrics.py (sharpe: wrapped).
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ml/evaluation/metrics.py (sharpe: wrapped).
 DSR, PBO and bootstrap are kept here on purpose. See docs/decisions/0001-dsr-pbo-bootstrap-kept-local.md.
 """
 from __future__ import annotations

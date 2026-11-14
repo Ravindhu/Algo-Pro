@@ -17,8 +17,17 @@ from dotenv import load_dotenv
 
 from .client.screener_client import ScreenerClient
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = REPOSITORY_ROOT / "Blue_engine" / "input" / "screener_engine.json"
+#: The ``blue_engine`` package folder, found by name so a future move of the
+#: tree cannot silently point this at a folder that no longer exists.
+def _engine_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if parent.name == "blue_engine" and (parent / "__init__.py").is_file():
+            return parent
+    raise RuntimeError("blue_engine package root not found")
+
+
+REPOSITORY_ROOT = _engine_root().parent.parent.parent  # blue_engine -> quant -> src -> repo
+DEFAULT_CONFIG = _engine_root() / "input" / "screener_engine.json"
 
 
 def scrape_saved_screen(

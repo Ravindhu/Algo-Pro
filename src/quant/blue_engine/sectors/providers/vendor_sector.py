@@ -67,11 +67,19 @@ __all__ = ["VENDOR_DIR", "DEFAULT_INDICES_DIR", "DEFAULT_SECTORS",
            "make_provider", "INDEX_TICKERS", "SECTOR_LIVE_SYMBOLS",
            "UNSCORABLE_NSE_SECTORS"]
 
-#: Pinned vendor checkout. ``__file__`` is
-#: ``<repo>/Blue_engine/sectors/providers/vendor_sector.py``, so ``parents[3]``
-#: is ``<repo>``.
-VENDOR_DIR = (Path(__file__).resolve().parents[3] / "Blue_engine" / "database"
-              / "vendor" / "indian-market-historical-data")
+#: Pinned vendor checkout.
+#: Resolved by locating the ``blue_engine`` package folder, never by a fixed
+#: ``parents[N]`` depth. The fixed-depth version broke when the engine moved.
+def _engine_root() -> Path:
+    """The ``blue_engine`` package folder, found by name from this file upward."""
+    for parent in Path(__file__).resolve().parents:
+        if parent.name == "blue_engine" and (parent / "__init__.py").is_file():
+            return parent
+    raise RuntimeError("blue_engine package root not found")
+
+
+ENGINE_DIR = _engine_root()
+VENDOR_DIR = (ENGINE_DIR / "database" / "vendor" / "indian-market-historical-data")
 DEFAULT_INDICES_DIR = VENDOR_DIR / "data" / "INDICES"
 
 #: Cache exchange namespace for vendor rows (never collides with NSE_INDEX).

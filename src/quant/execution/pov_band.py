@@ -1,7 +1,7 @@
 """VWAP value-filter band for POV child sizing (decouple stage 6.5, Phase B).
 
 Flow stage: POV child sizing
-Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from Blue_engine/core/band.py; pure; no Blue import)
+Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from src/quant/blue_engine/core/band.py; pure; no Blue import)
 Parity: tests/parity/test_pov_phase_b_parity.py
 """
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 Flow stage: Safe mode controller
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/mode.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/mode.py
 """
 from __future__ import annotations
 

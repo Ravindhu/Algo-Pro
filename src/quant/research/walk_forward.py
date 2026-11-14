@@ -2,7 +2,7 @@
 
 Flow stage: Walk-forward + purged CV
 Status: PHASE 1 IMPLEMENTED (stage 2 port 2026-11-06: fold geometry is local)
-Ported from: Blue_engine/ml/evaluation/splits.py (walk_forward), same layout rules.
+Ported from: src/quant/blue_engine/ml/evaluation/splits.py (walk_forward), same layout rules.
 Parity against Blue: tests/parity/test_walk_forward_parity.py (runs where Blue loads or
 via the isolated loader).
 

@@ -15,7 +15,7 @@ import pytest
 
 from quant.execution import lot as ours
 
-BLUE_LOT = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "core" / "lot.py"
+BLUE_LOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "core" / "lot.py"
 
 
 @pytest.fixture(scope="module")

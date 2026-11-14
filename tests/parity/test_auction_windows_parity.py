@@ -18,7 +18,7 @@ import pytest
 
 from quant.core import auction_windows as ours
 
-BLUE_AW = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "core" / "auction_windows.py"
+BLUE_AW = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "core" / "auction_windows.py"
 IST = ZoneInfo("Asia/Kolkata")
 
 

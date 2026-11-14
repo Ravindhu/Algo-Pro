@@ -2,7 +2,7 @@
 
 Flow stage: Meta-labeler
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/alpha/confirm/state.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/alpha/confirm/state.py
 """
 from __future__ import annotations
 

@@ -2,7 +2,7 @@
 
 Flow stage: Re-opt request, Re-run research
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/jobs/sector_hm_report.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/jobs/sector_hm_report.py
 """
 from __future__ import annotations
 

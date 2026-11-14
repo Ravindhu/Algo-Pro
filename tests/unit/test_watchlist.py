@@ -8,7 +8,7 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Load the file by path: the Blue_engine package name is not importable from tests/unit.
 _spec = importlib.util.spec_from_file_location(
-    "watchlist_under_test", ROOT / "Blue_engine" / "screener" / "watchlist.py")
+    "watchlist_under_test", ROOT / "src" / "quant" / "blue_engine" / "screener" / "watchlist.py")
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 resolve_watchlist = _mod.resolve_watchlist

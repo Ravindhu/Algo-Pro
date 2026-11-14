@@ -35,7 +35,7 @@ from blue_engine.core.supervisor import (  # noqa: E402
     build_default_gates,
 )
 
-DEFAULT_CONFIG = _ROOT / "Blue_engine" / "input" / "master.json"
+DEFAULT_CONFIG = _ROOT / "src" / "quant" / "blue_engine" / "input" / "master.json"
 DEFAULT_JOURNAL = _ROOT / "data" / "supervisor_journal.jsonl"
 
 

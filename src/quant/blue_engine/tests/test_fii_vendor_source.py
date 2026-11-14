@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT / "Blue_engine") not in sys.path:
-    sys.path.insert(0, str(ROOT / "Blue_engine"))
+ROOT = Path(__file__).resolve().parents[4]  # tests -> blue_engine -> quant -> src -> repo
+if str(ROOT / "src" / "quant" / "blue_engine") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src" / "quant" / "blue_engine"))
 
 from blue_engine.economics.providers import fii_provider as fp  # noqa: E402
 from blue_engine.economics.providers.fii_provider import FiiFlowProvider  # noqa: E402
@@ -47,8 +47,11 @@ def test_vendor_dir_points_at_a_real_checkout():
     assert fp.DEFAULT_FLOWS_DIR.name == "FLOWS"
     assert fp.DEFAULT_FLOWS_DIR.parent.name == "data"
     assert fp.VENDOR_DIR.name == "indian-market-historical-data"
-    # The repo root must be 3 levels above the provider module.
-    assert fp.VENDOR_DIR.parents[2].name == "Blue_engine"
+    # VENDOR_DIR is <engine>/database/vendor/indian-market-historical-data, so the
+    # engine folder is three levels up (vendor -> database -> blue_engine), NOT
+    # parents[1]. parents[1] is "database" and only ever matched the old capitalised
+    # "Blue_engine" when the whole chain was spelled that way.
+    assert fp.VENDOR_DIR.parents[2].name == "blue_engine"
 
 
 def test_vendor_dir_matches_the_screener_symbol_map_root():

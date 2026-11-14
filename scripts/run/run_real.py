@@ -22,7 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(ROOT / "Blue_engine"))
+sys.path.insert(0, str(ROOT / "src" / "quant" / "blue_engine"))
 
 import e2e_replay as e2e  # noqa: E402
 

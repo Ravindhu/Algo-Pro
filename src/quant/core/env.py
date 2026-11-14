@@ -2,7 +2,7 @@
 
 Flow stage: OpenAlgo (secret loading for the order client)
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/client.py load_env_file (ported; same rules).
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/client.py load_env_file (ported; same rules).
 Decoupling stage 4, item 13 (docs/DECOUPLING_PLAN.md).
 
 Rules (same as Blue's loader):

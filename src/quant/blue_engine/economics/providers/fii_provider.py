@@ -50,11 +50,20 @@ except Exception:  # noqa: BLE001
     requests = None  # type: ignore
     _HAS_REQUESTS = False
 
-#: Pinned vendor checkout. ``__file__`` is
-#: ``<repo>/Blue_engine/economics/providers/fii_provider.py``; ``parents[3]``
-#: is ``<repo>`` (verified, not assumed).
-VENDOR_DIR = (Path(__file__).resolve().parents[3] / "Blue_engine" / "database"
-              / "vendor" / "indian-market-historical-data")
+#: Pinned vendor checkout.
+#: Depth is computed by walking up to the folder that HOLDS the ``blue_engine``
+#: package, not by a fixed ``parents[N]``. A fixed depth broke once already when
+#: the engine moved from ``Blue_engine/`` to ``src/quant/blue_engine/``.
+def _engine_root() -> Path:
+    """The ``blue_engine`` package folder, found by name from this file upward."""
+    for parent in Path(__file__).resolve().parents:
+        if parent.name == "blue_engine" and (parent / "__init__.py").is_file():
+            return parent
+    raise RuntimeError("blue_engine package root not found")
+
+
+ENGINE_DIR = _engine_root()
+VENDOR_DIR = (ENGINE_DIR / "database" / "vendor" / "indian-market-historical-data")
 DEFAULT_FLOWS_DIR = VENDOR_DIR / "data" / "FLOWS"
 DEFAULT_INDICES_DIR = VENDOR_DIR / "data" / "INDICES"
 

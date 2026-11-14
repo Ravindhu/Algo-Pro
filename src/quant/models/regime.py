@@ -2,7 +2,7 @@
 
 Flow stage: Regime detector
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/economics/regime.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/economics/regime.py
 NOTE: volatility percentile states only. HMM is a later upgrade.
 """
 from __future__ import annotations

@@ -328,11 +328,15 @@ def _load_config() -> Dict[str, Any]:
     if macro_path:
         candidates.append(Path(macro_path))
     else:
-        # <repo>/Blue_engine/input/macro_master.json, resolved package-relative.
-        # providers/factory.py -> portfolio -> Blue_engine -> repo root.
+        # <engine>/input/macro_master.json, resolved by finding the package folder
+        # by name. A fixed parents[N] depth was wrong here (it landed on
+        # portfolio/ before the engine moved, and on the wrong level after).
         here = Path(__file__).resolve()
-        blue_engine_dir = here.parents[1]
-        candidates.append(blue_engine_dir / "input" / "macro_master.json")
+        blue_engine_dir = next(
+            (p for p in here.parents if p.name == "blue_engine" and (p / "__init__.py").is_file()),
+            None)
+        if blue_engine_dir is not None:
+            candidates.append(blue_engine_dir / "input" / "macro_master.json")
         # CWD-relative variants, for callers that pass a bare relative path.
         candidates.append(Path("blue_engine") / "input" / "macro_master.json")
         candidates.append(Path("input") / "macro_master.json")

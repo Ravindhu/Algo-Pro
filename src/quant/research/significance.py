@@ -2,7 +2,7 @@
 
 Flow stage: Research validation (DSR/PBO support)
 Status: PHASE 3 IMPLEMENTED (2026-11-11, decoupling stage 6.4 part 1)
-Ported from Blue_engine/portfolio/optim/significance.py (pure stdlib); metric
+Ported from src/quant/blue_engine/portfolio/optim/significance.py (pure stdlib); metric
 functions come from quant.research.perf_metrics (local since stage 1).
 
 Why it exists: a Sharpe difference of 0.01 over 145 periods is a coin flip.

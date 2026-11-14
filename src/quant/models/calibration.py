@@ -2,7 +2,7 @@
 
 Flow stage: Calibrated conviction
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/models/base.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ml/models/base.py
 NOTE: Platt only. Isotonic is a later option.
 """
 from __future__ import annotations

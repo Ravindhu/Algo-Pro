@@ -19,7 +19,7 @@ import pytest
 from quant.core import session_clock as ours
 from quant.core.calendar import TradingCalendar
 
-BLUE_TIME = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "core" / "time_utils.py"
+BLUE_TIME = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "core" / "time_utils.py"
 IST = ZoneInfo("Asia/Kolkata")
 
 

@@ -5,11 +5,11 @@ Owner rule (AGENTS rule 8, decision 0008, 2026-11-05):
 - EV is SHOWN (owner decision 2026-11-09; the AGENTS rule 8 EV ban was lifted).
 - MAE/MFE and rule compliance are still REMOVED from the dashboard.
 - MAE/MFE are not lost: they feed the optimizer objective as parameters
-  (see Blue_engine/optimizer/objective.py and engine.py EngineConfig).
+  (see src/quant/blue_engine/optimizer/objective.py and engine.py EngineConfig).
 
 Flow stage: Dashboard
 Status: PHASE 3 IMPLEMENTED (stage 3 port 2026-11-06: profit factor is local; no Blue import)
-Ported from: Blue_engine/backtest/metrics.py (profit_factor). Parity: tests/parity/test_stage3_parity.py
+Ported from: src/quant/blue_engine/backtest/metrics.py (profit_factor). Parity: tests/parity/test_stage3_parity.py
 """
 from __future__ import annotations
 

@@ -2,11 +2,11 @@
 
 Flow stage: Walk-forward + purged CV, Trial logger + DSR/PBO
 Status: PHASE 5 IMPLEMENTED (wrap; one OptimizerEngine, no second HPO stack)
-Existing code to reuse or wrap (do not copy): Blue_engine/optimizer/engine.py
-(OptimizerEngine, EngineConfig), Blue_engine/optimizer/spaces.py (load_space),
-Blue_engine/optimizer/analysis.py (visual_workflow), Blue_engine/optimizer/plots.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/optimizer/engine.py
+(OptimizerEngine, EngineConfig), src/quant/blue_engine/optimizer/spaces.py (load_space),
+src/quant/blue_engine/optimizer/analysis.py (visual_workflow), src/quant/blue_engine/optimizer/plots.py
 
-AGENTS.md: "Reuse Blue_engine/optimizer/ (Optuna). Do not build a second HPO
+AGENTS.md: "Reuse src/quant/blue_engine/optimizer/ (Optuna). Do not build a second HPO
 stack." So this module never re-implements search. It adds the three things a
 v5 run must have and Blue does not enforce on its own:
 

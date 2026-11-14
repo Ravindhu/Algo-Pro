@@ -1,5 +1,5 @@
 # Package metadata and pytest settings. Layout rule: AGENTS.md "Project layout".
-# Code lives in src/quant/ (package "quant") and Blue_engine/ (existing engine, wrapped).
+# Code lives in src/quant/ (package "quant") and src/quant/blue_engine/ (engine, wrapped).
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -23,6 +23,6 @@ exclude = ["quant.openalgo_platform*"]  # vendored upstream platform, not an ins
 # quote this list rather than keeping copies.
 #   tests/unit      -> system-level and Blue-backed tests (the order-path rule, dashboards, ops)
 #   src/quant/tests -> the quant suite, colocated with the package it tests
-#   tests/parity    -> local vs Blue_engine numeric parity
-#   Blue_engine/tests -> the existing engine's own suite
-testpaths = ["tests/unit", "src/quant/tests", "tests/parity", "Blue_engine/tests"]
+#   tests/parity    -> local vs blue_engine numeric parity
+#   src/quant/blue_engine/tests -> the engine's own suite
+testpaths = ["tests/unit", "src/quant/tests", "tests/parity", "src/quant/blue_engine/tests"]

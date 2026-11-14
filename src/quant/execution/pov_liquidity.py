@@ -1,7 +1,7 @@
 """quant.execution.pov_liquidity - liquidity tiers and child-size caps for POV.
 
 Flow stage: POV child sizing (decouple 6.5, Phase C).
-Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from Blue_engine/core/liquidity.py; pure; no Blue import).
+Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from src/quant/blue_engine/core/liquidity.py; pure; no Blue import).
 Parity: tests/parity/test_pov_phase_c_parity.py
 """
 from __future__ import annotations

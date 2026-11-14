@@ -317,7 +317,10 @@ def _run_cli(*args, env_extra=None):
     actual ``--help`` / ``argparse`` wiring.
     """
     py = sys.executable
-    cmd = [py, "Scripts/optimize_strategy.py", *args]
+    # The launcher lives at <repo>/scripts/train/optimize_strategy.py. _ROOT is
+    # the engine folder, so the repo root is four levels above this test file.
+    repo_root = Path(__file__).resolve().parents[4]
+    cmd = [py, str(repo_root / "scripts" / "train" / "optimize_strategy.py"), *args]
     env = os.environ.copy()
     if env_extra:
         env.update(env_extra)
@@ -326,7 +329,7 @@ def _run_cli(*args, env_extra=None):
     env["BLUE_OPTIMIZER_DATA_ROOT"] = tempfile.mkdtemp(
         prefix="opt_phase4_test_")
     proc = subprocess.run(
-        cmd, cwd=str(Path(_ROOT).parent),
+        cmd, cwd=str(repo_root),
         env=env, capture_output=True, text=True, timeout=60,
     )
     return proc.returncode, proc.stdout, proc.stderr

@@ -2,7 +2,7 @@
 
 Flow stage: Drift check, Rebalancer
 Status: PHASE 2 IMPLEMENTED (stage 3 port 2026-11-06: no-trade decision is local; no Blue import)
-Ported from: Blue_engine/portfolio/optim/cost_aware.py (should_rebalance). Parity: tests/parity/test_stage3_parity.py
+Ported from: src/quant/blue_engine/portfolio/optim/cost_aware.py (should_rebalance). Parity: tests/parity/test_stage3_parity.py
 
 WHAT THIS FILE KEEPS
 --------------------

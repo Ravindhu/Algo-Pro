@@ -2,7 +2,7 @@
 
 Flow stage: Trading calendar, Session guards
 Status: PHASE 3 IMPLEMENTED (pure; the clock and calendar are passed in, no file reads)
-Existing code to reuse or wrap (do not copy): Blue_engine/core/time_utils.py.
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/time_utils.py.
 Not ported on purpose: Blue's holiday-file loader. The holiday list lives in quant/core/calendar.py
 (TradingCalendar). This module takes a calendar object and does not read any file.
 

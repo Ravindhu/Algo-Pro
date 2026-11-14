@@ -16,7 +16,7 @@ import pytest
 from quant.research import significance as ours
 from quant.research.significance import compare_series, paired_bootstrap
 
-BLUE_ROOT = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine"
+BLUE_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine"
 SIG_SRC = BLUE_ROOT / "portfolio" / "optim" / "significance.py"
 RESULTS_SRC = BLUE_ROOT / "core" / "results.py"
 PERF_SRC = BLUE_ROOT / "portfolio" / "attribution" / "perf.py"

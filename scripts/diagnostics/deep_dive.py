@@ -22,7 +22,7 @@ for _sub in ("research", "verify", "run", "data", "ops", "train"):
     if _p not in sys.path:
         sys.path.append(_p)
 # --------------------------------------------------------------------------
-sys.path.insert(0, str(HERE.parent / "Blue_engine"))
+sys.path.insert(0, str(HERE.parent / "src" / "quant" / "blue_engine"))
 
 import e2e_replay as e2e  # noqa: E402
 

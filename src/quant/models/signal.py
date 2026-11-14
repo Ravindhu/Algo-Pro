@@ -2,7 +2,7 @@
 
 Flow stage: Signal
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/alpha/base.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/alpha/base.py
 """
 from __future__ import annotations
 

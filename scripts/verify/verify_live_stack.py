@@ -32,7 +32,7 @@ for _s in (sys.stdout, sys.stderr):
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT / "Blue_engine"))
+sys.path.insert(0, str(ROOT / "src" / "quant" / "blue_engine"))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""
 
@@ -106,7 +106,7 @@ def main() -> int:
     from blue_engine.economics.economic_engine import EconomicEngine
 
     cfg = json.loads(
-        (ROOT / "Blue_engine" / "input" / "macro_master.json")
+        (ROOT / "src" / "quant" / "blue_engine" / "input" / "macro_master.json")
         .read_text(encoding="utf-8"))["engines"]["economic"]
 
     eng = EconomicEngine({

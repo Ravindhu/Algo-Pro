@@ -2,7 +2,7 @@
 
 Flow stage: TCA to cost model
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/backtest/costs.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/backtest/costs.py
 """
 from __future__ import annotations
 

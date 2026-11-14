@@ -2,7 +2,7 @@
 
 Flow stage: Approved order queue
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/orchestrator.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/orchestrator.py
 """
 from __future__ import annotations
 

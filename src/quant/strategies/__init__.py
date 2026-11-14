@@ -2,9 +2,9 @@
 
 Flow stage: Signal
 Status: PHASE 5 IMPLEMENTED (registry + adapters; strategy bodies stay in Blue)
-Existing code to reuse or wrap (do not copy): Blue_engine/alpha/registry.py
-(list_strategies, strategy_module), Blue_engine/alpha/signals (``available``, ``get``),
-Blue_engine/optimizer/strategies.py (resolve_strategy, built-in strategy functions)
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/alpha/registry.py
+(list_strategies, strategy_module), src/quant/blue_engine/alpha/signals (``available``, ``get``),
+src/quant/blue_engine/optimizer/strategies.py (resolve_strategy, built-in strategy functions)
 
 WHAT A STRATEGY IS HERE
 -----------------------

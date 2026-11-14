@@ -17,7 +17,7 @@ import pytest
 from quant.data import screener_numbers as ours
 
 BLUE_NUMBERS = (pathlib.Path(__file__).resolve().parents[2]
-                / "Blue_engine" / "screener" / "client" / "numbers.py")
+                / "src" / "quant" / "blue_engine" / "screener" / "client" / "numbers.py")
 
 
 @pytest.fixture(scope="module")

@@ -14,7 +14,7 @@ import pytest
 
 from quant.models.factors import momentum
 
-ENG_SRC = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "ml" / "features" / "engineering.py"
+ENG_SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "ml" / "features" / "engineering.py"
 
 
 @pytest.fixture

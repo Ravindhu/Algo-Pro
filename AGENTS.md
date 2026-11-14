@@ -21,7 +21,7 @@ resolve from the repo root.
 | Purpose | Path |
 |---|---|
 | **Primary implementation target** | `./` (repo root) |
-| Existing engine (wrap, do not copy) | `Blue_engine/` |
+| Engine (wrap, do not copy) | `src/quant/blue_engine/` (moved here 2026-11-14) |
 | v5 flow scaffolding (fill in) | `src/quant/` |
 | Staging / scratch workspace | `Temp/` |
 | SOP (update daily) | `docs/My_trading_system_SOP/SOP.md` |
@@ -95,7 +95,7 @@ Project layout
 │
 ├── tests/
 │   ├── unit/                    # system-level tests (dashboards, ops, Blue-backed)
-│   ├── parity/                  # local vs Blue_engine numeric parity
+│   ├── parity/                  # local vs blue_engine numeric parity
 │   ├── integration/
 │   ├── replay/
 │   └── fixtures/                # shared by tests/unit and src/quant/tests
@@ -243,8 +243,8 @@ Read both before changing pipeline, risk, execution, or dashboard code.
 
 | Surface | Role | Rule |
 |---|---|---|
-| `Blue_engine/**` | Existing working engine | **Wrap, never copy.** Do not fork logic into `src/quant/`. |
-| `src/quant/**` | v5 flow target | Fill scaffolds in flow order. Keep the `Flow stage:` line accurate. |
+| `src/quant/blue_engine/**` | Existing working engine | **Wrap, never copy.** Do not fork logic into other `src/quant/` packages. |
+| `src/quant/**` (rest) | v5 flow target | Fill scaffolds in flow order. Keep the `Flow stage:` line accurate. |
 
 1. Build stages in flow order. Stage names must match the SVG and the doc.
 2. Only the Risk gate may pass an order intent to OpenAlgo. No other module imports the order client.
@@ -287,7 +287,7 @@ checked, which is what the rules protect.
 
 ### Reuse map (wrap, do not copy)
 
-| Need | Reuse from `Blue_engine/` |
+| Need | Reuse from `src/quant/blue_engine/` |
 |---|---|
 | Risk gate, kill switch | `core/risk_gate.py`, `core/kill_switch_store.py` |
 | Paper fills | `core/paper_broker.py`, `core/paper_shift.py` |
@@ -461,7 +461,7 @@ For every significant change:
 
 1. Understand the existing implementation.
 2. Identify which v5 flow stage the change belongs to. If it fits no stage, stop and ask.
-3. Confirm a `Blue_engine/` target to wrap — never re-implement it under `src/quant/`.
+3. Confirm a `src/quant/blue_engine/` target to wrap — never re-implement it under `src/quant/`.
 4. Design the change. Record it in `docs/decisions/` if it alters flow order or ownership.
 5. Implement the change.
 6. Test the change (unit first, then integration).
@@ -472,7 +472,7 @@ For every significant change:
 11. Run the relevant tests.
 12. Run the full regression suite: `pytest` (no args). The paths live in
     `pyproject.toml [tool.pytest.ini_options] testpaths` — one place only:
-    `tests/unit`, `src/quant/tests`, `tests/parity`, `Blue_engine/tests`. 
+    `tests/unit`, `src/quant/tests`, `tests/parity`, `src/quant/blue_engine/tests`.  
 13. Update documentation (SVG + flow doc + this file together if a stage moved).
 14. Review file organization.
 15. Review logging and error handling.
@@ -653,7 +653,7 @@ Each production model should have:
 
 online statergy Backtesting optune hyperperameter optimizer
 
-Reuse `Blue_engine/optimizer/` (Optuna). Do not build a second HPO stack.
+Reuse `src/quant/blue_engine/optimizer/` (Optuna). Do not build a second HPO stack.
 
 1.select one statergy 
   The Ultimate 10-Parameter Visual Workflow in dashboard

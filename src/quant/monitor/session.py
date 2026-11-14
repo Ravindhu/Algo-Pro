@@ -2,7 +2,7 @@
 
 Flow stage: Broker session manager
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/broker_auth.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/broker_auth.py
 """
 from __future__ import annotations
 

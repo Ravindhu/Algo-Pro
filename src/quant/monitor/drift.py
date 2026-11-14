@@ -2,7 +2,7 @@
 
 Flow stage: Data drift monitor
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/audit/degradation.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ml/audit/degradation.py
 """
 from __future__ import annotations
 

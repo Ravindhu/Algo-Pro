@@ -2,7 +2,7 @@
 
 Flow stage: Alerts
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/supervisor.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/supervisor.py
 """
 from __future__ import annotations
 

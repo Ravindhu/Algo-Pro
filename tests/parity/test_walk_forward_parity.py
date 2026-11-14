@@ -13,7 +13,7 @@ import pytest
 
 from quant.research.walk_forward import purged_walk_forward
 
-SPLITS_SRC = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "ml" / "evaluation" / "splits.py"
+SPLITS_SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "ml" / "evaluation" / "splits.py"
 
 
 @pytest.fixture

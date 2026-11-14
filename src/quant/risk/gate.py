@@ -2,7 +2,7 @@
 
 Flow stage: Trade intent, Risk gate
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_gate.py (ported to risk/money_checks.py; no Blue import)
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/risk_gate.py (ported to risk/money_checks.py; no Blue import)
 """
 from __future__ import annotations
 

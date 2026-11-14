@@ -17,6 +17,9 @@ Each entry:
 Fail-closed rules: unreadable file = no recommendations; writes are atomic;
 expired entries are dropped on write and refused on apply. Nothing here can
 place an order; applying is a separate, owner-only dashboard route.
+
+Flow stage: Dashboard (advice only; never on the trade path)
+Status: PHASE 3 IMPLEMENTED
 """
 from __future__ import annotations
 

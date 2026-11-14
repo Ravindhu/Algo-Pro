@@ -29,7 +29,7 @@ pytest.importorskip("pyotp")
 
 from blue_engine.core import broker_auth  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]  # tests -> blue_engine -> quant -> src -> repo
 
 
 @pytest.fixture()
@@ -159,7 +159,7 @@ def test_no_dashboard_can_login_around_the_guard():
     reference the guard. A module with no login path passes trivially, which is
     the correct outcome (nothing to bypass).
     """
-    dashboards = [ROOT / "dashboard", ROOT / "Blue_engine" / "dashboard"]
+    dashboards = [ROOT / "dashboard", ROOT / "src" / "quant" / "blue_engine" / "dashboard"]
     login_markers = ("launch_login", "run_scheduled_login", "BrokerAuth(")
     checked = 0
     for folder in dashboards:

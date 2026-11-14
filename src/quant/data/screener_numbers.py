@@ -1,7 +1,7 @@
 """Turn screener.in display strings into comparable numbers. Pure Python, no Blue import.
 
 Flow stage: Screener rules (stage 6, sub-stage 2a)
-Status: PHASE 1 IMPLEMENTED 2026-11-06 (ported from Blue_engine/screener/client/numbers.py)
+Status: PHASE 1 IMPLEMENTED 2026-11-06 (ported from src/quant/blue_engine/screener/client/numbers.py)
 Parity: tests/parity/test_screener_numbers_parity.py (loads Blue's numbers.py alone; stdlib only).
 
 WHY THIS FILE EXISTS

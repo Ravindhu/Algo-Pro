@@ -2,7 +2,7 @@
 
 Flow stage: Factor and alpha models
 Status: PHASE 2 IMPLEMENTED (stage 2 port 2026-11-06: 12-1 momentum is local)
-Ported from: Blue_engine/ml/features/engineering.py (momentum, _shift). Parity:
+Ported from: src/quant/blue_engine/ml/features/engineering.py (momentum, _shift). Parity:
 tests/parity/test_momentum_parity.py.
 Low-vol, z-score and composite stay here: Blue realised_vol is annualised (different scale), and
 no Blue equivalent exists for the cross-sectional z-score or composite.

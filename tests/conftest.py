@@ -1,20 +1,20 @@
 """Repo-level test conventions for everything under tests/.
 
 1. ``src/`` on ``sys.path`` so ``import quant.*`` works from a plain checkout.
-2. The Blue_engine latching kill switch is isolated for EVERY test under
-   ``tests/``, not just the ones in ``Blue_engine/tests/``.
+2. The blue_engine latching kill switch is isolated for EVERY test under
+   ``tests/``, not just the ones in ``src/quant/blue_engine/tests/``.
 
-WHY (2) IS HERE AND NOT ONLY UNDER Blue_engine/tests
-----------------------------------------------------
+WHY (2) IS HERE AND NOT ONLY UNDER src/quant/blue_engine/tests
+--------------------------------------------------------------
 ``blue_engine.portfolio.optim_policy.decide()`` keeps ONE latching kill switch per
-process and PERSISTS a trip to sqlite. ``Blue_engine/tests/conftest.py`` resets it
-around each of ITS tests, but that fixture only applies to files inside that
+process and PERSISTS a trip to sqlite. ``src/quant/blue_engine/tests/conftest.py``
+resets it around each of ITS tests, but that fixture only applies to files inside that
 folder. A test under ``tests/`` that calls ``decide(drawdown=...)`` above the
 limit therefore leaves the switch tripped for the rest of the session.
 
 Measured 2026-11-08, after the quant suite moved into ``src/quant/tests`` and the
 testpaths order changed: ``pytest`` produced 24 failures, all in
-``Blue_engine/tests/test_optim_policy.py``, because ``decide()`` returned
+``src/quant/blue_engine/tests/test_optim_policy.py``, because ``decide()`` returned
 ``EXIT_TO_CASH`` before reaching the data-validity checks the tests were
 asserting on. The order-only nature hid it from whichever suite ran last.
 
@@ -36,7 +36,7 @@ if str(SRC) not in sys.path:
 def _isolate_blue_kill_switch(request):
     """Fresh, unpersisted Blue kill switch around every test under tests/.
 
-    Mirrors Blue_engine/tests/conftest.py::_clean_process_kill_switch. See the
+    Mirrors src/quant/blue_engine/tests/conftest.py::_clean_process_kill_switch. See the
     module docstring for the 24-failure ordering bug this prevents.
 
     NOT for tests/parity. Those tests deliberately register STUB ``blue_engine``

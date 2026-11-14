@@ -2,8 +2,8 @@
 
 Flow stage: Fractional Kelly
 Status: PHASE 2 IMPLEMENTED (stage 3 port 2026-11-06: formulas are local; no Blue import)
-Ported from: Blue_engine/portfolio/sizing/kelly.py (kelly_leverage) and
-Blue_engine/portfolio/sizing/vol_target.py (vol_target_scale). Parity: tests/parity/test_stage3_parity.py
+Ported from: src/quant/blue_engine/portfolio/sizing/kelly.py (kelly_leverage) and
+src/quant/blue_engine/portfolio/sizing/vol_target.py (vol_target_scale). Parity: tests/parity/test_stage3_parity.py
 
 Blue quirk kept on purpose (review with owner): a realized vol at or below 1e-6 (but > 0)
 returns scale 1.0 in Blue. Here the same value comes out of the local rule below.

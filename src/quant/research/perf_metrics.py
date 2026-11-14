@@ -5,7 +5,7 @@ Parity with Blue is tested in tests/unit/test_perf_metrics_parity.py.
 
 Flow stage: Trial logger + DSR/PBO, Live monitor
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): none. Replaces Blue_engine/ml/evaluation/metrics.py (stage 1 of docs/DECOUPLING_PLAN.md).
+Existing code to reuse or wrap (do not copy): none. Replaces src/quant/blue_engine/ml/evaluation/metrics.py (stage 1 of docs/DECOUPLING_PLAN.md).
 """
 from __future__ import annotations
 

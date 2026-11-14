@@ -18,7 +18,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Blue_engine"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "quant", "blue_engine"))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""
 

@@ -1,7 +1,7 @@
 """
 Flow stage: Strategy (OCL sell-failure, BOTTOM level).
 Status: PHASE 2 IMPLEMENTED (ported or new, with tests)
-PORTED COPY of Blue_engine/alpha/Statergy/ocl_keylevel.py (conformation entry model removed).
+PORTED COPY of src/quant/blue_engine/alpha/Statergy/ocl_keylevel.py (conformation entry model removed).
 Tests: src/quant/tests/test_strategies_ocl.py
 
 ocl_keylevel.py - OCL (Open-Close-Low) Keylevel Signal Strategy
@@ -272,7 +272,7 @@ class OclSellFailBottomSignal(BaseSignal):
     fixed_setup_mode = "SELL_FAILURE_BOTTOM"
 
     # Tunable parameter space, read by the AI Insight header in the
-    # Optimizer dashboard and by the ``Blue_engine/optimizer/spaces.py``
+    # Optimizer dashboard and by the ``src/quant/blue_engine/optimizer/spaces.py``
     # built-in space. Each entry has:
     #   - kind:     "int" | "float" | "cat"
     #   - default:  the value the strategy uses when the JSON config

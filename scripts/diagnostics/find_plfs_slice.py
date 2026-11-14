@@ -26,7 +26,7 @@ for _s in (sys.stdout, sys.stderr):
 
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "Blue_engine"))
+sys.path.insert(0, os.path.join(ROOT, "src", "quant", "blue_engine"))
 
 from blue_engine.economics.providers.mospi_provider import (  # noqa: E402
     MospiProvider,

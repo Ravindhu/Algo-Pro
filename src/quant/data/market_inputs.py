@@ -4,7 +4,7 @@ Inputs are local files (CSV or saved JSON). No network calls here.
 
 Flow stage: India flow data, Bulk and block deals, Relative strength, Intraday microstructure, Filings and circulars, Global cues
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/economics/providers/fii_provider.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/economics/providers/fii_provider.py
 Source format: https://www.nseindia.com/api/event-calendar (fields: symbol, company, purpose, bm_desc, date as DD-Mon-YYYY)
 """
 from __future__ import annotations

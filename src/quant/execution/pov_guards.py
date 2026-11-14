@@ -1,5 +1,5 @@
 """
-pov_guards.py (ported from Blue_engine/pov/slicers/guards.py, 2026-11-09; decouple stage 6.5 Phase B).
+pov_guards.py (ported from src/quant/blue_engine/pov/slicers/guards.py, 2026-11-09; decouple stage 6.5 Phase B).
 Status: PHASE 3 IMPLEMENTED (pure checks; the quote/depth fetch is NOT ported and stays in the Phase D loop).
 
 guards.py - composable execution-time safety checks for POV (and any future

@@ -2,7 +2,7 @@
 
 Flow stage: Market-halt handler, Event blackout, Overnight gap check
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/auction_windows.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/auction_windows.py
 """
 from __future__ import annotations
 

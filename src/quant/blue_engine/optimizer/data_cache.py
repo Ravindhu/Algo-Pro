@@ -738,13 +738,15 @@ def live_active_state(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
     """Read the live trading system's current strategy from disk.
 
     The live runner writes its active state to
-    ``Blue_engine/input/strategy.active.json`` on every config change.
+    ``src/quant/blue_engine/input/strategy.active.json`` on every config change.
     The Auto-Live mode of the optimizer header reads this file to know
     which symbol/strategy/interval to study. Returns ``None`` when the
     file is missing or unreadable; never raises.
     """
     from pathlib import Path as _P
-    target = _P(path) if path else _P("Blue_engine/input/strategy.active.json")
+    # Package-relative default so the path does not depend on the caller's cwd.
+    _default = _P(__file__).resolve().parents[1] / "input" / "strategy.active.json"
+    target = _P(path) if path else _default
     if not target.is_file():
         return None
     try:

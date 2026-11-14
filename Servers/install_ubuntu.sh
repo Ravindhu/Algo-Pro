@@ -18,7 +18,7 @@
 #         db/            SQLite DBs - broker session tokens, encrypted
 #         keys/          Fernet / oauth key material
 #         download/      master-contract symbol cache
-#       blue_engine/      the engine (editable install, SDK-only)
+#       src/quant/blue_engine/   the engine (editable install, SDK-only)
 #       scripts/         launchers + health checks
 #       data/            engine state
 #
@@ -314,8 +314,8 @@ fi
 
 # ------------------------------------------------------------------ engine
 step "Installing blue_engine (editable, SDK-only)"
-if [[ -f "$INSTALL_ROOT/Blue_engine/pyproject.toml" ]]; then
-  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/Blue_engine[charts]"
+if [[ -f "$INSTALL_ROOT/src/quant/blue_engine/pyproject.toml" ]]; then
+  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/src/quant/blue_engine[charts]"
   sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q fastapi uvicorn
   ok "blue_engine installed editable with [charts] extras; fastapi + uvicorn installed for the dashboard"
 
@@ -329,7 +329,7 @@ print('LEDGER_AVAILABLE=%s' % L._LEDGER_AVAILABLE)
 " 2>&1 | tail -1)
   ok "engine import probe: $ENGINE_CHECK  (LEDGER_AVAILABLE=False is correct: in-memory authoritative)"
 else
-  warn "Blue_engine/pyproject.toml not found - skipping engine install"
+  warn "src/quant/blue_engine/pyproject.toml not found - skipping engine install"
   warn "clone the repo into $INSTALL_ROOT (launch_ubuntu_server.sh does this), then re-run"
 fi
 

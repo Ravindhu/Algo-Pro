@@ -9,8 +9,8 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-PYPROJECT = ROOT / "Blue_engine" / "pyproject.toml"
+ROOT = pathlib.Path(__file__).resolve().parents[4]  # tests -> blue_engine -> quant -> src -> repo
+PYPROJECT = ROOT / "src" / "quant" / "blue_engine" / "pyproject.toml"
 REQUIREMENTS = ROOT / "requirements.txt"
 
 

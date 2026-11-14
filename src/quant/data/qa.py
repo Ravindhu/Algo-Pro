@@ -2,7 +2,7 @@
 
 Flow stage: Data QA gate
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/audit/quality.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ml/audit/quality.py
 """
 from __future__ import annotations
 

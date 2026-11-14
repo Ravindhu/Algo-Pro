@@ -2,7 +2,7 @@
 
 Flow stage: Square-off and rollover
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/auction_windows.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/auction_windows.py
 NOTE: the default cutoff is a placeholder. Set it to your broker's MIS cutoff in config.
 """
 from __future__ import annotations

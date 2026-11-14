@@ -2,7 +2,7 @@
 
 Flow stage: Feature store
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/features/point_in_time.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ml/features/point_in_time.py
 """
 from __future__ import annotations
 

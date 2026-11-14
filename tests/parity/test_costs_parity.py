@@ -16,7 +16,7 @@ REL = 1e-9
 NOTIONALS = [1.0, 1_000.0, 60_000.0, 100_000.0, 10_000_000.0, 1_000_000_000.0]
 
 
-BLUE_COSTS_SRC = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "backtest" / "costs.py"
+BLUE_COSTS_SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "backtest" / "costs.py"
 
 
 def _load_isolated(monkeypatch):

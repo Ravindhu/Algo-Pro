@@ -2,7 +2,7 @@
 
 Flow stage: Covariance, shrinkage
 Status: PHASE 2 IMPLEMENTED (stage 3 port 2026-11-06: estimator is local; no Blue import)
-Ported from: Blue_engine/portfolio/risk/covariance.py (sample_cov, ledoit_wolf_cov with a
+Ported from: src/quant/blue_engine/portfolio/risk/covariance.py (sample_cov, ledoit_wolf_cov with a
 supplied delta, nearest_psd). Parity: tests/parity/test_stage3_parity.py
 
 Notes

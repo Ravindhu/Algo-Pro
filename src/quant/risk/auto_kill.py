@@ -6,7 +6,7 @@ A limit that is not set (None) never trips the switch here; entries already fail
 
 Flow stage: Kill switch, Loss budget breaker
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/kill_switch_store.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/kill_switch_store.py
 """
 from __future__ import annotations
 

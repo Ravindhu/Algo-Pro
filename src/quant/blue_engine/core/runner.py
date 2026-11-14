@@ -50,7 +50,10 @@ from blue_engine.core.symbol_meta import is_sme_periodic_call_auction
 
 
 # Default config used when the runner is called with no arguments.
-DEFAULT_CONFIG = "Blue_engine/input/master.json"
+# Resolved from the installed package, never from the current directory: the
+# engine moved to src/quant/blue_engine/ on 2026-11-14, and a relative literal
+# breaks wherever the runner is started from (X-29).
+DEFAULT_CONFIG = str(Path(__file__).resolve().parents[1] / "input" / "master.json")
 
 
 def load_raw_config(path: str) -> Dict[str, Any]:

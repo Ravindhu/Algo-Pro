@@ -2,7 +2,7 @@
 
 Flow stage: Risk gate (monetary breach checks)
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): none. This is a PORT of Blue_engine/core/risk_gate.py
+Existing code to reuse or wrap (do not copy): none. This is a PORT of src/quant/blue_engine/core/risk_gate.py
 (RiskGate.check), done in DECOUPLING_PLAN stage 4 so src/quant no longer needs Blue for the money checks.
 Parity with Blue: tests/parity/test_money_checks_parity.py (zero differences on the grid).
 

@@ -23,7 +23,13 @@ sys.path.insert(0, str(SRC))
 # NAME the order client and the scaffold marker in order to assert the rules, so
 # including them makes each guard fail on its own test. Production modules under
 # src/quant/ are still fully checked, which is what the rules protect.
-VENDOR_DIRS = {"openalgo_platform", "vendor", "tests"}
+#
+# ``blue_engine`` (moved to src/quant/blue_engine/ on 2026-11-14, decision 0032)
+# is the EXISTING engine that the v5 stages wrap. It is not one of the v5 stage
+# modules this file guards, it does not carry "Flow stage:" lines, and it owns
+# its own order path through the SDK. Scanning it would make all three guards
+# meaningless, so it is excluded exactly like the vendored trees.
+VENDOR_DIRS = {"openalgo_platform", "vendor", "tests", "blue_engine"}
 
 
 def _our_py_files():

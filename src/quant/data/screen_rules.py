@@ -1,9 +1,9 @@
 """Three-valued screening rules (PASS / FAIL / UNKNOWN). Local code, no Blue import.
 
 Flow stage: Screener rules (stage 6, sub-stage 1)
-Status: PHASE 1 IMPLEMENTED 2026-11-06 (moved from Blue_engine/screener/filters.py)
-Ported from: Blue_engine/screener/filters.py (Rule, RuleResult, ScreenResult, Screener,
-default_rules) and the part of Blue_engine/screener/client/numbers.py that filters use
+Status: PHASE 1 IMPLEMENTED 2026-11-06 (moved from src/quant/blue_engine/screener/filters.py)
+Ported from: src/quant/blue_engine/screener/filters.py (Rule, RuleResult, ScreenResult, Screener,
+default_rules) and the part of src/quant/blue_engine/screener/client/numbers.py that filters use
 (``to_number`` with no unit scale). The ``unit_scale="absolute"`` branch of ``to_number``
 is NOT ported: no screen rule calls it.
 Parity: tests/parity/test_screen_rules_parity.py. Hand-checked: tests/unit/test_screen_rules.py.

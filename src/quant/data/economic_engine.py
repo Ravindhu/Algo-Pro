@@ -2,8 +2,8 @@
 
 Flow stage: India flow data, Global cues
 Status: PHASE 5 IMPLEMENTED (wrap; advice-only multiplier, bounded to [0.5, 1.0])
-Existing code to reuse or wrap (do not copy): Blue_engine/economics/economic_engine.py
-(EconomicEngine), Blue_engine/economics/regime.py, Blue_engine/economics/scoring.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/economics/economic_engine.py
+(EconomicEngine), src/quant/blue_engine/economics/regime.py, src/quant/blue_engine/economics/scoring.py
 
 WHAT THE OUTPUT IS ALLOWED TO DO
 --------------------------------

@@ -53,9 +53,11 @@ deep = [
 ]
 
 # NOTE: engine sub-packages (alpha, economics, market, portfolio, pov,
-# infrastructure) live FLAT directly under Blue_engine/ -- there is deliberately
-# no intermediate `engines/` folder. Package names are mapped by package-dir
-# below so `blue_engine.<name>` resolves to `<repo>/Blue_engine/<name>`.
+# infrastructure) live FLAT directly under src/quant/blue_engine/ -- there is
+# deliberately no intermediate `engines/` folder. Package names are mapped by
+# package-dir below so `blue_engine.<name>` resolves to
+# `<repo>/src/quant/blue_engine/<name>`. Every path below is relative to THIS
+# file's folder (`.`), so the map did not change when the tree moved.
 [tool.setuptools]
 packages = [
     "blue_engine",
@@ -119,29 +121,33 @@ blue_engine = "."
 # pytest configuration
 # ---------------------------------------------------------------------------
 # WHY THIS EXISTS: the tests import the PACKAGED name (``blue_engine.backtest.*``)
-# while the source lives flat on disk (``Blue_engine/backtest/``). Without a
-# ``pythonpath`` entry, ``pytest`` from ``Blue_engine/`` resolves ``tests/`` but
-# NOT ``blue_engine``, and the whole suite aborts at collection with
-# ``ModuleNotFoundError: No module named 'blue_engine'``. That is a silent
-# coverage hole: a red suite is obvious, an uncollectable one looks like "no
-# failures". ``pythonpath = ["."]`` makes ``Blue_engine/`` the import root so
-# ``blue_engine.<name>`` resolves via ``package-dir`` without requiring an
-# editable install in every interpreter.
+# while the source lives flat on disk (``src/quant/blue_engine/backtest/``).
+# Without a ``pythonpath`` entry, ``pytest`` from ``src/quant/blue_engine/``
+# resolves ``tests/`` but NOT ``blue_engine``, and the whole suite aborts at
+# collection with ``ModuleNotFoundError: No module named 'blue_engine'``. That is
+# a silent coverage hole: a red suite is obvious, an uncollectable one looks like
+# "no failures". ``pythonpath = ["."]`` makes ``src/quant/blue_engine/`` the
+# import root so ``blue_engine.<name>`` resolves via ``package-dir`` without
+# requiring an editable install in every interpreter.
 #
-# CANONICAL INTERPRETER: ``..\.venv\Scripts\python.exe`` when the working
-# directory is Blue_engine/ (the same repository venv used by the scheduled
-# ``BlueEngine_DailyPortfolio`` task). Running another interpreter risks
+# CANONICAL INTERPRETER: the repository venv, run from the repo root via the
+# root ``pyproject.toml`` testpaths list. Running another interpreter risks
 # dependency drift between the tested and production path.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+# WHY "..": the package is ``src/quant/blue_engine`` and imports as
+# ``blue_engine``. The parent of this folder (``src/quant``) is what must be on
+# sys.path for the name to resolve as a PACKAGE with its __init__.py. Putting
+# "." here instead would expose the folder as a bare path root and produce an
+# empty namespace package.
+pythonpath = [".."]
 addopts = "-ra --strict-markers"
 filterwarnings = [
     "error::RuntimeWarning:blue_engine.*",
 ]
 
 [tool.bandit]
-# Run as: bandit -c pyproject.toml -r Blue_engine
+# Run as: bandit -c src/quant/blue_engine/pyproject.toml -r src/quant/blue_engine
 # Tests use bare asserts and fixtures on purpose (B101, B311 random seeds), so
 # they are excluded. Production code keeps every check. Do not add global
 # skips here: fix or annotate the individual finding instead.

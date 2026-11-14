@@ -2,7 +2,7 @@
 
 Flow stage: Trial logger + DSR/PBO
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/auto_tune.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/auto_tune.py
 """
 from __future__ import annotations
 

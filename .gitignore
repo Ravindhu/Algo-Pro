@@ -5,7 +5,7 @@
 #
 # THE RULE: this repository contains YOUR CODE ONLY.
 #
-#   TRACKED    Blue_engine/, scripts/, Servers/, patches/, README.md, .env.example
+#   TRACKED    src/ (quant + blue_engine), scripts/, Servers/, patches/, README.md, .env.example
 #   NEVER      openalgo/ (upstream - the installer clones it), _restored/ (secrets),
 #              archive/ (retired code and backups), data/ (runtime ledger)
 #
@@ -57,19 +57,19 @@ openalgo_OLD_*/
 openalgo_retired_*/
 # Same rule for the vendored screener-india clone: tracking it would duplicate
 # the upstream TypeScript and fight `git pull`. It is NOT a runtime dependency
-# either - Blue_engine/screener/client/ is the Python port that actually runs.
+# either - src/quant/blue_engine/screener/client/ is the Python port that runs.
 # Only the clone plus its pin file are kept in-tree; _vendor_pin.py
-# --update-pin refreshes it. See Blue_engine/screener/README.md.
-Blue_engine/screener/vendor/screener-india/
+# --update-pin refreshes it. See src/quant/blue_engine/screener/README.md.
+src/quant/blue_engine/screener/vendor/screener-india/
 # The database research upstream is kept pristine and sparse; only its pin and
 # our upgrade helper are tracked, never the upstream data/code checkout.
-Blue_engine/database/vendor/indian-market-historical-data/
+src/quant/blue_engine/database/vendor/indian-market-historical-data/
 # Screener RUNTIME artifacts: the page cache is a local scraper cache, and
 # last_screen.json is a per-run snapshot. Neither belongs in history.
-Blue_engine/screener/cache/
-Blue_engine/screener/last_screen.json
+src/quant/blue_engine/screener/cache/
+src/quant/blue_engine/screener/last_screen.json
 # Downloaded historical research data; sourced under non-commercial-only terms.
-Blue_engine/database/sample_data/
+src/quant/blue_engine/database/sample_data/
 
 # -----------------------------------------------------------------------------
 # RETIRED CODE AND BACKUPS — reference only, large, not needed on the VPS
@@ -113,9 +113,9 @@ pip-wheel-metadata/
 # -----------------------------------------------------------------------------
 # ENGINE RUNTIME ARTIFACTS
 # -----------------------------------------------------------------------------
-blue_engine/input/*.local.json
-blue_engine/**/state.json
-blue_engine/**/*.jsonl
+src/quant/blue_engine/input/*.local.json
+src/quant/blue_engine/**/state.json
+src/quant/blue_engine/**/*.jsonl
 
 # -----------------------------------------------------------------------------
 # TOOLING AND EDITORS
@@ -168,8 +168,8 @@ Temp/*
 # EXCEPTIONS — things that look ignored but must be tracked
 # -----------------------------------------------------------------------------
 !.env.example
-!Blue_engine/input/master.json
-!Blue_engine/pyproject.toml
+!src/quant/blue_engine/input/master.json
+!src/quant/blue_engine/pyproject.toml
 # Deployment config with the API key - the .example template IS tracked
 Servers/deploy.env
 

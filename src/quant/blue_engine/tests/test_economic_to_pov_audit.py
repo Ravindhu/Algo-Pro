@@ -23,9 +23,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT / "Blue_engine") not in sys.path:
-    sys.path.insert(0, str(ROOT / "Blue_engine"))
+ROOT = Path(__file__).resolve().parents[4]  # tests -> blue_engine -> quant -> src -> repo
+if str(ROOT / "src" / "quant" / "blue_engine") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src" / "quant" / "blue_engine"))
 
 from blue_engine.portfolio.portfolio_engine import PortfolioEngine  # noqa: E402
 from blue_engine.pov.pov_engine import PovEngine, _economic_execution_guard  # noqa: E402
@@ -212,7 +212,7 @@ def test_safe_float_preserves_fractional_prices():
 
 
 def test_safe_float_is_defined_once():
-    src = (ROOT / "Blue_engine" / "pov" / "slicers" / "pov.py").read_text(
+    src = (ROOT / "src" / "quant" / "blue_engine" / "pov" / "slicers" / "pov.py").read_text(
         encoding="utf-8")
     assert src.count("def _safe_float(") == 1, (
         "a second module-level _safe_float shadows the first; the last "

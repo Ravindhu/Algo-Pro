@@ -2,7 +2,7 @@
 
 Flow stage: Portfolio risk, Stress and CVaR, Beta limits, Live intraday VaR/CVaR
 Status: PHASE 2 IMPLEMENTED (stage 3 port 2026-11-06: historical CVaR is local; no Blue import)
-Ported from: Blue_engine/portfolio/risk/tail.py (cvar, _quantile). Parity: tests/parity/test_stage3_parity.py
+Ported from: src/quant/blue_engine/portfolio/risk/tail.py (cvar, _quantile). Parity: tests/parity/test_stage3_parity.py
 """
 from __future__ import annotations
 

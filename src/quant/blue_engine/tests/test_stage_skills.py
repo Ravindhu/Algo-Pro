@@ -25,15 +25,20 @@ from blue_engine.core.stage_skills import (
 )
 
 
+# ROOT is the engine folder: tests -> blue_engine. The repo root is four levels
+# above this file (tests -> blue_engine -> quant -> src -> repo root), because the
+# engine now lives at src/quant/blue_engine/. Sibling trees (docs/, skills/) are
+# resolved from REPO_ROOT, never from ROOT.parent, which is only src/quant.
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
 # The per-stage skill docs were MOVED to docs/skills by 81ef720
 # ("chore(layout): match AGENTS.md tree"), which also records "docs only, no code
 # loads them". The markdown assertions below stayed pointed at the old folder and
 # failed with FileNotFoundError. Keep a fallback so a future layout move that
 # keeps either location working does not break this suite.
 SKILLS_DIR = next(
-    (p for p in (ROOT.parent / "docs" / "skills", ROOT / "skills") if p.is_dir()),
-    ROOT.parent / "docs" / "skills",
+    (p for p in (REPO_ROOT / "docs" / "skills", ROOT / "skills") if p.is_dir()),
+    REPO_ROOT / "docs" / "skills",
 )
 
 

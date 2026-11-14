@@ -2,7 +2,7 @@
 
 Flow stage: Order-rate throttle
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/throttle.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/throttle.py
 """
 from __future__ import annotations
 

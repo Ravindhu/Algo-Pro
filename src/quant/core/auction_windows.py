@@ -2,7 +2,7 @@
 
 Flow stage: Session guards
 Status: PHASE 3 IMPLEMENTED (pure; the time is passed in, no clock or env read)
-Existing code to reuse or wrap (do not copy): Blue_engine/core/auction_windows.py.
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/auction_windows.py.
 
 Differences from Blue (decision 0024):
   - No clock read. The caller passes `now`. Blue imported its own clock inside each function.

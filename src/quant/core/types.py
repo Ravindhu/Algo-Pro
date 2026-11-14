@@ -2,7 +2,7 @@
 
 Flow stage: Trade intent
 Status: PHASE 1 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/core/risk_context.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/risk_context.py
 """
 from __future__ import annotations
 

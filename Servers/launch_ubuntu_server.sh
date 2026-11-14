@@ -251,9 +251,9 @@ update_platform() {
   as_service git -C "$INSTALL_ROOT/openalgo" pull --ff-only || warn "openalgo pull failed - kept current code"
   as_service "$oa_venv/bin/python" -m pip install -q -r "$INSTALL_ROOT/openalgo/requirements.txt" \
     || { fail "pip install (openalgo requirements) failed"; return 0; }
-  if [[ -f "$INSTALL_ROOT/Blue_engine/pyproject.toml" ]]; then
-    as_service "$oa_venv/bin/python" -m pip install -q -e "$INSTALL_ROOT/Blue_engine[charts]" \
-      || { fail "pip install (Blue_engine) failed"; return 0; }
+  if [[ -f "$INSTALL_ROOT/src/quant/blue_engine/pyproject.toml" ]]; then
+    as_service "$oa_venv/bin/python" -m pip install -q -e "$INSTALL_ROOT/src/quant/blue_engine[charts]" \
+      || { fail "pip install (blue_engine) failed"; return 0; }
   fi
   systemctl restart openalgo openalgo-ws pov-dash || warn "restart of platform units failed"
   ok "platform updated and restarted (pov-runner untouched)"

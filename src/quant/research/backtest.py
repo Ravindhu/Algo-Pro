@@ -2,8 +2,8 @@
 
 Flow stage: Historical bars, Replay simulator
 Status: PHASE 1 IMPLEMENTED (portfolio replay) + PHASE 5 IMPLEMENTED (single-symbol wrap)
-Existing code to reuse or wrap (do not copy): Blue_engine/backtest/engine.py (single-symbol OHLCV
-simulator, wrapped below), Blue_engine/backtest/costs.py (via research/costs.py, wrapped).
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/backtest/engine.py (single-symbol OHLCV
+simulator, wrapped below), src/quant/blue_engine/backtest/costs.py (via research/costs.py, wrapped).
 The PORTFOLIO replay (``run_backtest``) is kept local on purpose: Blue's engine is single-symbol.
 See docs/decisions/0002-portfolio-backtest-kept-local.md.
 
@@ -88,7 +88,7 @@ def run_backtest(
 
 
 # --------------------------------------------------------------------------- #
-# Single-symbol wrap of Blue_engine/backtest/engine.py
+# Single-symbol wrap of src/quant/blue_engine/backtest/engine.py
 # --------------------------------------------------------------------------- #
 class BacktestUnavailable(RuntimeError):
     """Blue's single-symbol backtest cannot be loaded."""

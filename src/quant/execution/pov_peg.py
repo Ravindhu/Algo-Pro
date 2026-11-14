@@ -1,5 +1,5 @@
 """
-pov_peg.py (ported from Blue_engine/pov/slicers/peg.py, 2026-11-09; decouple 6.5 Phase C).
+pov_peg.py (ported from src/quant/blue_engine/pov/slicers/peg.py, 2026-11-09; decouple 6.5 Phase C).
 Status: PHASE 3 IMPLEMENTED (pure; state held per instance, no module state)
 
 peg.py - PEG-1 passive/peg pricing engine for the POV slicer.

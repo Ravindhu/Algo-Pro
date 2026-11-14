@@ -44,10 +44,12 @@ import sys
 from typing import Optional
 
 # --- make the package importable when run as a plain script --------------- #
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_HERE)
-sys.path.insert(0, os.path.join(_ROOT, "Blue_engine"))
-sys.path.insert(0, _ROOT)
+_HERE = os.path.dirname(os.path.abspath(__file__))          # <repo>/scripts/train
+_REPO = os.path.dirname(os.path.dirname(_HERE))              # <repo>
+# ``blue_engine`` imports by name, so its PARENT (src/quant) goes on sys.path,
+# not the package folder itself.
+sys.path.insert(0, os.path.join(_REPO, "src", "quant"))
+sys.path.insert(0, _REPO)
 
 from blue_engine.optimizer import __version__, config, ensure_dirs, logger  # noqa: E402
 from blue_engine.optimizer.analysis import visual_workflow  # noqa: E402

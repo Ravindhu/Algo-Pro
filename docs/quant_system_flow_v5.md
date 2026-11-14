@@ -204,7 +204,7 @@ flowchart LR
 The layout follows the project layout in `AGENTS.md`. Each module is a scaffold until it has logic and tests.
 One module can implement several blocks. Its `Flow stage:` line lists them.
 `tests/unit/test_layout.py` checks that every SVG block title is mapped. Known gaps are listed there (currently none).
-Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/IMPLEMENTATION_PLAN.md`.
+Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/IMPLEMENTATION_PLAN.md`.
 
 | Flow lane | Package |
 |---|---|
@@ -220,13 +220,13 @@ Existing `Blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/
 | Improvement loop | `src/quant/feedback/` |
 | Support, dashboard, alerts | `src/quant/monitor/`, `src/quant/reporting/`, `src/quant/notify/` |
 
-### 4.1 Blue_engine wraps (Phase 5)
+### 4.1 blue_engine wraps (Phase 5)
 
 Seven Blue modules are wrapped, not re-implemented. Each wrapper file carries the
 `Flow stage:` line that maps it to the SVG blocks above, and each one keeps a
 hard boundary (advice only, or plan only - never an order).
 
-| Blue_engine source | quant wrapper | Flow stage blocks | What the wrapper adds |
+| blue_engine source | quant wrapper | Flow stage blocks | What the wrapper adds |
 |---|---|---|---|
 | `screener/screener_engine.py` | `data/screener_engine.py` | Liquidity screener, Filings and circulars | `select_universe` (fail-closed symbol gate) and the long-only exclusion |
 | `economics/economic_engine.py` | `data/economic_engine.py` | India flow data, Global cues | `risk_multiplier` clamps to `[0.5, 1.0]`; a stale feed cannot lever up |
@@ -277,7 +277,7 @@ refuses a SELL without `exit_leg=True`, `backtest.run_symbol_backtest` refuses
 
 ## 6. Open items
 
-- Confirm each reuse target in `Blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
+- Confirm each reuse target in `src/quant/blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
 - **Live data source not chosen.** `config/data_sources.yaml` has `live_allowed: false`. The owner must pick a licensed source and set it to true. Until then the bot runs no cycles. Live funds, positions and orders are read through the read-only OpenAlgo client.
 - **Exits are in, with limits.** Each open position is checked on its last closed bar: stop (gap fills at open), target, breakeven at 1R, and a 2×ATR trail (`execution/exit_manager.py`). A bar that touches both stop and target counts as a stop. ATR is the entry-time value. DV-ATR is not implemented (no definition in the source yet). An exit with an unclear reply is halted, never resent, and raises a CRITICAL alert. Exit orders go through the same gate as entries.
 - **Exit exposure and P&L (2026-11-10).** An exit closes its parent order, so a parent cannot buy again after a stop-out. Exposure booked at entry is released by the same amount on exit. Entry is the volume-weighted average fill. Realized P&L feeds the daily and per-strategy loss counters. A daily loss at the limit trips the kill switch. Counters reset each trading day.

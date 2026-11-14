@@ -2,7 +2,7 @@
 
 Flow stage: Champion/challenger, Re-opt request, Model registry
 Status: PHASE 5 IMPLEMENTED (wrap; shadow only - promotion stays a human act)
-Existing code to reuse or wrap (do not copy): Blue_engine/core/auto_tune.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/auto_tune.py
 (approval_ok, AutoTuneConfig, AutoTuner, TuneResult)
 
 WHAT IS WRAPPED AND WHAT IS NOT

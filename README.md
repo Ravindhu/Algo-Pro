@@ -62,13 +62,12 @@ Algo-Pro/
 │   ├── notify/                  # alerts by severity
 │   ├── openalgo_platform/       # OpenAlgo integration layer
 │   ├── vendor/                  # vendored third-party code
+│   ├── blue_engine/             # engine package, wrapped not copied (decision 0032)
+│   │   ├── alpha/  backtest/  configs/  core/  database/  economics/
+│   │   ├── infrastructure/  input/  jobs/  market/  ml/  optimizer/
+│   │   ├── portfolio/  pov/  screener/  sectors/  tests/
+│   │   └── valuation_engine.py  runtime_paths.py  pyproject.toml  README.md
 │   └── tests/                   # package-level tests
-│
-├── Blue_engine/                 # earlier engine package; still used by Quick start commands
-│   ├── alpha/  backtest/  configs/  core/  database/  economics/
-│   ├── infrastructure/  input/  jobs/  market/  ml/  optimizer/
-│   ├── portfolio/  pov/  screener/  sectors/  tests/
-│   └── valuation_engine.py  runtime_paths.py  pyproject.toml  README.md
 │
 ├── scripts/                     # entry points: run, research, train, ops
 │   ├── run/                     # run_paper.py, run_live.py, run_supervised.py
@@ -142,13 +141,13 @@ Algo-Pro/
 .\install.bat
 
 # paper session (full path, no broker orders)
-.venv\Scripts\python.exe -m blue_engine.core.runner Blue_engine/input/master.json --paper
+.venv\Scripts\python.exe -m blue_engine.core.runner src/quant/blue_engine/input/master.json --paper
 
 # supervised run (six safety gates before every start)
 .venv\Scripts\python.exe scripts\run\run_supervised.py
 
 # engine tests
-.venv\Scripts\python.exe -m pytest Blue_engine/tests
+.venv\Scripts\python.exe -m pytest src/quant/blue_engine/tests
 ```
 
 OpenAlgo must be reachable on `127.0.0.1:5000` before any live or paper session that

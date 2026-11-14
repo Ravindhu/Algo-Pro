@@ -1,7 +1,7 @@
 """POV execution cost (TCA) from a slicer summary (decouple 6.5, Step 1). Pure.
 
 Flow stage: POV post-trade analysis
-Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from Blue_engine/pov/pov_engine.py PovEngine._execution_cost)
+Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from src/quant/blue_engine/pov/pov_engine.py PovEngine._execution_cost)
 Parity: tests/parity/test_pov_step1_parity.py
 
 Metrics:

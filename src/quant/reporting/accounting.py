@@ -2,7 +2,7 @@
 
 Flow stage: Dashboard (accounting view), Tax lots
 Status: PHASE 3 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/jobs/daily_portfolio.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/jobs/daily_portfolio.py
 """
 from __future__ import annotations
 

@@ -14,7 +14,7 @@ import pytest
 
 from quant.risk.money_checks import money_breaches
 
-BLUE_GATE = pathlib.Path(__file__).resolve().parents[2] / "Blue_engine" / "core" / "risk_gate.py"
+BLUE_GATE = pathlib.Path(__file__).resolve().parents[2] / "src" / "quant" / "blue_engine" / "core" / "risk_gate.py"
 
 QTY = [-5, 0, 1, 9, 10, 11, 100, 101]
 PRICE = [0.0, -1.0, float("nan"), 1.0, 99.99, 1000.0]

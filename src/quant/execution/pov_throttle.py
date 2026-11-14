@@ -1,7 +1,7 @@
 """POV order throttle: minimum gaps and order-to-trade ratio (decouple 6.5, Step 1). Pure.
 
 Flow stage: POV child sizing (throttle before each child order)
-Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from Blue_engine/core/throttle.py; pure; no Blue import)
+Status: PHASE 3 IMPLEMENTED (ported 2026-11-09 from src/quant/blue_engine/core/throttle.py; pure; no Blue import)
 Parity: tests/parity/test_pov_step1_parity.py
 
 Differences from Blue (deliberate):

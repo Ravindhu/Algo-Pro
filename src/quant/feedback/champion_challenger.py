@@ -2,7 +2,7 @@
 
 Flow stage: Champion/challenger, Model registry, Human sign-off
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/ml/registry/__init__.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/ml/registry/__init__.py
 """
 from __future__ import annotations
 

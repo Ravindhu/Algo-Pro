@@ -200,7 +200,7 @@ USER_CONFIG = {
 def _find_project_root(start):
     from pathlib import Path
     for p in [Path(start), *Path(start).parents]:
-        if (p / "blue_engine").is_dir():
+        if (p / "blue_engine").is_dir() or (p / "src" / "quant" / "blue_engine").is_dir():
             return str(p)
     return str(Path(start))
 

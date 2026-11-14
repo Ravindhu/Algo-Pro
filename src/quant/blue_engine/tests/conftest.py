@@ -1,5 +1,5 @@
 """
-conftest.py — pytest fixtures shared across the Blue_engine test suite.
+conftest.py — pytest fixtures shared across the blue_engine test suite.
 
 Isolation for the process-level latching kill-switch
 ----------------------------------------------------
@@ -57,10 +57,12 @@ if os.name == "nt":
     )
 
 import pytest  # noqa: E402
-# The checkout keeps source packages flat while the install maps them to the
-# public ``blue_engine`` namespace. Make pytest against the source checkout use
-# that exact package mapping without requiring an editable install in whichever
-# interpreter launched pytest. This does not affect normal application imports.
+# The package lives at src/quant/blue_engine/ and imports itself as
+# ``blue_engine``. The folder name differs from the package name only by case,
+# which Windows forgives and Linux does not, so install the exact mapping here.
+# That keeps pytest against the source checkout working without an editable
+# install in whichever interpreter launched it. Normal app imports go through
+# quant.core.blue_bridge instead.
 import importlib.util  # noqa: E402
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402

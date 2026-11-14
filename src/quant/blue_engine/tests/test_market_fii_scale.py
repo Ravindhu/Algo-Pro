@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT / "Blue_engine") not in sys.path:
-    sys.path.insert(0, str(ROOT / "Blue_engine"))
+ROOT = Path(__file__).resolve().parents[4]  # tests -> blue_engine -> quant -> src -> repo
+if str(ROOT / "src" / "quant" / "blue_engine") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src" / "quant" / "blue_engine"))
 
 from blue_engine.market.market_engine import MarketEngine  # noqa: E402
 
@@ -141,6 +141,6 @@ def test_missing_flow_warns_and_falls_back_to_breadth():
 def test_shipped_config_uses_6000():
     import json
     cfg = json.loads(
-        (ROOT / "Blue_engine" / "input" / "macro_master.json")
+        (ROOT / "src" / "quant" / "blue_engine" / "input" / "macro_master.json")
         .read_text(encoding="utf-8"))
     assert cfg["engines"]["market"]["fii_scale"] == 6000.0

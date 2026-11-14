@@ -2,8 +2,8 @@
 
 Flow stage: Liquidity screener, Filings and circulars
 Status: PHASE 5 IMPLEMENTED (wrap; extraction + offline evaluation local, scraping in Blue)
-Existing code to reuse or wrap (do not copy): Blue_engine/screener/screener_engine.py
-(ScreenerEngine), Blue_engine/screener/filters.py, Blue_engine/screener/valuations.py
+Existing code to reuse or wrap (do not copy): src/quant/blue_engine/screener/screener_engine.py
+(ScreenerEngine), src/quant/blue_engine/screener/filters.py, src/quant/blue_engine/screener/valuations.py
 
 WHAT IS WRAPPED AND WHAT IS LOCAL
 ---------------------------------

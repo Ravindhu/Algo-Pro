@@ -1,7 +1,7 @@
 """POV child sizing helpers (decouple stage 6.5, Phase B). Pure functions, no I/O.
 
 Flow stage: POV child sizing
-Status: PHASE 3 IMPLEMENTED (2026-11-09). Logic from Blue_engine/pov/slicers/pov.py (per-poll slice
+Status: PHASE 3 IMPLEMENTED (2026-11-09). Logic from src/quant/blue_engine/pov/slicers/pov.py (per-poll slice
 maths, slippage penalty, remaining/max-slice/lot clamps). Parity: tests/parity/test_pov_phase_b_parity.py.
 """
 from __future__ import annotations

@@ -2,8 +2,8 @@
 
 Flow stage: Indian cost model
 Status: PHASE 1 IMPLEMENTED (stage 2 port 2026-11-06: arithmetic is local)
-Ported from: Blue_engine/backtest/costs.py (CostModel.charges_bps, total_bps) and
-Blue_engine/portfolio/optim/cost_aware.py (DEFAULT_COST_BPS: STT, GST, stamp, SEBI).
+Ported from: src/quant/blue_engine/backtest/costs.py (CostModel.charges_bps, total_bps) and
+src/quant/blue_engine/portfolio/optim/cost_aware.py (DEFAULT_COST_BPS: STT, GST, stamp, SEBI).
 Parity against Blue: tests/parity/test_costs_parity.py (runs only where Blue loads).
 
 RULES (owner-confirmed 2026-11-03)
