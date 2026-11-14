@@ -5,9 +5,9 @@
 <rect x="290" y="1985" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="395" y="2010" text-anchor="middle" font-size="15" fill="#0c447c">Economic engine</text>
 <text x="395" y="2030" text-anchor="middle" font-size="12" fill="#185fa5">Risk multiplier 0.5 to 1.0</text>
-<rect x="540" y="1985" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="540" y="1985" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="645" y="2010" text-anchor="middle" font-size="15" fill="#0c447c">Market engine</text>
-<text x="645" y="2030" text-anchor="middle" font-size="12" fill="#185fa5">Not wired yet (known gap)</text>
+<text x="645" y="2030" text-anchor="middle" font-size="12" fill="#185fa5">Advice only, no orders</text>
 <rect x="790" y="1985" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="895" y="2010" text-anchor="middle" font-size="15" fill="#0c447c">Sector engine</text>
 <text x="895" y="2030" text-anchor="middle" font-size="12" fill="#185fa5">No score without history</text>
