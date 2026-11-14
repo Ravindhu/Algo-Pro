@@ -42,9 +42,9 @@
 <rect x="540" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="645" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Valuation engine</text>
 <text x="645" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Conservative, advice only</text>
-<rect x="790" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="895" y="2235" text-anchor="middle" font-size="15" fill="#633806">Infrastructure engine</text>
-<text x="895" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Declined: network probes</text>
+<rect x="790" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="895" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Infrastructure engine</text>
+<text x="895" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Local health gate, no broker</text>
 <rect x="1040" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="1145" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Scheduled jobs</text>
 <text x="1145" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Read-only gates and status</text>
@@ -57,7 +57,7 @@
 <rect x="290" y="2325" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="395" y="2350" text-anchor="middle" font-size="15" fill="#0c447c">Other optimizers</text>
 <text x="395" y="2370" text-anchor="middle" font-size="12" fill="#185fa5">Candidates, long-only</text>
-<rect x="540" y="2325" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="645" y="2350" text-anchor="middle" font-size="15" fill="#633806">Pipeline orchestrator</text>
-<text x="645" y="2370" text-anchor="middle" font-size="12" fill="#854f0b">Declined: can send orders</text>
+<rect x="540" y="2325" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="645" y="2350" text-anchor="middle" font-size="15" fill="#0c447c">Pipeline orchestrator</text>
+<text x="645" y="2370" text-anchor="middle" font-size="12" fill="#185fa5">Dry run only, no client</text>
 </svg>

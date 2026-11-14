@@ -240,9 +240,9 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-**44** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
+**47** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
 counting `load("...")` calls across the `src/quant/` lanes, excluding the one
-deliberately missing module the bridge test uses). The table below names the 31
+deliberately missing module the bridge test uses). The table below names the
 wrapper rows; a row can cover more than one engine module, and a few engine
 modules are reached indirectly by a wrapper rather than loaded directly. Every
 path in this table is checked to exist by `tests/unit/test_doc_consistency.py`.
@@ -297,6 +297,9 @@ hard boundary (advice only, or plan only - never an order).
 | `ml/models/ridge.py`, `ml/models/base.py` | `models/ml_models.py` | ML models | Research-only ridge baseline and library status. Never a live signal. sklearn and torch are not built here |
 | `portfolio/attribution/brinson.py`, `factor_attr.py` | `portfolio/attribution.py` | Performance attribution | Brinson and factor decomposition. Sharpe is NOT wrapped (audit X-27) |
 | `portfolio/optim/risk_parity.py`, `cvar.py`, `mean_variance.py` | `portfolio/alt_optimizers.py` | Other optimizers | Candidate weights, checked long-only and summing to 1. HRP stays local (audit X-25) | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
+| `core.pipeline` | `execution/pipeline_dry_run.py` (`run_dry`) | Pipeline orchestrator | dry run forced on, and every client-like context key removed; the order path is never reachable |
+| `core.supervisor` (read only) | `execution/supervisor_status.py` | Pipeline orchestrator | `journal_status` reads the journal; `market_hours` runs the session gate. Restart and broker gates stay out |
+| `infrastructure.infrastructure_engine` | `monitor/health_gate.py` (`health_gate`) | Infrastructure engine | local probes only (OpenAlgo port, dashboard, servers); no client, so the broker is never called and `broker_checked` is always False |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
@@ -317,8 +320,8 @@ reach the broker, the network or the file system in ways the quant layer must no
 
 | Blue module | Status | Flow block | Why not wrapped |
 |---|---|---|---|
-| `core.orchestrator`, `core.pipeline`, `core.supervisor` | **Declined** | Pipeline orchestrator | The master pipeline can send orders when `dry_run` is False. The legacy orchestrator has an order stage. The supervisor restarts the trading engine |
-| `infrastructure.infrastructure_engine` | **Declined** | Infrastructure engine | Network and socket probes of OpenAlgo. Broker reachability belongs to the monitor |
+| `core.orchestrator` | **Declined** | Pipeline orchestrator | The legacy orchestrator has an order stage. It stays unwrapped. The wrapped `core.pipeline` is dry run only |
+| `core.supervisor` restart and broker gates (`Supervisor`, `run_once`, `positionbook_gate`, `working_orders_gate`, `quote_gate`, `broker_session_gate`, `kill_switch_gate`, `openalgo_reachable_gate`) | **Declined** | Pipeline orchestrator | The supervisor restarts the trading engine, and these gates call the broker or the network. Only `read_status` and `market_hours_gate` are wrapped |
 | `ml.data_sources.openalgo_source`, `yfinance_source`, `registry` | **Declined** | Data sources | Network adapters. Live data comes only through the approved feed in `config/data_sources.yaml` |
 | `economics.providers.fii_provider`, `india_provider`, `mospi_provider`, `rbi_provider` | Not wrapped | Economic providers | Network providers. Their feeds need a licence note before the quant layer may use them |
 | `core.llm.router` | Not wrapped | LLM token governor | Calls model backends. Only the token budget is wrapped |
