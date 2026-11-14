@@ -1,26 +1,40 @@
 """Pre-gate safety checks: everything that must pass BEFORE the risk gate sees an intent.
 
-Flow stage: Pre-gate safety, Trading calendar, Event blackout, Overnight gap check, Trade intent, Stress and CVaR, Session rules: pre-open, auction, closing, Stale-feed checks
-Status: PHASE 3 IMPLEMENTED (2026-11-11); session + feed nodes wired 2026-11-14
+Flow stage: Pre-gate safety, Trading calendar, Event blackout, Overnight gap check, Trade intent, Stress and CVaR, Session rules: pre-open, auction, closing, Stale-feed checks, Portfolio risk, Market-halt handler
+Status: PHASE 3 IMPLEMENTED (2026-11-11); nine checks wired 2026-11-14
 Reuses (wrap, not copy): quant.risk.controls (blackout, gap), quant.portfolio.portfolio_risk
-(stress_pnl, historical VaR/CVaR), config/calendar (NSE holidays),
+(stress_pnl, historical VaR/CVaR), quant.portfolio.risk_limits (sector/beta/tail caps),
+quant.risk.market_halt (index circuit), config/calendar (NSE holidays),
 quant.risk.session_windows (auction windows), quant.monitor.feed_health (stale quotes).
 
 Capital-protection order: these checks run ahead of quant.risk.gate.check_intent and can only
 REFUSE. They never approve anything, never touch an order client, and never resize an order.
 
 Checks:
-  1. trading_calendar_ok  - the day is an NSE equity trading day (holiday CSV, fail closed).
-  2. event_blackout_ok    - results/RBI/Budget/Fed dates block new entries (delegates to controls).
-  3. overnight_gap_ok     - entry ref price far from yesterday's close is refused (gap risk).
-  4. handoff_ok           - the intent is complete and internally consistent before the gate.
-  5. stress_ok            - the whole book survives the configured shock within the VaR/CVaR limit.
-  6. session_ok           - the clock is not inside an auction window (2026-11-14).
-  7. feed_ok              - that symbol's quote feed has not latched PAUSED (2026-11-14).
+  1. calendar_ok       - the day is an NSE equity trading day (holiday CSV, fail closed).
+  2. handoff_ok        - the intent is complete and internally consistent before the gate.
+  3. overnight_gap_ok  - entry ref price far from yesterday's close is refused (gap risk).
+  4. stress_ok         - the whole book survives the configured shock within the limit.
+  5. portfolio_caps_ok - sector, beta and tail caps on the proposed book.
+  6. market_halt_ok    - the index circuit is not halted (entries only).
+  7. session_ok        - the clock is not inside (or just before) an auction window.
+  8. feed_ok           - that symbol's quote feed has not latched PAUSED.
+  9. industry check    - the compliance gate, in execution/openalgo_client.py (live only).
 
-Checks 6 and 7 are opt-in: they only run when the caller supplies a clock or a
-feed book, so an existing caller keeps its exact behaviour. Both FAIL CLOSED when
-their engine module is unavailable, and neither can ever block an exit.
+OPT-IN RULE
+-----------
+Checks 4-8 each need an input (weights, the book, an index move, a clock, a feed
+book). A check runs only when that input is SUPPLIED, so an existing caller keeps
+its exact behaviour and enabling a check is an explicit act. Each one FAILS
+CLOSED when its own module or data is missing, and NONE of them can block an exit.
+
+CALENDAR PATH (fixed 2026-11-14)
+--------------------------------
+``holidays_csv`` used to be resolved against the CURRENT WORKING DIRECTORY. Started
+from any directory other than the repo root, the file was unreadable and the gate
+refused EVERY entry with 'trading calendar unreadable' - fail-closed, but a total
+outage that looked like a data problem. A relative path is now resolved against
+the repo root first, and only then against the CWD.
 """
 from __future__ import annotations
 
@@ -39,11 +53,28 @@ __all__ = [
 ]
 
 
+def resolve_calendar_path(path) -> Path:
+    """Resolve a calendar path: absolute as-is, else repo-root first, then CWD.
+
+    The repo root is derived from this file's location, never from the working
+    directory, so the calendar is found the same way whichever directory the
+    process was started from.
+    """
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    repo_root = Path(__file__).resolve().parents[3]
+    from_root = repo_root / candidate
+    if from_root.exists():
+        return from_root
+    return candidate          # fall back to CWD-relative, as before
+
+
 def load_equity_holidays(path) -> set:
     """Equity-segment holidays from a calendar CSV (columns: date, equity_holiday, ...)."""
     out = set()
     try:
-        with open(path, newline="", encoding="utf-8") as fh:
+        with open(resolve_calendar_path(path), newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
                 if str(row.get("equity_holiday", "")).strip().lower() == "yes":
                     day = date.fromisoformat(str(row["date"]).strip())
@@ -85,7 +116,7 @@ class PreGate:
         self.cfg = cfg
         # holidays=None means "lazy-load from the CSV". An explicitly passed set()
         # means "no holidays known": weekend checks still work, holiday dates do not.
-        self._holidays = load_equity_holidays(Path(cfg.holidays_csv)) if holidays is None else set(holidays)
+        self._holidays = load_equity_holidays(cfg.holidays_csv) if holidays is None else set(holidays)
 
     # 1 + 2: calendar and events -------------------------------------------------
     def calendar_ok(self, day: date, blackout_days: Iterable[date] = ()) -> PreGateResult:
@@ -102,7 +133,7 @@ class PreGate:
         return PreGateResult(not reasons, tuple(reasons))
 
     def _calendar_readable(self) -> bool:
-        return Path(self.cfg.holidays_csv).exists()
+        return resolve_calendar_path(self.cfg.holidays_csv).exists()
 
     # 3: overnight gap ------------------------------------------------------------
     def overnight_gap_ok(self, intent: TradeIntent) -> PreGateResult:

@@ -335,6 +335,14 @@
           <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
         <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
           <input type="number" id="lim-max_symbols_per_portfolio" data-limit="max_symbols_per_portfolio" min="0" step="1"></div>
+        <div class="row"><label for="lim-max_sector_pct">max sector share (0–1)</label>
+          <input type="number" id="lim-max_sector_pct" data-limit="max_sector_pct" min="0" max="1" step="0.01"></div>
+        <div class="row"><label for="lim-max_beta">max book beta</label>
+          <input type="number" id="lim-max_beta" data-limit="max_beta" min="0" step="0.05"></div>
+        <div class="row"><label for="lim-max_cvar">max 99% CVaR (0–1)</label>
+          <input type="number" id="lim-max_cvar" data-limit="max_cvar" min="0" max="1" step="0.01"></div>
+        <div class="row"><label for="lim-max_drawdown">max drawdown (0–1)</label>
+          <input type="number" id="lim-max_drawdown" data-limit="max_drawdown" min="0" max="1" step="0.01"></div>
         <div class="actions">
           <button class="go" type="submit">Save limits</button>
           <span id="msg"></span>
@@ -535,7 +543,8 @@
 <script>
   const $ = id => document.getElementById(id);
   const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
-                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio"];
+                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio",
+                        "max_sector_pct", "max_beta", "max_cvar", "max_drawdown"];
   const POLL_MS = 2000;   // never below 500 ms
   const showMoney = true; // money is always visible (owner request 2026-11-09)
   let last = null;        // last overview

@@ -240,7 +240,18 @@ class StrategyBot:
         # Pre-gate: capital-protection checks BEFORE the risk gate (calendar, blackout, gap,
         # handoff contract, stress/VaR, auction window, feed health). Exits bypass it; it can
         # only refuse, never approve.
-        self._pre_gate = pre_gate if pre_gate is not None else PreGate(PreGateConfig())
+        # Caps come from risk_limits.yaml through ``limits``, not from a bare
+        # PreGateConfig(). With defaults, max_sector_pct/max_beta were permanently
+        # None, so the book-level checks could never run in production even though
+        # they were tested. Unset stays None, and the check refuses when enabled -
+        # this only makes the operator's setting reachable.
+        self._pre_gate = pre_gate if pre_gate is not None else PreGate(
+            PreGateConfig(
+                max_sector_pct=getattr(limits, "max_sector_pct", None),
+                max_beta=getattr(limits, "max_beta", None),
+                max_cvar=getattr(limits, "max_cvar", None),
+                max_drawdown=getattr(limits, "max_drawdown", None),
+            ))
         # Quote-feed health. One counter per symbol; a latched PAUSED symbol blocks
         # new entries for that symbol only. Exits are never blocked by it.
         self.feed_health = feed_health if feed_health is not None else FeedHealthBook()

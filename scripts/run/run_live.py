@@ -134,7 +134,12 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     if limits is not None:
         if limits.blocked:
             reasons.append("risk limits say blocked: true; live entries are stopped")
-        unset = limits.unset()
+        # Only the REQUIRED limits block a live start. The book-level caps
+        # (max_sector_pct, max_beta, max_cvar, max_drawdown) are optional: the
+        # pre-gate refuses those checks until each cap is set, so an unset optional
+        # cap cannot let risk through. Blocking the start on them would have made
+        # live impossible until every optional cap was filled in by hand.
+        unset = limits.unset_required() if hasattr(limits, "unset_required") else limits.unset()
         if unset:
             reasons.append("risk limits incomplete (null): " + ", ".join(unset))
 
