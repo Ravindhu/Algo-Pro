@@ -64,6 +64,11 @@ class PreGateConfig:
     auction_windows: Optional[str] = None
     is_sme: bool = False                  # SME trades in one all-day call auction
     auction_buffer_min: int = 2           # refuse this close to a window opening
+    # Book-level caps (v5 2.6). Unset means the check refuses when it is enabled.
+    max_sector_pct: Optional[float] = None
+    max_beta: Optional[float] = None
+    max_cvar: Optional[float] = None
+    max_drawdown: Optional[float] = None
 
 
 @dataclass
@@ -156,6 +161,28 @@ class PreGate:
     def detail_note(self, loss_share: float) -> None:  # keep last computed value for audit
         self._last_loss = loss_share
 
+    # 5b: portfolio (book-level) caps ------------------------------------------------
+    def portfolio_caps_ok(self, weights: Dict[str, float], *, pnl_history=None
+                          ) -> PreGateResult:
+        """Sector, beta and tail caps on the PROPOSED book.
+
+        Opt-in: only runs when the caller supplies the book, so an existing caller
+        keeps its behaviour. This is the check that catches five banks at 30% each
+        - every one of which passes the per-order limits individually.
+        """
+        from quant.portfolio.risk_limits import (PortfolioRiskConfig,
+                                                 portfolio_risk_checks)
+
+        cfg = PortfolioRiskConfig(
+            max_sector_pct=self.cfg.max_sector_pct,
+            max_beta=self.cfg.max_beta,
+            max_cvar=self.cfg.max_cvar,
+            max_drawdown=self.cfg.max_drawdown,
+        )
+        reasons = portfolio_risk_checks(dict(weights or {}), config=cfg,
+                                        pnl_history=pnl_history)
+        return PreGateResult(not reasons, tuple(f"portfolio: {r}" for r in reasons))
+
     # 6: session / auction window ---------------------------------------------------
     def session_ok(self, now=None) -> PreGateResult:
         """Refuse an entry inside (or just before) an auction window.
@@ -194,7 +221,7 @@ class PreGate:
     def check(self, intent: TradeIntent, *, blackout_days: Sequence[date] = (),
               weights: Optional[Dict[str, float]] = None, capital: float = 0.0,
               betas: Optional[Dict[str, float]] = None, now=None,
-              feed_book=None) -> PreGateResult:
+              feed_book=None, check_book_limits: bool = False) -> PreGateResult:
         """All pre-gate checks. Exits and protection are never pre-gated.
 
         ``now`` and ``feed_book`` are opt-in: supply them to enable the session and
@@ -210,6 +237,15 @@ class PreGate:
         ]
         if weights:
             results.append(self.stress_ok(capital, weights, betas))
+        # Book-level caps: sector, beta and tail.
+        #
+        # SEPARATELY opt-in via ``check_book_limits``, NOT implied by ``weights``.
+        # ``weights`` already drives the stress check and existing callers pass it
+        # for that alone; running the cap check as a side effect of it turned an
+        # unset cap into an unexpected refusal. Enabling a check has to be an
+        # explicit act, and unset caps fail closed only once it is enabled.
+        if check_book_limits and weights:
+            results.append(self.portfolio_caps_ok(weights))
         if now is not None:
             results.append(self.session_ok(now))
         if feed_book is not None:
