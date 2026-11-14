@@ -293,9 +293,9 @@ checked, which is what the rules protect.
 | Paper fills | `core/paper_broker.py`, `core/paper_shift.py` |
 | Ledger, reconciliation | `core/ledger.py`, `core/ledger_store.py` |
 | Backtest, costs | `backtest/engine.py`, `backtest/loops.py`, `backtest/costs.py` |
-| Walk-forward, leakage | `ml/evaluation/walk_forward.py`, `ml/audit/leakage.py` |
+| Walk-forward, leakage | `ml/evaluation/walk_forward.py`, `ml/audit/leakage.py` -> `research/walk_forward_eval.py`, `research/leakage_gate.py` |
 | Point-in-time features | `ml/features/point_in_time.py`, `ml/evaluation/splits.py` |
-| Model registry | `ml/registry/` |
+| Model registry | `ml/registry/` -> `models/registry_bridge.py` |
 | Frontline economics | `economics/` |
 | Broker, auth, feeds | `core/client.py`, `core/broker_auth.py`, `core/order_updates.py` |
 | Exits, protection, sessions | `core/exit_engine.py`, `core/protective_orders.py`, `core/auction_windows.py` |

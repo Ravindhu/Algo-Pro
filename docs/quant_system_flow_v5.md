@@ -222,7 +222,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-Seven Blue modules are wrapped, not re-implemented. Each wrapper file carries the
+Eleven Blue modules are wrapped, not re-implemented. Each wrapper file carries the
 `Flow stage:` line that maps it to the SVG blocks above, and each one keeps a
 hard boundary (advice only, or plan only - never an order).
 
@@ -236,6 +236,10 @@ hard boundary (advice only, or plan only - never an order).
 | `backtest/engine.py` | `research/backtest.py` (`run_symbol_backtest`) | Historical bars, Replay simulator | long-only enforced; the local cost table is fed into Blue's cost model |
 | `core/auto_tune.py` | `feedback/auto_tune.py` | Champion/challenger, Re-opt request | OOS policy recomputed; an `apply` request is refused |
 | `alpha/registry.py`, `optimizer/strategies.py` | `strategies/` | Signal | one registry, two contracts kept apart; `guard_intent` enforces buy/add only |
+| `ml/audit/leakage.py` | `research/leakage_gate.py` | Walk-forward + purged CV, Trial logger + DSR/PBO | one verdict (`clean`/`suspect`/`leaked`/`incomplete`); a skipped shift test is never a pass; `require_clean` refuses before a study is logged |
+| `ml/evaluation/walk_forward.py` | `research/walk_forward_eval.py` | Walk-forward + purged CV, DSR/PBO | fitted/scored folds with deflated Sharpe and a cost check; `require_passed` needs the deflated Sharpe to beat random trials |
+| `ml/registry/` | `models/registry_bridge.py` | Human sign-off, Model registry, Approved-model handoff | requires a recorded approver AND reason on top of `validated` status and a verified signature; never promotes, never saves |
+| `portfolio/risk/tail.py` | `portfolio/tail_risk.py` | Stress and CVaR, Live intraday VaR/CVaR | VaR/CVaR at 95/99, five named India scenarios, drawdown from a compounded equity curve; unset or unmeasurable limits fail closed; refuses a percent-scale series |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
