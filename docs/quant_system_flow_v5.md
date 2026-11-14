@@ -240,7 +240,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-**29** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
+**34** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
 counting `load("...")` calls across the `src/quant/` lanes, excluding the one
 deliberately missing module the bridge test uses). The table below names the 31
 wrapper rows; a row can cover more than one engine module, and a few engine
@@ -283,7 +283,12 @@ hard boundary (advice only, or plan only - never an order).
 | `ml/audit/quality.py` | `data/qa.py` | Data QA gate | `check_bars` keeps its contract and now reports calendar gaps; `audit_bars` runs the engine's eight checks |
 | `ml/evaluation/metrics.py` | `research/significance.py` | Bootstrap of trades | circular block bootstrap for the luck-versus-edge test |
 | `ml/evaluation/splits.py` | `research/walk_forward.py` |
-| `market/market_engine.py` | `data/market_engine.py` | Market engine | Advice only, never an order. No data gives UNKNOWN, not neutral; risk appetite clamped to [-1, 1] | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
+| `market/market_engine.py` | `data/market_engine.py` | Market engine | Advice only, never an order. No data gives UNKNOWN, not neutral; risk appetite clamped to [-1, 1] |
+| `economics/nlp/event_calendar.py` | `data/event_calendar.py` | Event calendar | Known event dates in a window. A major event blocks new entries; monthly expiry does not. A failure blocks. Exits never blocked |
+| `economics/providers/base.py` | `data/economic_providers.py` | Economic providers | Provider contract and a read that never raises. Missing freshness counts as stale. Network providers are not built here |
+| `core/llm/tokens.py` | `models/events/token_budget.py` | LLM token governor | Token count, prompt compaction and cache keys. Advice path only. The router that calls model backends is not wrapped |
+| `core/broker_auth.py` | `execution/broker_auth_status.py` | Broker auth | Read-only login status (autologin flag and cooldown). Never logs in, never reads credentials |
+| `core/lot.py` | `execution/lot_size.py` | Lot accounting | Floors a quantity to whole lots. An unknown lot size sends nothing; Blue would pass the quantity through | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
@@ -304,11 +309,6 @@ nor named here.
 
 | Blue module | Status | Flow block | Why it is not wrapped yet |
 |---|---|---|---|
-| `economics.nlp.event_calendar` | Planned wrap (plan item) | Event calendar | Plan says wrap; not done |
-| `economics.providers.*` | Planned wrap (plan item) | Economic providers | Plan says wrap; not done |
-| `core.llm.*` | Planned wrap (advice path only) | LLM router | Plan allows tokens for the frontline advice path only |
-| `core.broker_auth` | Planned wrap (plan item) | Broker auth | Plan says wrap; not done |
-| `core.lot` | Planned wrap (plan item) | Lot accounting | Plan says wrap; not done |
 | `ml.data_sources.*` | Not wrapped | Data sources | No decision recorded |
 | `alpha.alpha_engine` | Not in flow | Alpha engine | No decision recorded |
 | `portfolio.portfolio_engine` | Not in flow | Portfolio engine | No decision recorded |
@@ -319,6 +319,8 @@ nor named here.
 | `portfolio.attribution.*` | Audit: keep local for Sharpe | Performance attribution | Two Sharpe definitions conflict (X-27) |
 | `portfolio.optim.*` (except local HRP) | Audit: keep local for HRP | Other optimizers | Blue HRP disagrees with ours (X-25) |
 | `core.orchestrator`, `core.pipeline`, `core.supervisor` | Not in flow | Pipeline orchestrator | No equivalent in src (audit) |
+| `economics.providers.fii_provider`, `india_provider`, `mospi_provider`, `rbi_provider` | Not wrapped: network providers | Economic providers | Not built or called by the quant layer; their feeds need a licence note first |
+| `core.llm.router` | Not wrapped: calls model backends | LLM token governor | Routes to Ollama and OpenRouter. Only the token budget is wrapped; the router stays out until the owner approves it |
 | `sectors.sector_engine` | Not wrapped (sector score is wrapped) | Sector engine | `sector_rs` wraps `sector_hm_score` only |
 | `database.engine` | Not wrapped | Historical bars | No decision recorded |
 | `core.risk_engine`, `core.exit_engine` | Audit: keep local | Exit manager | Local exit manager and risk gate are used instead |
@@ -374,4 +376,5 @@ nor named here.
 - Pre-existing failure: `tests/unit/test_upgrade_pin.py` (vendored OpenAlgo hash). Fails on a clean tree too.
 - Items 13, 15 and 17 are regulatory or audit requirements. Treat them as blocking before live trading.
 - ~~**Market engine not wired (2026-11-14).** `src/quant/blue_engine/market/market_engine.py` is Blue code that no quant lane loads. The SVG shows it as a known gap (`KNOWN_GAPS` in `src/quant/tests/test_layout.py`). Wiring it needs a wrapper, a `load(...)` call and a test; the loaded-module count in section 4.1 then rises by one.~~ **Fixed 2026-11-14.** `data/market_engine.py` wraps the Blue market engine (advice only, no orders). It is shown on the SVG and the loaded-module count in section 4.1 includes it.
+- **Broker login stays out of the quant layer (2026-11-14).** The quant side only reads login status (`execution/broker_auth_status.py`). A scheduled login runs in Blue and is not wired here. Turning automated login on is an owner decision.
 - Keep this doc, the SVG, `AGENTS.md` and `README.md` in sync. Change them in the same commit.

@@ -14,22 +14,22 @@
 <rect x="1040" y="1985" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="1145" y="2010" text-anchor="middle" font-size="15" fill="#0c447c">Strategy bot framework</text>
 <text x="1145" y="2030" text-anchor="middle" font-size="12" fill="#185fa5">5-min cycle, paper or analyze</text>
-<text x="40" y="2085" font-size="12" fill="#5f5e5a">Blue engines not wrapped yet. Amber dashed: planned wrap next. Grey dashed: not in the flow yet or no decision. Full list in the flow doc, section 4.3.</text>
-<rect x="40" y="2095" width="210" height="58" rx="10" fill="#faeeda" stroke="#854f0b" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="145" y="2120" text-anchor="middle" font-size="15" fill="#633806">Event calendar</text>
-<text x="145" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Plan: wrap next</text>
-<rect x="290" y="2095" width="210" height="58" rx="10" fill="#faeeda" stroke="#854f0b" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="395" y="2120" text-anchor="middle" font-size="15" fill="#633806">Economic providers</text>
-<text x="395" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Plan: wrap next</text>
-<rect x="540" y="2095" width="210" height="58" rx="10" fill="#faeeda" stroke="#854f0b" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="645" y="2120" text-anchor="middle" font-size="15" fill="#633806">LLM router</text>
-<text x="645" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Frontline advice path only</text>
-<rect x="790" y="2095" width="210" height="58" rx="10" fill="#faeeda" stroke="#854f0b" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="895" y="2120" text-anchor="middle" font-size="15" fill="#633806">Broker auth</text>
-<text x="895" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Plan: wrap next</text>
-<rect x="1040" y="2095" width="210" height="58" rx="10" fill="#faeeda" stroke="#854f0b" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="1145" y="2120" text-anchor="middle" font-size="15" fill="#633806">Lot accounting</text>
-<text x="1145" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Plan: wrap next</text>
+<text x="40" y="2085" font-size="12" fill="#5f5e5a">Blue engines: five now wrapped (solid). Grey dashed: not wrapped yet, not in the flow yet, or no decision. Full list in the flow doc, section 4.3.</text>
+<rect x="40" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="145" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Event calendar</text>
+<text x="145" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Known event dates, blocks entries</text>
+<rect x="290" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="395" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Economic providers</text>
+<text x="395" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Injected feeds, never fetched here</text>
+<rect x="540" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="645" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">LLM token governor</text>
+<text x="645" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Prompt budget, advice path only</text>
+<rect x="790" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="895" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Broker auth</text>
+<text x="895" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Status only, never logs in</text>
+<rect x="1040" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="1145" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Lot accounting</text>
+<text x="1145" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Round down to whole lots</text>
 <rect x="1290" y="2095" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
 <text x="1395" y="2120" text-anchor="middle" font-size="15" fill="#633806">Data sources</text>
 <text x="1395" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Not wrapped, no decision</text>

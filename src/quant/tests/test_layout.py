@@ -70,11 +70,6 @@ def test_only_openalgo_client_names_the_order_client():
 
 # SVG blocks with no module yet. Shrink this list as each gap gets a home. Empty = no gaps.
 KNOWN_GAPS: set = {
-    "Event calendar",
-    "Economic providers",
-    "LLM router",
-    "Broker auth",
-    "Lot accounting",
     "Data sources",
     "Alpha engine",
     "Portfolio engine",
