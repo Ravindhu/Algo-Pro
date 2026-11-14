@@ -291,15 +291,16 @@ checked, which is what the rules protect.
 |---|---|
 | Risk gate, kill switch | `core/risk_gate.py`, `core/kill_switch_store.py` |
 | Paper fills | `core/paper_broker.py`, `core/paper_shift.py` |
-| Ledger, reconciliation | `core/ledger.py`, `core/ledger_store.py` |
+| Ledger, reconciliation | `core/ledger.py` -> `execution/execution_ledger.py`, `core/ledger_store.py` |
 | Backtest, costs | `backtest/engine.py`, `backtest/loops.py`, `backtest/costs.py` |
 | Walk-forward, leakage | `ml/evaluation/walk_forward.py`, `ml/audit/leakage.py` -> `research/walk_forward_eval.py`, `research/leakage_gate.py` |
-| Point-in-time features | `ml/features/point_in_time.py`, `ml/evaluation/splits.py` |
+| Point-in-time features | `ml/features/point_in_time.py` -> `data/feature_store_pit.py`, `ml/evaluation/splits.py` |
 | Model registry | `ml/registry/` -> `models/registry_bridge.py` |
 | Frontline economics | `economics/` |
 | Broker, auth, feeds | `core/client.py`, `core/broker_auth.py`, `core/order_updates.py` |
-| Exits, protection, sessions | `core/exit_engine.py`, `core/protective_orders.py`, `core/auction_windows.py` |
+| Exits, protection, sessions | `core/exit_engine.py`, `core/protective_orders.py` -> `execution/protection_wrap.py`, `core/auction_windows.py` -> `risk/session_windows.py` |
 | Supervisor, recovery | `core/supervisor.py`, `scripts/run/run_supervised.py` |
+| Feed health, stale quotes | `core/quote_health.py` -> `monitor/feed_health.py` |
 | HPO (Optuna) | `optimizer/` |
 | Dashboard | `dashboard/app.py` |
 

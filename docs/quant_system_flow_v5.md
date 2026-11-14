@@ -222,7 +222,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-Eleven Blue modules are wrapped, not re-implemented. Each wrapper file carries the
+Seventeen Blue modules are wrapped, not re-implemented. Each wrapper file carries the
 `Flow stage:` line that maps it to the SVG blocks above, and each one keeps a
 hard boundary (advice only, or plan only - never an order).
 
@@ -240,6 +240,11 @@ hard boundary (advice only, or plan only - never an order).
 | `ml/evaluation/walk_forward.py` | `research/walk_forward_eval.py` | Walk-forward + purged CV, DSR/PBO | fitted/scored folds with deflated Sharpe and a cost check; `require_passed` needs the deflated Sharpe to beat random trials |
 | `ml/registry/` | `models/registry_bridge.py` | Human sign-off, Model registry, Approved-model handoff | requires a recorded approver AND reason on top of `validated` status and a verified signature; never promotes, never saves |
 | `portfolio/risk/tail.py` | `portfolio/tail_risk.py` | Stress and CVaR, Live intraday VaR/CVaR | VaR/CVaR at 95/99, five named India scenarios, drawdown from a compounded equity curve; unset or unmeasurable limits fail closed; refuses a percent-scale series |
+| `core/ledger.py` | `execution/execution_ledger.py` | Ledger and recon, Execution analytics, TCA | child-order lifecycle, session VWAP, arrival window and a rolling slippage window; recording never raises and never blocks a cycle. Separate from `monitor/ledger.py`, which owns positions and broker recon |
+| `ml/features/point_in_time.py` | `data/feature_store_pit.py` | Feature store, Market data live | backward-only as-of join with a 60-day staleness fence by default; refuses a fabricated `default=0`; `join_report` exposes a join that filled nothing |
+| `core/protective_orders.py` | `execution/protection_wrap.py` | Exit manager, Protective orders, Order intent | shared SL/TP registry so the monitor, exit engine and dashboard read one truth; `is_protected` treats a missing stop as unprotected; never places an order |
+| `core/auction_windows.py` | `risk/session_windows.py` | Session rules: pre-open, auction, closing | window predicate with a pre-close buffer; the SME all-day default is opt-in (`is_sme`) so cash entries are not blocked all session; an unreadable schedule fails closed |
+| `core/quote_health.py` | `monitor/feed_health.py` | Feed heartbeats and reconnect, Stale-feed checks | per-symbol failure counters with a PAUSED latch that clears on the first good frame; a paused feed blocks entries, never exits |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
