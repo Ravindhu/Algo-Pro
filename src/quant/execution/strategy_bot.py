@@ -1,7 +1,9 @@
 """5-minute strategy bot: screened symbols -> strategies -> risk gate -> POV child orders.
 
 Flow stage: Algo router, Risk gate, Approved order queue, Audit log, Strategy bot framework
-Status: PHASE 3 IMPLEMENTED (paper and analyze/sandbox only; live mode is refused in code)
+Status: PHASE 3 IMPLEMENTED (paper and analyze/sandbox). PHASE 1 LIVE SENDER: live mode is
+refused unless live_enabled is true AND the injected live startup gate passes. The live
+runner (scripts/run/run_strategy_bot_live.py) is the only caller that supplies both.
 
 One cycle (run every interval_minutes):
   1. Mode is "paper" (simulated fills) or "analyze" (OpenAlgo sandbox); live is refused. Skip the cycle unless the live data source is approved in
@@ -29,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -47,7 +49,7 @@ from quant.risk.pre_gate import PreGate, PreGateConfig
 from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
 from quant.strategies.signals.risk_adapter import gate_signal, levels_from_signal
 
-ALLOWED_MODES = ("paper", "analyze")
+ALLOWED_MODES = ("paper", "analyze", "live")
 
 
 class PaperSender:
@@ -89,6 +91,19 @@ class AnalyzeSender:
             return {"status": "success", "orderid": order_id, "avg_price": float(avg),
                     "filled_qty": int(intent.qty)}
         return {"status": "error", "orderid": order_id, "reason": f"fill not confirmed: {state or 'no status'}"}
+
+
+class LiveSender(AnalyzeSender):
+    """Sends children to the REAL broker through OpenAlgoClient in live mode.
+
+    Built only by scripts/run/run_strategy_bot_live.py after the live startup gate passes.
+    It inherits AnalyzeSender's fill check (only OpenAlgo status 'complete' with a positive
+    average price counts as filled). Every send still runs the client's own live guard: a
+    recorded LiveApproval, an unchanged limits file, the compliance gate, and an approved
+    GateDecision for the same intent. If any guard fails, the order is not sent.
+    """
+
+    bot_mode = "live"
 
 
 class BotRefused(RuntimeError):
@@ -205,11 +220,21 @@ class StrategyBot:
         pre_gate: Optional[PreGate] = None,
         pnl_store: Optional[PnlStore] = None,
         feed_health=None,
+        live_gate: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
     ) -> None:
-        if cfg.live_enabled:
-            raise BotRefused("live_enabled must stay false for the bot in this phase")
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
+        if cfg.mode == "live":
+            # Live needs three things: the config switch, a gate function, and a gate that passes.
+            if not cfg.live_enabled:
+                raise BotRefused("live mode needs live_enabled: true in config/bot.yaml")
+            if live_gate is None:
+                raise BotRefused("live mode needs the live startup gate")
+            live_ok, live_reasons = live_gate()
+            if not live_ok:
+                raise BotRefused("live startup gate refused: " + "; ".join(live_reasons))
+        elif cfg.live_enabled:
+            raise BotRefused("live_enabled needs mode live; paper and analyze never send live orders")
         if getattr(sender, "bot_mode", None) != cfg.mode:
             raise BotRefused(f"sender is for {getattr(sender, 'bot_mode', None)!r} but bot mode is {cfg.mode!r}")
         if not api_key:

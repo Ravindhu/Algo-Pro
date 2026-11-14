@@ -3,9 +3,11 @@
 **Status (2026-11-14): all ten lanes implemented as code and tests. Stage-by-stage audit
 completed 2026-11-14; every lane now has a documented implementation and a blocker
 where one remains. The strategy bot runs in paper or analyze (OpenAlgo sandbox) mode
-only. Live mode is refused in code. The live market-data source is NOT approved
-(config/data_sources.yaml), so the bot skips every cycle until the owner approves
-one. Nothing is live.**
+only by default. Live mode exists behind gates (phase 1, 2026-11-15): it needs
+`mode: live` and `live_enabled: true`, the live startup gate, and a passing
+reconciliation. The committed config is paper. Phase 2 (sandbox soak) and phase 3
+(owner sign-off, SEBI check, kill-switch drill) are NOT done, so nothing is live.
+The live market-data source is approved in config/data_sources.yaml (2026-11-11).**
 
 The audit found and fixed ~14 defects across the ten lanes. They shared one shape:
 **they were silent.** A drift alarm that a single NaN switched off forever, sector
@@ -146,7 +148,7 @@ Support inputs to backtest and risk:
 | Approved order queue | Gated intents only |
 | Algo router | POV, VWAP, IS, auction |
 | Order state machine | Idempotent, with retries |
-| Strategy bot framework (5-min cycle) | Reads the screen, runs strategies on closed bars, gates each parent at full size, then slices children each cycle through the POV executor. Modes: `paper` (simulated fills) and `analyze` (OpenAlgo sandbox). `live` is refused in code. Needs the live data source approved (`execution/strategy_bot.py`, `config/bot.yaml`). |
+| Strategy bot framework (5-min cycle) | Reads the screen, runs strategies on closed bars, gates each parent at full size, then slices children each cycle through the POV executor. Modes: `paper` (simulated fills), `analyze` (OpenAlgo sandbox) and `live` (gated: `LiveSender` plus the live startup gate, run by `scripts/run/run_strategy_bot_live.py`; not yet run). Needs the live data source approved (`execution/strategy_bot.py`, `config/bot.yaml`). |
 | OpenAlgo | Orders and quotes via the bridge |
 | Protection | Stop, target, breakeven and ATR trail checked per closed bar; exits go through the gate (`execution/exit_manager.py`) |
 

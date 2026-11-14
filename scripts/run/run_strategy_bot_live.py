@@ -1,0 +1,154 @@
+"""Live runner for the strategy bot. Refuses to start unless every live gate passes.
+
+Usage (owner only; after scripts/ops/approve_live.py and mode: live + live_enabled: true
+in config/bot.yaml):
+  python scripts/run/run_strategy_bot_live.py --base-url http://127.0.0.1:5000
+
+Gates, in order. Each one must pass before any order can be sent:
+  1. config/bot.yaml: mode is "live" and live_enabled is true.
+  2. scripts/run/run_live.startup_checks: approval on file, limits hash unchanged,
+     limits complete, kill switch off, holiday calendar verified, API key present,
+     egress IP (when the owner set allowed_egress_ip).
+  3. StrategyBot start: the same gate is run again inside the bot.
+  4. Startup reconciliation with the broker position book. No match = no entries.
+  5. OpenAlgoClient live guard on EVERY order: approval, limits hash, compliance
+     gate (audit storage and clock), and an approved GateDecision for the same intent.
+
+Stop: create the file <state-dir>/stop.flag (the loop checks it every second).
+Exits are never blocked by the startup reconciliation; entries are.
+
+Flow stage: Algo router, Risk gate, Approved order queue, OpenAlgo, Audit log
+Status: PHASE 1 IMPLEMENTED (live sender wired behind the gates). NOT RUN. Still open:
+  owner sign-off, SEBI verification (run_live check 2), kill-switch drill (check 4),
+  and the analyze-mode soak test (phase 2).
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import math
+import pathlib
+import sys
+from typing import Any, Callable, Dict, Optional
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from quant.audit.log import AuditLog  # noqa: E402
+from quant.core.config import RiskLimits  # noqa: E402
+from quant.data.live_bars import LiveBars  # noqa: E402
+from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
+from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
+from quant.execution.strategy_bot import BotConfig, BotRefused, LiveSender, StrategyBot  # noqa: E402
+from quant.monitor.broker_recon import make_positionbook_reader  # noqa: E402
+from quant.monitor.paper_loop import now_ist  # noqa: E402
+from quant.monitor.safe_mode import SafeMode  # noqa: E402
+from quant.notify.alerts import Alerts  # noqa: E402
+from quant.risk.compliance import ComplianceConfig, ComplianceGate  # noqa: E402
+from quant.risk.controls import HaltHandler  # noqa: E402
+from quant.risk.gate import RiskState  # noqa: E402
+from quant.risk.kill_switch import KillSwitch  # noqa: E402
+
+
+def _load(name: str, rel_path: str):
+    """Load a sibling script as a module. The scripts are not an importable package."""
+    spec = importlib.util.spec_from_file_location(name, ROOT / rel_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_paper = _load("run_strategy_bot_paper", "scripts/run/run_strategy_bot.py")
+_live_checks = _load("run_live_checks", "scripts/run/run_live.py")
+
+
+def available_cash(reader: Any, api_key: str) -> float:
+    """Sizing equity = available cash from OpenAlgo funds. Any doubt gives 0 (no entries).
+
+    The reply key 'availablecash' is taken from the OpenAlgo funds response. Confirm it on
+    the live account before the first session (AGENTS.md known gap: sizing equity).
+    """
+    try:
+        body = reader.funds(api_key)
+        data = body.get("data") if isinstance(body, dict) else None
+        cash = float(data.get("availablecash", 0)) if isinstance(data, dict) else 0.0
+    except Exception:  # noqa: BLE001 - unknown funds means no entries, never a guess
+        return 0.0
+    return cash if math.isfinite(cash) and cash > 0 else 0.0
+
+
+def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_key: str,
+                   transport: Callable = http_transport, reader=None,
+                   startup_fn: Callable = _live_checks.startup_checks,
+                   alerts: Optional[Alerts] = None,
+                   on_critical: Optional[Callable[[str], None]] = None):
+    """Wire the live bot. Raises BotRefused unless every start gate passes. Places no orders."""
+    cfg = BotConfig.from_yaml(bot_cfg_path)
+    if cfg.mode != "live" or not cfg.live_enabled:
+        raise BotRefused("live runner needs mode: live and live_enabled: true in config/bot.yaml")
+
+    state_dir = pathlib.Path(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    audit = AuditLog(state_dir / "audit.jsonl")
+    limits_path = pathlib.Path(limits_path)
+
+    def gate() -> tuple:
+        res = startup_fn(limits_path=limits_path, audit=audit)
+        return bool(res.get("ok")), list(res.get("reasons", []))
+
+    # Gate 1+2: run the start checks now. The approval they return is needed for the client.
+    checks = startup_fn(limits_path=limits_path, audit=audit)
+    if not checks.get("ok") or checks.get("approval") is None:
+        raise BotRefused("live startup gate refused: " + "; ".join(checks.get("reasons", ["no approval"])))
+
+    client = OpenAlgoClient(
+        base_url, transport, mode="live", live_approval=checks["approval"],
+        limits_path=limits_path,
+        compliance=ComplianceGate(ComplianceConfig(audit_dir=str(state_dir))),
+    )
+    readonly = reader if reader is not None else OpenAlgoReadOnly(base_url, transport)
+    alerts = alerts or Alerts(on_critical=on_critical)
+
+    bot = StrategyBot(
+        cfg=cfg,
+        strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path)) for n in cfg.strategies],
+        bars=LiveBars(readonly, api_key),
+        sender=LiveSender(client),
+        audit=audit,
+        api_key=api_key,
+        read_funds=lambda: available_cash(readonly, api_key),
+        limits=RiskLimits.from_yaml(limits_path),
+        kill=KillSwitch(state_dir / "kill.json"),
+        safe=SafeMode(audit),
+        halt=HaltHandler(),
+        state=RiskState(),
+        alerts=alerts,
+        live_gate=gate,
+    )
+    # Gate 4: entries stay blocked unless the broker book matches ours. require_broker: no
+    # reader means "unavailable", which blocks entries (never a silent pass in live).
+    bot.run_startup_recon(make_positionbook_reader(readonly, api_key), require_broker=True)
+    return bot, audit
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--config", default=str(ROOT / "config" / "bot.yaml"))
+    p.add_argument("--limits", default=str(ROOT / "config" / "risk_limits.yaml"))
+    p.add_argument("--state-dir", default=str(ROOT / "data" / "bot_live"))
+    p.add_argument("--base-url", required=True, help="OpenAlgo server URL")
+    p.add_argument("--max-cycles", type=int, default=None)
+    args = p.parse_args(argv)
+
+    api_key = OpenAlgoClient.api_key_from_env()
+    bot, audit = build_live_bot(
+        bot_cfg_path=args.config, limits_path=args.limits, state_dir=args.state_dir,
+        base_url=args.base_url, api_key=api_key,
+        on_critical=lambda msg: print(f"CRITICAL: {msg}", flush=True),
+    )
+    _paper.run(bot, audit, state_dir=args.state_dir, clock=now_ist, max_cycles=args.max_cycles)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
