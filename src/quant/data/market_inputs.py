@@ -3,9 +3,17 @@ and the NSE board-meeting event calendar.
 Inputs are local files (CSV or saved JSON). No network calls here.
 
 Flow stage: India flow data, Bulk and block deals, Relative strength, Intraday microstructure, Filings and circulars, Global cues
-Status: PHASE 2 IMPLEMENTED
+Status: PHASE 2 IMPLEMENTED; flow-data path wired 2026-11-14
 Existing code to reuse or wrap (do not copy): src/quant/blue_engine/economics/providers/fii_provider.py
+    (its payload normaliser is used by ``data/nse_fii.py``)
 Source format: https://www.nseindia.com/api/event-calendar (fields: symbol, company, purpose, bm_desc, date as DD-Mon-YYYY)
+
+FLOW DATA (corrected 2026-11-14)
+--------------------------------
+This module used to CLAIM it wrapped ``fii_provider.py`` while importing nothing,
+so the India-flow stage had no data path at all. It now serves flows from
+``data/nse_fii.py``, which persists what NSE publishes so analysis never blocks on
+the network. ``fii_flows()`` below is the supported entry point.
 """
 from __future__ import annotations
 
@@ -16,7 +24,34 @@ from typing import Dict, Iterable, List, Set
 import numpy as np
 import pandas as pd
 
+from quant.data import nse_fii
+
 NSE_EVENT_DATE_FORMAT = "%d-%b-%Y"
+
+
+def fii_flows(category: str = "FII", *, as_of=None) -> dict:
+    """Latest stored FII (or DII) flow, with staleness. Analysis entry point.
+
+    Reads the local database only. Nothing is fetched here: the fetch is a
+    scheduled job (``scripts/ops/fetch_fii_daily.py``), so a research call is
+    reproducible and never waits on NSE.
+
+    Returns ``{"known": bool, "net_value": float|None, "trade_date": str|None,
+    "stale": bool, "detail": str}``. An absent or stale row is reported as such
+    and never as a zero flow.
+    """
+    row = nse_fii.latest(category)
+    stale = nse_fii.staleness(row)
+    if row is None:
+        return {"known": False, "net_value": None, "trade_date": None,
+                "stale": True, "detail": "no flow data stored; run scripts/ops/fetch_fii_daily.py"}
+    return {
+        "known": True,
+        "net_value": row.get("net_value"),
+        "trade_date": row.get("trade_date"),
+        "stale": bool(stale.get("stale")),
+        "detail": stale.get("note", ""),
+    }
 
 
 def load_inputs(path, required: Iterable[str]) -> pd.DataFrame:

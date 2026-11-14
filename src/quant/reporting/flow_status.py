@@ -82,6 +82,25 @@ def node_statuses(overview: Mapping[str, object],
         _add(board, "Broker feeds", WARN, note)
         _add(board, "Feed health monitor", WARN, note)
 
+    # Stage 2 market inputs: an absent store is a warning, not a clean node.
+    mi = overview.get("market_inputs") or {}
+    fii = mi.get("fii") or {}
+    if fii and not fii.get("known"):
+        _add(board, "India flow data", WARN,
+             str(fii.get("detail") or "no FII flow data stored"))
+    elif fii.get("stale"):
+        _add(board, "India flow data", WARN, str(fii.get("detail") or "FII flows stale"))
+
+    sectors = mi.get("sectors") or {}
+    if sectors:
+        status = sectors.get("status")
+        # A node absent from the board is healthy, so a good RS result adds
+        # nothing here. Only a missing or unusable series is worth a warning.
+        if status != "ok" and status in ("no_data", "insufficient_history",
+                                          "unavailable", "error"):
+            _add(board, "Relative strength", WARN,
+                 str(sectors.get("detail") or status))
+
     for name in overview.get("unset_limits") or []:
         label = LIMIT_NODES.get(name)
         if label:

@@ -202,5 +202,35 @@ def build_overview(
     overview["costs"] = {"statutory_inr": _r(cost_inr), "net_pnl": _r(gross - cost_inr),
                          "basis": "estimated: delivery rates from research/costs.py, includes 5 bps impact"}
     overview["sandbox"] = sandbox_account(limits.get("capital_inr"), overview["performance"])
+    overview["market_inputs"] = market_inputs_status()
     overview["insight"] = ai_insight(overview)
     return overview
+
+
+def market_inputs_status() -> Dict[str, object]:
+    """FII flow and sector relative strength, for the Stage 2 flow nodes.
+
+    Read-only and cheap: both read the local sqlite stores, so the dashboard can
+    call this on every refresh without touching the network. A missing store is
+    reported as ``known: False`` with the reason, never as a zero.
+    """
+    out: Dict[str, object] = {}
+    try:
+        from quant.data import market_inputs
+        out["fii"] = market_inputs.fii_flows("FII")
+    except Exception as exc:  # noqa: BLE001 - a panel must render, not crash
+        out["fii"] = {"known": False, "net_value": None, "stale": True,
+                      "detail": f"flow data unavailable: {exc!r}"}
+    try:
+        from quant.data import sector_rs
+        rs = sector_rs.sector_rs_from_store()
+        out["sectors"] = {
+            "status": rs.get("status"),
+            "as_of": rs.get("as_of"),
+            "top": (rs.get("sectors") or [])[:3],
+            "detail": rs.get("detail"),
+        }
+    except Exception as exc:  # noqa: BLE001
+        out["sectors"] = {"status": "unavailable", "as_of": None, "top": [],
+                          "detail": f"sector RS unavailable: {exc!r}"}
+    return out
