@@ -14,7 +14,7 @@
 <rect x="1040" y="1985" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="1145" y="2010" text-anchor="middle" font-size="15" fill="#0c447c">Strategy bot framework</text>
 <text x="1145" y="2030" text-anchor="middle" font-size="12" fill="#185fa5">5-min cycle, paper or analyze</text>
-<text x="40" y="2085" font-size="12" fill="#5f5e5a">Blue engines: five now wrapped (solid). Grey dashed: not wrapped yet, not in the flow yet, or no decision. Full list in the flow doc, section 4.3.</text>
+<text x="40" y="2085" font-size="12" fill="#5f5e5a">Blue engines: solid = wrapped. Grey dashed = deliberately not wrapped (they can reach the broker). Full list and reasons: flow doc, section 4.3.</text>
 <rect x="40" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="145" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Event calendar</text>
 <text x="145" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Known event dates, blocks entries</text>
@@ -30,34 +30,34 @@
 <rect x="1040" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
 <text x="1145" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Lot accounting</text>
 <text x="1145" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Round down to whole lots</text>
-<rect x="1290" y="2095" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="1395" y="2120" text-anchor="middle" font-size="15" fill="#633806">Data sources</text>
-<text x="1395" y="2140" text-anchor="middle" font-size="12" fill="#854f0b">Not wrapped, no decision</text>
-<rect x="40" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="145" y="2235" text-anchor="middle" font-size="15" fill="#633806">Alpha engine</text>
-<text x="145" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Not in flow yet</text>
-<rect x="290" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="395" y="2235" text-anchor="middle" font-size="15" fill="#633806">Portfolio engine</text>
-<text x="395" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Not in flow yet</text>
-<rect x="540" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="645" y="2235" text-anchor="middle" font-size="15" fill="#633806">Valuation engine</text>
-<text x="645" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Not in flow yet</text>
+<rect x="1290" y="2095" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="1395" y="2120" text-anchor="middle" font-size="15" fill="#0c447c">Data sources</text>
+<text x="1395" y="2140" text-anchor="middle" font-size="12" fill="#185fa5">Hashes only, no fetching</text>
+<rect x="40" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="145" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Alpha engine</text>
+<text x="145" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Candidates, advice only</text>
+<rect x="290" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="395" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Portfolio engine</text>
+<text x="395" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Targets, long-only, no persist</text>
+<rect x="540" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="645" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Valuation engine</text>
+<text x="645" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Conservative, advice only</text>
 <rect x="790" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
 <text x="895" y="2235" text-anchor="middle" font-size="15" fill="#633806">Infrastructure engine</text>
-<text x="895" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Not in flow yet</text>
-<rect x="1040" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="1145" y="2235" text-anchor="middle" font-size="15" fill="#633806">Scheduled jobs</text>
-<text x="1145" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Not in flow yet</text>
-<rect x="1290" y="2210" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="1395" y="2235" text-anchor="middle" font-size="15" fill="#633806">ML models</text>
-<text x="1395" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Not in flow yet</text>
-<rect x="40" y="2325" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="145" y="2350" text-anchor="middle" font-size="15" fill="#633806">Performance attribution</text>
-<text x="145" y="2370" text-anchor="middle" font-size="12" fill="#854f0b">Audit: keep local (X-27)</text>
-<rect x="290" y="2325" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="395" y="2350" text-anchor="middle" font-size="15" fill="#633806">Other optimizers</text>
-<text x="395" y="2370" text-anchor="middle" font-size="12" fill="#854f0b">Audit: HRP keep local</text>
+<text x="895" y="2255" text-anchor="middle" font-size="12" fill="#854f0b">Declined: network probes</text>
+<rect x="1040" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="1145" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">Scheduled jobs</text>
+<text x="1145" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Read-only gates and status</text>
+<rect x="1290" y="2210" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="1395" y="2235" text-anchor="middle" font-size="15" fill="#0c447c">ML models</text>
+<text x="1395" y="2255" text-anchor="middle" font-size="12" fill="#185fa5">Research only</text>
+<rect x="40" y="2325" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="145" y="2350" text-anchor="middle" font-size="15" fill="#0c447c">Performance attribution</text>
+<text x="145" y="2370" text-anchor="middle" font-size="12" fill="#185fa5">No Sharpe (audit X-27)</text>
+<rect x="290" y="2325" width="210" height="58" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width="1"/>
+<text x="395" y="2350" text-anchor="middle" font-size="15" fill="#0c447c">Other optimizers</text>
+<text x="395" y="2370" text-anchor="middle" font-size="12" fill="#185fa5">Candidates, long-only</text>
 <rect x="540" y="2325" width="210" height="58" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="4 3"/>
 <text x="645" y="2350" text-anchor="middle" font-size="15" fill="#633806">Pipeline orchestrator</text>
-<text x="645" y="2370" text-anchor="middle" font-size="12" fill="#854f0b">No src equivalent</text>
+<text x="645" y="2370" text-anchor="middle" font-size="12" fill="#854f0b">Declined: can send orders</text>
 </svg>

@@ -240,7 +240,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-**34** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
+**44** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
 counting `load("...")` calls across the `src/quant/` lanes, excluding the one
 deliberately missing module the bridge test uses). The table below names the 31
 wrapper rows; a row can cover more than one engine module, and a few engine
@@ -288,7 +288,15 @@ hard boundary (advice only, or plan only - never an order).
 | `economics/providers/base.py` | `data/economic_providers.py` | Economic providers | Provider contract and a read that never raises. Missing freshness counts as stale. Network providers are not built here |
 | `core/llm/tokens.py` | `models/events/token_budget.py` | LLM token governor | Token count, prompt compaction and cache keys. Advice path only. The router that calls model backends is not wrapped |
 | `core/broker_auth.py` | `execution/broker_auth_status.py` | Broker auth | Read-only login status (autologin flag and cooldown). Never logs in, never reads credentials |
-| `core/lot.py` | `execution/lot_size.py` | Lot accounting | Floors a quantity to whole lots. An unknown lot size sends nothing; Blue would pass the quantity through | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
+| `core/lot.py` | `execution/lot_size.py` | Lot accounting | Floors a quantity to whole lots. An unknown lot size sends nothing; Blue would pass the quantity through |
+| `ml/data_sources/base.py` | `data/data_source_contract.py` | Data sources | Provenance hashes (rows hash, schema). Network adapters (OpenAlgo, yfinance) are not built here |
+| `alpha/alpha_engine.py` | `models/alpha_engine.py` | Alpha engine | Candidate signals from inputs passed in. Advice only, never an order |
+| `portfolio/portfolio_engine.py` | `portfolio/portfolio_targets.py` | Portfolio engine | Target weights and rebalance advice. Persistence forced OFF. Long-only. Trades are advice, not orders |
+| `valuation_engine.py` | `data/valuation.py` | Valuation engine | Conservative valuations from snapshots passed in. Loads `screener` first (Blue circular import) |
+| `jobs/daily_portfolio.py` | `execution/job_status.py` | Scheduled jobs | Read-only: post-close window and last status. The job runners stay in Blue |
+| `ml/models/ridge.py`, `ml/models/base.py` | `models/ml_models.py` | ML models | Research-only ridge baseline and library status. Never a live signal. sklearn and torch are not built here |
+| `portfolio/attribution/brinson.py`, `factor_attr.py` | `portfolio/attribution.py` | Performance attribution | Brinson and factor decomposition. Sharpe is NOT wrapped (audit X-27) |
+| `portfolio/optim/risk_parity.py`, `cvar.py`, `mean_variance.py` | `portfolio/alt_optimizers.py` | Other optimizers | Candidate weights, checked long-only and summing to 1. HRP stays local (audit X-25) | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
@@ -299,32 +307,31 @@ refuses a SELL without `exit_leg=True`, `backtest.run_symbol_backtest` refuses
 
 ---
 
-### 4.3 Blue modules not wrapped yet (inventory, 2026-11-14)
+### 4.3 Blue modules not wrapped (inventory, 2026-11-14)
 
 Found by listing every Blue engine file and every `load(...)` call in `src/quant/`.
 Internal helpers that a wrapped engine imports need no wrapper and are not listed.
-Each row matches one box in the band under the main SVG diagram. The guard test
-`test_every_blue_engine_is_loaded_or_listed` fails if an engine is neither loaded
-nor named here.
+The guard test `test_every_blue_engine_is_loaded_or_listed` fails if an engine file is
+neither loaded nor named here. Rows marked **Declined** must stay unwrapped: they can
+reach the broker, the network or the file system in ways the quant layer must not.
 
-| Blue module | Status | Flow block | Why it is not wrapped yet |
+| Blue module | Status | Flow block | Why not wrapped |
 |---|---|---|---|
-| `ml.data_sources.*` | Not wrapped | Data sources | No decision recorded |
-| `alpha.alpha_engine` | Not in flow | Alpha engine | No decision recorded |
-| `portfolio.portfolio_engine` | Not in flow | Portfolio engine | No decision recorded |
-| `valuation_engine`, `screener.valuation_engine` | Not in flow | Valuation engine | No decision recorded |
-| `infrastructure.infrastructure_engine` | Not in flow | Infrastructure engine | No decision recorded |
-| `jobs.*` | Not in flow | Scheduled jobs | Scheduled reports; no decision recorded |
-| `ml.models.*` | Not in flow | ML models | Models stage uses local factors; no decision recorded |
-| `portfolio.attribution.*` | Audit: keep local for Sharpe | Performance attribution | Two Sharpe definitions conflict (X-27) |
-| `portfolio.optim.*` (except local HRP) | Audit: keep local for HRP | Other optimizers | Blue HRP disagrees with ours (X-25) |
-| `core.orchestrator`, `core.pipeline`, `core.supervisor` | Not in flow | Pipeline orchestrator | No equivalent in src (audit) |
-| `economics.providers.fii_provider`, `india_provider`, `mospi_provider`, `rbi_provider` | Not wrapped: network providers | Economic providers | Not built or called by the quant layer; their feeds need a licence note first |
-| `core.llm.router` | Not wrapped: calls model backends | LLM token governor | Routes to Ollama and OpenRouter. Only the token budget is wrapped; the router stays out until the owner approves it |
-| `sectors.sector_engine` | Not wrapped (sector score is wrapped) | Sector engine | `sector_rs` wraps `sector_hm_score` only |
+| `core.orchestrator`, `core.pipeline`, `core.supervisor` | **Declined** | Pipeline orchestrator | The master pipeline can send orders when `dry_run` is False. The legacy orchestrator has an order stage. The supervisor restarts the trading engine |
+| `infrastructure.infrastructure_engine` | **Declined** | Infrastructure engine | Network and socket probes of OpenAlgo. Broker reachability belongs to the monitor |
+| `ml.data_sources.openalgo_source`, `yfinance_source`, `registry` | **Declined** | Data sources | Network adapters. Live data comes only through the approved feed in `config/data_sources.yaml` |
+| `economics.providers.fii_provider`, `india_provider`, `mospi_provider`, `rbi_provider` | Not wrapped | Economic providers | Network providers. Their feeds need a licence note before the quant layer may use them |
+| `core.llm.router` | Not wrapped | LLM token governor | Calls model backends. Only the token budget is wrapped |
+| `portfolio.attribution.perf` | Not wrapped | Performance attribution | Sharpe is disputed (audit X-27). The owner must pick one definition first |
+| `sectors.sector_engine` | Not wrapped | Sector engine | `sector_rs` wraps `sector_hm_score` only |
+| `screener.valuation_engine` | Not wrapped | Valuation engine | Backward-compatible alias of `valuation_engine`, which is wrapped |
 | `database.engine` | Not wrapped | Historical bars | No decision recorded |
-| `core.risk_engine`, `core.exit_engine` | Audit: keep local | Exit manager | Local exit manager and risk gate are used instead |
-| `ml.features.engineering` | Not wrapped | Feature store | Feature store is local; no decision recorded |
+| `core.risk_engine`, `core.exit_engine` | Audit: keep local | Exit manager | The local exit manager and risk gate are used instead |
+| `ml.features.engineering` | Not wrapped | Feature store | The feature store is local. No decision recorded |
+| `ml.models.random_forest`, `gradient_boosting`, `ensemble` | Not wrapped | ML models | sklearn candidates, research only. No decision recorded |
+| `portfolio.optim.black_litterman` | Not wrapped | Other optimizers | No decision recorded |
+| `portfolio.attribution.tearsheet` | Not wrapped | Performance attribution | Report only. No decision recorded |
+| `jobs.backfill_nav`, `jobs.sector_hm_report` | Not wrapped | Scheduled jobs | Scripts that write files. Only the read-only job gates are wrapped |
 
 ## 5. Small items (checklist, not drawn as blocks)
 
