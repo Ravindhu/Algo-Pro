@@ -138,3 +138,30 @@ def test_no_placeholder_stage_markers_remain():
     text = _doc()
     for banned in ("TODO", "FIXME", "not built yet"):
         assert banned not in text, f"doc still carries '{banned}'"
+
+
+# --------------------------------------------------------------------------- #
+# every Blue engine is either wrapped or listed as a known gap
+# --------------------------------------------------------------------------- #
+def test_every_blue_engine_is_loaded_or_listed():
+    """A new Blue engine must be wrapped, or named in doc section 4.3."""
+    blue = SRC / "blue_engine"
+    loaded = set()
+    for lane in SRC.iterdir():
+        if not lane.is_dir() or lane.name in ("blue_engine", "tests", "openalgo_platform"):
+            continue
+        for path in lane.rglob("*.py"):
+            if "tests" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            loaded.update(re.findall(r'load\("([^"]+)"\)', text))
+    engines = []
+    for path in blue.rglob("*.py"):
+        rel = path.relative_to(blue)
+        if "tests" in rel.parts or "__pycache__" in rel.parts or path.name == "__init__.py":
+            continue
+        if "engine" in path.stem:
+            engines.append(".".join(rel.with_suffix("").parts))
+    section = _doc().split("### 4.3", 1)[1].split("## 5.", 1)[0]
+    missing = sorted(e for e in engines if e not in loaded and e not in section)
+    assert missing == [], f"Blue engines neither wrapped nor listed in doc 4.3: {missing}"

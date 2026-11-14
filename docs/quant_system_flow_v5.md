@@ -294,6 +294,36 @@ refuses a SELL without `exit_leg=True`, `backtest.run_symbol_backtest` refuses
 
 ---
 
+### 4.3 Blue modules not wrapped yet (inventory, 2026-11-14)
+
+Found by listing every Blue engine file and every `load(...)` call in `src/quant/`.
+Internal helpers that a wrapped engine imports need no wrapper and are not listed.
+Each row matches one box in the band under the main SVG diagram. The guard test
+`test_every_blue_engine_is_loaded_or_listed` fails if an engine is neither loaded
+nor named here.
+
+| Blue module | Status | Flow block | Why it is not wrapped yet |
+|---|---|---|---|
+| `economics.nlp.event_calendar` | Planned wrap (plan item) | Event calendar | Plan says wrap; not done |
+| `economics.providers.*` | Planned wrap (plan item) | Economic providers | Plan says wrap; not done |
+| `core.llm.*` | Planned wrap (advice path only) | LLM router | Plan allows tokens for the frontline advice path only |
+| `core.broker_auth` | Planned wrap (plan item) | Broker auth | Plan says wrap; not done |
+| `core.lot` | Planned wrap (plan item) | Lot accounting | Plan says wrap; not done |
+| `ml.data_sources.*` | Not wrapped | Data sources | No decision recorded |
+| `alpha.alpha_engine` | Not in flow | Alpha engine | No decision recorded |
+| `portfolio.portfolio_engine` | Not in flow | Portfolio engine | No decision recorded |
+| `valuation_engine`, `screener.valuation_engine` | Not in flow | Valuation engine | No decision recorded |
+| `infrastructure.infrastructure_engine` | Not in flow | Infrastructure engine | No decision recorded |
+| `jobs.*` | Not in flow | Scheduled jobs | Scheduled reports; no decision recorded |
+| `ml.models.*` | Not in flow | ML models | Models stage uses local factors; no decision recorded |
+| `portfolio.attribution.*` | Audit: keep local for Sharpe | Performance attribution | Two Sharpe definitions conflict (X-27) |
+| `portfolio.optim.*` (except local HRP) | Audit: keep local for HRP | Other optimizers | Blue HRP disagrees with ours (X-25) |
+| `core.orchestrator`, `core.pipeline`, `core.supervisor` | Not in flow | Pipeline orchestrator | No equivalent in src (audit) |
+| `sectors.sector_engine` | Not wrapped (sector score is wrapped) | Sector engine | `sector_rs` wraps `sector_hm_score` only |
+| `database.engine` | Not wrapped | Historical bars | No decision recorded |
+| `core.risk_engine`, `core.exit_engine` | Audit: keep local | Exit manager | Local exit manager and risk gate are used instead |
+| `ml.features.engineering` | Not wrapped | Feature store | Feature store is local; no decision recorded |
+
 ## 5. Small items (checklist, not drawn as blocks)
 
 1. Corporate-action order: splits, bonuses, dividends, demergers

@@ -69,7 +69,23 @@ def test_only_openalgo_client_names_the_order_client():
 
 
 # SVG blocks with no module yet. Shrink this list as each gap gets a home. Empty = no gaps.
-KNOWN_GAPS: set = set()
+KNOWN_GAPS: set = {
+    "Event calendar",
+    "Economic providers",
+    "LLM router",
+    "Broker auth",
+    "Lot accounting",
+    "Data sources",
+    "Alpha engine",
+    "Portfolio engine",
+    "Valuation engine",
+    "Infrastructure engine",
+    "Scheduled jobs",
+    "ML models",
+    "Performance attribution",
+    "Other optimizers",
+    "Pipeline orchestrator",
+}
 
 
 def _svg_block_titles():
@@ -84,7 +100,7 @@ def _svg_block_titles():
 def test_every_svg_block_is_mapped_to_a_module():
     """Each SVG block title must appear in a stage file's Flow stage line, or be a known gap."""
     titles = _svg_block_titles()
-    assert len(titles) == 84, len(titles)  # guards against the parser finding nothing
+    assert len(titles) == 99, len(titles)  # guards against the parser finding nothing
     scripts = list((ROOT / "scripts").glob("*.py"))
     stage_lines = "\n".join(
         line
