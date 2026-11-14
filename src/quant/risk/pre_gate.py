@@ -1,9 +1,10 @@
 """Pre-gate safety checks: everything that must pass BEFORE the risk gate sees an intent.
 
-Flow stage: Pre-gate safety, Trading calendar, Event blackout, Overnight gap check, Trade intent, Stress and CVaR
-Status: PHASE 3 IMPLEMENTED (2026-11-11)
+Flow stage: Pre-gate safety, Trading calendar, Event blackout, Overnight gap check, Trade intent, Stress and CVaR, Session rules: pre-open, auction, closing, Stale-feed checks
+Status: PHASE 3 IMPLEMENTED (2026-11-11); session + feed nodes wired 2026-11-14
 Reuses (wrap, not copy): quant.risk.controls (blackout, gap), quant.portfolio.portfolio_risk
-(stress_pnl, historical VaR/CVaR), config/calendar (NSE holidays).
+(stress_pnl, historical VaR/CVaR), config/calendar (NSE holidays),
+quant.risk.session_windows (auction windows), quant.monitor.feed_health (stale quotes).
 
 Capital-protection order: these checks run ahead of quant.risk.gate.check_intent and can only
 REFUSE. They never approve anything, never touch an order client, and never resize an order.
@@ -14,6 +15,12 @@ Checks:
   3. overnight_gap_ok     - entry ref price far from yesterday's close is refused (gap risk).
   4. handoff_ok           - the intent is complete and internally consistent before the gate.
   5. stress_ok            - the whole book survives the configured shock within the VaR/CVaR limit.
+  6. session_ok           - the clock is not inside an auction window (2026-11-14).
+  7. feed_ok              - that symbol's quote feed has not latched PAUSED (2026-11-14).
+
+Checks 6 and 7 are opt-in: they only run when the caller supplies a clock or a
+feed book, so an existing caller keeps its exact behaviour. Both FAIL CLOSED when
+their engine module is unavailable, and neither can ever block an exit.
 """
 from __future__ import annotations
 
@@ -52,6 +59,11 @@ class PreGateConfig:
     var_limit: float = 0.05               # max stressed book loss as a share of capital
     gap_limit: float = 0.10               # max entry ref price vs previous close
     holidays_csv: str = "config/calendar/nse_holidays_2026.csv"
+    # Auction windows. None means "no auction schedule for this segment", which is
+    # correct for cash equities. A string like "09:15-09:45,12:00-12:30" enables it.
+    auction_windows: Optional[str] = None
+    is_sme: bool = False                  # SME trades in one all-day call auction
+    auction_buffer_min: int = 2           # refuse this close to a window opening
 
 
 @dataclass
@@ -144,10 +156,51 @@ class PreGate:
     def detail_note(self, loss_share: float) -> None:  # keep last computed value for audit
         self._last_loss = loss_share
 
+    # 6: session / auction window ---------------------------------------------------
+    def session_ok(self, now=None) -> PreGateResult:
+        """Refuse an entry inside (or just before) an auction window.
+
+        Only runs when a clock is supplied, so a caller that has not adopted this
+        check keeps its previous behaviour. Fails CLOSED: if the schedule cannot
+        be read we do not know whether the market is in an auction.
+        """
+        from quant.risk import session_windows
+
+        windows = self.cfg.auction_windows
+        if windows is None and not self.cfg.is_sme:
+            return PreGateResult(True)  # cash segment has no periodic auction here
+        blocked, reason = session_windows.blocks_entry(
+            now, windows, buffer_min=self.cfg.auction_buffer_min,
+            is_sme=self.cfg.is_sme)
+        if blocked:
+            return PreGateResult(False, (f"session: {reason}",))
+        return PreGateResult(True)
+
+    # 7: quote feed health -----------------------------------------------------------
+    def feed_ok(self, symbol: str, feed_book=None) -> PreGateResult:
+        """Refuse an entry whose symbol feed has latched PAUSED.
+
+        Only runs when a feed book is supplied. A missing book is NOT treated as
+        healthy when the caller asked for the check: the guard fails closed.
+        """
+        if feed_book is None:
+            return PreGateResult(True)
+        guard = feed_book.blocks_entries([symbol])
+        if guard.get("blocked"):
+            return PreGateResult(False, (f"feed: {guard.get('detail') or 'paused'}",))
+        return PreGateResult(True)
+
     # combined entry point ------------------------------------------------------------
     def check(self, intent: TradeIntent, *, blackout_days: Sequence[date] = (),
               weights: Optional[Dict[str, float]] = None, capital: float = 0.0,
-              betas: Optional[Dict[str, float]] = None) -> PreGateResult:
+              betas: Optional[Dict[str, float]] = None, now=None,
+              feed_book=None) -> PreGateResult:
+        """All pre-gate checks. Exits and protection are never pre-gated.
+
+        ``now`` and ``feed_book`` are opt-in: supply them to enable the session and
+        feed-health checks. Omitting them reproduces the earlier behaviour exactly,
+        which is what keeps existing callers and their tests stable.
+        """
         if intent.kind != "entry":
             return PreGateResult(True)  # exits and protection are never pre-gated
         results = [
@@ -157,5 +210,9 @@ class PreGate:
         ]
         if weights:
             results.append(self.stress_ok(capital, weights, betas))
+        if now is not None:
+            results.append(self.session_ok(now))
+        if feed_book is not None:
+            results.append(self.feed_ok(intent.symbol, feed_book))
         reasons = tuple(r for res in results for r in res.reasons)
         return PreGateResult(not reasons, reasons)

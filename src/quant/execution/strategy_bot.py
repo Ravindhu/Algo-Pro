@@ -38,6 +38,7 @@ from quant.core.types import TradeIntent
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
+from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
@@ -203,6 +204,7 @@ class StrategyBot:
         alerts=None,
         pre_gate: Optional[PreGate] = None,
         pnl_store: Optional[PnlStore] = None,
+        feed_health=None,
     ) -> None:
         if cfg.live_enabled:
             raise BotRefused("live_enabled must stay false for the bot in this phase")
@@ -236,8 +238,12 @@ class StrategyBot:
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
         # Pre-gate: capital-protection checks BEFORE the risk gate (calendar, blackout, gap,
-        # handoff contract, stress/VaR). Exits bypass it; it can only refuse, never approve.
+        # handoff contract, stress/VaR, auction window, feed health). Exits bypass it; it can
+        # only refuse, never approve.
         self._pre_gate = pre_gate if pre_gate is not None else PreGate(PreGateConfig())
+        # Quote-feed health. One counter per symbol; a latched PAUSED symbol blocks
+        # new entries for that symbol only. Exits are never blocked by it.
+        self.feed_health = feed_health if feed_health is not None else FeedHealthBook()
         self._executor = PovExecutor(
             gate=self._child_gate, sender=sender, api_key=api_key, audit=audit, pov=cfg.pov,
         )
@@ -355,8 +361,13 @@ class StrategyBot:
             sym = item["symbol"]
             df = self._bars.bars(sym, now)
             if df is None:
+                # A symbol with no fresh bars is a FEED failure, not a quiet market.
+                # Count it: enough consecutive misses latch PAUSED for this symbol
+                # and the pre-gate then refuses its entries. Exits are unaffected.
+                self.feed_health.record_failure(sym, "no fresh bars")
                 report["skipped"].append(f"{sym}: no fresh bars")
                 continue
+            self.feed_health.record_success(sym)
             bars_cache[sym] = df
             self._remember_bar(sym, df)
             stats = self._bars.daily_stats(sym, now)
@@ -438,12 +449,14 @@ class StrategyBot:
         if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
             return
-        # Pre-gate (capital protection): calendar, handoff contract. The overnight gap and
-        # stress/VaR checks run inside gate_signal on the real intent (proper ref price + size).
+        # Pre-gate (capital protection): calendar, handoff contract, auction window and
+        # feed health. The overnight gap and stress/VaR checks run inside gate_signal on
+        # the real intent (proper ref price + size).
         pre = self._pre_gate.check(
             TradeIntent(intent_id=f"{key}-PRE", strategy_id=strat.name, symbol=sym,
                         side="BUY", qty=1, ref_price=float(df["close"].iloc[-2]), kind="entry",
                         prev_close=None, trade_day=now.date()),
+            now=now, feed_book=self.feed_health,
         )
         if not pre.ok:
             self._log("pre_gate_refused", key=key, reasons=list(pre.reasons))
@@ -454,7 +467,7 @@ class StrategyBot:
             kill=self._kill, safe=self._safe, halt=self._halt, available_funds=self._funds,
             adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
             circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
-            pre_gate=self._pre_gate,
+            pre_gate=self._pre_gate, now=now, feed_book=self.feed_health,
         )
         self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
         if not res.ok or res.intent is None:

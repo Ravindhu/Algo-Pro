@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from quant.core.config import RiskLimits
@@ -67,6 +67,16 @@ def to_live_signal(sig: dict, equity: float, risk_fraction: float) -> dict | Non
     return {**sig, "entry": entry, "sl": sl, "tp": tp, "qty": qty}
 
 
+def _now_ist(trade_day) -> datetime:
+    """Reference instant for session checks.
+
+    Uses the real IST clock, because an auction window is a wall-clock property:
+    replaying yesterday's bars must still ask "is the market in an auction NOW".
+    India has no DST, so a fixed +05:30 offset is exact and needs no tzdata.
+    """
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+
+
 def _clamp_to_caps(live: dict, limits: RiskLimits, state: RiskState) -> tuple[Optional[dict], str]:
     """Lower qty to the per-order caps and the room left under max_open_exposure.
 
@@ -112,6 +122,8 @@ def gate_signal(
     asm_gsm: bool = False,
     algo_id: Optional[str] = None,
     pre_gate: Optional[PreGate] = None,
+    now=None,
+    feed_book=None,
 ) -> GatedSignal:
     """Turn one signal into an approved or rejected intent. The caller records approved ids in state.seen_ids.
 
@@ -153,9 +165,15 @@ def gate_signal(
         algo_id=algo_id,
     )
     # Pre-gate (capital protection): calendar, event blackout, overnight gap, handoff
-    # contract, stress/VaR. Runs BEFORE the risk gate. It can only refuse, never approve.
+    # contract, stress/VaR, auction window, feed health. Runs BEFORE the risk gate.
+    # It can only refuse, never approve. ``now``/``feed_book`` are forwarded so the
+    # session and feed checks are live here too, not just in the pre-gate instance.
     if pre_gate is not None:
-        pre = pre_gate.check(intent)
+        pre = pre_gate.check(
+            intent,
+            now=now if now is not None else _now_ist(trade_day),
+            feed_book=feed_book,
+        )
         if not pre.ok:
             return GatedSignal(False, "pre-gate: " + "; ".join(pre.reasons))
 
