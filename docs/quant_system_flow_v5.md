@@ -35,8 +35,8 @@ Stages follow the snake order of the SVG: each row runs left to right, then the 
 | Stage | What it does |
 |---|---|
 | Historical bars | Cached OHLCV and cost data |
-| Data QA gate | Checks corporate actions, stale bars, missing bars. Failure stops the run |
-| Walk-forward + purged CV | Embargoed folds, costs included |
+| Data QA gate | `data/qa.py`. `check_bars` (DataFrame, unchanged contract) now also reports calendar gaps; `audit_bars` runs the engine's eight checks - gaps, insufficient history, per-column missing fraction, staleness, price sanity. Failure stops the run |
+| Walk-forward + purged CV | Embargoed folds, costs included (`research/walk_forward.py` splits, `research/walk_forward_eval.py` fitted/scored, deflated) |
 | Trial logger + DSR/PBO | Counts every trial tried. Out-of-sample gate |
 | Paper trading stage | Live feed, no capital |
 
@@ -47,8 +47,8 @@ Support inputs to backtest and risk:
 | Indian cost model | STT, brokerage, exchange charges, GST, stamp duty, market impact |
 | Bootstrap of trades | Luck vs edge test |
 | Covariance + shrinkage | Feeds the optimizer and cluster caps |
-| Capacity estimator | Max capital per strategy |
-| Experiment lineage | Data, code and parameters per signal |
+| Capacity estimator | `research/capacity.py`. Inverse of the engine's square-root impact law, not a linear multiple of ADV: capacity is where impact consumes the edge |
+| Experiment lineage | `research/lineage.py`. Data hash, param hash, commit, plus cost-model version, horizon, universe, date range and dirty-tree state; `verify_lineage` re-checks a stored row |
 
 ### 2.2 Market inputs
 
