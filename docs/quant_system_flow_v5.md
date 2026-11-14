@@ -1,6 +1,17 @@
 # Quant System Flow v5 (Design)
 
-**Status: Phases 1-3 implemented as code and tests. The strategy bot runs in paper or analyze (OpenAlgo sandbox) mode only. Live mode is refused in code. The live market-data source is NOT approved (config/data_sources.yaml), so the bot skips every cycle until the owner approves one. Nothing is live.**
+**Status (2026-11-14): all ten lanes implemented as code and tests. Stage-by-stage audit
+completed 2026-11-14; every lane now has a documented implementation and a blocker
+where one remains. The strategy bot runs in paper or analyze (OpenAlgo sandbox) mode
+only. Live mode is refused in code. The live market-data source is NOT approved
+(config/data_sources.yaml), so the bot skips every cycle until the owner approves
+one. Nothing is live.**
+
+The audit found and fixed ~14 defects across the ten lanes. They shared one shape:
+**they were silent.** A drift alarm that a single NaN switched off forever, sector
+caps that were enforced nowhere, a holiday path that refused every entry when the
+process started outside the repo root, a cost-model feedback loop that was
+documented and never wired. Each is now fixed and pinned by a test.
 Source diagram: `quant_system_flow_v5.svg` (repo root).
 
 Legend:
@@ -139,10 +150,10 @@ Support inputs to backtest and risk:
 
 | Stage | What it does |
 |---|---|
-| Ledger and recon | Intent ID trail, 3-way match |
+| Ledger and recon | Intent ID trail, 3-way match. `monitor/recon3.py` compares ledger vs OpenAlgo vs broker and names WHICH leg drifted (`openalgo_stale`, `ours_missing`, `we_only`, `broker_only`, `partial_split`). Two-way (`monitor/recon_job.py`) stays for the simple ledger-vs-broker job. A leg that cannot be read makes the verdict `blocked`: an entry is never approved on a comparison that did not happen |
 | TCA to cost model | Slippage vs arrival price, fed back to cost model |
-| Live monitor | Drawdown and fill quality |
-| Strategy health | Sharpe, CUSUM drift |
+| Live monitor | Drawdown and fill quality (`monitor/live_monitor.py`). MAE/MFE: an entry price of 0, an empty series and a side that is not +1/-1 are all refused rather than returning `inf` or a fake flat trade |
+| Strategy health | Sharpe, CUSUM drift (`monitor/strategy_health.py`). A NaN return is SKIPPED, not treated as a zero: `min(0.0, s+nan)` is `0.0`, so a single bad mark-to-market used to reset the CUSUM and switch drift detection off permanently. A flat series reports NaN Sharpe, not 9e+16 |
 | Kill switch | Blocks new entries and closes all open positions (`src/quant/risk/kill_close.py`, decision 0020). Trips by hand or automatically on a daily realized loss at `max_daily_loss` (`src/quant/risk/auto_kill.py`). Kill closes pass halt-all while the switch is on. The dashboard can trip and reset it (token, reason required, audited). The dashboard sends no orders; the paper runner does the closes on its next run |
 
 ### 2.11 Improvement loop
@@ -222,7 +233,13 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-Seventeen Blue modules are wrapped, not re-implemented. Each wrapper file carries the
+**28** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
+counting `load("...")` calls across the `src/quant/` lanes, excluding the one
+deliberately missing module the bridge test uses). The table below names the 31
+wrapper rows; a row can cover more than one engine module, and a few engine
+modules are reached indirectly by a wrapper rather than loaded directly. Every
+path in this table is checked to exist by `tests/unit/test_doc_consistency.py`.
+Each wrapper file carries the
 `Flow stage:` line that maps it to the SVG blocks above, and each one keeps a
 hard boundary (advice only, or plan only - never an order).
 
@@ -245,6 +262,20 @@ hard boundary (advice only, or plan only - never an order).
 | `core/protective_orders.py` | `execution/protection_wrap.py` | Exit manager, Protective orders, Order intent | shared SL/TP registry so the monitor, exit engine and dashboard read one truth; `is_protected` treats a missing stop as unprotected; never places an order |
 | `core/auction_windows.py` | `risk/session_windows.py` | Session rules: pre-open, auction, closing | window predicate with a pre-close buffer; the SME all-day default is opt-in (`is_sme`) so cash entries are not blocked all session; an unreadable schedule fails closed |
 | `core/quote_health.py` | `monitor/feed_health.py` | Feed heartbeats and reconnect, Stale-feed checks | per-symbol failure counters with a PAUSED latch that clears on the first good frame; a paused feed blocks entries, never exits |
+| `core/liquidity.py` | `data/liquidity_profile.py` | Liquidity screener | five tiers with per-tier block ceilings; `assess()` gives the screener a verdict and treats unknown liquidity as MICRO, never "assume liquid". Separate from `risk/liquidity.py`, which is the gate's hard ADV cap |
+| `sectors/sector_hm_score.py` | `data/sector_rs.py` | Relative strength | Mansfield-style RS from the weekly stored index levels, with an explicit `insufficient_history` status below 4 weeks instead of a made-up score; `persist` forced off so a research read never writes |
+| `backtest/costs.py` | `research/costs.py`, `research/capacity.py` | Indian cost model, Capacity estimator | statutory stack plus square-root impact; capacity is the INVERSE of the impact law, not a linear multiple of ADV |
+| `core/risk_gate.py`, `core/kill_switch_store.py` | `risk/gate.py`, `risk/kill_switch.py` | Risk gate, Kill switch | every intent passes the gate; only the gate may pass an intent to execution |
+| `core/paper_broker.py`, `core/paper_shift.py` | `execution/strategy_bot.py` (`PaperSender`, `AnalyzeSender`) | Paper trading stage, Strategy bot | simulated fills for paper mode and OpenAlgo sandbox fills for analyze mode; the sender must match the bot mode or the bot refuses to start |
+| `core/ledger_store.py` | `monitor/ledger.py` | Ledger and recon | position ledger and broker recon. Separate from `execution/execution_ledger.py`, which owns child orders and TCA |
+| `core/client.py` | `execution/openalgo_client.py` | OpenAlgo | the ONLY file permitted to name a broker order endpoint (`test_layout.py` enforces it) |
+| `optimizer/objective.py` | `research/optimizer.py` | Trial logger + DSR/PBO | the objective the optimiser scores, so research and optimisation share one fill convention |
+| `portfolio/optim/cost_aware.py` | `portfolio/rebalance.py` | Drift check, Rebalancer | no-trade band with a strictly-greater boundary, parity-tested against the engine |
+| `portfolio/risk/covariance.py` | `portfolio/covariance.py` | Covariance + shrinkage | feeds the optimiser and the cluster caps; parity-tested |
+| `portfolio/sizing/kelly.py`, `vol_target.py` | `portfolio/sizing.py` | Fractional Kelly | volatility-targeted with hard caps; parity-tested against the engine |
+| `ml/audit/quality.py` | `data/qa.py` | Data QA gate | `check_bars` keeps its contract and now reports calendar gaps; `audit_bars` runs the engine's eight checks |
+| `ml/evaluation/metrics.py` | `research/significance.py` | Bootstrap of trades | circular block bootstrap for the luck-versus-edge test |
+| `ml/evaluation/splits.py` | `research/walk_forward.py` | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
@@ -288,17 +319,18 @@ refuses a SELL without `exit_leg=True`, `backtest.run_symbol_backtest` refuses
 
 - Confirm each reuse target in `src/quant/blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
 - **Live data source not chosen.** `config/data_sources.yaml` has `live_allowed: false`. The owner must pick a licensed source and set it to true. Until then the bot runs no cycles. Live funds, positions and orders are read through the read-only OpenAlgo client.
-- **Exits are in, with limits.** Each open position is checked on its last closed bar: stop (gap fills at open), target, breakeven at 1R, and a 2×ATR trail (`execution/exit_manager.py`). A bar that touches both stop and target counts as a stop. ATR is the entry-time value. DV-ATR is not implemented (no definition in the source yet). An exit with an unclear reply is halted, never resent, and raises a CRITICAL alert. Exit orders go through the same gate as entries.
+- **Exits are in, with limits.** Each open position is checked on its last closed bar: stop (gap fills at open), target, breakeven at 1R, and a 2×ATR trail (`execution/exit_manager.py`). A bar that touches both stop and target counts as a stop. ATR is the entry-time value read by `exit_manager.py`. An exit with an unclear reply is halted, never resent, and raises a CRITICAL alert. Exit orders go through the same gate as entries.
+- **DV-ATR (corrected 2026-11-14).** Earlier text here said DV-ATR was not implemented. It IS: the OCL strategies (`strategies/ocl/ocl_sell_fail_top.py`, `ocl_sell_fail_bottom.py`) implement Dynamic Volatility Smoothing ATR — a self-scaling trail that widens in high volatility, ratchets up only, and sits ABOVE a frozen traditional stop that acts as the hard floor. `dvs_enabled`, `dvs_atr_sizing_factor` and `stop_fallback_atr_mult` are strategy parameters. `exit_manager.py` does NOT apply it; it is the strategy's own post-entry management, which is why the two must not be conflated.
 - **Exit exposure and P&L (2026-11-10).** An exit closes its parent order, so a parent cannot buy again after a stop-out. Exposure booked at entry is released by the same amount on exit. Entry is the volume-weighted average fill. Realized P&L feeds the daily and per-strategy loss counters. A daily loss at the limit trips the kill switch. Counters reset each trading day.
 - **Stale bar limit (2026-11-10).** During a feed outage, exits use the last known closed bar for at most `max_outage_cycles` (default 3, about 15 minutes). After that the exit is held and a CRITICAL alert is raised. Under the current loop the fallback bar is normally one cycle old, so this limit is a safety net.
 - **SELL exits are checked against held quantity.** When the bot passes `held_qty`, a SELL exit larger than the held quantity is refused. A SELL exit can therefore never open a short. The gate itself passes `held_qty=None` for other callers, so this check is only as strong as the caller.
 - **Halt-all and SELL exits.** Risk-reducing SELL exits pass HALT_ALL (owner decision 2026-11-08). Entries and BUY exits stay blocked.
-- **Realized P&L only.** Open positions are not marked to market, so the daily loss limit does not count unrealized losses. The counters reset to zero on process restart, so a restart on a losing day gives a fresh budget. Persisting these counters is an open item.
+- ~~Realized P&L only; counters reset on restart.~~ **Fixed 2026-11-11.** `execution/pnl_store.py` persists the counters per day, and `StrategyBot._mark_positions_to_market` adds the unrealized P&L of open delivery positions to the daily and per-strategy counters every cycle. The daily loss limit therefore counts open-position losses. A restart on a losing day continues from the stored budget, not a fresh one.
 - **Analyze fills are confirmed.** In analyze mode a child counts as filled only when OpenAlgo's order status is `complete` with a positive average price. Any other reply halts the parent.
 - **Paper runner.** `scripts/run/run_strategy_bot.py` runs the bot in paper mode only. It refuses analyze and live mode. It stops when `stop.flag` appears in the state folder.
 - **Sizing is clamped to caps.** Before the gate, qty is lowered to `max_order_quantity`, to `max_order_notional` and to the room left under `max_open_exposure`. A clamp to zero is refused. The gate still checks every limit.
-- **No screener writer yet.** Nothing writes `data/screened/latest.json`. The screener must add `asm_gsm` and `circuit_pct` per symbol.
-- **OCL strategies are not in the bot yet.** They need a bar adapter for their client interface. Engulfing is the only strategy in bot v1.
+- ~~No screener writer yet.~~ **Fixed 2026-11-11.** `data/screener_engine.write_screen_file` writes `data/screened/latest.json` atomically, with `asm_gsm` and `circuit_pct` per symbol. Rows without a usable circuit limit, and rows flagged ASM/GSM, are dropped.
+- ~~OCL strategies are not in the bot yet.~~ **Fixed 2026-11-11.** `strategies/ocl/adapter.py` serves the bot's closed bars to the OCL classes through `BarsHistoryClient`, so `ocl`, `ocl_sell_fail_top` and `ocl_sell_fail_bottom` are selectable by name in `config/bot.yaml`.
 - **Equity for sizing is available cash** from OpenAlgo funds. Confirm this on the live account.
 - **Order-rate and audit records** for the bot use the hash-chained audit log. The SVG (`quant_system_flow_v5.svg`) is not yet updated for the bot stage.
 - Pre-existing failure: `tests/unit/test_upgrade_pin.py` (vendored OpenAlgo hash). Fails on a clean tree too.

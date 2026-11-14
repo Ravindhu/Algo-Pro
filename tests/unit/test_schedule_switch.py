@@ -221,14 +221,14 @@ def test_refusals_touch_nothing(tmp_path):
 
 # ---------------------------------------------- shell + wrapper wiring
 def test_preopen_defines_record_only_before_first_use():
-    lines = (ROOT / "scripts" / "ops" / "preopen_launch.sh").read_text().splitlines()
+    lines = (ROOT / "scripts" / "ops" / "preopen_launch.sh").read_text(encoding="utf-8").splitlines()
     define = next(i for i, l in enumerate(lines) if l.startswith("record_only()"))
     first_use = next(i for i, l in enumerate(lines) if l.strip().startswith("record_only 1"))
     assert define < first_use
 
 
 def test_preopen_accepts_runner_gate_and_honours_engine_permission():
-    text = (ROOT / "scripts" / "ops" / "preopen_launch.sh").read_text()
+    text = (ROOT / "scripts" / "ops" / "preopen_launch.sh").read_text(encoding="utf-8")
     assert "--runner-gated" in text
     assert '"$RUNNER_GATED" -eq 0' in text
     assert 'PREOPEN_ENGINE_ALLOWED:-1}" != "0"' in text
@@ -236,13 +236,13 @@ def test_preopen_accepts_runner_gate_and_honours_engine_permission():
 
 
 def test_windows_wrapper_logs_in_and_honours_engine_permission():
-    text = (ROOT / "scripts" / "ops" / "SCHEDULED_PREOPEN.cmd").read_text()
+    text = (ROOT / "scripts" / "ops" / "SCHEDULED_PREOPEN.cmd").read_text(encoding="utf-8")
     assert 'set "BROKER_AUTOLOGIN=1"' in text
     assert "PREOPEN_ENGINE_ALLOWED" in text and "read_engine_flag.py" in text
 
 
 def test_pre_open_time_is_0850_in_launcher():
-    launch = (ROOT / "Servers" / "launch_ubuntu_server.sh").read_text()
+    launch = (ROOT / "Servers" / "launch_ubuntu_server.sh").read_text(encoding="utf-8")
     assert 'PREOPEN_TIME="08:50"' in launch and "08:45" not in launch
 
 
@@ -268,20 +268,20 @@ def test_button_refused_when_engine_already_running(tmp_path):
 
 
 def test_runner_has_manual_path_that_logs_in_before_engine():
-    text = (ROOT / "scripts" / "ops" / "run_preopen_once.py").read_text()
+    text = (ROOT / "scripts" / "ops" / "run_preopen_once.py").read_text(encoding="utf-8")
     assert "def run_manual" in text
     assert text.index('script_command(platform.system()') < text.index("engine_control.start_engine(")
     assert 'PREOPEN_ENGINE_ALLOWED="0"' in text and 'BROKER_AUTOLOGIN="1"' in text
 
 
 def test_popup_has_two_mode_buttons_and_no_checkbox():
-    html = (ROOT / "dashboard" / "main_dashboard.html").read_text()
+    html = (ROOT / "dashboard" / "main_dashboard.html").read_text(encoding="utf-8")
     assert 'id="mode-auto-eng"' in html and 'id="mode-manual-eng"' in html
     assert 'id="sc-engine"' not in html and 'id="engform"' not in html
 
 
 def test_start_engine_button_is_in_header_not_popup():
-    html = (ROOT / "dashboard" / "main_dashboard.html").read_text()
+    html = (ROOT / "dashboard" / "main_dashboard.html").read_text(encoding="utf-8")
     header = html[html.index("<header>"):html.index("</header>")]
     popup = html[html.index('id="setmodal"'):html.index('<script src="/assets/flow_svg.js">')]
     assert 'id="engstart"' in header and 'id="engstart"' not in popup

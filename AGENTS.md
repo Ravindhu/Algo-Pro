@@ -262,16 +262,16 @@ Read both before changing pipeline, risk, execution, or dashboard code.
 
 | Flow lane | Package | Status |
 |---|---|---|
-| Research validation | `src/quant/research/` | implemented (Phases 1-5; optimizer + backtest wraps) |
+| Research validation | `src/quant/research/` | implemented; audited 2026-11-14 (QA gate, capacity, lineage fixed) |
 | Market inputs | `src/quant/data/market_inputs.py`, `data/economic_engine.py`, `data/screener_engine.py` | implemented (Phase 5 wraps) |
 | Data and features | `src/quant/data/` | implemented (Phase 1) |
-| Signal and conviction | `src/quant/models/`, `src/quant/strategies/`, `models/events/agent_team.py` | implemented (Phases 2, 5) |
+| Signal and conviction | `src/quant/models/`, `src/quant/strategies/`, `models/events/agent_team.py` | implemented; audited 2026-11-14 (4 size-path defects fixed) |
 | Sizing and portfolio | `src/quant/portfolio/` | implemented (Phase 2) |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` | implemented (pre-gate + compliance 2026-11-11) |
 | Execution | `src/quant/execution/` | implemented (Phase 3; `pov_engine.py` plans only) |
-| Post-trade + support monitors | `src/quant/monitor/` | implemented (Phases 1-4; recovery 2026-11-08) |
+| Post-trade + support monitors | `src/quant/monitor/` | implemented; audited 2026-11-14 (NaN drift-alarm bug fixed, three-way recon added) |
 | Audit | `src/quant/audit/` | implemented (Phase 1) |
-| Improvement loop | `src/quant/feedback/` | implemented (Phases 2, 4, 5; advice only, `auto_tune.py` refuses apply) |
+| Improvement loop | `src/quant/feedback/` | implemented (advice only; `auto_tune.py` refuses apply). Registry leg wired 2026-11-14 via `models/registry_bridge.py` |
 | Dashboard, alerts | `src/quant/reporting/`, `src/quant/notify/` | implemented (P&L visible; alerts PENDING) |
 
 `src/quant/tests/test_layout.py` enforces three things. Do not weaken it:
@@ -788,6 +788,11 @@ Known gaps, not yet changed:
 * ~~The screener does not yet write `data/screened/latest.json`.~~ **Fixed 2026-11-11**: `data/screener_engine.write_screen_file` writes it atomically; rows without a usable circuit limit or with an ASM/GSM flag are dropped.
 * The `paper-buy-scanner` runtime (`strategies/paper_runtime.py`, `scanner.py`, `positions.py`, `protect.py`, `state_store.py`) is not merged. It duplicates the bot. Its strategies stay in branch history.
 * Not adopted from `fix/audit-2026-11-03` and `fix/audit-2026-11-03-security`: their rewrites of the architecture and dashboard text, and removal of the IBM section and the Algo Flow v5 section. Owner decision 2026-11-10: not adopted.
+* **Unwired but built (found in the 2026-11-14 stage audit).** These are correct and tested, and NOTHING calls them, so they protect nothing yet: `models/meta_label.py` (would size orders - a behaviour change needing an owner decision), `execution/protection_wrap.py` (the exit manager does not read it), `data/feature_store_pit.py` (wired only inside `models/feature_matrix.py`), `risk/squareoff.py` (no production caller), `monitor/feed_health.py` and `risk/session_windows.py` (wired into the pre-gate, but the bot passes no clock until it does).
+* **Bulk and block deals has no fetcher.** `data/nse_deals.py` and `data/nse_mcp_client.py` define the store and the source adapter, but no NSE endpoint was verified to return bulk deals in this environment. Treat that stage as plumbing only.
+* **Network fetchers are unproven.** `data/nse_fii.py`, `data/nse_sectors.py` and `data/nse_deals.py` are tested against injected transports only. NSE was unreachable from the dev machine and requires a warm session cookie. Watch the first real run of each `scripts/ops/fetch_*.py`.
+* ~~Three stage-8 pre-existing test failures.~~ **Two fixed 2026-11-14**: `test_schedule_switch` and `test_dashboard_data`. The first read a UTF-8 file with the platform default codec (cp1252 cannot decode `₹`); the second passed a partial `paths` dict and `load_state` raised `KeyError` on `recs`, which now resolves through `DEFAULT_PATHS` like every other source. `tests/unit` and `tests/parity` are green: **574 passed / 4 skipped** and **1468 passed**.
+* **The engine suite stalls at ~54% (`src/quant/blue_engine/tests`).** Pytest stops mid-run with no failure reported; running each file individually gives **zero crashes**, so it is a cumulative-run interaction, not a specific test. It reproduces on `origin/master` and predates the 2026-11-14 work. Run the engine suite file-by-file until this is diagnosed; a truncated run is neither a pass nor a crash.
 
 ## Strategy Bot and Modes (2026-11-10)
 
