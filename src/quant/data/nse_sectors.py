@@ -155,9 +155,25 @@ def parse_all_indices(payload: Any, *, trade_date: Optional[date] = None
 # fetch
 # --------------------------------------------------------------------------- #
 def fetch_sector_levels(url: str = NSE_ALL_INDICES_URL, *, timeout: float = 15.0,
-                        http_get=None, trade_date: Optional[date] = None
-                        ) -> Dict[str, Any]:
-    """Fetch every NSE index level. Never raises; a failure is a reported result."""
+                        http_get=None, trade_date: Optional[date] = None,
+                        prefer: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch every NSE index level. Never raises; a failure is a reported result.
+
+    Routes through ``data/nse_mcp_client``, which prefers nse-mcp's
+    ``all_indices`` tool when installed and falls back to the direct NSE call.
+    The result names the source that actually answered.
+    """
+    if url == NSE_ALL_INDICES_URL:
+        try:
+            from quant.data.nse_mcp_client import fetch_index_levels as _via_adapter
+            got = _via_adapter(trade_date=trade_date, timeout=timeout,
+                               http_get=http_get, prefer=prefer)
+            return {"ok": bool(got.get("ok")), "rows": got.get("rows") or [],
+                    "status": None, "detail": got.get("detail") or "",
+                    "fetched_at": datetime.now().isoformat(timespec="seconds"),
+                    "source": got.get("source", "nse_json")}
+        except Exception:  # noqa: BLE001 - fall through to the direct path below
+            pass
     now = datetime.now().isoformat(timespec="seconds")
     getter = http_get
     if getter is None:

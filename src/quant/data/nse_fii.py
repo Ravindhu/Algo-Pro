@@ -206,17 +206,32 @@ def _parse_day(value: Any) -> Optional[date]:
 # fetch
 # --------------------------------------------------------------------------- #
 def fetch_fii_dii(url: str = NSE_FII_URL, *, timeout: float = 15.0,
-                  http_get=None) -> Dict[str, Any]:
+                  http_get=None, prefer: Optional[str] = None) -> Dict[str, Any]:
     """Fetch the current provisional FII/DII figures from NSE.
+
+    Tries the source adapter first (``data/nse_mcp_client``), which uses nse-mcp
+    or jugaad-data when installed and falls back to the direct NSE call. nse-mcp
+    has NO FII tool, so in practice this resolves to the direct endpoint - the
+    adapter reports which source actually answered.
 
     Returns::
 
         {"ok": bool, "rows": [...], "status": int|None, "detail": str,
-         "fetched_at": iso}
+         "fetched_at": iso, "source": str}
 
     Never raises: a network or parse failure is a reported result, because the
     caller runs on a schedule and a raised exception would just be logged twice.
     """
+    if url == NSE_FII_URL:
+        try:
+            from quant.data.nse_mcp_client import fetch_fii_dii as _via_adapter
+            got = _via_adapter(timeout=timeout, http_get=http_get, prefer=prefer)
+            return {"ok": bool(got.get("ok")), "rows": got.get("rows") or [],
+                    "status": None, "detail": got.get("detail") or "",
+                    "fetched_at": datetime.now().isoformat(timespec="seconds"),
+                    "source": got.get("source", "nse_json")}
+        except Exception:  # noqa: BLE001 - fall through to the direct path below
+            pass
     now = datetime.now().isoformat(timespec="seconds")
     getter = http_get
     if getter is None:
