@@ -1,6 +1,6 @@
 """5-minute strategy bot: screened symbols -> strategies -> risk gate -> POV child orders.
 
-Flow stage: Algo router, Risk gate, Approved order queue, Audit log
+Flow stage: Algo router, Risk gate, Approved order queue, Audit log, Strategy bot framework
 Status: PHASE 3 IMPLEMENTED (paper and analyze/sandbox only; live mode is refused in code)
 
 One cycle (run every interval_minutes):

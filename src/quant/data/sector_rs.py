@@ -1,6 +1,6 @@
 """Sector relative strength: Mansfield RS scoring. Wraps the engine's scorer.
 
-Flow stage: Relative strength
+Flow stage: Relative strength, Sector engine
 Status: PHASE 2 IMPLEMENTED (wrap; measurement only, advises never orders)
 Existing code to reuse or wrap (do not copy):
     src/quant/blue_engine/sectors/sector_hm_score.py

@@ -1,6 +1,6 @@
 """Screener engine wrapper: universe selection is DELEGATED to Blue_engine.
 
-Flow stage: Liquidity screener, Filings and circulars
+Flow stage: Liquidity screener, Filings and circulars, Screener engine
 Status: PHASE 5 IMPLEMENTED (wrap; extraction + offline evaluation local, scraping in Blue)
 Existing code to reuse or wrap (do not copy): src/quant/blue_engine/screener/screener_engine.py
 (ScreenerEngine), src/quant/blue_engine/screener/filters.py, src/quant/blue_engine/screener/valuations.py

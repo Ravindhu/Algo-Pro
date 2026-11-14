@@ -1,6 +1,6 @@
 """Economic engine wrapper: macro regime and a risk multiplier, DELEGATED to Blue_engine.
 
-Flow stage: India flow data, Global cues
+Flow stage: India flow data, Global cues, Economic engine
 Status: PHASE 5 IMPLEMENTED (wrap; advice-only multiplier, bounded to [0.5, 1.0])
 Existing code to reuse or wrap (do not copy): src/quant/blue_engine/economics/economic_engine.py
 (EconomicEngine), src/quant/blue_engine/economics/regime.py, src/quant/blue_engine/economics/scoring.py

@@ -71,6 +71,10 @@ Support inputs to backtest and risk:
 | Intraday microstructure | Order-book imbalance, volume profile |
 | Filings and circulars | NSE, BSE and SEBI documents parsed into events |
 | Live bars and daily stats | Read-only OpenAlgo history: closed intraday bars for signals, ADV and previous close from days before today. Returns nothing when the feed is stale, errored or too short (`data/live_bars.py`). |
+| Screener engine | Blue screener: fail-closed symbol gate. Feeds the liquidity screener and the screen file |
+| Economic engine | Macro risk-on score. Its risk multiplier is clamped to 0.5 to 1.0, so a stale feed cannot lever up |
+| Market engine | Blue market picture: indices, commodities, FII inflow. **Not wired yet:** no quant lane loads it (open item) |
+| Sector engine | Sector index scores. Short history gives no score, never a made-up one |
 | Screen input | Screener output file (`data/screened/latest.json`). Only fresh, selected, non-ASM symbols with a known circuit limit pass. Missing or stale file means no symbols. |
 
 ### 2.3 Data and features
@@ -142,7 +146,7 @@ Support inputs to backtest and risk:
 | Approved order queue | Gated intents only |
 | Algo router | POV, VWAP, IS, auction |
 | Order state machine | Idempotent, with retries |
-| Strategy bot (5-min cycle) | Reads the screen, runs strategies on closed bars, gates each parent at full size, then slices children each cycle through the POV executor. Modes: `paper` (simulated fills) and `analyze` (OpenAlgo sandbox). `live` is refused in code. Needs the live data source approved (`execution/strategy_bot.py`, `config/bot.yaml`). |
+| Strategy bot framework (5-min cycle) | Reads the screen, runs strategies on closed bars, gates each parent at full size, then slices children each cycle through the POV executor. Modes: `paper` (simulated fills) and `analyze` (OpenAlgo sandbox). `live` is refused in code. Needs the live data source approved (`execution/strategy_bot.py`, `config/bot.yaml`). |
 | OpenAlgo | Orders and quotes via the bridge |
 | Protection | Stop, target, breakeven and ATR trail checked per closed bar; exits go through the gate (`execution/exit_manager.py`) |
 
@@ -206,6 +210,9 @@ flowchart LR
     J --> K[Ledger + recon]
     K --> L[TCA + strategy health]
     L -->|breach| M[Kill switch] -.-> H
+    ENG[Blue engines: screener, economic, sector] --> B
+    MKT[Market engine: not wired yet] -.-> B
+    BOT[Strategy bot framework] --> I
 ```
 
 ---
@@ -275,7 +282,8 @@ hard boundary (advice only, or plan only - never an order).
 | `portfolio/sizing/kelly.py`, `vol_target.py` | `portfolio/sizing.py` | Fractional Kelly | volatility-targeted with hard caps; parity-tested against the engine |
 | `ml/audit/quality.py` | `data/qa.py` | Data QA gate | `check_bars` keeps its contract and now reports calendar gaps; `audit_bars` runs the engine's eight checks |
 | `ml/evaluation/metrics.py` | `research/significance.py` | Bootstrap of trades | circular block bootstrap for the luck-versus-edge test |
-| `ml/evaluation/splits.py` | `research/walk_forward.py` | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
+| `ml/evaluation/splits.py` | `research/walk_forward.py` |
+| `market/market_engine.py` | not wrapped yet | Market engine | Blue market picture. No quant lane loads it, so it is a known gap (open item) | Walk-forward + purged CV | fold geometry only (the runner is `walk_forward_eval.py`); parity-tested |
 
 ### 4.2 Long-only investment book (owner, 2026-11-09)
 
@@ -332,7 +340,8 @@ refuses a SELL without `exit_leg=True`, `backtest.run_symbol_backtest` refuses
 - ~~No screener writer yet.~~ **Fixed 2026-11-11.** `data/screener_engine.write_screen_file` writes `data/screened/latest.json` atomically, with `asm_gsm` and `circuit_pct` per symbol. Rows without a usable circuit limit, and rows flagged ASM/GSM, are dropped.
 - ~~OCL strategies are not in the bot yet.~~ **Fixed 2026-11-11.** `strategies/ocl/adapter.py` serves the bot's closed bars to the OCL classes through `BarsHistoryClient`, so `ocl`, `ocl_sell_fail_top` and `ocl_sell_fail_bottom` are selectable by name in `config/bot.yaml`.
 - **Equity for sizing is available cash** from OpenAlgo funds. Confirm this on the live account.
-- **Order-rate and audit records** for the bot use the hash-chained audit log. The SVG (`quant_system_flow_v5.svg`) is not yet updated for the bot stage.
+- **Order-rate and audit records** for the bot use the hash-chained audit log. ~~The SVG (`quant_system_flow_v5.svg`) is not yet updated for the bot stage.~~ **Fixed 2026-11-14.** The SVG now shows the strategy bot framework and a Blue engine band.
 - Pre-existing failure: `tests/unit/test_upgrade_pin.py` (vendored OpenAlgo hash). Fails on a clean tree too.
 - Items 13, 15 and 17 are regulatory or audit requirements. Treat them as blocking before live trading.
+- **Market engine not wired (2026-11-14).** `src/quant/blue_engine/market/market_engine.py` is Blue code that no quant lane loads. The SVG shows it as a known gap (`KNOWN_GAPS` in `src/quant/tests/test_layout.py`). Wiring it needs a wrapper, a `load(...)` call and a test; the loaded-module count in section 4.1 then rises by one.
 - Keep this doc, the SVG, `AGENTS.md` and `README.md` in sync. Change them in the same commit.
