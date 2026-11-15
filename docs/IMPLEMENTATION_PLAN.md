@@ -255,7 +255,7 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 - **P3-3** `execution/router.py` and `execution/protection.py`. PENDING.
 - **P3-4** Session manager, throttle, live monitor, strategy health, TCA. PENDING.
 - **P3-5** Alerts (`notify/alerts.py`) at INFO / WARNING / ERROR / CRITICAL with dashboard feed. PENDING.
-- **P3-6** Kill switch and safe mode drills, no orders sent. PENDING.
+- **P3-6** Kill switch and safe mode drills, no orders sent. Offline drill PASSED 2026-11-15 (`scripts/run/safety_drill.py`, 9 phases, zero orders sent; evidence in git-ignored `data/drills/`). Owner to rerun on the live host before sign-off.
 - **P3-7** Parity test: live paper fills vs replayed backtest. PENDING.
 - **P3-8** Regulatory checklist verified against current SEBI rules, from official sources. PENDING. Scope is an open owner question (see "Open owner decisions").
 
