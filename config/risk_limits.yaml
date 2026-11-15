@@ -16,7 +16,8 @@ max_adv_pct: 0.01               # max 1% of average daily volume per order
 max_symbols_per_portfolio: 8    # distinct symbols held at once (owner, 2026-11-09)
 blocked: false                  # true = stop all entries
 
-# --- Book-level caps (v5 2.6). UNSET (null) fails closed once the check is on. ---
+# --- Book-level caps (v5 2.6). A live start is REFUSED while any of these four is null
+#     (2026-11-15): a null cap switches its check off. Owner must set them before live. ---
 max_sector_pct: null            # fraction of capital in one sector (0.30 = 30%)
 max_beta: null                  # book beta versus the index (1.20 = 1.2x)
 max_cvar: null                  # fraction of capital, 99% CVaR (0.05 = 5%)

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import pathlib
 import sys
 from typing import Optional
@@ -61,6 +62,9 @@ MODE_FILE = ROOT / "data" / "mode.json"
 APPROVAL_FILE = ROOT / "data" / "live_approval.json"
 LIMITS_FILE = ROOT / "config" / "risk_limits.yaml"
 HOLIDAYS_FILE = ROOT / "config" / "calendar" / "holidays.csv"
+SETTINGS_FILE = ROOT / "config" / "settings.yaml"
+#: The kill switch file the live bot uses (run_strategy_bot_live: state dir + kill.json).
+LIVE_BOT_KILL_FILE = ROOT / "data" / "bot_live" / "kill.json"
 
 
 def _egress_ip() -> Optional[str]:
@@ -79,30 +83,32 @@ def _egress_ip() -> Optional[str]:
         return None
 
 
-def _allowed_egress_ip() -> Optional[str]:
-    """allowed_egress_ip from settings.yaml, or None when unset (check skipped)."""
+def _live_settings(settings_path=SETTINGS_FILE) -> dict:
+    """The ``live`` section of settings.yaml, or {} when the file is missing or unreadable."""
     import yaml
-    settings = ROOT / "config" / "settings.yaml"
-    if not settings.is_file():
-        return None
+    path = pathlib.Path(settings_path)
+    if not path.is_file():
+        return {}
     try:
-        data = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError:
-        return None
-    value = (data.get("live") or {}).get("allowed_egress_ip")
-    return str(value).strip() if value else None
+        return {}
+    live = data.get("live") if isinstance(data, dict) else None
+    return live if isinstance(live, dict) else {}
 
 
 def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
                    mode_file=MODE_FILE, approval_file=APPROVAL_FILE,
-                   holidays_file=HOLIDAYS_FILE, audit: Optional[AuditLog] = None
-                   ) -> dict:
-    """All seven gates, evaluated in order. Returns {ok, reasons, approval}.
+                   holidays_file=HOLIDAYS_FILE, audit: Optional[AuditLog] = None,
+                   kill_path=None, settings_path=SETTINGS_FILE, egress_fn=None) -> dict:
+    """Every start gate, evaluated in order. Returns {ok, reasons, approval, capital_cap}.
 
-    Pure checks: no network, no orders. Written separately so tests can prove
-    each gate blocks on its own before the runner ever touches a broker.
+    Pure checks: no orders. The only network call is the egress IP lookup, which can be
+    injected (egress_fn). kill_path must be the file the live bot's KillSwitch uses.
+    A missing or null setting refuses the start (fail closed).
     """
     reasons: list = []
+    kill_file = pathlib.Path(kill_path) if kill_path is not None else LIVE_BOT_KILL_FILE
 
     # 1. the operator switched the mode to live
     status = trading_mode_status(state_path=mode_file, approval_path=approval_file,
@@ -118,11 +124,11 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
         reasons.append(f"live approval: {why}")
         approval = None
     else:
+        approval_data = json.loads(approval_file.read_text(encoding="utf-8"))
         approval = LiveApproval(
-            approver=json.loads(approval_file.read_text(encoding="utf-8"))["approver"],
-            approved_on=__import__("datetime").date.fromisoformat(
-                json.loads(approval_file.read_text(encoding="utf-8"))["approved_on"]),
-            limits_sha256=json.loads(approval_file.read_text(encoding="utf-8"))["limits_sha256"],
+            approver=approval_data["approver"],
+            approved_on=__import__("datetime").date.fromisoformat(approval_data["approved_on"]),
+            limits_sha256=approval_data["limits_sha256"],
         )
 
     # 4. the limits themselves must be complete and not blocked
@@ -134,20 +140,20 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     if limits is not None:
         if limits.blocked:
             reasons.append("risk limits say blocked: true; live entries are stopped")
-        # Only the REQUIRED limits block a live start. The book-level caps
-        # (max_sector_pct, max_beta, max_cvar, max_drawdown) are optional: the
-        # pre-gate refuses those checks until each cap is set, so an unset optional
-        # cap cannot let risk through. Blocking the start on them would have made
-        # live impossible until every optional cap was filled in by hand.
-        unset = limits.unset_required() if hasattr(limits, "unset_required") else limits.unset()
+        unset = limits.unset_required()
         if unset:
             reasons.append("risk limits incomplete (null): " + ", ".join(unset))
+        # A null book-level cap switches its check OFF in the pre-gate. Live must not run
+        # with a drawdown, CVaR, beta or sector check that is silently off (2026-11-15).
+        book = limits.unset_book_for_live()
+        if book:
+            reasons.append("live needs book-level caps set (null): " + ", ".join(book)
+                           + "; set them in config/risk_limits.yaml")
 
-    # 5. kill switch
-    kill_path = pathlib.Path(out_dir_default()) / "kill_switch.json"
-    if kill_path.exists():
+    # 5. kill switch: the same file the live bot writes. Unreadable = not assumed clear.
+    if kill_file.exists():
         try:
-            kill = json.loads(kill_path.read_text(encoding="utf-8"))
+            kill = json.loads(kill_file.read_text(encoding="utf-8"))
             if kill.get("active"):
                 reasons.append(f"kill switch is active: {kill.get('reason')}")
         except (OSError, ValueError):
@@ -164,20 +170,34 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     except RuntimeError as exc:
         reasons.append(f"OpenAlgo API key: {exc}")
 
-    # 8. egress IP (SEBI/NSE: API access needs a broker-whitelisted static IP).
-    # Optional: set allowed_egress_ip in settings.yaml once the owner whitelists an
-    # address. Absent = check skipped, which is correct until the owner confirms it.
-    egress = _egress_ip()
-    allowed = _allowed_egress_ip()
-    if allowed and egress is not None and egress != allowed:
-        reasons.append(f"egress IP {egress} is not the whitelisted {allowed}; "
-                       "SEBI/NSE require API access from a whitelisted static IP")
+    # 8. egress IP: the broker whitelists a static IP for API orders. No setting, or an
+    # IP that cannot be checked, refuses the start (fail closed; was optional before 2026-11-15).
+    live = _live_settings(settings_path)
+    allowed = str(live.get("allowed_egress_ip") or "").strip()
+    if not allowed:
+        reasons.append("live needs live.allowed_egress_ip in config/settings.yaml: "
+                       "the static IP the broker whitelisted for API orders")
+    else:
+        egress = (egress_fn or _egress_ip)()
+        if egress is None:
+            reasons.append("egress IP could not be checked; live refuses to start without it")
+        elif egress != allowed:
+            reasons.append(f"egress IP {egress} is not the whitelisted {allowed}; "
+                           "SEBI/NSE require API access from a whitelisted static IP")
+
+    # 9. fixed capital cap: the live bot sizes against at most this much (no cap = no start)
+    cap = live.get("max_capital_inr")
+    capital_cap = None
+    if isinstance(cap, (int, float)) and not isinstance(cap, bool) and math.isfinite(cap) and cap > 0:
+        capital_cap = float(cap)
+    else:
+        reasons.append("live needs live.max_capital_inr in config/settings.yaml: "
+                       "a fixed INR cap on the capital the live bot may use")
 
     if audit is not None and reasons:
         audit.append("live_start_refused", {"reasons": reasons})
 
-    approval_obj = approval
-    return {"ok": not reasons, "reasons": reasons, "approval": approval_obj}
+    return {"ok": not reasons, "reasons": reasons, "approval": approval, "capital_cap": capital_cap}
 
 
 def out_dir_default() -> str:

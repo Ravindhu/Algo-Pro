@@ -65,8 +65,9 @@ _live_checks = _load("run_live_checks", "scripts/run/run_live.py")
 def available_cash(reader: Any, api_key: str) -> float:
     """Sizing equity = available cash from OpenAlgo funds. Any doubt gives 0 (no entries).
 
-    The reply key 'availablecash' is taken from the OpenAlgo funds response. Confirm it on
-    the live account before the first session (AGENTS.md known gap: sizing equity).
+    The reply key 'availablecash' matches the vendored OpenAlgo SDK funds response
+    (src/quant/vendor/openalgo/account.py, checked 2026-11-15). A missing key gives 0, so no
+    entries. Still confirm it on the live account before the first session.
     """
     try:
         body = reader.funds(api_key)
@@ -91,15 +92,19 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
     state_dir.mkdir(parents=True, exist_ok=True)
     audit = AuditLog(state_dir / "audit.jsonl")
     limits_path = pathlib.Path(limits_path)
+    kill_path = state_dir / "kill.json"  # the file this bot's KillSwitch uses (2026-11-15 fix)
 
     def gate() -> tuple:
-        res = startup_fn(limits_path=limits_path, audit=audit)
+        res = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)
         return bool(res.get("ok")), list(res.get("reasons", []))
 
     # Gate 1+2: run the start checks now. The approval they return is needed for the client.
-    checks = startup_fn(limits_path=limits_path, audit=audit)
+    checks = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)
     if not checks.get("ok") or checks.get("approval") is None:
         raise BotRefused("live startup gate refused: " + "; ".join(checks.get("reasons", ["no approval"])))
+    cap = checks.get("capital_cap")
+    if not isinstance(cap, (int, float)) or isinstance(cap, bool) or cap <= 0:
+        raise BotRefused("live startup gate gave no fixed capital cap (live.max_capital_inr)")
 
     client = OpenAlgoClient(
         base_url, transport, mode="live", live_approval=checks["approval"],
@@ -116,7 +121,8 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         sender=LiveSender(client),
         audit=audit,
         api_key=api_key,
-        read_funds=lambda: available_cash(readonly, api_key),
+        # Sizing equity is the fixed live cap, or the broker's cash when that is smaller.
+        read_funds=lambda: min(available_cash(readonly, api_key), float(cap)),
         limits=RiskLimits.from_yaml(limits_path),
         kill=KillSwitch(state_dir / "kill.json"),
         safe=SafeMode(audit),

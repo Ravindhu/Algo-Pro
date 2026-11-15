@@ -10,6 +10,14 @@ dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.
   pnl_visible_default: true
 
+# LIVE (2026-11-15). Both must be set by the owner before any live start. null refuses it.
+live:
+  # The static IP the broker whitelisted for API orders (e.g. "203.0.113.10").
+  allowed_egress_ip: null
+  # Fixed INR cap on the capital the live bot may size against. Sizing uses the lower of
+  # this and the broker's available cash.
+  max_capital_inr: null
+
 # PAPER trading (2026-11-08). Paper only; no broker orders.
 paper:
   # Paper capital (INR). Owner decision 2026-11-08. Used by portfolio/paper_qty.py.

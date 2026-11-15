@@ -258,6 +258,7 @@ class StrategyBot:
         self._done: set = set()
         self.alerts = alerts                      # CRITICAL/WARNING go here; None = audit log only
         self._booked: Dict[str, float] = {}       # notional added to open exposure, per position key
+        self._marks: Dict[str, float] = {}        # mark-to-market P&L each open position has added to daily P&L
         self._cycle_no = 0                        # cycle counter, used to age the last known bar
         self._pnl_day = None                      # day the realized P&L counters belong to
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
@@ -307,6 +308,7 @@ class StrategyBot:
         self._pnl_day = now.date()
         self.state.daily_pnl = 0.0
         self.state.strategy_pnl = {}
+        self._marks = {}
         self._restore_counters(now)
         self._done.clear()
         self._log("pnl_day_reset", day=now.date().isoformat())
@@ -421,36 +423,27 @@ class StrategyBot:
 
     def _mark_positions_to_market(self, bars_cache: Dict[str, Any], now: datetime,
                                   report: Dict[str, Any]) -> None:
-        """Delivery-style mark-to-market: unrealized P&L of open positions joins the daily
-        and per-strategy counters on every cycle, so a falling book trips the daily loss
-        limit BEFORE the stop realizes the loss (AGENTS gap, fixed 2026-11-11).
+        """Open positions join daily and per-strategy P&L at their last closed-bar mark, every cycle.
 
-        Only the DELTA from the previous mark is added; realized exits keep working the same
-        because a realized exit removes the position (its last mark is re-based on close).
+        Each position remembers the mark it last added (self._marks). Each cycle only the change
+        is added, for that position alone, so a falling book trips the daily loss limit before a
+        stop realizes the loss. A mark is reversed when the position's average entry changes or
+        the position closes (fixed 2026-11-15: the old code double-counted closed trades and
+        added every change to the strategy counter once per open position).
         """
-        if not self._positions:
-            return
-        marks: Dict[str, float] = {}
         for key, pos in self._positions.items():
             df = bars_cache.get(pos.symbol)
             if df is None:
-                continue  # no fresh mark without bars; keep the previous mark
+                continue  # no fresh mark without bars: keep the previous mark
             px = float(df["close"].iloc[-2])  # last closed bar
             sign = 1.0 if pos.side == "BUY" else -1.0
-            marks[key] = sign * (px - pos.entry) * pos.qty
-        # Replace the unrealized component wholesale (delta-only adds would drift).
-        unrealized_now = sum(marks.values())
-        marked_before = getattr(self, "_mtm_unrealized", 0.0)
-        delta = unrealized_now - marked_before
-        if abs(delta) < 0.005:
-            return
-        self._mtm_unrealized = unrealized_now
-        self.state.daily_pnl += delta
-        # Spread the delta across each position's strategy counter.
-        for sym_key, m in marks.items():
-            strategy = self._positions[sym_key].strategy
-            self.state.strategy_pnl[strategy] = self.state.strategy_pnl.get(strategy, 0.0) + delta
-        self._log("mtm_update", unrealized=round(unrealized_now, 2), delta=round(delta, 2))
+            new_mark = sign * (px - pos.entry) * pos.qty
+            delta = new_mark - self._marks.get(key, 0.0)
+            self._marks[key] = new_mark
+            if abs(delta) < 0.005:
+                continue
+            self._apply_mark_delta(pos.strategy, delta)
+            self._log("mtm_update", key=key, mark=round(new_mark, 2), delta=round(delta, 2))
         limit = self._limits.max_daily_loss
         if limit is not None and self.state.daily_pnl <= -abs(float(limit)) and not self._kill.active:
             self._kill.trip(f"daily loss incl. unrealized {self.state.daily_pnl:.2f} "
@@ -570,6 +563,7 @@ class StrategyBot:
             )
             self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
         else:
+            self._reverse_mark(p.key, pos)  # the old mark used the old average entry
             pos.entry = (pos.entry * pos.qty + fill * qty) / (pos.qty + qty)
             pos.qty += qty
             self._log("position_add", key=p.key, qty=qty, total=pos.qty, avg_entry=round(pos.entry, 4))
@@ -653,9 +647,9 @@ class StrategyBot:
             return
         # Close the position and its parent. A parent still slicing must not buy again after a stop-out.
         self._positions.pop(key, None)
-        # Drop this position's mark: it is realized now, so the next mark-to-market must not
-        # compare against a stale unrealized value (otherwise the realized P&L is double-counted).
-        self._mtm_unrealized = getattr(self, "_mtm_unrealized", 0.0) - self._position_mark(key, pos)
+        # The mark is part of daily P&L until now. Reverse it, so the realized P&L below
+        # replaces it instead of adding to it.
+        self._reverse_mark(key, pos)
         self._close(key, f"position exited ({reason}); parent closed")
         booked = self._booked.pop(key, pos.qty * pos.entry)
         self.state.open_notional = max(0.0, self.state.open_notional - booked)
@@ -666,13 +660,16 @@ class StrategyBot:
         self._log("exit_sent", key=key, reason=reason, qty=pos.qty, price=price, fill=fill_px)
         report["exits_sent"] = report.get("exits_sent", 0) + 1
 
-    def _position_mark(self, key: str, pos: Position) -> float:
-        """Last closed-bar mark used by the exit, or 0 when the symbol has no cached bar."""
-        bar = self._last_bar.get(pos.symbol)
-        if bar is None:
-            return 0.0
-        sign = 1.0 if pos.side == "BUY" else -1.0
-        return sign * (float(bar.get("close", pos.entry)) - pos.entry) * pos.qty
+    def _apply_mark_delta(self, strategy: str, delta: float) -> None:
+        """Add a mark-to-market change to the daily and per-strategy counters."""
+        self.state.daily_pnl += delta
+        self.state.strategy_pnl[strategy] = self.state.strategy_pnl.get(strategy, 0.0) + delta
+
+    def _reverse_mark(self, key: str, pos: Position) -> None:
+        """Take back the mark a position added, so its realized P&L can replace it."""
+        old = self._marks.pop(key, 0.0)
+        if old:
+            self._apply_mark_delta(pos.strategy, -old)
 
     def _close(self, key: str, reason: str) -> None:
         self._parents.pop(key, None)

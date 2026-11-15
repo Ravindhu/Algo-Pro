@@ -55,11 +55,9 @@ class RiskLimits:
             raise ValueError(f"sizing.risk_per_trade must be in (0, 0.05], got {value!r}")
         return float(value)
 
-    #: Limits whose absence BLOCKS a live start. The book-level caps are
-    #: deliberately excluded: a live run may begin without a sector cap the same
-    #: way it may begin without a drawdown cap, because the pre-gate refuses those
-    #: checks until the cap is set. Treating them as required would have made a
-    #: live start impossible until every optional cap was filled in.
+    #: Limits whose absence BLOCKS a live start. The book-level caps are checked
+    #: separately by unset_book_for_live() (2026-11-15): a null cap switches its
+    #: check OFF, so live must not start until the owner sets all four.
     REQUIRED_FOR_LIVE = (
         "max_order_quantity", "max_order_notional", "max_open_exposure",
         "max_daily_loss", "max_strategy_loss", "max_adv_pct",
@@ -70,6 +68,13 @@ class RiskLimits:
         """Names of ALL numeric limits that are still None (for the dashboard)."""
         return [f.name for f in fields(self) if f.name != "blocked" and getattr(self, f.name) is None]
 
+    #: Book-level caps a live start also needs (2026-11-15). Null = the check is off.
+    BOOK_FOR_LIVE = ("max_sector_pct", "max_beta", "max_cvar", "max_drawdown")
+
     def unset_required(self) -> List[str]:
         """The subset of ``unset()`` whose absence must block a live start."""
         return [name for name in self.REQUIRED_FOR_LIVE if getattr(self, name, None) is None]
+
+    def unset_book_for_live(self) -> List[str]:
+        """Book-level caps that are still null. Any entry here blocks a live start."""
+        return [name for name in self.BOOK_FOR_LIVE if getattr(self, name, None) is None]

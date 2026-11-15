@@ -228,7 +228,7 @@ def test_runner_builds_live_bot_when_gate_passes_and_places_no_order(tmp_path):
     transport = Recorder()
     approval = LiveApproval(approver="Test Owner", approved_on=date.today(),
                             limits_sha256=file_sha256(LIMITS))
-    passing = lambda **k: {"ok": True, "reasons": [], "approval": approval}
+    passing = lambda **k: {"ok": True, "reasons": [], "approval": approval, "capital_cap": 500000.0}
     bot, audit = run.build_live_bot(bot_cfg_path=cfg, limits_path=LIMITS, state_dir=tmp_path / "s",
                                     base_url="http://x", api_key="K", transport=transport,
                                     reader=FakeReader(), startup_fn=passing)
