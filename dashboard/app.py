@@ -55,6 +55,8 @@ DEFAULT_PATHS = {
     "ledger": ROOT / "data" / "paper" / "ledger.jsonl",
     "audit": ROOT / "data" / "paper" / "audit.jsonl",
     "kill": ROOT / "data" / "paper" / "kill_switch.json",
+    "bot_kill": ROOT / "data" / "bot" / "kill.json",          # paper strategy bot (run_strategy_bot.py)
+    "live_kill": ROOT / "data" / "bot_live" / "kill.json",    # live strategy bot (run_strategy_bot_live.py)
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
     "strategies": ROOT / "config" / "strategies",
@@ -121,6 +123,20 @@ def load_or_create_secret(path: Path) -> str:
     return value
 
 
+def kill_switches(paths) -> list:
+    """Every kill file that stops a running engine: paper runner, paper bot and live bot (2026-11-15).
+
+    A STOP writes all three. A RESET clears all three. The overview shows ON if any is ON.
+    """
+    return [KillSwitch(paths[k]) for k in ("kill", "bot_kill", "live_kill") if k in paths]
+
+
+def kill_state(paths) -> dict:
+    """{"active", "reason"} for the dashboard: ON when any engine's kill file is ON."""
+    active = [s for s in kill_switches(paths) if s.active]
+    return {"active": bool(active), "reason": "; ".join(s.reason for s in active)}
+
+
 def read_settings(path: Path) -> Dict[str, object]:
     """Dashboard section of settings.yaml. Missing file or key gives the defaults."""
     import yaml
@@ -135,7 +151,7 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     """Read every source once and build the overview. Missing files mean an empty, safe state."""
     ledger = Ledger(paths["ledger"])
     audit = AuditLog(paths["audit"])
-    kill = json.loads(paths["kill"].read_text(encoding="utf-8")) if paths["kill"].exists() else {}
+    kill = kill_state(paths)
     limits = RiskLimits.from_yaml(paths["limits"]) if paths["limits"].exists() else RiskLimits()
     fills = [e for e in ledger.events() if e.get("event") == "fill"]
     overview = build_overview(
@@ -243,8 +259,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.get("/api/kill")
     def kill_status():
-        switch = KillSwitch(paths["kill"])
-        return JSONResponse({"active": switch.active, "reason": switch.reason})
+        return JSONResponse(kill_state(paths))
 
     @app.post("/api/kill/trip")
     async def kill_trip(request: Request):
@@ -255,10 +270,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         reason, bad = await reason_from(request)
         if bad is not None:
             return bad
-        switch = KillSwitch(paths["kill"])
-        switch.trip(reason, source=ACTOR)
+        for switch in kill_switches(paths):
+            switch.trip(reason, source=ACTOR)
         AuditLog(paths["audit"]).append("kill_switch", {"action": "trip", "reason": reason, "actor": ACTOR})
-        return JSONResponse({"active": switch.active, "reason": switch.reason})
+        return JSONResponse(kill_state(paths))
 
     @app.post("/api/kill/reset")
     async def kill_reset(request: Request):
@@ -269,9 +284,31 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         reason, bad = await reason_from(request)
         if bad is not None:
             return bad
-        switch = KillSwitch(paths["kill"])
-        switch.reset(ACTOR, reason, audit=AuditLog(paths["audit"]))
-        return JSONResponse({"active": switch.active, "reason": switch.reason})
+        for switch in kill_switches(paths):
+            switch.reset(ACTOR, reason, audit=AuditLog(paths["audit"]))
+        return JSONResponse(kill_state(paths))
+
+    @app.get("/api/live/status")
+    def live_status(request: Request):
+        """Owner only, read-only: the live start gate, as a list of what is still missing."""
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("run_live", ROOT / "scripts" / "run" / "run_live.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            checks = mod.startup_checks(
+                limits_path=paths["limits"], mode_file=paths["mode_state"],
+                approval_file=paths["live_approval"], holidays_file=paths["holidays"],
+                kill_path=paths["live_kill"], settings_path=paths["settings"])
+        except Exception as exc:  # any failure means not ready (fail closed)
+            return JSONResponse({"ready": False, "reasons": [f"status check failed: {exc}"],
+                                 "kill_live": None, "capital_cap": None})
+        return JSONResponse({"ready": checks["ok"], "reasons": checks["reasons"],
+                             "kill_live": KillSwitch(paths["live_kill"]).active,
+                             "capital_cap": checks["capital_cap"]})
 
     @app.get("/api/setup")
     def setup_status():

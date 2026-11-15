@@ -276,12 +276,17 @@
         <input type="number" id="su-risk" min="0.001" max="5" step="0.001" placeholder="0.25"></div>
       <div><label for="su-symbols">Max symbols per portfolio</label>
         <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
+      <div><label for="su-cap">Live capital cap (₹, fixed)</label>
+        <input type="number" id="su-cap" min="1" step="1" placeholder="not set"></div>
+      <div><label for="su-ip">Live whitelisted static IP</label>
+        <input type="text" id="su-ip" placeholder="not set, e.g. 203.0.113.10"></div>
       <div><label for="su-strategy">Strategy</label>
         <select id="su-strategy"></select></div>
     </div>
     <div class="actions">
       <button class="go" id="setupsave" type="submit">Save setup</button>
       <span id="setupmsg"></span>
+      <div id="livestatus" class="muted"></div>
     </div>
     <p class="d">Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
   </form>
@@ -786,16 +791,34 @@
   function fillSetup(s) {
     $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
     $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
+    $("su-cap").value = s.live_max_capital_inr == null ? "" : String(s.live_max_capital_inr);
+    $("su-ip").value = s.live_allowed_egress_ip || "";
     const sel = $("su-strategy");
     const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
     sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
     sel.value = s.strategy || "";
   }
 
+  async function loadLiveStatus() {
+    const box = $("livestatus");
+    try {
+      const r = await fetch("/api/live/status", {cache: "no-store"});
+      if (r.status === 401 || r.status === 403) { box.textContent = "Live readiness: sign in as the owner to see it."; return; }
+      if (!r.ok) { box.textContent = "Live readiness: could not be checked (HTTP " + r.status + ")."; return; }
+      const j = await r.json();
+      box.textContent = j.ready
+        ? "Live readiness: all start checks pass. Live still needs an approval and the kill switch off."
+        : "Live not ready. Still missing: " + j.reasons.join(" | ");
+    } catch (e) {
+      box.textContent = "Live readiness: " + e.message;
+    }
+  }
+
   async function loadSetup() {
     try {
       const r = await fetch("/api/setup", {cache: "no-store"});
       if (r.ok) fillSetup(await r.json());
+      loadLiveStatus();
     } catch (e) {
       setSetupMsg("Could not load setup: " + e.message, "r");
     }
@@ -809,11 +832,16 @@
     if (!Number.isInteger(symbols) || symbols < 1 || symbols > 100) return setSetupMsg("Max symbols per portfolio must be a whole number 1-100.", "r");
     const strategy = $("su-strategy").value;
     if (!strategy) return setSetupMsg("Choose a strategy.", "r");
+    const payload = {risk_per_trade: pctVal / 100, max_symbols_per_portfolio: symbols, strategy};
+    const cap = $("su-cap").value.trim();
+    if (cap) payload.live_max_capital_inr = Number(cap);
+    const ip = $("su-ip").value.trim();
+    if (ip) payload.live_allowed_egress_ip = ip;
     setSetupMsg("Saving…", "d");
     try {
       const r = await fetch("/api/setup", {method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({risk_per_trade: pctVal / 100, max_symbols_per_portfolio: symbols, strategy})});
+        body: JSON.stringify(payload)});
       const j = await r.json().catch(() => ({}));
       if (r.ok) { setSetupMsg("Saved.", "g"); loadSetup(); }
       else if (r.status === 401) setSetupMsg("Sign in as the owner (top right) to change this.", "r");

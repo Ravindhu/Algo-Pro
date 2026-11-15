@@ -40,3 +40,19 @@ SEBI checklist, and the kill-switch drill on the live host.
 - After a restart, open positions are not restored in the bot. Restored daily P&L may include
   their unrealized loss. This is conservative (it trips the loss limit sooner), not unsafe.
 - Live analyze-mode soak (phase 2) has not run.
+
+## Dashboard wiring (same day)
+
+8. **One STOP reaches every engine.** The kill switch is now read from its file on every
+   check, so a trip written by the dashboard stops a running bot at its next entry check.
+   STOP writes three kill files (paper runner, paper bot, live bot); RESET clears all three.
+   A file that cannot be read counts as ON.
+9. **Risk per trade has one source:** `config/settings.yaml` (sizing). `bot.yaml` refuses a
+   `risk_per_trade` key. The bot reads the setting at start, so a change applies on the next start.
+10. **Live cap and whitelisted IP can be set from the dashboard setup panel** (owner sign-in).
+    Values are validated (positive rupees; IPv4 address) and saved under `live:` in settings.yaml.
+11. **Live readiness is shown in the setup panel** (`GET /api/live/status`, owner only). It lists
+    exactly what the live start gate still refuses.
+
+Not changed: the live start still needs your values, an approval, the SEBI checklist, the
+analyze-mode soak and the kill-switch drill on the live machine.

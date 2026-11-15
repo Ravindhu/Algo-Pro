@@ -30,7 +30,7 @@ def test_read_setup_returns_current_values(paths):
     settings, strategies, limits = paths
     assert read_setup(settings, strategies, limits) == {
         "risk_per_trade": 0.0025, "max_symbols_per_portfolio": None, "strategy": None,
-        "strategies": ["alpha", "beta"]}
+        "strategies": ["alpha", "beta"], "live_max_capital_inr": None, "live_allowed_egress_ip": None}
 
 
 def test_save_writes_risk_strategy_and_symbol_cap_to_their_files(paths):

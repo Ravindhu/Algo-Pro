@@ -177,10 +177,21 @@ class _Parent:
 
 # ---- bot.yaml and settings.yaml agree on the risk per trade ---------------------------------
 
-def test_bot_yaml_risk_per_trade_matches_settings():
+def test_bot_yaml_does_not_set_risk_per_trade_and_the_bot_reads_settings():
+    from quant.execution.strategy_bot import load_bot_config
     bot = yaml.safe_load((ROOT / "config" / "bot.yaml").read_text(encoding="utf-8"))
     settings = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
-    assert bot["risk_per_trade"] == settings["sizing"]["risk_per_trade"]
+    assert "risk_per_trade" not in bot
+    assert load_bot_config(ROOT / "config" / "bot.yaml").risk_per_trade == settings["sizing"]["risk_per_trade"]
+
+
+def test_bot_yaml_refuses_its_own_risk_per_trade(tmp_path):
+    import pytest
+    from quant.execution.strategy_bot import BotConfig
+    p = tmp_path / "bot.yaml"
+    p.write_text("mode: paper\nrisk_per_trade: 0.01\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="settings.yaml"):
+        BotConfig.from_yaml(p)
 
 
 # ---- live runner: capital cap and kill file ---------------------------------------------------
@@ -263,3 +274,31 @@ def test_live_build_refuses_without_a_capital_cap(tmp_path):
                            reader=_Reader(1.0),
                            startup_fn=lambda **k: {"ok": True, "reasons": [], "approval": approval,
                                                    "capital_cap": None})
+
+
+# ---- kill switch is file-backed: a trip from another process stops a running bot -------------
+
+def test_kill_switch_reads_the_file_every_time(tmp_path):
+    from quant.risk.kill_switch import KillSwitch
+    running = KillSwitch(tmp_path / "kill.json")          # opened before any trip
+    assert running.active is False
+    KillSwitch(tmp_path / "kill.json").trip("dashboard STOP", source="owner")   # another process
+    assert running.active is True
+    assert "dashboard STOP" in running.reason
+    running.reset("Owner", "checked")
+    assert KillSwitch(tmp_path / "kill.json").active is False
+
+
+def test_unreadable_kill_file_is_treated_as_on(tmp_path):
+    from quant.risk.kill_switch import KillSwitch
+    p = tmp_path / "kill.json"
+    p.write_text("{broken", encoding="utf-8")
+    assert KillSwitch(p).active is True
+
+
+def test_a_trip_written_elsewhere_stops_a_running_bot_entries(tmp_path):
+    bars = TimedBars()
+    bot, audit = _bot(tmp_path, bars)                       # bot holds its own KillSwitch object
+    KillSwitch(tmp_path / "kill.json").trip("dashboard STOP", source="owner")
+    bot.cycle(NOW)
+    assert not bot._positions, "no entry may open after a trip written by another process"

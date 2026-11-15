@@ -10,7 +10,8 @@ dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.
   pnl_visible_default: true
 
-# LIVE (2026-11-15). Both must be set by the owner before any live start. null refuses it.
+# LIVE (2026-11-15). Both must be set by the owner before any live start (dashboard setup panel or
+# by hand). null refuses it.
 live:
   # The static IP the broker whitelisted for API orders (e.g. "203.0.113.10").
   allowed_egress_ip: null

@@ -133,9 +133,23 @@ class BotConfig:
         unknown = set(data) - names
         if unknown:
             raise ValueError(f"unknown bot keys: {sorted(unknown)}")
+        if "risk_per_trade" in data:
+            raise ValueError("risk_per_trade is set in config/settings.yaml (sizing), not in bot.yaml")
         if "strategies" in data:
             data["strategies"] = tuple(data["strategies"])
         return cls(**data)
+
+
+def load_bot_config(path, settings_path=None) -> BotConfig:
+    """BotConfig from bot.yaml, with risk per trade read from settings.yaml (one source, 2026-11-15).
+
+    settings_path defaults to settings.yaml in the same folder as bot.yaml.
+    """
+    from dataclasses import replace
+
+    cfg = BotConfig.from_yaml(path)
+    settings = Path(settings_path) if settings_path is not None else Path(path).parent / "settings.yaml"
+    return replace(cfg, risk_per_trade=RiskLimits.risk_per_trade(settings))
 
 
 def live_feed_approved(path) -> bool:

@@ -1,9 +1,12 @@
-"""Trade setup from the dashboard panel: risk per trade, max symbols per portfolio, strategy.
+"""Trade setup from the dashboard panel: risk per trade, max symbols, strategy, live cap and live IP.
 
-Owner request 2026-11-07. A person sets these through the dashboard API (token required).
-- sizing.risk_per_trade in config/settings.yaml: read by RiskLimits.risk_per_trade().
+Owner request 2026-11-07, live fields added 2026-11-15. A person sets these through the dashboard
+API (owner sign-in required).
+- sizing.risk_per_trade in config/settings.yaml: read by RiskLimits.risk_per_trade(). The bot reads it
+  at start, so a change takes effect on the next start.
 - max_symbols_per_portfolio: a risk limit in config/risk_limits.yaml. Saved through limits_store,
   and enforced by the Risk gate (risk/symbol_cap.py). Null (not set) blocks new symbols.
+- live.max_capital_inr and live.allowed_egress_ip in config/settings.yaml: read by the live start gate.
 - trade_setup.strategy in config/settings.yaml: saved only. No engine stage uses it yet.
 Writes are atomic. Other keys are kept. Comments in settings.yaml are not kept on save.
 
@@ -12,6 +15,7 @@ Status: PHASE 3 IMPLEMENTED
 """
 from __future__ import annotations
 
+import ipaddress
 import math
 import os
 from pathlib import Path
@@ -23,13 +27,15 @@ from quant.core.config import RiskLimits
 from quant.core.limits_store import apply_limit_updates
 
 HEADER = (
-    "# Global settings. sizing and trade_setup are set through the dashboard API (token required).\n"
+    "# Global settings. sizing, trade_setup and live are set through the dashboard API (owner sign-in).\n"
     "# Other keys are edited by hand.\n"
 )
 DEFAULT_RISK = 0.0025
 RISK_MAX = 0.05          # same upper bound as RiskLimits.risk_per_trade
 SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
-KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy")
+KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
+        "live_max_capital_inr", "live_allowed_egress_ip")
+LIVE_KEYS = ("live_max_capital_inr", "live_allowed_egress_ip")
 
 
 def strategy_names(strategies_dir) -> List[str]:
@@ -53,11 +59,14 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
     symbols = None
     if Path(limits_path).exists():
         symbols = RiskLimits.from_yaml(limits_path).max_symbols_per_portfolio
+    live = data.get("live") or {}
     return {
         "risk_per_trade": risk,
         "max_symbols_per_portfolio": symbols,
         "strategy": (data.get("trade_setup") or {}).get("strategy"),
         "strategies": strategy_names(strategies_dir),
+        "live_max_capital_inr": live.get("max_capital_inr"),
+        "live_allowed_egress_ip": live.get("allowed_egress_ip"),
     }
 
 
@@ -79,6 +88,16 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                     or float(value) != int(value) or not SYMBOLS_MIN <= int(value) <= SYMBOLS_MAX:
                 raise ValueError(f"max_symbols_per_portfolio must be a whole number {SYMBOLS_MIN}-{SYMBOLS_MAX}")
             clean[key] = int(value)
+        elif key == "live_max_capital_inr":
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
+                    or value <= 0:
+                raise ValueError("live_max_capital_inr must be a positive number of rupees")
+            clean[key] = float(value)
+        elif key == "live_allowed_egress_ip":
+            try:
+                clean[key] = str(ipaddress.IPv4Address(str(value).strip()))
+            except (ValueError, TypeError):
+                raise ValueError("live_allowed_egress_ip must be an IPv4 address, e.g. 203.0.113.10")
         else:  # strategy
             if value not in strategies:
                 raise ValueError(f"unknown strategy: {value!r}. Choose one of: {', '.join(strategies) or 'none'}")
@@ -95,18 +114,27 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
     if "max_symbols_per_portfolio" in clean:
         limit_result = apply_limit_updates(limits_path, {"max_symbols_per_portfolio": clean["max_symbols_per_portfolio"]})
         old["max_symbols_per_portfolio"] = limit_result["old"]["max_symbols_per_portfolio"]
-    if "risk_per_trade" in clean or "strategy" in clean:
+    file_keys = {"risk_per_trade", "strategy", *LIVE_KEYS}
+    if file_keys & set(clean):
         current = _load(settings)
         sizing = dict(current.get("sizing") or {})
         trade = dict(current.get("trade_setup") or {})
+        live = dict(current.get("live") or {})
         if "risk_per_trade" in clean:
             old["risk_per_trade"] = sizing.get("risk_per_trade")
             sizing["risk_per_trade"] = clean["risk_per_trade"]
         if "strategy" in clean:
             old["strategy"] = trade.get("strategy")
             trade["strategy"] = clean["strategy"]
+        if "live_max_capital_inr" in clean:
+            old["live_max_capital_inr"] = live.get("max_capital_inr")
+            live["max_capital_inr"] = clean["live_max_capital_inr"]
+        if "live_allowed_egress_ip" in clean:
+            old["live_allowed_egress_ip"] = live.get("allowed_egress_ip")
+            live["allowed_egress_ip"] = clean["live_allowed_egress_ip"]
         current["sizing"] = sizing
         current["trade_setup"] = trade
+        current["live"] = live
         body = HEADER + yaml.safe_dump(current, sort_keys=False)
         tmp = settings.with_name(settings.name + ".tmp")
         settings.parent.mkdir(parents=True, exist_ok=True)

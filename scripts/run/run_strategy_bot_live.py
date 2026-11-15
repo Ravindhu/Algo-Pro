@@ -39,7 +39,7 @@ from quant.core.config import RiskLimits  # noqa: E402
 from quant.data.live_bars import LiveBars  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
-from quant.execution.strategy_bot import BotConfig, BotRefused, LiveSender, StrategyBot  # noqa: E402
+from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused, LiveSender, StrategyBot  # noqa: E402
 from quant.monitor.broker_recon import make_positionbook_reader  # noqa: E402
 from quant.monitor.paper_loop import now_ist  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
@@ -84,7 +84,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
                    alerts: Optional[Alerts] = None,
                    on_critical: Optional[Callable[[str], None]] = None):
     """Wire the live bot. Raises BotRefused unless every start gate passes. Places no orders."""
-    cfg = BotConfig.from_yaml(bot_cfg_path)
+    cfg = load_bot_config(bot_cfg_path)
     if cfg.mode != "live" or not cfg.live_enabled:
         raise BotRefused("live runner needs mode: live and live_enabled: true in config/bot.yaml")
 

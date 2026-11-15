@@ -20,6 +20,7 @@ def client(tmp_path):
         "ledger": tmp_path / "ledger.jsonl", "audit": tmp_path / "audit.jsonl",
         "kill": tmp_path / "kill.json", "limits": tmp_path / "none.yaml",
         "settings": tmp_path / "none.yaml",
+        "bot_kill": tmp_path / "bot_kill.json", "live_kill": tmp_path / "live_kill.json",
     }
     return testclient.TestClient(create_app(paths))
 
@@ -61,7 +62,10 @@ def write_client(tmp_path, monkeypatch):
     accounts.create_user("Peon", "viewer-password", users, now=clock.time(), role="viewer")
     paths = {"ledger": tmp_path / "l.jsonl", "audit": tmp_path / "a.jsonl",
              "kill": tmp_path / "k.json", "limits": limits, "settings": tmp_path / "none.yaml",
-             "users": users, "session_secret": tmp_path / "secret.key"}
+             "users": users, "session_secret": tmp_path / "secret.key",
+             "bot_kill": tmp_path / "bk.json", "live_kill": tmp_path / "lk.json",
+             "mode_state": tmp_path / "mode.json", "live_approval": tmp_path / "approval.json",
+             "holidays": tmp_path / "holidays.csv"}
     return testclient.TestClient(create_app(paths)), limits, tmp_path / "a.jsonl"
 
 
