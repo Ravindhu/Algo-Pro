@@ -24,3 +24,9 @@ data_sources_path: config/data_sources.yaml
 #       params: {symbol: RELIANCE, htf_interval: 5m, ltf_interval: 1m, one_shot: true}
 strategies:
   - engulfing
+# Per-strategy breakeven and trail (optional). Only breakeven_r (x R) and trail_mult (x ATR)
+# may be set. A strategy not listed uses the global values from this file (1R, 2 ATR).
+# Each name must be in the strategies list above. Example:
+#   exits:
+#     engulfing: {breakeven_r: 1.0, trail_mult: 1.5}
+exits: {}

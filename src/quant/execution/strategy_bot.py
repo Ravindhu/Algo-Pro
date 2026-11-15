@@ -128,6 +128,11 @@ class BotRefused(RuntimeError):
     """Raised for a configuration the bot must never run with (for example live mode)."""
 
 
+def _strategy_name(entry) -> str:
+    """A strategies entry is a plain name or a mapping with a 'name' key."""
+    return str(entry["name"]) if isinstance(entry, dict) else str(entry)
+
+
 @dataclass(frozen=True)
 class BotConfig:
     mode: str = "analyze"
@@ -144,10 +149,28 @@ class BotConfig:
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
     strategies: tuple = field(default_factory=lambda: ("engulfing",))
+    # Per-strategy breakeven and trail. Only breakeven_r and trail_mult may be set; a strategy
+    # not listed here uses the global values above. Example: {engulfing: {trail_mult: 1.5}}.
+    exits: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not 0 < self.entry_max_slippage_bps <= 200:
             raise ValueError("entry_max_slippage_bps must be in (0, 200]")
+        names = {_strategy_name(s) for s in self.strategies}
+        for name, over in (self.exits or {}).items():
+            if name not in names:
+                raise ValueError(f"exits names strategy {name!r} which is not in strategies")
+            if not isinstance(over, dict) or not set(over) <= {"breakeven_r", "trail_mult"}:
+                raise ValueError(f"exits for {name!r} may set only breakeven_r and trail_mult")
+            for k, v in over.items():
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+                    raise ValueError(f"exits {name}.{k} must be a number > 0")
+
+    def exit_config_for(self, strategy: str) -> ExitConfig:
+        """Breakeven and trail for one strategy: its own values, else the global ones."""
+        over = (self.exits or {}).get(strategy, {})
+        return ExitConfig(breakeven_r=float(over.get("breakeven_r", self.breakeven_r)),
+                          trail_mult=float(over.get("trail_mult", self.trail_mult)))
 
     @classmethod
     def from_yaml(cls, path) -> "BotConfig":
@@ -685,10 +708,13 @@ class StrategyBot:
                 continue  # this bar was already evaluated for this position
             pos.last_bar_time = bar["time"]
             old_stop = pos.stop
-            price, reason = evaluate_bar(pos, bar["open"], bar["high"], bar["low"], self._exit_cfg)
+            price, reason = evaluate_bar(pos, bar["open"], bar["high"], bar["low"],
+                                         self.cfg.exit_config_for(pos.strategy))
             if price is None:
                 if pos.stop != old_stop:
                     self._log("stop_moved", key=key, old=old_stop, new=pos.stop, be=pos.be_done)
+                    # The trail or breakeven moved the bot's stop: the broker stop must follow it.
+                    self._sync_broker_stop(key)
                 continue
             self._send_exit(key, pos, price, reason, now, report)
 
@@ -834,7 +860,8 @@ class StrategyBot:
         pos = self._positions.get(key)
         if pos is None:
             return
-        if pos.broker_stop_id and pos.broker_stop_qty == pos.qty:
+        if (pos.broker_stop_id and pos.broker_stop_qty == pos.qty
+                and round(pos.broker_stop_trigger, 2) == round(pos.stop, 2)):
             self._faults.discard(("stop", key))
             return
         if pos.broker_stop_id:
@@ -854,6 +881,7 @@ class StrategyBot:
         if order_id:
             pos.broker_stop_id = order_id
             pos.broker_stop_qty = pos.qty
+            pos.broker_stop_trigger = round(pos.stop, 2)
             self._faults.discard(("stop", key))
             self._log("stop_placed", key=key, order_id=order_id, qty=pos.qty, trigger=pos.stop)
         else:

@@ -20,6 +20,8 @@ Baseline before any change (commit 25055bf): 3376 passed, 1 skipped, 1 xfailed,
 | 8 | Egress IP checked only at start | Fixed in code: re-checked every cycle in live mode. A mismatch blocks new entries (exits still run) and raises a CRITICAL alert. |
 | 9 | Found during the work: every order omitted `exchange`, which OpenAlgo's placeorder requires. Live and analyze orders would have been rejected. | Fixed in code: the client sends `exchange` (NSE by default; BSE allowed) on every order. |
 | 10 | Found during the work: the live runner never passed the P&L store, so daily loss counters reset on restart. | Fixed in code: the live runner passes `PnlStore` (`data/bot_live/pnl_state.json`). |
+| 11 | Requested: breakeven and trail per strategy. Before, every strategy used the global 1R and 2 ATR. | Done: `exits:` block in `config/bot.yaml` sets breakeven_r and trail_mult per strategy. Unlisted strategies use the global values. Unknown names or bad values are refused at start. |
+| 12 | Found while doing 11: the broker SL-M stayed at the original stop when breakeven or the trail moved the bot's stop. | Done: a moved stop cancels and re-places the broker SL-M at the new trigger. If re-placing fails, new entries are blocked and the bot-side stop still protects. |
 
 ## Design notes
 
@@ -40,7 +42,8 @@ Baseline before any change (commit 25055bf): 3376 passed, 1 skipped, 1 xfailed,
 - [x] P5 LIMIT entries with `entry_max_slippage_bps` (default 20); unfilled entries cancelled; partial fills flagged (item 6).
 - [x] P6 Per-cycle egress IP guard blocks new entries only (item 8).
 - [x] P7 Doc drift: `bot.yaml` comment, dashboard flow copy, live docs (item 7).
-- [x] P8 Full test run: 3398 passed, 1 skipped, 1 xfailed; 1 failed (`test_upgrade_pin`, pre-existing, vendored fingerprint). 22 new tests in `src/quant/tests/test_audit_fixes_2026_11_15.py`.
+- [x] P9 Per-strategy breakeven and trail (`exits:`); broker stop follows the moved stop.
+- [x] P8 Full test run: 3403 passed, 1 skipped, 1 xfailed; 1 failed (`test_upgrade_pin`, pre-existing, vendored fingerprint). 27 new tests in `src/quant/tests/test_audit_fixes_2026_11_15.py`.
 
 Owner items after this work (not code):
 - Item 4: set the four book caps, `live.allowed_egress_ip` and `live.max_capital_inr`. No value is chosen by code.

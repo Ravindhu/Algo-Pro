@@ -403,3 +403,81 @@ def test_retired_run_live_main_refuses_and_sends_nothing(capsys):
     assert mod.main() == 2
     out = capsys.readouterr().out
     assert "retired" in out and "run_strategy_bot_live.py" in out
+
+
+# ---- per-strategy breakeven and trail; broker stop follows the bot's stop ---------------------
+
+def test_exits_per_strategy_merge_with_global_values():
+    cfg = BotConfig(strategies=("s1", "s2"), exits={"s1": {"trail_mult": 1.5}})
+    s1 = cfg.exit_config_for("s1")
+    s2 = cfg.exit_config_for("s2")
+    assert s1.trail_mult == 1.5 and s1.breakeven_r == cfg.breakeven_r   # partial override keeps the rest
+    assert s2.trail_mult == cfg.trail_mult and s2.breakeven_r == cfg.breakeven_r
+
+
+def test_exits_refuse_unknown_strategy_and_bad_keys():
+    with pytest.raises(ValueError, match="not in strategies"):
+        BotConfig(strategies=("s1",), exits={"nope": {"trail_mult": 1.0}})
+    with pytest.raises(ValueError, match="only breakeven_r and trail_mult"):
+        BotConfig(strategies=("s1",), exits={"s1": {"stop_pct": 1.0}})
+    with pytest.raises(ValueError, match="number > 0"):
+        BotConfig(strategies=("s1",), exits={"s1": {"trail_mult": 0}})
+
+
+def _bars_df(high, low):
+    import pandas as pd
+    idx = pd.to_datetime(["2026-11-16 09:20", "2026-11-16 09:25", "2026-11-16 09:30"])
+    return pd.DataFrame({"open": [100.0, 100.0, 100.0], "high": [100.5, high, 100.5],
+                         "low": [99.5, low, 99.5], "close": [100.0, 100.0, 100.0],
+                         "volume": [1000, 1000, 1000]}, index=idx)
+
+
+class _Bars:
+    def __init__(self, df): self.df = df
+    def bars(self, sym, now): return self.df
+    def daily_stats(self, sym, now): return None
+
+
+def test_each_strategy_trails_with_its_own_settings(tmp_path):
+    cfg_over = {"strategies": ("s1", "s2"),
+                "exits": {"s1": {"breakeven_r": 1.0, "trail_mult": 2.0},
+                          "s2": {"breakeven_r": 0.5, "trail_mult": 1.0}}}
+    bot = _bot(tmp_path, stops=FakeStops(), cfg_over=cfg_over)
+    bot._bars = _Bars(_bars_df(high=103.0, low=99.5))
+    for strat in ("s1", "s2"):
+        bot._positions[strat] = Position(key=strat, symbol="INFY", side="BUY", qty=10, entry=100.0,
+                                         stop=98.0, target=110.0, atr=1.0, strategy=strat)
+    bot._manage_exits({"INFY": _bars_df(high=103.0, low=99.5)}, NOW, {"skipped": []})
+    # bar high 103. s1: breakeven at 1R = 102 is reached, stop to 100, then trail 103 - 2*1 = 101.
+    # s2: breakeven at 0.5R = 101 is reached, stop to 100, then trail 103 - 1*1 = 102.
+    assert bot._positions["s1"].stop == pytest.approx(101.0)
+    assert bot._positions["s2"].stop == pytest.approx(102.0)
+
+
+def test_moved_trail_moves_the_broker_stop(tmp_path):
+    stops = FakeStops()
+    bot = _bot(tmp_path, stops=stops, cfg_over={"strategies": ("s1",)})
+    bot._bars = _Bars(_bars_df(high=103.0, low=99.5))
+    p = _parent(bot, qty=10)
+    bot._record_fill(p, 10, {"avg_price": 100.0})
+    stops.place_reply = {"status": "success", "orderid": "S7"}
+    stops.calls.clear()
+    bot._manage_exits({"INFY": _bars_df(high=103.0, low=99.5)}, NOW, {"skipped": []})
+    pos = bot._positions[p.key]
+    assert pos.stop > 98.0
+    # old stop cancelled, new SL-M placed at the moved trigger
+    assert ("cancel", "S1") in stops.calls
+    placed = [c for c in stops.calls if c[0] == "place"]
+    assert placed and placed[-1][4] == pytest.approx(round(pos.stop, 2))
+    assert pos.broker_stop_id == "S7" and pos.broker_stop_trigger == round(pos.stop, 2)
+
+
+def test_failed_stop_move_blocks_entries(tmp_path):
+    stops = FakeStops()
+    bot = _bot(tmp_path, stops=stops, cfg_over={"strategies": ("s1",)})
+    bot._bars = _Bars(_bars_df(high=103.0, low=99.5))
+    p = _parent(bot, qty=10)
+    bot._record_fill(p, 10, {"avg_price": 100.0})
+    stops.place_reply = {"status": "error", "reason": "rejected"}
+    bot._manage_exits({"INFY": _bars_df(high=103.0, low=99.5)}, NOW, {"skipped": []})
+    assert ("stop", p.key) in bot._faults  # no broker stop on record: entries and slicing stop
