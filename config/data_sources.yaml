@@ -46,7 +46,7 @@ openalgo:
     broker_name_env: BROKER_NAME
     totp_env: BROKER_TOTP_SECRET
   # Live orders are refused unless every compliance check passes (quant.risk.compliance).
-  # No SEBI ID/registration fields here: registration is the broker's obligation
+  # No algo-ID or registration fields here: registration is the broker's obligation
   # (owner decision 2026-11-11). Optional per-order tagging is a pretrade limit
   # (require_algo_id), off by default.
   compliance:

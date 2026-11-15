@@ -90,7 +90,25 @@ class AnalyzeSender:
         if state == "complete" and isinstance(avg, (int, float)) and avg > 0:
             return {"status": "success", "orderid": order_id, "avg_price": float(avg),
                     "filled_qty": int(intent.qty)}
+        if price_type == "LIMIT":
+            return self._handle_unfilled_limit(intent, api_key, order_id, state, data)
         return {"status": "error", "orderid": order_id, "reason": f"fill not confirmed: {state or 'no status'}"}
+
+    def _handle_unfilled_limit(self, intent, api_key, order_id, state, data) -> Dict[str, Any]:
+        """An entry LIMIT that is not complete is cancelled. A partial fill is flagged, never dropped."""
+        avg = data.get("average_price")
+        partial = "partial" in state or (isinstance(avg, (int, float)) and avg > 0)
+        try:
+            cancel = self._client.cancel(order_id, intent.strategy_id, api_key)
+        except Exception as exc:  # the cancel itself failed: the order may still be open
+            cancel = {"status": "error", "message": repr(exc)}
+        cancelled = str(cancel.get("status", "")).lower() == "success"
+        if partial:
+            return {"status": "error", "orderid": order_id, "partial": True, "cancel_failed": not cancelled,
+                    "reason": f"partial entry fill ({state}); position not booked"}
+        outcome = "cancelled" if cancelled else "cancel failed"
+        return {"status": "error", "orderid": order_id, "cancel_failed": not cancelled,
+                "reason": f"limit not filled ({state or 'no status'}); {outcome}"}
 
 
 class LiveSender(AnalyzeSender):
@@ -121,10 +139,15 @@ class BotConfig:
     max_outage_cycles: int = 3   # last known bar used for exits for at most this many cycles (3 x 5 min = 15 min)
     breakeven_r: float = 1.0
     trail_mult: float = 2.0
+    entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
     strategies: tuple = field(default_factory=lambda: ("engulfing",))
+
+    def __post_init__(self) -> None:
+        if not 0 < self.entry_max_slippage_bps <= 200:
+            raise ValueError("entry_max_slippage_bps must be in (0, 200]")
 
     @classmethod
     def from_yaml(cls, path) -> "BotConfig":
@@ -235,6 +258,9 @@ class StrategyBot:
         pnl_store: Optional[PnlStore] = None,
         feed_health=None,
         live_gate: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
+        stops=None,
+        position_store=None,
+        entry_guard: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -244,6 +270,12 @@ class StrategyBot:
                 raise BotRefused("live mode needs live_enabled: true in config/bot.yaml")
             if live_gate is None:
                 raise BotRefused("live mode needs the live startup gate")
+            if stops is None:
+                raise BotRefused("live mode needs broker stop orders (SL-M)")
+            if position_store is None:
+                raise BotRefused("live mode needs the position store")
+            if entry_guard is None:
+                raise BotRefused("live mode needs the per-cycle entry guard")
             live_ok, live_reasons = live_gate()
             if not live_ok:
                 raise BotRefused("live startup gate refused: " + "; ".join(live_reasons))
@@ -277,6 +309,11 @@ class StrategyBot:
         self._pnl_day = None                      # day the realized P&L counters belong to
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
+        self._stops = stops                        # broker SL-M stops: place / status / cancel (None = paper)
+        self._pos_store = position_store           # restart-safe position book (None = in-memory only)
+        self._entry_guard = entry_guard            # re-checked every cycle in live (egress IP)
+        self._faults: set = set()                  # ("stop"|"partial", key): entries and slicing blocked while any exists
+        self._restored_day = None                  # day of a restored book (keeps marks and done set on first cycle)
         # Pre-gate: capital-protection checks BEFORE the risk gate (calendar, blackout, gap,
         # handoff contract, stress/VaR, auction window, feed health). Exits bypass it; it can
         # only refuse, never approve.
@@ -319,13 +356,16 @@ class StrategyBot:
         """New trading day: daily and per-strategy realized P&L start again at zero."""
         if self._pnl_day == now.date():
             return
+        keep = self._pnl_day is None and self._restored_day == now.date()
         self._pnl_day = now.date()
         self.state.daily_pnl = 0.0
         self.state.strategy_pnl = {}
-        self._marks = {}
+        if not keep:  # a restored book from today keeps its marks and parents done today
+            self._marks = {}
+            self._done.clear()
         self._restore_counters(now)
-        self._done.clear()
-        self._log("pnl_day_reset", day=now.date().isoformat())
+        self._persist_positions()
+        self._log("pnl_day_reset", day=now.date().isoformat(), restored=keep)
 
     def _restore_counters(self, now: datetime) -> None:
         """Restart-safe counters: reload today's P&L from the store if it is newer.
@@ -388,6 +428,8 @@ class StrategyBot:
                                   "skipped": []}
         self._cycle_no += 1
         self._roll_day(now)
+        self._check_broker_stops()
+        self._resync_stops()
         if not live_feed_approved(self.cfg.data_sources_path):
             self._log("cycle_skipped", reason="live data source not approved (data_sources.yaml)")
             report["skipped"].append("data source not approved")
@@ -403,11 +445,17 @@ class StrategyBot:
         self._log("screen", count=len(symbols), symbols=[s["symbol"] for s in symbols])
 
         bars_cache: Dict[str, Any] = {}
-        entries_ok = self._entries_allowed()
+        guard_ok = self._run_entry_guard()
+        entries_ok = self._entries_allowed() and guard_ok and not self._faults
         if not entries_ok:
-            self._log("entries_blocked", reason="startup recon not allowed entries",
-                      status=getattr(self.recon, "status", "not run"))
-            report["skipped"].append("entries blocked: startup recon")
+            if not self._entries_allowed():
+                reason = "startup recon not allowed entries"
+            elif not guard_ok:
+                reason = "entry guard refused"
+            else:
+                reason = "open fault: " + ", ".join(sorted(f"{a}:{b}" for a, b in self._faults))
+            self._log("entries_blocked", reason=reason, status=getattr(self.recon, "status", "not run"))
+            report["skipped"].append("entries blocked: " + reason)
             symbols = []
         for item in symbols:
             sym = item["symbol"]
@@ -463,6 +511,8 @@ class StrategyBot:
             self._kill.trip(f"daily loss incl. unrealized {self.state.daily_pnl:.2f} "
                             f"reached limit {abs(float(limit)):.2f}", source="automatic")
             self._alert("CRITICAL", "daily loss limit (mark-to-market) reached: kill switch on")
+        self._persist_counters()
+        self._persist_positions()
 
     def _safe_funds(self) -> float:
         try:
@@ -526,6 +576,9 @@ class StrategyBot:
 
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         for key, p in list(self._parents.items()):
+            if self._faults:
+                report["skipped"].append("slicing paused: open fault")
+                break  # never add exposure while a stop or a fill is unresolved
             p.cycles += 1
             if p.remaining <= 0 or p.cycles > self.cfg.max_cycles:
                 self._close(key, "fully sliced" if p.remaining <= 0 else "max cycles reached")
@@ -543,16 +596,24 @@ class StrategyBot:
                 continue
             p.seq += 1
             child = PovExecutor.make_child(p.intent, qty, p.seq)
+            price_type, limit_px = self._entry_price(p, df)
             try:
-                outcome = self._executor.submit_child(child)
+                outcome = self._executor.submit_child(child, price_type, limit_px)
             except Exception as exc:
                 self._close(key, f"child error: {exc!r}")
                 continue
             if not outcome.sent:
                 self._log("child_not_sent", key=key, reasons=list(outcome.reasons))
                 continue
-            status = str((outcome.response or {}).get("status", "")).lower()
+            resp = outcome.response or {}
+            status = str(resp.get("status", "")).lower()
             if status != "success":
+                if resp.get("partial"):
+                    self._faults.add(("partial", key))
+                    self._alert("CRITICAL", f"{p.intent.symbol}: partial entry fill; position not booked; "
+                                            "entries blocked until reconciled with the broker")
+                if resp.get("cancel_failed"):
+                    self._alert("CRITICAL", f"{p.intent.symbol}: unfilled entry could not be cancelled; check the broker")
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
             p.remaining -= qty
@@ -581,6 +642,8 @@ class StrategyBot:
             pos.entry = (pos.entry * pos.qty + fill * qty) / (pos.qty + qty)
             pos.qty += qty
             self._log("position_add", key=p.key, qty=qty, total=pos.qty, avg_entry=round(pos.entry, 4))
+        self._sync_broker_stop(p.key)
+        self._persist_positions()
 
     def _remember_bar(self, sym: str, df) -> Dict[str, Any]:
         """Store the last closed bar of a symbol, with the cycle it was seen in. Used only when the feed is down."""
@@ -631,6 +694,16 @@ class StrategyBot:
 
     def _send_exit(self, key: str, pos: Position, price: float, reason: str,
                    now: datetime, report: Dict[str, Any]) -> None:
+        if pos.broker_stop_id:
+            # The broker stop must go before the bot sells, or the two could both fill.
+            res = self._cancel_stop(key, pos)
+            if res == "closed":
+                return  # the broker stop had already filled: the position is closed
+            if res == "failed":
+                self._log("exit_held_stop_cancel", key=key, reason=reason)
+                self._alert("CRITICAL", f"{pos.symbol}: broker stop could not be cancelled; exit held, check the broker")
+                report["skipped"].append(f"{pos.symbol}: stop cancel unclear, exit held")
+                return
         intent = TradeIntent(
             intent_id=f"{key}-EXIT", strategy_id=pos.strategy, symbol=pos.symbol,
             side=pos.exit_side, qty=pos.qty, ref_price=float(price), kind="exit",
@@ -642,12 +715,14 @@ class StrategyBot:
             outcome = self._executor.submit_child(intent)
         except Exception as exc:
             pos.exit_halted = True
+            self._restore_stop_fault(key, pos)
             self._alert("CRITICAL", f"{pos.symbol}: exit error, position halted: {exc!r}")
             self._log("exit_halted", key=key, error=repr(exc))
             return
         finally:
             self._exit_held_qty = None
         if not outcome.sent:
+            self._restore_stop_fault(key, pos)
             self._log("exit_not_sent", key=key, reason=reason, reasons=list(outcome.reasons))
             self._alert("WARNING", f"{pos.symbol}: exit not sent ({reason}); will retry on next bar")
             return
@@ -655,24 +730,191 @@ class StrategyBot:
         status = str(response.get("status", "")).lower()
         if status != "success":
             pos.exit_halted = True
+            self._restore_stop_fault(key, pos)
             self._alert("CRITICAL", f"{pos.symbol}: exit reply unclear, position halted; check the broker")
             self._log("exit_halted", key=key, status=status or "missing",
                       note="exit reply unclear; not resent; check the broker")
             return
-        # Close the position and its parent. A parent still slicing must not buy again after a stop-out.
+        fill = response.get("avg_price")
+        fill_px = float(fill) if isinstance(fill, (int, float)) and fill > 0 else float(price)
+        self._finish_exit(key, pos, fill_px, reason, price)
+        report["exits_sent"] = report.get("exits_sent", 0) + 1
+
+    def _finish_exit(self, key: str, pos: Position, fill_px: float, reason: str, price: float) -> None:
+        """A position is closed (by the bot's exit or by its broker stop): books, P&L, parent, save."""
         self._positions.pop(key, None)
-        # The mark is part of daily P&L until now. Reverse it, so the realized P&L below
-        # replaces it instead of adding to it.
+        # The mark is part of daily P&L until now. Reverse it, so the realized P&L below replaces it.
         self._reverse_mark(key, pos)
         self._close(key, f"position exited ({reason}); parent closed")
         booked = self._booked.pop(key, pos.qty * pos.entry)
         self.state.open_notional = max(0.0, self.state.open_notional - booked)
-        fill = response.get("avg_price")
-        fill_px = float(fill) if isinstance(fill, (int, float)) and fill > 0 else float(price)
         sign = 1.0 if pos.side == "BUY" else -1.0
         self._record_pnl(pos.strategy, sign * (fill_px - pos.entry) * pos.qty)
+        self._faults.discard(("stop", key))
         self._log("exit_sent", key=key, reason=reason, qty=pos.qty, price=price, fill=fill_px)
-        report["exits_sent"] = report.get("exits_sent", 0) + 1
+        self._persist_positions()
+
+    def _restore_stop_fault(self, key: str, pos: Position) -> None:
+        """A failed exit may have cancelled the broker stop. If so, the stop must be placed again."""
+        if not pos.broker_stop_id:
+            self._faults.add(("stop", key))
+
+    def _entry_price(self, p: _Parent, df) -> Tuple[str, Optional[float]]:
+        """Entries are LIMIT orders a set band above the last close. Exits are never limited."""
+        if p.intent.kind != "entry" or p.intent.side != "BUY":
+            return "MARKET", None
+        last_close = float(df["close"].iloc[-2])
+        band = self.cfg.entry_max_slippage_bps / 10_000
+        return "LIMIT", round(last_close * (1 + band), 2)
+
+    def _run_entry_guard(self) -> bool:
+        """Per-cycle guard (live: egress IP). A refusal blocks new entries only; exits still run."""
+        if self._entry_guard is None:
+            return True
+        try:
+            ok, reasons = self._entry_guard()
+        except Exception as exc:
+            ok, reasons = False, [f"entry guard error: {exc!r}"]
+        if not ok:
+            self._log("entry_guard_refused", reasons=list(reasons))
+            self._alert("CRITICAL", "new entries blocked: " + "; ".join(reasons))
+        return bool(ok)
+
+    def _persist_positions(self) -> None:
+        """Save the open book (positions, stop ids, exposure, marks, parents done today)."""
+        if self._pos_store is None:
+            return
+        from dataclasses import fields as _fields
+        positions = [{f.name: getattr(pos, f.name) for f in _fields(pos) if f.init}
+                     for pos in self._positions.values()]
+        self._pos_store.save({
+            "day": self._pnl_day.isoformat() if self._pnl_day else None,
+            "open_notional": round(float(self.state.open_notional), 2),
+            "booked": {k: round(float(v), 2) for k, v in self._booked.items()},
+            "marks": {k: round(float(v), 2) for k, v in self._marks.items()},
+            "done": sorted(self._done),
+            "positions": positions,
+        })
+
+    def restore_positions(self, now: datetime) -> int:
+        """Load the saved book. Call once at start, before run_startup_recon. Returns positions restored."""
+        if self._pos_store is None:
+            return 0
+        doc = self._pos_store.load()
+        if doc is None:
+            return 0
+        same_day = doc.get("day") == now.date().isoformat()
+        restored: Dict[str, Position] = {}
+        for d in doc.get("positions", []):
+            try:
+                pos = Position(**d)
+            except (TypeError, ValueError) as exc:
+                self._log("position_restore_refused", error=repr(exc))
+                self._alert("CRITICAL", "a saved position could not be read; check the broker before entries")
+                self._faults.add(("partial", "restore"))
+                continue
+            restored[pos.key] = pos
+        self._positions = restored
+        self.state.open_notional = float(doc.get("open_notional", 0.0))
+        self._booked = {str(k): float(v) for k, v in doc.get("booked", {}).items()}
+        if same_day:
+            self._marks = {str(k): float(v) for k, v in doc.get("marks", {}).items()}
+            self._done = set(str(k) for k in doc.get("done", []))
+            self._restored_day = now.date()
+        for key, pos in restored.items():
+            if not pos.broker_stop_id:
+                self._faults.add(("stop", key))  # no broker stop on record: place one before anything else
+        self._log("positions_restored", count=len(restored), same_day=same_day)
+        return len(restored)
+
+    def _sync_broker_stop(self, key: str) -> None:
+        """Make the broker stop cover the position's full quantity at the bot's stop price."""
+        if self._stops is None:
+            return
+        pos = self._positions.get(key)
+        if pos is None:
+            return
+        if pos.broker_stop_id and pos.broker_stop_qty == pos.qty:
+            self._faults.discard(("stop", key))
+            return
+        if pos.broker_stop_id:
+            res = self._cancel_stop(key, pos)
+            if res == "closed":
+                return
+            if res == "failed":
+                self._faults.add(("stop", key))
+                self._alert("CRITICAL", f"{pos.symbol}: cannot replace the broker stop; new entries blocked")
+                return
+        exit_side = "SELL" if pos.side == "BUY" else "BUY"
+        try:
+            res = self._stops.place_stop(pos.symbol, exit_side, pos.qty, pos.stop, pos.strategy)
+        except Exception as exc:
+            res = {"status": "error", "reason": repr(exc)}
+        order_id = str(res.get("orderid", "")) if str(res.get("status", "")).lower() == "success" else ""
+        if order_id:
+            pos.broker_stop_id = order_id
+            pos.broker_stop_qty = pos.qty
+            self._faults.discard(("stop", key))
+            self._log("stop_placed", key=key, order_id=order_id, qty=pos.qty, trigger=pos.stop)
+        else:
+            self._faults.add(("stop", key))
+            self._alert("CRITICAL", f"{pos.symbol}: broker stop not placed ({res.get('reason', 'no order id')}); "
+                                    "new entries blocked; bot-side stop still active")
+        self._persist_positions()
+
+    def _cancel_stop(self, key: str, pos: Position) -> str:
+        """Cancel the broker stop. Returns 'cancelled', 'closed' (it had already filled) or 'failed'."""
+        if self._stops is None or not pos.broker_stop_id:
+            return "cancelled"
+        res = self._stops.cancel_stop(pos.broker_stop_id, pos.strategy)
+        if str(res.get("status", "")).lower() == "success":
+            self._log("stop_cancelled", key=key, order_id=pos.broker_stop_id)
+            pos.broker_stop_id = ""
+            pos.broker_stop_qty = 0
+            self._persist_positions()
+            return "cancelled"
+        st = self._stops.stop_status(pos.broker_stop_id, pos.strategy)
+        avg = st.get("avg_price")
+        if str(st.get("order_status", "")).lower() == "complete" and isinstance(avg, (int, float)) and avg > 0:
+            self._alert("WARNING", f"{pos.symbol}: broker stop had already filled at {avg}")
+            self._finish_exit(key, pos, float(avg), "broker stop filled", float(avg))
+            return "closed"
+        self._log("stop_cancel_failed", key=key, order_id=pos.broker_stop_id, reason=res.get("reason"))
+        return "failed"
+
+    def _check_broker_stops(self) -> None:
+        """Each cycle: a broker stop that filled closes its position; a rejected one is placed again."""
+        if self._stops is None:
+            return
+        for key, pos in list(self._positions.items()):
+            if not pos.broker_stop_id:
+                continue
+            try:
+                st = self._stops.stop_status(pos.broker_stop_id, pos.strategy)
+            except Exception as exc:
+                self._log("stop_status_error", key=key, error=repr(exc))
+                continue
+            state = str(st.get("order_status", "")).lower()
+            avg = st.get("avg_price")
+            if state == "complete" and isinstance(avg, (int, float)) and avg > 0:
+                self._alert("WARNING", f"{pos.symbol}: broker stop filled at {avg}")
+                self._finish_exit(key, pos, float(avg), "broker stop filled", float(avg))
+            elif state in ("rejected", "cancelled", "canceled"):
+                self._alert("CRITICAL", f"{pos.symbol}: broker stop {state}; placing it again")
+                pos.broker_stop_id = ""
+                pos.broker_stop_qty = 0
+                self._faults.add(("stop", key))
+                self._persist_positions()
+
+    def _resync_stops(self) -> None:
+        """Place any missing broker stop again (a fault from an earlier cycle)."""
+        for kind, key in list(self._faults):
+            if kind != "stop":
+                continue
+            if key not in self._positions:
+                self._faults.discard((kind, key))
+                continue
+            self._sync_broker_stop(key)
 
     def _apply_mark_delta(self, strategy: str, delta: float) -> None:
         """Add a mark-to-market change to the daily and per-strategy counters."""

@@ -53,9 +53,9 @@ Live is proven first on the one simple strategy.
 | B5  | openalgo / httpx not installed in sandbox; full test counts unknown  | owner         | P0-2                             |
 | B6  | Blue_engine lazy-import gap (LLM code loaded in same process)        | code          | X-9b                             |
 | B7  | Live risk limit values not set                                       | owner         | P0-3                             |
-| B8  | SEBI algo checklist not verified                                     | owner         | P3-8, X-24                       |
+| B8  | SEBI checklist: removed from scope 2026-11-15 (owner)               | owner         | P3-8, X-24 (closed)              |
 | B9  | Live data source not chosen; INFY is test-only                       | owner         | X-10, config/data_sources.yaml   |
-| B10 | Scope conflict on SEBI checks (status 11-04 vs plan 11-05)           | owner         | Open owner decisions             |
+| B10 | SEBI check scope: resolved 2026-11-15 (removed)                      | owner         | closed                           |
 | B11 | Folder Blue_engine vs package blue_engine (import may fail on Linux) | code          | L0-1                             |
 | B12 | Duplicate-order block after restart at gate level                    | code          | X-2, X-7                         |
 
@@ -172,9 +172,8 @@ MAE/MFE weights stays off until owner approves bounds (PB-6). Impact model (X-30
 HRP choice (X-25) need their own decisions first.
 
 ### L7 - Regulatory and data (runs in parallel from L0)
-- L7-1. SEBI algo-trading checklist from official sources: registration, order tagging,
-  immutable audit store, clock sync (P3-8, X-24).
-- L7-2. Resolve scope conflict (B10) in writing.
+- L7-1. SEBI algo-trading checklist: REMOVED from scope 2026-11-15 (owner). Audit store and clock sync stay in the compliance gate (P3-8, X-24 closed).
+- L7-2. SEBI scope conflict (B10): closed 2026-11-15 by owner removal.
 - L7-3. Owner confirms the data licence allows live use (B9). Current INFY data is
   personal, non-commercial research only; commercial automated trading needs written
   permission (STATUS_2026-11-06, section 4).
@@ -190,7 +189,7 @@ because a feed without evidence gives no edge to protect.
 ## 6. What is needed from the owner
 
 1. Baseline test counts (L0-2).
-2. Scope of SEBI checks (B10).
+2. (Removed: SEBI scope closed 2026-11-15.)
 3. Live data source and licence (B9).
 4. Live risk limits and first cap (B7).
 5. Parity tolerance and paper period length (L2-2).
@@ -202,7 +201,6 @@ because a feed without evidence gives no edge to protect.
 - A test that protects live is skipped or removed without owner sign-off.
 - Any order reaches the broker outside openalgo_client.py.
 - Parity fails and the cause is not explained.
-- SEBI checklist incomplete at L4.
 - Broker book and ledger disagree at end of day and cannot be reconciled.
 - Owner says stop.
 

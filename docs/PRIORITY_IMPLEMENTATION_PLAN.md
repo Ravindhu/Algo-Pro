@@ -100,4 +100,4 @@ Superseded by decision 0008: EV, MAE/MFE and rule compliance are removed from th
 - "Authorised" accounting view: current design is a password (set via `scripts/set_accounting_password.py`). Owner to confirm.
 - AGENTS.md rule 8 updated 2026-11-05 (decision 0008). Phase 0 wording and the full rewrite are still pending.
 - Remote `main` (`76f21af`) and `docs/status-2026-11-05` still exist. Owner to delete on GitHub.
-- SEBI checklist scope, HRP choice, impact model and Sharpe definition: see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions" and Tier F (X-25 to X-30).
+- HRP choice, impact model and Sharpe definition: see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions" and Tier F (X-25 to X-30).

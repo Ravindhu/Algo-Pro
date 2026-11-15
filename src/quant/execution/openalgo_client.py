@@ -103,13 +103,18 @@ class OpenAlgoClient:
         live_approval: Optional[LiveApproval] = None,
         limits_path: Optional[Path] = None,
         compliance: Optional[object] = None,
+        exchange: str = "NSE",
     ) -> None:
+        if exchange not in ("NSE", "BSE"):
+            raise ValueError(f"unsupported exchange: {exchange!r}")
+        # Every order names its exchange. OpenAlgo's placeorder requires it (audit fix 9, 2026-11-15).
+        self.exchange = exchange
         self.base_url = base_url.rstrip("/")
         self._transport = transport
         self.mode = mode
         self.live_approval = live_approval
         self.limits_path = Path(limits_path) if limits_path is not None else None
-        # Live-only compliance gate (audit storage, NTP clock; owner removed the SEBI
+        # Live-only compliance gate (audit storage, NTP clock; owner removed the algo-ID
         # ID/registration fields, 2026-11-11). None means "not configured", which refuses
         # live orders (fail closed).
         self.compliance = compliance
@@ -180,6 +185,7 @@ class OpenAlgoClient:
             raise PermissionError("order refused: empty API key")
         payload = {
             "apikey": api_key,
+            "exchange": self.exchange,
             "symbol": intent.symbol,
             "action": intent.side,
             "quantity": intent.qty,
@@ -212,6 +218,7 @@ class OpenAlgoClient:
             raise PermissionError("order refused: empty API key")
         payload = {
             "apikey": api_key,
+            "exchange": self.exchange,
             "symbol": intent.symbol,
             "action": intent.side,
             "quantity": intent.qty,
@@ -222,6 +229,37 @@ class OpenAlgoClient:
         }
         if price_type == "LIMIT":
             payload["price"] = limit_price
+        return self._transport(self.base_url + self.PLACE_PATH, payload)
+
+    def place_stop(self, symbol: str, action: str, qty: int, trigger_price: float,
+                   strategy: str, api_key: str) -> Dict:
+        """Place a broker-side stop-loss (SL-M, market after trigger) for an open position.
+
+        Protective order: it only reduces risk, so there is no GateDecision here. The same session
+        guard as cancel() applies (live approval and unchanged limits, or analyzer on). Refused
+        when the trigger is not a finite positive number.
+        """
+        if action not in ("BUY", "SELL"):
+            raise ValueError(f"bad stop action: {action!r}")
+        if not isinstance(qty, int) or qty < 1:
+            raise ValueError("stop needs a whole quantity of at least 1")
+        if not isinstance(trigger_price, (int, float)) or not math.isfinite(trigger_price) or trigger_price <= 0:
+            raise ValueError("stop needs a finite, positive trigger price")
+        self._check_session_guard(api_key)
+        if not api_key:
+            raise PermissionError("stop refused: empty API key")
+        payload = {
+            "apikey": api_key,
+            "exchange": self.exchange,
+            "symbol": symbol,
+            "action": action,
+            "quantity": qty,
+            "pricetype": "SL-M",
+            "price": "0",
+            "trigger_price": round(float(trigger_price), 2),
+            "product": "MIS",
+            "strategy": strategy,
+        }
         return self._transport(self.base_url + self.PLACE_PATH, payload)
 
     def cancel(self, order_id: str, strategy: str, api_key: str) -> Dict:

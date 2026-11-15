@@ -33,8 +33,8 @@ without an approved GateDecision whose intent_id matches (decision 0017), and
 refuses to run at all if risk_limits.yaml changes mid-session. Nothing here
 relaxes that.
 
-Exit checks still open (docs/IMPLEMENTATION_PLAN.md Phase 3): SEBI regulatory
-verification (check 2) and the no-orders kill-switch drill (check 4). Running
+Exit checks still open (docs/IMPLEMENTATION_PLAN.md Phase 3): the no-orders
+kill-switch drill (check 4). Running
 this script does not claim either is satisfied.
 """
 from __future__ import annotations
@@ -183,7 +183,7 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
             reasons.append("egress IP could not be checked; live refuses to start without it")
         elif egress != allowed:
             reasons.append(f"egress IP {egress} is not the whitelisted {allowed}; "
-                           "SEBI/NSE require API access from a whitelisted static IP")
+                           "the broker requires API orders from a whitelisted static IP")
 
     # 9. fixed capital cap: the live bot sizes against at most this much (no cap = no start)
     cap = live.get("max_capital_inr")
@@ -205,36 +205,16 @@ def out_dir_default() -> str:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--signals", required=True)
-    p.add_argument("--limits", default=str(LIMITS_FILE))
-    p.add_argument("--out", default=out_dir_default())
-    p.add_argument("--base-url", required=True, help="OpenAlgo base URL")
-    args = p.parse_args()
+    """Retired entry point (2026-11-15 audit). The old pipeline path is never used for live.
 
-    audit = AuditLog(pathlib.Path(args.out) / "audit.jsonl")
-    checks = startup_checks(limits_path=pathlib.Path(args.limits), audit=audit)
-    if not checks["ok"]:
-        print(json.dumps({"started": False, "refused": checks["reasons"]}, indent=2))
-        return 2
-
-    api_key = OpenAlgoClient.api_key_from_env()
-    client = OpenAlgoClient(args.base_url, http_transport, mode="live",
-                            live_approval=checks["approval"],
-                            limits_path=pathlib.Path(args.limits))
-    from quant.execution.openalgo_client import AnalyzeBroker  # same adapter, live client
-    broker = AnalyzeBroker(client, api_key)
-
-    # run() is imported late so the checks above run before any trade-path import
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "run_paper", ROOT / "scripts" / "run_paper.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    summary = mod.run(args.signals, args.limits, args.out, broker=broker,
-                      client=client, api_key=api_key)
-    print(json.dumps({"started": True, **summary}, indent=2, default=str))
-    return 0
+    The only live entry point is scripts/run/run_strategy_bot_live.py. That runner
+    calls startup_checks() from this file, so this module stays importable. This
+    function refuses to run and sends no order.
+    """
+    print(json.dumps({"started": False, "refused": [
+        "run_live.py is retired: use scripts/run/run_strategy_bot_live.py (the only live path)"]},
+        indent=2))
+    return 2
 
 
 if __name__ == "__main__":

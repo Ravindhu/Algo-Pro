@@ -33,12 +33,12 @@ Plain-English note on the live-readiness audit fixes. Live trading is still OFF.
 In `config/risk_limits.yaml`: `max_sector_pct`, `max_beta`, `max_cvar`, `max_drawdown`.
 In `config/settings.yaml` under `live:`: `allowed_egress_ip` and `max_capital_inr`.
 Then the existing steps still apply: approval (`scripts/ops/approve_live.py`), the
-SEBI checklist, and the kill-switch drill on the live host.
+and the kill-switch drill on the live host.
 
 ## Known gaps left open
 
-- After a restart, open positions are not restored in the bot. Restored daily P&L may include
-  their unrealized loss. This is conservative (it trips the loss limit sooner), not unsafe.
+- Fixed 2026-11-15 (second pass, see below): open positions, broker stop ids and open exposure
+  are saved and restored at start. Parents still being sliced are not restored.
 - Live analyze-mode soak (phase 2) has not run.
 
 ## Dashboard wiring (same day)
@@ -54,5 +54,27 @@ SEBI checklist, and the kill-switch drill on the live host.
 11. **Live readiness is shown in the setup panel** (`GET /api/live/status`, owner only). It lists
     exactly what the live start gate still refuses.
 
-Not changed: the live start still needs your values, an approval, the SEBI checklist, the
+Not changed: the live start still needs your values, an approval, the
 analyze-mode soak and the kill-switch drill on the live machine.
+
+## Second pass, 2026-11-15 (audit items 1-10)
+
+12. **Broker-side stop-loss.** Each open position gets an SL-M stop at the broker when it opens,
+    sized to the full quantity and triggered at the bot's stop price. It is replaced when the
+    position grows, cancelled before the bot sells, and checked every cycle. A stop that fills
+    closes the position in the bot's books. A failed stop blocks new entries until it is placed.
+13. **Restart-safe book.** Open positions, stop ids, exposure, marks, and today's parents are
+    saved to `data/bot_live/positions.json` on every change and restored at start, before the
+    broker reconciliation. The live runner now also passes the P&L store (`pnl_state.json`).
+14. **One live entry point.** `run_live.py` main() refuses to run; the bot runner is the only path.
+15. **LIMIT entries.** Entries are limit orders `entry_max_slippage_bps` (default 20) above the
+    last closed close. Unfilled entries are cancelled. A partial fill is flagged and blocks entries.
+    Exits and stops stay MARKET/SL-M so they always try to fill.
+16. **Egress IP every cycle.** A changed or unknown public IP blocks new entries; exits still run.
+17. **Exchange on every order.** The client now sends `exchange` (NSE default). Before this, OpenAlgo
+    would reject every order because the field was missing.
+18. **SEBI items removed** from the live gate messages, config comments, live plan docs, and the
+    checklist file. The SEBI turnover fee in the cost model is kept; it is a real charge.
+
+Still owner items: book caps, egress IP, capital cap, approval, analyzer soak, kill-switch drill,
+and confirming the current retail algo rules with the broker. Live stays off.

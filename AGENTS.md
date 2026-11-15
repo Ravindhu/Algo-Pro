@@ -369,7 +369,6 @@ For Indian-market information and data, prioritize authoritative and trusted sou
 * NSE
 * NSDL
 * RBI
-* SEBI
 * Other official exchange, regulatory, depository, and government sources where applicable
 
 Use reliable live-data sources when real-time information is required.
@@ -831,7 +830,7 @@ modify an order. Its output is an *input* to a deterministic stage that can igno
 
 | Agent | Lane | Reads | Writes | Cannot |
 |---|---|---|---|---|
-| Economic agent | Frontline · economic | Macro releases, RBI/SEBI circulars, global cues | Regime bias, sector tilt, risk multiplier `[0.5, 1.0]` | Set position size; touch a gate |
+| Economic agent | Frontline · economic | Macro releases, RBI circulars, global cues | Regime bias, sector tilt, risk multiplier `[0.5, 1.0]` | Set position size; touch a gate |
 | Sector agent | Frontline · sector | Sector rotation, earnings dates, breadth | Sector rank, exclusion list | Create an order; override a cap |
 | Screener agent | Frontline · screener | Filings, corporate announcements, price/volume screens | Candidate universe with confidence | Bypass liquidity/ASM-GSM flags |
 | Market agent | Frontline · market | Order-book imbalance, volume profile, microstructure | Microstructure score, expected slippage | Choose an execution algo |

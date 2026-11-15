@@ -22,7 +22,7 @@ from typing import Callable, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 POSITIVE = {"order win": 1.0, "buyback": 0.5, "dividend": 0.3, "upgrade": 0.5, "record profit": 0.8}
-NEGATIVE = {"fraud": -1.0, "default": -1.0, "sebi order": -0.7, "downgrade": -0.5, "profit warning": -0.6}
+NEGATIVE = {"fraud": -1.0, "default": -1.0, "regulator order": -0.7, "downgrade": -0.5, "profit warning": -0.6}
 
 #: Signature of an optional LLM scorer: (symbol, text) -> score in [-1, 1].
 LlmScorer = Callable[[str, str], float]

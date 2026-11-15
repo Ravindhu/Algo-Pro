@@ -92,11 +92,21 @@ def _live_cfg(**over):
     return BotConfig(**base)
 
 
+class _Stops:
+    """Stub broker stops for live-mode construction (no network; never used in these tests)."""
+    def place_stop(self, *a, **k): return {"status": "error", "reason": "stub"}
+    def stop_status(self, *a, **k): return {"order_status": ""}
+    def cancel_stop(self, *a, **k): return {"status": "error", "reason": "stub"}
+
+
 def _bot(cfg, sender, live_gate=None, tmp_path=None):
+    from quant.execution.position_store import PositionStore
     return StrategyBot(
         cfg=cfg, strategies=[], bars=FakeBars(), sender=sender, audit=FakeAudit(),
         api_key="KEY", read_funds=lambda: 100000.0, limits=_limits(), kill=KillSwitch(tmp_path / "k.json"),
         safe=SafeMode(), halt=HaltHandler(), state=RiskState(), live_gate=live_gate,
+        stops=_Stops(), position_store=PositionStore(tmp_path / "positions.json"),
+        entry_guard=lambda: (True, []),
     )
 
 
@@ -229,9 +239,12 @@ def test_runner_builds_live_bot_when_gate_passes_and_places_no_order(tmp_path):
     approval = LiveApproval(approver="Test Owner", approved_on=date.today(),
                             limits_sha256=file_sha256(LIMITS))
     passing = lambda **k: {"ok": True, "reasons": [], "approval": approval, "capital_cap": 500000.0}
+    settings = tmp_path / "settings.yaml"
+    settings.write_text("live:\n  allowed_egress_ip: '203.0.113.10'\n  max_capital_inr: 500000\n", encoding="utf-8")
     bot, audit = run.build_live_bot(bot_cfg_path=cfg, limits_path=LIMITS, state_dir=tmp_path / "s",
                                     base_url="http://x", api_key="K", transport=transport,
-                                    reader=FakeReader(), startup_fn=passing)
+                                    reader=FakeReader(), startup_fn=passing,
+                                    settings_path=settings, egress_fn=lambda: "203.0.113.10")
     assert bot.cfg.mode == "live"
     assert isinstance(bot._executor._sender, LiveSender)
     assert transport.calls == []  # building the bot must never send an order

@@ -48,7 +48,7 @@ def test_event_scoring_is_advice_only():
     adv = score_filing("A", "Company bags a major order win and announces buyback")
     assert isinstance(adv, EventAdvice)
     assert adv.score > 0 and adv.sets_size is False
-    bad = score_filing("A", "SEBI order issued; fraud alleged")
+    bad = score_filing("A", "Regulator order issued; fraud alleged")
     assert bad.score < 0 and -1.0 <= bad.score <= 1.0
 
 

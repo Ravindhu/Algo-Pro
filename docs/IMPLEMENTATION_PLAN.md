@@ -156,7 +156,7 @@ Reuse (wrap, do not copy):
 
 Exit checks (all required before real capital):
 1. Live paper fills match the replayed backtest within a tolerance the owner sets. PENDING.
-2. Regulatory items (SEBI algo registration, order tagging, immutable audit store, NTP clock sync) checked against current SEBI rules. NOT verified yet. Scope is an OPEN OWNER QUESTION (see "Open owner decisions").
+2. Live readiness items (immutable audit store, NTP clock sync). SEBI items were removed from scope by the owner on 2026-11-15.
 3. Capital starts at a fixed, small cap in config. Any scale-up needs owner sign-off.
 4. Kill switch and safe mode tested in a live session with no orders sent. **DONE 2026-11-08 (decision 0031):** `monitor/drill.py` + `scripts/run/safety_drill.py`. Nine phases, all pass: clean entry approved; kill blocks entries; kill survives restart; kill closes pass while killed; reset needs a person; reduce-only blocks entries/allows exits; halt-all blocks all but kill closes; safe-mode changes audited; **zero orders sent** (every path went to a CountingBroker stub). Evidence: `data/drills/<ts>/report.json` + audit row. Planted-fault tests prove each phase catches its own breakage.
 5. Dashboard P&L shown by default (decision 0007). EV, MAE/MFE and rule compliance removed; profit factor and win rate visible (decision 0008).
@@ -257,7 +257,7 @@ Order rule: finish a block before starting the next. Each item ends with tests, 
 - **P3-5** Alerts (`notify/alerts.py`) at INFO / WARNING / ERROR / CRITICAL with dashboard feed. PENDING.
 - **P3-6** Kill switch and safe mode drills, no orders sent. Offline drill PASSED 2026-11-15 (`scripts/run/safety_drill.py`, 9 phases, zero orders sent; evidence in git-ignored `data/drills/`). Owner to rerun on the live host before sign-off.
 - **P3-7** Parity test: live paper fills vs replayed backtest. PENDING.
-- **P3-8** Regulatory checklist verified against current SEBI rules, from official sources. PENDING. Scope is an open owner question (see "Open owner decisions").
+- **P3-8** REMOVED 2026-11-15 (owner): the SEBI checklist is out of scope. The audit-store and NTP checks stay in the compliance gate.
 
 ### Docs and governance
 - **D-1** Update `AGENTS.md` status line and rule 8 (P&L now shown; Phase 0 done). Rule 8 and the layout comment DONE 2026-11-05 (decision 0008). Status line and full rewrite still PENDING (owner approval).
@@ -306,7 +306,7 @@ Each task ends with tests, a doc update, and a commit. "Needs" says what blocks 
 - **X-21** Review `docs/My_trading_system_SOP/SOP.md` against reality (D-3). Needs: none.
 - **X-22** Delete stale remote branches `main` (`76f21af`) and `docs/status-2026-11-05`. Needs: owner (sandbox cannot delete branches).
 - **X-23** Verify the 2026 holiday list against the NSE circulars (P0-4). DONE 2026-11-06: `holidays.csv` = NSE/CMTR/71775 (15) + circular 07/2026 (adds 2026-01-15) = 16 weekday holidays (decision 0016). Not holidays: 2026-02-19, 03-19, 04-01, 08-26. BSE dates still open.
-- **X-24** SEBI algo-trading checklist (registration, order tagging, immutable audit store, clock sync) from official sources (P3-8). 2026-11-06: owner confirmed "algo is permitted" (scope: algo trading allowed). Checklist still required before live capital. Needs: owner research; sandbox can reach SEBI via search only.
+- **X-24** REMOVED 2026-11-15 (owner): SEBI algo checklist. Immutable audit store and clock sync stay in the compliance gate. 2026-11-06: owner confirmed "algo is permitted" (scope: algo trading allowed). Checklist still required before live capital. Needs: owner research; sandbox can reach SEBI via search only.
 
 ### Tier F - Blue_engine follow-ups from the Phase 0 audit (added 2026-11-05)
 These come from `docs/audits/PHASE0_REUSE_AUDIT.md`. None of them was tracked as an item before this pass.
@@ -325,7 +325,7 @@ Owner items (blocking, in order):
 3. **SME lots:** no table to fill. The broker lot is used at order time. Owner to confirm the broker connection before Phase 3.
 4. **BSE holidays:** confirm BSE dates (P0-4 / X-23).
 5. **Muhurat 2026-11-08:** special session on a Sunday. Loader cannot model it. Decide how to handle it before that day.
-6. **SEBI checklist scope:** owner said algo trading is permitted; checklist (P3-8 / X-24) still required before live capital.
+6. **SEBI checklist:** removed from scope by the owner on 2026-11-15 (P3-8 / X-24).
 7. **Items 12-14 target:** owner to confirm the next target after X-10.
 
 Code items (sandbox, no owner input needed):
@@ -339,7 +339,7 @@ Done 2026-11-06 without owner input (see sections above): X-1, X-5 exchange rate
 
 ## Open owner decisions
 
-- **SEBI checklist scope (conflict to resolve).** `docs/STATUS_2026-11-04.md` says SEBI algo-rule verification was "removed from scope at your request". The 2026-11-05 plan still requires P3-8 and X-24 (SEBI checks) before any real capital. Owner to say which one applies. Until then, the plan keeps the checks as required.
+- **SEBI checklist scope (resolved 2026-11-15: removed by owner).** `docs/STATUS_2026-11-04.md` says SEBI algo-rule verification was "removed from scope at your request". The 2026-11-05 plan still requires P3-8 and X-24 (SEBI checks) before any real capital. Owner to say which one applies. Until then, the plan keeps the checks as required.
 - Risk limit values (P0-3). Paper: approved 2026-11-06. Live: same values (decision 0016); live stays blocked by the Phase 3 gate.
 - Tier values and weights (`config/conviction_tiers.yaml`). Placeholders until out-of-sample evidence exists.
 - BSE holiday dates (P0-4, X-23). NSE list is set from the official circulars.

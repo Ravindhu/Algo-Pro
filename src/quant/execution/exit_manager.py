@@ -51,6 +51,8 @@ class Position:
     circuit_pct: Optional[float] = None
     strategy: str = ""
     last_bar_time: Optional[str] = None  # bar already evaluated; never evaluate the same bar twice
+    broker_stop_id: str = ""          # OpenAlgo SL-M stop order at the broker ("" = none placed)
+    broker_stop_qty: int = 0           # quantity that the broker stop covers
     risk_r: float = field(init=False)
 
     def __post_init__(self) -> None:

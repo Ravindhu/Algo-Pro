@@ -127,7 +127,7 @@ Gate: critical error shows on the dashboard and triggers safe mode. Restart neve
 
 ## Step 11 - Live entry (only after owner sign-off)
 
-Preconditions, all required: Steps 0 to 10 gates passed; P3-8 regulatory checklist verified from official SEBI sources; P3-6 kill switch and safe mode drills done with no orders sent; capital cap set in config.
+Preconditions, all required: Steps 0 to 10 gates passed; P3-8 removed from scope 2026-11-15 (owner); P3-6 kill switch and safe mode drills done with no orders sent; capital cap set in config.
 Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 ---
@@ -147,4 +147,4 @@ Start at a small fixed cap. Any scale-up needs owner sign-off.
 
 Done 2026-11-05 without owner input: X-12, X-17, X-29 (case check), PB-6 (MAE/MFE optimizer parameters), decision notes 0009 and 0010 (PROPOSED, owner chooses).
 Done 2026-11-05: X-3, X-4, X-5, X-8, X-9 and X-15. X-9b (lazy Blue package imports) needs an owner test run before it can be merged.
-Owner items first when available: P0-2, P0-3, P0-4, and the SEBI scope question (see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions").
+Owner items first when available: P0-2, P0-3, P0-4 (see `docs/IMPLEMENTATION_PLAN.md`, "Open owner decisions").

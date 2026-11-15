@@ -5,9 +5,9 @@ Status: PHASE 3 IMPLEMENTED (2026-11-11)
 
 Why this exists
 ---------------
-Live-order preconditions (owner decision 2026-11-11: the SEBI registration / exchange algo-ID
-fields are NOT required here — OpenAlgo tags orders with the strategy id, and registration is
-the broker's obligation, not a code gate):
+Live-order preconditions (owner decision 2026-11-11: no algo-ID or registration fields are
+kept here — OpenAlgo tags orders with the strategy id, and registration is the broker's
+obligation, not a code gate):
   1. Records of algo orders are retained and available for inspection (audit-log storage).
   2. Order timestamps are accurate: the host clock must be synchronised (NTP), because the
      exchange matches order time against its own clock and a skewed clock breaks the audit trail.

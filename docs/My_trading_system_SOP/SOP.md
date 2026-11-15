@@ -1381,9 +1381,8 @@ Plain-English summary: the `rich` terminal console (`Blue_engine/dashboard/`, co
 
 ### 24.2 OpenAlgo bridge and broker connection
 - `config/data_sources.yaml` → `openalgo:` block: `base_url`, `api_key_env`, `mode`,
-  `broker_login` (autologin, broker name, TOTP env) and `compliance` (algo ID, SEBI
-  registration, audit dir, max clock skew).
-- Secrets stay in `.env` (`OPENALGO_API_KEY`, `BROKER_*`, `SEBI_ALGO_ID`, `SEBI_REGISTRATION`).
+  `broker_login` (autologin, broker name, TOTP env) and `compliance` (audit dir, max clock skew).
+- Secrets stay in `.env` (`OPENALGO_API_KEY`, `BROKER_*`).
   Never commit them.
 - Two login legs must both pass before an order can be placed: OpenAlgo platform login and
   broker TOTP (`Blue_engine/core/broker_auth.py`).
@@ -1405,7 +1404,6 @@ check on the real intent (correct ref price and size) before `check_intent`.
 `src/quant/risk/compliance.py`, called from `OpenAlgoClient._check_live_session`.
 | Check | Requirement |
 |---|---|
-| SEBI algo tagging | exchange-approved algo ID + SEBI registration number on file |
 | Audit-log storage | audit dir exists, is writable, has free space |
 | NTP clock sync | skew within `max_clock_skew_seconds` (default 1.0 s) |
 

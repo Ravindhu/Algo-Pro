@@ -19,7 +19,7 @@ Exits are never blocked by the startup reconciliation; entries are.
 
 Flow stage: Algo router, Risk gate, Approved order queue, OpenAlgo, Audit log
 Status: PHASE 1 IMPLEMENTED (live sender wired behind the gates). NOT RUN. Still open:
-  owner sign-off, SEBI verification (run_live check 2), kill-switch drill (check 4),
+  owner sign-off, the holiday/calendar check (run_live check 6), kill-switch drill (check 4),
   and the analyze-mode soak test (phase 2).
 """
 from __future__ import annotations
@@ -40,6 +40,8 @@ from quant.data.live_bars import LiveBars  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
 from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused, LiveSender, StrategyBot  # noqa: E402
+from quant.execution.pnl_store import PnlStore  # noqa: E402
+from quant.execution.position_store import PositionStore  # noqa: E402
 from quant.monitor.broker_recon import make_positionbook_reader  # noqa: E402
 from quant.monitor.paper_loop import now_ist  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
@@ -78,11 +80,63 @@ def available_cash(reader: Any, api_key: str) -> float:
     return cash if math.isfinite(cash) and cash > 0 else 0.0
 
 
+class LiveStops:
+    """Broker stop adapter for the strategy bot: SL-M place, status and cancel through the live client.
+
+    Every call returns a plain dict with 'status' ('success' or 'error'), and an order id or reason.
+    Exceptions are turned into 'error' results, so the bot can fail closed.
+    """
+
+    def __init__(self, client, api_key: str) -> None:
+        self._client = client
+        self._key = api_key
+
+    def place_stop(self, symbol, action, qty, trigger_price, strategy):
+        try:
+            r = self._client.place_stop(symbol, action, qty, trigger_price, strategy, self._key)
+        except Exception as exc:  # PermissionError (guard) or network: no stop, the bot blocks entries
+            return {"status": "error", "reason": repr(exc)}
+        order_id = str(r.get("orderid", "")) if isinstance(r, dict) else ""
+        ok = isinstance(r, dict) and str(r.get("status", "")).lower() == "success" and bool(order_id)
+        return {"status": "success" if ok else "error", "orderid": order_id,
+                "reason": "" if ok else str(r.get("message", "no order id")) if isinstance(r, dict) else "bad reply"}
+
+    def stop_status(self, order_id, strategy):
+        try:
+            r = self._client.get_order_status(self._key, order_id, strategy)
+        except Exception as exc:
+            return {"order_status": "", "reason": repr(exc)}
+        data = r.get("data") if isinstance(r, dict) and isinstance(r.get("data"), dict) else {}
+        return {"order_status": str(data.get("order_status", "")).lower(), "avg_price": data.get("average_price")}
+
+    def cancel_stop(self, order_id, strategy):
+        try:
+            r = self._client.cancel(order_id, strategy, self._key)
+        except Exception as exc:
+            return {"status": "error", "reason": repr(exc)}
+        ok = isinstance(r, dict) and str(r.get("status", "")).lower() == "success"
+        return {"status": "success" if ok else "error",
+                "reason": str(r.get("message", "")) if isinstance(r, dict) else "bad reply"}
+
+
+def make_egress_guard(allowed_ip: str, egress_fn=None):
+    """Per-cycle guard: the machine's public IP must still be the whitelisted one (audit fix 8)."""
+    def guard():
+        ip = (egress_fn or _live_checks._egress_ip)()
+        if ip is None:
+            return False, ["egress IP could not be checked"]
+        if ip != allowed_ip:
+            return False, [f"egress IP {ip} is not the whitelisted {allowed_ip}"]
+        return True, []
+    return guard
+
+
 def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_key: str,
                    transport: Callable = http_transport, reader=None,
                    startup_fn: Callable = _live_checks.startup_checks,
                    alerts: Optional[Alerts] = None,
-                   on_critical: Optional[Callable[[str], None]] = None):
+                   on_critical: Optional[Callable[[str], None]] = None,
+                   settings_path=None, egress_fn=None):
     """Wire the live bot. Raises BotRefused unless every start gate passes. Places no orders."""
     cfg = load_bot_config(bot_cfg_path)
     if cfg.mode != "live" or not cfg.live_enabled:
@@ -113,6 +167,10 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
     )
     readonly = reader if reader is not None else OpenAlgoReadOnly(base_url, transport)
     alerts = alerts or Alerts(on_critical=on_critical)
+    live_settings = _live_checks._live_settings(settings_path or _live_checks.SETTINGS_FILE)
+    allowed_ip = str(live_settings.get("allowed_egress_ip") or "").strip()
+    if not allowed_ip:
+        raise BotRefused("live needs live.allowed_egress_ip in config/settings.yaml")
 
     bot = StrategyBot(
         cfg=cfg,
@@ -130,9 +188,15 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         state=RiskState(),
         alerts=alerts,
         live_gate=gate,
+        # Audit fixes (2026-11-15): daily P&L, open positions and broker stops survive a restart.
+        pnl_store=PnlStore(state_dir / "pnl_state.json"),
+        position_store=PositionStore(state_dir / "positions.json"),
+        stops=LiveStops(client, api_key),
+        entry_guard=make_egress_guard(allowed_ip, egress_fn),
     )
-    # Gate 4: entries stay blocked unless the broker book matches ours. require_broker: no
-    # reader means "unavailable", which blocks entries (never a silent pass in live).
+    # Restore the saved book first, then reconcile it with the broker. Entries stay blocked
+    # unless the two match. require_broker: no reader means "unavailable", which blocks entries.
+    bot.restore_positions(now_ist())
     bot.run_startup_recon(make_positionbook_reader(readonly, api_key), require_broker=True)
     return bot, audit
 

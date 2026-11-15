@@ -6,7 +6,7 @@ where one remains. The strategy bot runs in paper or analyze (OpenAlgo sandbox) 
 only by default. Live mode exists behind gates (phase 1, 2026-11-15): it needs
 `mode: live` and `live_enabled: true`, the live startup gate, and a passing
 reconciliation. The committed config is paper. Phase 2 (sandbox soak) and phase 3
-(owner sign-off, SEBI check, kill-switch drill) are NOT done, so nothing is live.
+(owner sign-off, kill-switch drill) are NOT done, so nothing is live.
 The live market-data source is approved in config/data_sources.yaml (2026-11-11).**
 
 The audit found and fixed ~14 defects across the ten lanes. They shared one shape:
@@ -71,7 +71,7 @@ Support inputs to backtest and risk:
 | Bulk and block deals | Large-holder activity |
 | Relative strength | Stock vs Nifty and sector indices |
 | Intraday microstructure | Order-book imbalance, volume profile |
-| Filings and circulars | NSE, BSE and SEBI documents parsed into events |
+| Filings and circulars | NSE and BSE documents parsed into events |
 | Live bars and daily stats | Read-only OpenAlgo history: closed intraday bars for signals, ADV and previous close from days before today. Returns nothing when the feed is stale, errored or too short (`data/live_bars.py`). |
 | Screener engine | Blue screener: fail-closed symbol gate. Feeds the liquidity screener and the screen file |
 | Economic engine | Macro risk-on score. Its risk multiplier is clamped to 0.5 to 1.0, so a stale feed cannot lever up |

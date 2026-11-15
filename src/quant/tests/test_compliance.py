@@ -1,4 +1,4 @@
-"""Live compliance gates: audit-log storage and NTP clock sync (owner removed the SEBI
+"""Live compliance gates: audit-log storage and NTP clock sync (owner removed the algo-ID
 algo-ID / registration checks on 2026-11-11 — registration is the broker's obligation)."""
 from quant.risk.compliance import ComplianceConfig, ComplianceGate, check_audit_storage
 
@@ -13,8 +13,8 @@ def test_all_checks_pass(tmp_path):
     assert _gate(tmp_path).check().ok
 
 
-def test_no_sebi_fields_in_config(tmp_path):
-    """The SEBI algo-ID / registration fields are gone from the config (owner 2026-11-11)."""
+def test_no_registration_fields_in_config(tmp_path):
+    """The algo-ID / registration fields are gone from the config (owner 2026-11-11)."""
     assert not hasattr(ComplianceConfig(), "algo_id")
     assert not hasattr(ComplianceConfig(), "sebi_registration")
 
