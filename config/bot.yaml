@@ -9,7 +9,15 @@ live_enabled: false
 # Exits and broker stops are never limited. Owner may change it (0 < x <= 200).
 entry_max_slippage_bps: 20
 interval_minutes: 5          # one slice per parent per cycle
-pov: 0.1                     # child = 10% of the last closed bar's volume, at most what is left
+pov: 0.1
+pov_mode: fixed            # fixed = pov above (default). band = VWAP band sets pov per parent. See docs/PEG_AND_BUYER_VOLUME_DESIGN.md
+# pov_band:               # used only when pov_mode: band; defaults shown
+#   vwap_ceiling_pct: 0.5   # HALT above VWAP + this %
+#   vwap_floor_pct: 3.0     # passthrough below VWAP - this %
+#   min_pov: 0.05           # POV at the HIGH of the band (lower slicing)
+#   max_pov: 0.25           # POV at the LOW of the band (higher slicing)
+#   passthrough_floor: part_pct
+# No verified buyer VWAP source yet, so band mode falls back to pov.                     # child = 10% of the last closed bar's volume, at most what is left
 # Risk per trade is NOT set here. It is config/settings.yaml sizing.risk_per_trade (one source).
 max_cycles: 12               # a parent is dropped after 1 hour of 5-minute cycles
 max_screen_age_minutes: 10   # older screen file = no new symbols

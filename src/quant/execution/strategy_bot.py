@@ -39,6 +39,7 @@ from quant.core.config import RiskLimits
 from quant.core.types import TradeIntent
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
+from quant.execution.pov_band import BandConfig, compute_target_pov_rate
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
@@ -133,6 +134,11 @@ def _strategy_name(entry) -> str:
     return str(entry["name"]) if isinstance(entry, dict) else str(entry)
 
 
+BAND_KEYS = ("vwap_ceiling_pct", "vwap_floor_pct", "min_pov", "max_pov", "passthrough_floor")
+BAND_DEFAULTS = {"vwap_ceiling_pct": 0.5, "vwap_floor_pct": 3.0, "min_pov": 0.05,
+                 "max_pov": 0.25, "passthrough_floor": "part_pct"}
+
+
 @dataclass(frozen=True)
 class BotConfig:
     mode: str = "analyze"
@@ -144,6 +150,10 @@ class BotConfig:
     max_outage_cycles: int = 3   # last known bar used for exits for at most this many cycles (3 x 5 min = 15 min)
     breakeven_r: float = 1.0
     trail_mult: float = 2.0
+    # POV mode: 'fixed' slices at pov (old behaviour, default). 'band' sets the POV per parent from
+    # the VWAP band in pov_band.py: high of band -> lower POV, low of band -> higher POV.
+    pov_mode: str = "fixed"
+    pov_band: Dict[str, Any] = field(default_factory=dict)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
     screen_path: str = "data/screened/latest.json"
@@ -165,6 +175,22 @@ class BotConfig:
             for k, v in over.items():
                 if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
+        if self.pov_mode not in ("fixed", "band"):
+            raise ValueError("pov_mode must be 'fixed' or 'band'")
+        bad = set(self.pov_band or {}) - set(BAND_KEYS)
+        if bad:
+            raise ValueError(f"pov_band may set only {sorted(BAND_KEYS)}; got {sorted(bad)}")
+        b = {**BAND_DEFAULTS, **(self.pov_band or {})}
+        for k in ("vwap_ceiling_pct", "vwap_floor_pct"):
+            if not isinstance(b[k], (int, float)) or b[k] <= 0:
+                raise ValueError(f"pov_band.{k} must be a number > 0")
+        for k in ("min_pov", "max_pov"):
+            if not isinstance(b[k], (int, float)) or not 0 < b[k] <= 1:
+                raise ValueError(f"pov_band.{k} must be in (0, 1]")
+        if b["min_pov"] > b["max_pov"]:
+            raise ValueError("pov_band.min_pov must not exceed max_pov")
+        if str(b["passthrough_floor"]) not in ("part_pct", "min_pov", "max_pov"):
+            raise ValueError("pov_band.passthrough_floor must be part_pct, min_pov or max_pov")
 
     def exit_config_for(self, strategy: str) -> ExitConfig:
         """Breakeven and trail for one strategy: its own values, else the global ones."""
@@ -284,6 +310,7 @@ class StrategyBot:
         stops=None,
         position_store=None,
         entry_guard: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
+        vwap_provider: Optional[Callable[[str], Optional[float]]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -309,6 +336,7 @@ class StrategyBot:
         if not api_key:
             raise ValueError("bot needs an API key")
         self.cfg = cfg
+        self._vwap_provider = vwap_provider  # buyer-initiated VWAP per symbol; None = not available
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit
@@ -597,6 +625,32 @@ class StrategyBot:
                                      adv_shares=stats["adv_shares"], prev_close=stats["prev_close"])
         report["parents_opened"] += 1
 
+    def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:
+        """POV fraction for one parent's child. Fixed mode: cfg.pov. Band mode: the VWAP band from
+        pov_band.py, using the last closed close. No verified VWAP -> cfg.pov (logged)."""
+        if self.cfg.pov_mode != "band":
+            return self.cfg.pov, "fixed"
+        vwap = self._vwap_provider(symbol) if self._vwap_provider is not None else None
+        if vwap is None or not vwap > 0:
+            self._log("pov_band_fallback", symbol=symbol, reason="no verified buyer VWAP")
+            return self.cfg.pov, "fallback"
+        b = {**BAND_DEFAULTS, **(self.cfg.pov_band or {})}
+        band = BandConfig(
+            vwap=float(vwap),
+            vwap_ceiling_pct=float(b["vwap_ceiling_pct"]),
+            vwap_floor_pct=float(b["vwap_floor_pct"]),
+            min_pov_pct=float(b["min_pov"]) * 100.0,
+            max_pov_pct=float(b["max_pov"]) * 100.0,
+            part_pct=self.cfg.pov * 100.0,
+            passthrough_floor=str(b["passthrough_floor"]),
+            action=str(side).upper(),
+        )
+        ltp = float(df["close"].iloc[-2])  # last closed bar
+        decision = compute_target_pov_rate(ltp=ltp, config=band)
+        self._log("pov_band", symbol=symbol, ltp=ltp, vwap=float(vwap), reason=decision.reason,
+                  rate=decision.rate / 100.0)
+        return decision.rate / 100.0, decision.reason
+
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         for key, p in list(self._parents.items()):
             if self._faults:
@@ -612,8 +666,12 @@ class StrategyBot:
             if df is None:
                 report["skipped"].append(f"{p.intent.symbol}: no bars for slice")
                 continue
+            pov, why = self._pov_for(p.intent.symbol, df, p.intent.side)
+            if pov <= 0:
+                self._log("pov_band_halt", key=key, reason=why)
+                continue
             bar_volume = float(df["volume"].iloc[-2])  # last closed bar
-            qty = self._executor.child_qty(p.remaining, bar_volume)
+            qty = self._executor.child_qty(p.remaining, bar_volume, pov)
             if qty < 1:
                 self._log("child_zero", key=key, remaining=p.remaining, bar_volume=bar_volume)
                 continue

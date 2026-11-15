@@ -70,9 +70,11 @@ class PovExecutor:
         self._queue = ApprovedOrderQueue()
         self._sent_ids: Set[str] = set()
 
-    def child_qty(self, remaining: int, bar_volume: float) -> int:
-        """Child size: pov share of the last bar's volume, never more than what is left."""
-        return pov_child_qty(remaining, bar_volume, self.pov)
+    def child_qty(self, remaining: int, bar_volume: float, pov: Optional[float] = None) -> int:
+        """Child size: pov share of the last bar's volume, never more than what is left.
+
+        pov=None uses the executor's own pov (fixed mode). Band mode passes the band's pov."""
+        return pov_child_qty(remaining, bar_volume, self.pov if pov is None else pov)
 
     @staticmethod
     def make_child(parent: TradeIntent, qty: int, seq: int) -> TradeIntent:
