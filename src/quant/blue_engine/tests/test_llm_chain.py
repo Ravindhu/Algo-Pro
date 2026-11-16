@@ -328,6 +328,11 @@ def test_ollama_host_from_env_is_used_verbatim_for_a_remote_box(monkeypatch):
 
 def test_agent_chain_uses_the_remote_ollama_host(monkeypatch):
     monkeypatch.setenv("OLLAMA_HOST", "http://100.64.1.7:11434")
+    # The chain's head depends on which credentials the HOST has. Router order is
+    # Anthropic -> Ollama -> OpenRouter, so an operator shell that exports
+    # ANTHROPIC_API_KEY puts 'anthropic' first and fails this assertion. Pin the
+    # absence: the test is about OLLAMA_HOST, not about the operator's secrets.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     agent = FrontlineAgent({"enabled": True, "llm": {
         "ollama": {"enabled": True, "model": "qwen3:8b"},
         "openrouter": {"enabled": False},

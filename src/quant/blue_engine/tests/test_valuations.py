@@ -899,9 +899,17 @@ class TestYfinanceFallback:
         assert filled == []
         assert any("failed" in n for n in inp.notes), inp.notes
 
-    def test_missing_symbol_is_reported_not_silent(self):
-        """An unfillable request must say why, not return silently."""
+    def test_missing_symbol_is_reported_not_silent(self, monkeypatch):
+        """An unfillable request must say why, not return silently.
+
+        The package gate runs BEFORE the ticker is built, so without pinning
+        ``available()`` this test measured whether yfinance happens to be
+        installed on the host - on a box without it the note is "not
+        installed" and the no-symbol branch is never reached. Pin it True so
+        the assertion is about the branch under test.
+        """
         from blue_engine.screener import yf_fallback as YF
+        monkeypatch.setattr(YF, "available", lambda: True)
         inp = self._inputs()
         inp.symbol = ""
         inp.notes.clear()

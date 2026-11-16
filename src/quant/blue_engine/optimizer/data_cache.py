@@ -194,21 +194,50 @@ def _raw_index_epochs(frame: Any) -> List[int]:
     (e.g. 1759795) while typing it as ``datetime64``. Pandas therefore renders
     it as a 1970 date. The underlying integers are correct, so we pull them
     straight out and let ``price_cache._ts`` turn them into real dates.
+
+    UNIT MATTERS (pandas 3.1 regression, fixed 2026-11-16). A ``datetime64``
+    array stores ticks in its declared unit, and ``.view('int64')`` returns
+    those ticks unchanged. Under pandas < 3 ``to_datetime(..., unit='s')``
+    produced ``datetime64[s]``, so the ints were epoch SECONDS and the old
+    code was accidentally right. pandas 3.1 defaults to ``datetime64[us]``,
+    so the same call now yields microseconds (1759795200 -> 1759795200000000)
+    and every timestamp was 1000x too large. We therefore normalise to seconds
+    by reading the array's own dtype and dividing out the unit.
     """
     idx = getattr(frame, "index", None)
     if idx is None:
         return []
     try:
-        # .view('int64') / .astype('int64') gives the stored values whatever
-        # the declared unit is, which is exactly the epoch we want.
+        # .view('int64') / .astype('int64') gives the stored ticks whatever
+        # the declared unit is; convert them to seconds below.
         if hasattr(idx, "view"):
-            return [int(v) for v in idx.view("int64")]
+            ticks = [int(v) for v in idx.view("int64")]
+            divisor = _datetime_unit_divisor(str(getattr(idx, "dtype", "")))
+            return [t // divisor if divisor > 1 else t for t in ticks]
     except Exception:  # noqa: BLE001
         pass
     try:
         return [int(v.timestamp()) for v in idx]
     except Exception:  # noqa: BLE001
         return []
+
+
+#: Ticks per second for each ``datetime64`` unit pandas may report.
+_DATETIME_UNIT_TICKS_PER_SECOND = {
+    "s": 1, "ms": 1_000, "us": 1_000_000, "ns": 1_000_000_000,
+}
+
+
+def _datetime_unit_divisor(dtype: str) -> int:
+    """Ticks-per-second for a ``datetime64[<unit>]`` dtype string.
+
+    Returns 1 (already seconds) for a non-datetime dtype or an unknown unit, so
+    an unexpected frame degrades to the old behaviour instead of raising.
+    """
+    if "datetime64[" not in dtype:
+        return 1
+    unit = dtype.split("datetime64[", 1)[1].split("]", 1)[0].strip()
+    return _DATETIME_UNIT_TICKS_PER_SECOND.get(unit, 1)
 
 
 # --------------------------------------------------------------------------- #

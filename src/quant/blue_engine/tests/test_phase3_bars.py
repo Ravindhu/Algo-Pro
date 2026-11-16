@@ -254,28 +254,42 @@ def test_engine_search_accepts_bars_and_drives_strategy_through_them():
         return {"ok": True, "returns": rets,
                 "data_class": "historical:openalgo"}
 
+    n_bars = 60
+    bars = [{"ts": i, "close": 100.0 + i * 0.01} for i in range(n_bars)]
+
+    # The SPACE must be wide enough that the sampler's warmup draws are
+    # distinct. The original 1..5 range gave two uniform draws of 2.295 and
+    # 1.603, both of which round to x=2: the second trial was a cache hit, so
+    # only 2 strategy calls happened and this test failed on ordinary sampling
+    # chance rather than on any plumbing defect (verified 2026-11-16 - the
+    # sampler's RNG advanced correctly; the draws simply collided). A 1..1000
+    # range removes the collision without weakening what is being asserted.
     space = SearchSpace(
         name="engine_phase3_bars",
-        params=[ParamSpec(name="x", kind="int", low=1, high=5, default=2)],
+        params=[ParamSpec(name="x", kind="int", low=1, high=1000, default=500)],
     )
     cfg = EngineConfig(name="phase3_bars", n_trials=3, seed=7,
                        periods=60, n_folds=2, cost_bps=10.0,
                        multivariate=False)
     engine = OptimizerEngine(space, bars_aware, cfg=cfg)
 
-    n_bars = 60
-    bars = [{"ts": i, "close": 100.0 + i * 0.01} for i in range(n_bars)]
     result = engine.search(bars=bars)
 
-    # The objective ran ``n_folds`` strategy calls per trial. With
-    # ``n_trials=3`` and optuna's own internal warmup accounting,
-    # the engine records the baseline plus at least one sampler
-    # trial. We assert the *minimum* path worked: 1 baseline + 1
-    # sampler = 2 trials, 2 folds each = 4 strategy calls.
+    # Each DISTINCT point the objective scored ran ``n_folds`` strategy calls.
+    # A duplicate draw is a legitimate cache hit and contributes no calls, so
+    # assert on the invariant that actually matters: every distinct scored point
+    # paid n_folds calls (2), and at least the baseline plus one sampler trial
+    # were scored.
     assert len(captured_per_trial) >= 4, (
-        f"expected >= 4 strategy calls (2 trials * 2 folds); got "
+        f"expected >= 4 strategy calls (2 distinct trials * 2 folds); got "
         f"{len(captured_per_trial)}"
     )
+    calls_per_point: dict = {}
+    for entry in captured_per_trial:
+        key = (entry["params"]["x"],)
+        calls_per_point[key] = calls_per_point.get(key, 0) + 1
+    for key, n_calls in calls_per_point.items():
+        assert n_calls == 2, f"point {key} should get 2 fold calls; got {n_calls}"
     # Each call received some bars.
     for entry in captured_per_trial:
         assert entry["len"] > 0, f"each call should receive bars; got {entry}"

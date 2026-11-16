@@ -180,3 +180,29 @@ def test_full_pipeline_dataframe_to_correct_iso_dates():
     assert len(norm) == 2
     assert norm[0]["ts"].startswith("2025-10-07"), norm[0]["ts"]
     assert norm[1]["ts"].startswith("2025-10-08"), norm[1]["ts"]
+
+
+# --------------------------------------------------------------------------- #
+# BUG 2c - the index UNIT is not always seconds (pandas 3.1, 2026-11-16)
+# --------------------------------------------------------------------------- #
+
+def test_extract_history_rows_normalises_the_index_unit():
+    """``_raw_index_epochs`` must return SECONDS whatever unit pandas used.
+
+    pandas < 3 built ``to_datetime(..., unit='s')`` as ``datetime64[s]``, so
+    ``.view('int64')`` happened to give epoch seconds. pandas 3.1 defaults to
+    ``datetime64[us]``, so the same view gives microseconds and every bar was
+    1000x too large. The unit must be read from the dtype, not assumed.
+    """
+    pytest = __import__("pytest")
+    pd = pytest.importorskip("pandas")
+    expected = 1759795200
+    for unit in ("s", "ms", "us", "ns"):
+        idx = pd.DatetimeIndex(
+            pd.to_datetime([expected], unit="s").astype(f"datetime64[{unit}]"))
+        df = pd.DataFrame({"close": [1.0]}, index=idx)
+        df.index.name = "timestamp"
+        rows = _extract_history_rows(df)
+        assert rows is not None and len(rows) == 1, unit
+        assert int(rows[0]["timestamp"]) == expected, (
+            f"unit {unit} must still yield epoch seconds; got {rows[0]['timestamp']}")
