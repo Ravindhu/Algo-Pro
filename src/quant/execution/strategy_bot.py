@@ -33,6 +33,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import time
+
 import yaml
 
 from quant.core.config import RiskLimits
@@ -40,6 +42,7 @@ from quant.core.types import TradeIntent
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.execution.pov_band import BandConfig, compute_target_pov_rate
+from quant.execution.peg import peg_price
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
@@ -75,6 +78,8 @@ class AnalyzeSender:
 
     def __init__(self, client) -> None:
         self._client = client
+        self.limit_wait_seconds = 0.0   # peg mode sets this; 0 keeps the old immediate check
+        self._sleep = time.sleep
 
     def place_child(self, intent, api_key, decision, price_type="MARKET", limit_price=None):
         """Place, then confirm the fill with the order status. Only 'complete' counts as filled."""
@@ -84,6 +89,8 @@ class AnalyzeSender:
         order_id = str(placed.get("orderid", ""))
         if not order_id:
             return {"status": "error", "orderid": "", "reason": "no order id; fill not confirmed"}
+        if price_type == "LIMIT" and self.limit_wait_seconds > 0:
+            self._sleep(self.limit_wait_seconds)
         st = self._client.get_order_status(api_key, order_id, intent.strategy_id)
         data = st.get("data") if isinstance(st, dict) and isinstance(st.get("data"), dict) else {}
         state = str(data.get("order_status", "")).lower()
@@ -154,6 +161,8 @@ class BotConfig:
     # the VWAP band in pov_band.py: high of band -> lower POV, low of band -> higher POV.
     pov_mode: str = "fixed"
     pov_band: Dict[str, Any] = field(default_factory=dict)
+    peg_wait_seconds: float = 5.0     # peg_band_buyer: wait this long before checking a peg LIMIT
+    peg_max_attempts: int = 3         # peg_band_buyer: max LIMIT placements per child (bounded reprice)
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
@@ -176,10 +185,14 @@ class BotConfig:
             for k, v in over.items():
                 if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
+        if not 1 <= self.peg_wait_seconds <= 60:
+            raise ValueError("peg_wait_seconds must be in [1, 60]")
+        if not 1 <= self.peg_max_attempts <= 5:
+            raise ValueError("peg_max_attempts must be in [1, 5]")
         if not 5 <= self.vwap_poll_seconds <= 300:
             raise ValueError("vwap_poll_seconds must be in [5, 300]")
-        if self.pov_mode not in ("fixed", "band", "buyer", "band_buyer"):
-            raise ValueError("pov_mode must be 'fixed', 'band', 'buyer' or 'band_buyer'")
+        if self.pov_mode not in ("fixed", "band", "buyer", "band_buyer", "peg_band_buyer"):
+            raise ValueError("pov_mode must be 'fixed', 'band', 'buyer', 'band_buyer' or 'peg_band_buyer'")
         bad = set(self.pov_band or {}) - set(BAND_KEYS)
         if bad:
             raise ValueError(f"pov_band may set only {sorted(BAND_KEYS)}; got {sorted(bad)}")
@@ -316,6 +329,7 @@ class StrategyBot:
         vwap_provider: Optional[Callable[[str], Optional[float]]] = None,
         vwap_tick: Optional[Callable[[datetime], None]] = None,
         buyer_share_provider: Optional[Callable[[str], Optional[float]]] = None,
+        depth_provider: Optional[Callable[[str], Any]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -344,6 +358,7 @@ class StrategyBot:
         self._vwap_provider = vwap_provider  # buyer-initiated VWAP per symbol; None = not available
         self.vwap_tick = vwap_tick           # called by the runner between cycles to poll quotes
         self._buyer_share_provider = buyer_share_provider  # buyer share of volume per symbol (buyer mode)
+        self._depth_provider = depth_provider              # depth reply per symbol (peg mode)
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit
@@ -635,7 +650,7 @@ class StrategyBot:
     def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:
         """POV fraction for one parent's child. Fixed mode: cfg.pov. Band mode: the VWAP band from
         pov_band.py, using the last closed close. No verified VWAP -> cfg.pov (logged)."""
-        if self.cfg.pov_mode not in ("band", "band_buyer"):
+        if self.cfg.pov_mode not in ("band", "band_buyer", "peg_band_buyer"):
             return self.cfg.pov, "fixed"
         vwap = self._vwap_provider(symbol) if self._vwap_provider is not None else None
         if vwap is None or not vwap > 0:
@@ -661,13 +676,53 @@ class StrategyBot:
     def _slice_volume(self, symbol: str, bar_volume: float) -> Tuple[float, str]:
         """Volume the POV applies to. Buyer mode: last bar volume x buyer share of volume today.
         No share known -> the full bar volume (logged). Other modes: unchanged."""
-        if self.cfg.pov_mode not in ("buyer", "band_buyer"):
+        if self.cfg.pov_mode not in ("buyer", "band_buyer", "peg_band_buyer"):
             return bar_volume, "volume"
         share = self._buyer_share_provider(symbol) if self._buyer_share_provider is not None else None
         if share is None:
             self._log("pov_buyer_fallback", symbol=symbol, reason="no buyer share yet")
             return bar_volume, "fallback"
         return bar_volume * share, "buyer"
+
+    def _peg_on(self, p: "_Parent") -> bool:
+        """Peg applies to BUY entries only. Exits stay MARKET so they always try to fill."""
+        return self.cfg.pov_mode == "peg_band_buyer" and p.intent.kind == "entry" and p.intent.side == "BUY"
+
+    def _peg_price_now(self, symbol: str, cap: Optional[float]) -> Optional[float]:
+        """Best bid from the depth reply, never above cap. None if unavailable (caller uses the fixed path)."""
+        if self._depth_provider is None:
+            return None
+        try:
+            depth = self._depth_provider(symbol)
+        except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
+            self._log("peg_depth_error", symbol=symbol, error=repr(exc))
+            return None
+        return peg_price("BUY", depth, cap)
+
+    def _submit_peg(self, p: "_Parent", qty: int, px: float, cap: Optional[float]):
+        """One child as a LIMIT at the best bid. If it is not filled and was cancelled cleanly, reprice
+        from the current bid, up to peg_max_attempts. A partial fill or a failed cancel stops at once."""
+        outcome = None
+        child = None
+        for attempt in range(self.cfg.peg_max_attempts):
+            if attempt > 0:
+                px = self._peg_price_now(p.intent.symbol, cap)
+                if px is None:
+                    break
+                p.seq += 1
+                self._log("peg_reprice", key=p.key, attempt=attempt + 1, px=px)
+            child = PovExecutor.make_child(p.intent, qty, p.seq)
+            outcome = self._executor.submit_child(child, "LIMIT", px)
+            if not outcome.sent:
+                break
+            resp = outcome.response or {}
+            if str(resp.get("status", "")).lower() == "success":
+                break
+            if resp.get("partial") or resp.get("cancel_failed"):
+                break
+            if "limit not filled" not in str(resp.get("reason", "")):
+                break
+        return outcome, child
 
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         for key, p in list(self._parents.items()):
@@ -688,17 +743,31 @@ class StrategyBot:
             if pov <= 0:
                 self._log("pov_band_halt", key=key, reason=why)
                 continue
-            bar_volume = float(df["volume"].iloc[-2])  # last closed bar
-            bar_volume, _vol_why = self._slice_volume(p.intent.symbol, bar_volume)
+            raw_volume = float(df["volume"].iloc[-2])  # last closed bar
+            bar_volume, _vol_why = self._slice_volume(p.intent.symbol, raw_volume)
+            peg_px = None
+            cap = None
+            if self._peg_on(p):
+                cap = self._entry_price(p, df)[1]
+                peg_px = self._peg_price_now(p.intent.symbol, cap)
+                if why == "fallback" or _vol_why == "fallback" or peg_px is None:
+                    # Single fallback for peg mode: fixed POV on full bar volume, old entry price.
+                    self._log("peg_fallback_fixed", key=key, band=why, volume=_vol_why, peg=peg_px is not None)
+                    pov = self.cfg.pov
+                    bar_volume = raw_volume
+                    peg_px = None
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
             if qty < 1:
                 self._log("child_zero", key=key, remaining=p.remaining, bar_volume=bar_volume)
                 continue
             p.seq += 1
-            child = PovExecutor.make_child(p.intent, qty, p.seq)
-            price_type, limit_px = self._entry_price(p, df)
             try:
-                outcome = self._executor.submit_child(child, price_type, limit_px)
+                if peg_px is not None:
+                    outcome, child = self._submit_peg(p, qty, peg_px, cap)
+                else:
+                    child = PovExecutor.make_child(p.intent, qty, p.seq)
+                    price_type, limit_px = self._entry_price(p, df)
+                    outcome = self._executor.submit_child(child, price_type, limit_px)
             except Exception as exc:
                 self._close(key, f"child error: {exc!r}")
                 continue
@@ -707,6 +776,10 @@ class StrategyBot:
                 continue
             resp = outcome.response or {}
             status = str(resp.get("status", "")).lower()
+            if peg_px is not None and status != "success" and "limit not filled" in str(resp.get("reason", "")) \
+                    and not resp.get("partial") and not resp.get("cancel_failed"):
+                self._log("peg_unfilled", key=key)  # cancelled cleanly; parent stays open for the next cycle
+                continue
             if status != "success":
                 if resp.get("partial"):
                     self._faults.add(("partial", key))

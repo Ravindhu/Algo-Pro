@@ -132,6 +132,15 @@ def make_egress_guard(allowed_ip: str, egress_fn=None):
 
 
 from quant.execution.buyer_vwap import BuyerVwapBook  # noqa: E402
+
+
+def _live_sender(client, cfg):
+    """LiveSender. In peg mode, LIMIT entries wait peg_wait_seconds before the status check."""
+    sender = LiveSender(client)
+    sender.limit_wait_seconds = cfg.peg_wait_seconds if cfg.pov_mode == "peg_band_buyer" else 0.0
+    return sender
+
+
 from quant.execution.strategy_bot import read_screen as _read_screen  # noqa: E402
 
 
@@ -187,10 +196,11 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         cfg=cfg,
         vwap_provider=vwap_book.vwap,
         buyer_share_provider=vwap_book.buyer_share,
-        vwap_tick=vwap_tick if cfg.pov_mode in ("band", "buyer", "band_buyer") else None,
+        depth_provider=lambda sym: readonly.depth(api_key, sym, "NSE"),
+        vwap_tick=vwap_tick if cfg.pov_mode in ("band", "buyer", "band_buyer", "peg_band_buyer") else None,
         strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path)) for n in cfg.strategies],
         bars=LiveBars(readonly, api_key),
-        sender=LiveSender(client),
+        sender=_live_sender(client, cfg),
         audit=audit,
         api_key=api_key,
         # Sizing equity is the fixed live cap, or the broker's cash when that is smaller.

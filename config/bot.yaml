@@ -10,7 +10,7 @@ live_enabled: false
 entry_max_slippage_bps: 20
 interval_minutes: 5          # one slice per parent per cycle
 pov: 0.1
-pov_mode: fixed            # fixed = pov x last bar volume (default). band = VWAP band sets pov. buyer = pov x last bar volume x buyer share. band_buyer = band sets pov AND buyer share sets volume. Each part falls back to fixed if its data is missing. See docs/PEG_AND_BUYER_VOLUME_DESIGN.md
+pov_mode: fixed            # fixed = pov x last bar volume (default). band = VWAP band sets pov. buyer = pov x last bar volume x buyer share. band_buyer = band sets pov AND buyer share sets volume. peg_band_buyer = band_buyer, with entries as a bounded peg LIMIT at the best bid (see peg_wait_seconds, peg_max_attempts). Any missing data falls back to fixed volume. See docs/PEG_AND_BUYER_VOLUME_DESIGN.md
 # pov_band:               # used only when pov_mode: band; defaults shown
 #   vwap_ceiling_pct: 0.5   # HALT above VWAP + this %
 #   vwap_floor_pct: 3.0     # passthrough below VWAP - this %

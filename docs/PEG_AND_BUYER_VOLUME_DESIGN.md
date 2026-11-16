@@ -29,7 +29,17 @@ Plain-English design for the four items the owner asked about. Live trading stay
   Each part falls back on its own: no VWAP -> fixed pov rate; no buyer share -> full bar volume. Halt zone -> no child that cycle.
 
 ## 3. PEG order
-- Status: NOT BUILT, by owner decision (2026-11-16). Left out until the owner asks for it.
+- Status: BUILT as a bounded peg (2026-11-16), used only in `pov_mode: peg_band_buyer`.
+- Price: best bid for BUY entries from the depth reply (`execution/peg.py`). Never above the entry cap
+  (last close plus entry_max_slippage_bps). Exits stay MARKET.
+- Bounded: each child gets at most `peg_max_attempts` LIMIT placements (default 3). A reprice happens only
+  after a clean cancel of an unfilled order. A partial fill or a failed cancel stops at once.
+- Wait: LIMIT entries wait `peg_wait_seconds` (default 5) before the status check (only in peg mode).
+- Unfilled after all attempts: the parent stays open for the next 5-minute cycle (not halted).
+- Fallback: any missing input (band VWAP, buyer share, depth) uses fixed volume (`pov` x full bar volume)
+  and the old entry price for that child.
+- Not verified: how OpenAlgo's analyzer reports a LIMIT that is still open after the wait. The check is on
+  the status text 'limit not filled'. Confirm on the analyzer before live.
 - OpenAlgo pricetypes are MARKET, LIMIT, SL and SL-M only. PEG is not supported.
 - Emulation would be a LIMIT order that is cancelled and re-placed at a new peg price. That needs
   a repricing loop much faster than the 5-minute bot cycle. Not built. Needs an owner decision on
