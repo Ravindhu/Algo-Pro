@@ -170,7 +170,9 @@ def _merge(existing: Any, incoming: Any) -> Tuple[Any, int]:
     before = len(existing)
     combined = pd.concat([existing, incoming])
     combined = combined[~combined.index.duplicated(keep="last")]
-    combined.sort_index(inplace=True)
+    # Reassignment, not inplace=True: pandas 4 removes the inplace keyword
+    # (PDEP-8, reported as Pandas4Warning under pandas 3.1).
+    combined = combined.sort_index()
     return combined, len(combined) - before
 
 

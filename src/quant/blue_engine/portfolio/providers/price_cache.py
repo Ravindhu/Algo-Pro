@@ -207,7 +207,15 @@ def _ts(v: Any) -> Optional[str]:
         import datetime as _dt
         # NSE timestamps are IST; the store keeps naive local strings, which is
         # what every other cache writer produces, so we stay consistent.
-        return _dt.datetime.utcfromtimestamp(num).strftime("%Y-%m-%d %H:%M:%S")
+        #
+        # timezone-aware, not utcfromtimestamp(): that is deprecated (and is
+        # removed in a future Python), reported as DeprecationWarning under
+        # 3.14. The OUTPUT IS IDENTICAL - verified across 0/1/86399/1759795200/
+        # 1759795000/10**9/1.7e9/1e18 and the negative values, including that
+        # both raise the same OverflowError/OSError/ValueError for out-of-range
+        # input - so no stored timestamp can change.
+        return _dt.datetime.fromtimestamp(
+            num, _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     except (OverflowError, OSError, ValueError):
         return None
 
