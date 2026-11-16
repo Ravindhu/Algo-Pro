@@ -47,8 +47,11 @@ from typing import Optional
 _HERE = os.path.dirname(os.path.abspath(__file__))          # <repo>/scripts/train
 _REPO = os.path.dirname(os.path.dirname(_HERE))              # <repo>
 # ``blue_engine`` imports by name, so its PARENT (src/quant) goes on sys.path,
-# not the package folder itself.
+# not the package folder itself. ``quant`` (this repo's own package) lives one
+# level up, under src/, so ``src`` goes on too - the leak gate imports
+# ``quant.research.optimizer`` and would otherwise fail closed on every run.
 sys.path.insert(0, os.path.join(_REPO, "src", "quant"))
+sys.path.insert(0, os.path.join(_REPO, "src"))
 sys.path.insert(0, _REPO)
 
 from blue_engine.optimizer import __version__, config, ensure_dirs, logger  # noqa: E402
@@ -127,6 +130,10 @@ def _build_parser() -> argparse.ArgumentParser:
                         "them to engine.search(bars=...). Without this "
                         "flag the engine uses the synthetic series. "
                         "Phase 4")
+    p.add_argument("--skip-leak-gate", action="store_true",
+                   help="run the study WITHOUT the pre-study leak audit. "
+                        "Only for reproducing a known-bad series; a study "
+                        "done this way is not evidence.")
     return p
 
 
@@ -339,7 +346,41 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
 
-    result = engine.search(bars=_maybe_load_bars(args))
+    bars = _maybe_load_bars(args)
+
+    # --- leak gate, BEFORE the search ------------------------------------ #
+    # Every row this run writes (journal trials + optimizer_run) is evidence.
+    # A study whose bars carry no knowledge timestamp, or duplicated/unsorted
+    # ones, cannot be certified and must not land in data/optimizer/. Refusing
+    # here is the only point that prevents the write; the engine appends its
+    # rows inside search().
+    if not args.skip_leak_gate:
+        try:
+            from quant.research.optimizer import leakage_verdict
+            leak = leakage_verdict(bars)
+        except Exception as exc:  # noqa: BLE001
+            print(f"error: leak gate unavailable ({exc!r}); refusing to record "
+                  f"an unaudited study. Use --skip-leak-gate to override.",
+                  file=sys.stderr)
+            return 3
+        print(f"  leak gate        : {leak['verdict']} "
+              f"({leak.get('detail')})")
+        if leak.get("suspect"):
+            print(f"  leak WARNING     : {leak['suspect']} degraded finding(s) "
+                  f"- typically duplicate timestamps. The study is recorded, "
+                  f"but rolling windows on this series are ambiguous.",
+                  file=sys.stderr)
+        if leak.get("gate") == "block":
+            print(f"error: refused by the leakage gate: {leak.get('detail')}",
+                  file=sys.stderr)
+            print("       nothing was written. Fix the bar timestamps at the "
+                  "source, then rerun.", file=sys.stderr)
+            return 3
+    else:
+        print("  leak gate        : SKIPPED (--skip-leak-gate) - this study is "
+              "not evidence", file=sys.stderr)
+
+    result = engine.search(bars=bars)
 
     wf = visual_workflow(result.study, k=args.top_k)
     payload = build_report(result, visual=wf)

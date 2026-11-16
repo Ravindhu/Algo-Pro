@@ -19,6 +19,13 @@ v5 run must have and Blue does not enforce on its own:
 3. **The 3-step visual workflow** (importance -> slice -> parallel coordinates)
    from AGENTS.md, in that order, from one call.
 
+4. **A leak audit before the study is recorded** (wired 2026-11-16). See
+   ``leakage_verdict`` and ``_refuse_if_leaked`` below: the engine writes its
+   trial and ``optimizer_run`` rows inside ``search()``, so the ONLY place a
+   refusal can actually prevent a contaminated row from reaching the trial log
+   is before the search starts. Evidence from leaked features is worse than no
+   evidence - it looks good and is wrong.
+
 A run that raises is converted to ``ok=False`` with the reason. A long study
 must never lose its journal because one trial crashed.
 """
@@ -28,9 +35,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from quant.core.blue_bridge import BlueEngineUnavailable, load
+from quant.research import leakage_gate
 
 __all__ = ["OptimizerUnavailable", "OptimisationResult", "run_optimisation",
-           "visual_workflow", "available_spaces", "loss_verdict"]
+           "visual_workflow", "available_spaces", "loss_verdict",
+           "leakage_verdict"]
 
 
 class OptimizerUnavailable(RuntimeError):
@@ -95,6 +104,9 @@ class OptimisationResult:
     wall_seconds: float = 0.0
     trial_log_path: Optional[str] = None
     error: Optional[str] = None
+    #: Result of the pre-study leak audit (see ``leakage_verdict``). Recorded on
+    #: every run, passed or refused, so the evidence row carries its provenance.
+    leak_gate: Dict[str, Any] = field(default_factory=dict)
     raw: Any = None
 
     #: A recommendation is advice. A person installs parameters (AGENTS.md rule 5).
@@ -110,15 +122,77 @@ class OptimisationResult:
             "verdict": self.verdict, "backend": self.backend,
             "n_trials": self.n_trials, "wall_seconds": round(self.wall_seconds, 2),
             "trial_log_path": self.trial_log_path, "error": self.error,
+            "leak_gate": dict(self.leak_gate),
             "advice_only": True,
         }
+
+
+def leakage_verdict(bars: Optional[Sequence[Dict[str, Any]]]) -> Dict[str, Any]:
+    """Audit the SERIES a study will be fed, before any trial is recorded.
+
+    What this can and cannot certify, stated plainly:
+
+    * It audits the **bar series**, not the strategy's features. It catches the
+      two failures that make an optimisation meaningless and are invisible in
+      the score: a missing knowledge timestamp (a lag is then undefined, so
+      every feature may be reading the future) and duplicated/unsorted
+      timestamps (rolling windows become ambiguous and can double-count a bar).
+    * It does NOT run the behavioural shift test, because that needs a
+      ``build_features`` callable which only the strategy author can supply. So
+      the report comes back ``incomplete`` by construction and is reported as
+      such - an unrun check is never a pass (``leakage_gate`` rule).
+    * Synthetic data has no bar series to audit. That is returned as
+      ``synthetic`` and is neither clean nor refused.
+
+    Returns ``{"verdict": ..., "gate": "pass"|"block"|"n/a", "detail": ...}``.
+    ``block`` means a FATAL timestamp finding: leaked evidence.
+    """
+    if not bars:
+        return {"verdict": "synthetic", "gate": "n/a",
+                "detail": "no bar series (synthetic fixture) - not auditable"}
+
+    # The audit reads ``as_of_ts`` (point-in-time knowledge time). Bars carry
+    # ``ts``, the bar's own stamp. Renaming here rather than teaching the audit
+    # a second column name keeps ONE definition of knowledge time in the engine.
+    rows: List[Dict[str, Any]] = []
+    for bar in bars:
+        row = dict(bar)
+        if "as_of_ts" not in row:
+            row["as_of_ts"] = row.get("ts")
+        rows.append(row)
+
+    report = leakage_gate.audit(rows)
+    verdict = str(report.get("verdict"))
+
+    # Why this does not simply call ``leakage_gate.require_clean``: that refuses
+    # SUSPECT and INCOMPLETE as well, and here INCOMPLETE is unavoidable (the
+    # shift test needs a strategy-supplied ``build_features``). Refusing every
+    # real study would make the gate something operators switch off, which is
+    # worse than no gate. So the split is on the finding's SEVERITY, which is the
+    # engine's own judgement:
+    #   FATAL   -> block. A missing/empty/unsorted stamp makes every lag
+    #              undefined; the study is not evidence.
+    #   DEGRADED -> pass with a named warning (typically duplicate timestamps).
+    #              The engine rates this a screen rather than a proof, and the
+    #              caller is told, so it is a decision the operator can see.
+    return {
+        "verdict": verdict,
+        "gate": "block" if report.get("fatal") else "pass",
+        "detail": report.get("detail"),
+        "n_rows": len(rows),
+        "fatal": report.get("fatal", 0),
+        "suspect": report.get("suspect", 0),
+        "checks_run": report.get("checks_run"),
+        "checks_missing": report.get("checks_missing"),
+    }
 
 
 def run_optimisation(space: str, strategy: Any, *,
                      trial_log_path: Any,
                      engine_config: Optional[Dict[str, Any]] = None,
                      space_path: Optional[Any] = None,
-                     bars: Optional[Sequence[Dict[str, Any]]] = None) -> OptimisationResult:
+                     bars: Optional[Sequence[Dict[str, Any]]] = None,
+                     skip_leak_gate: bool = False) -> OptimisationResult:
     """Run one Blue study and return its flattened result. Never raises.
 
     ``trial_log_path`` is required: AGENTS.md says an optimisation that is not in
@@ -129,6 +203,21 @@ def run_optimisation(space: str, strategy: Any, *,
             ok=False, strategy=str(strategy), space=str(space), error=(
                 "refused: no trial_log_path, and an unlogged optimisation is "
                 "not evidence (AGENTS.md)"))
+
+    # --- leak gate, BEFORE the search ------------------------------------- #
+    # The engine appends its ``trial`` and ``optimizer_run`` rows inside
+    # ``search()``, so refusing afterwards would leave the contaminated rows in
+    # the trial log and the gate would be decorative. Refuse first.
+    leak = ({"verdict": "disabled", "gate": "n/a",
+             "detail": "leak gate skipped by caller"}
+            if skip_leak_gate else leakage_verdict(bars))
+    if leak.get("gate") == "block":
+        return OptimisationResult(
+            ok=False, strategy=str(strategy), space=str(space),
+            trial_log_path=str(trial_log_path), leak_gate=leak,
+            error=(f"refused by leakage gate (verdict={leak.get('verdict')}): "
+                   f"{leak.get('detail')}. Nothing was written to the trial "
+                   f"log; fix the timestamps at the source and rerun."))
 
     engine_mod, spaces_mod, _ = _modules()
     try:
@@ -142,7 +231,8 @@ def run_optimisation(space: str, strategy: Any, *,
             bars=list(bars) if bars is not None else None)
     except Exception as exc:  # noqa: BLE001 - a study failure is a result, not a crash
         return OptimisationResult(ok=False, strategy=str(strategy), space=str(space),
-                                  trial_log_path=str(trial_log_path), error=repr(exc))
+                                  trial_log_path=str(trial_log_path), error=repr(exc),
+                                  leak_gate=leak)
 
     study = getattr(result, "study", None)
     trials = list(getattr(study, "trials", []) or [])
@@ -160,6 +250,7 @@ def run_optimisation(space: str, strategy: Any, *,
         n_trials=len(trials),
         wall_seconds=float(getattr(result, "wall_seconds", 0.0) or 0.0),
         trial_log_path=str(trial_log_path),
+        leak_gate=leak,
         raw=result,
     )
 
