@@ -124,3 +124,27 @@ def test_buyer_volume_and_share_count_only_classifiable_volume():
 def test_buyer_volume_none_before_any_poll_today():
     book = BuyerVwapBook(None, "k")
     assert book.buyer_volume("ZZZ") is None and book.buyer_share("ZZZ") is None
+
+
+def test_buyer_mode_scales_volume_by_buyer_share():
+    cfg = BotConfig(pov_mode="buyer", pov=0.1)
+    fake = SimpleNamespace(cfg=cfg, _buyer_share_provider=lambda sym: 0.5, _log=lambda *a, **k: None)
+    assert StrategyBot._slice_volume(fake, "A", 1000.0) == (500.0, "buyer")
+
+
+def test_buyer_mode_falls_back_to_full_volume_without_share():
+    cfg = BotConfig(pov_mode="buyer", pov=0.1)
+    fake = SimpleNamespace(cfg=cfg, _buyer_share_provider=lambda sym: None, _log=lambda *a, **k: None)
+    assert StrategyBot._slice_volume(fake, "A", 1000.0) == (1000.0, "fallback")
+
+
+def test_fixed_mode_ignores_buyer_share():
+    cfg = BotConfig(pov_mode="fixed", pov=0.1)
+    fake = SimpleNamespace(cfg=cfg, _buyer_share_provider=lambda sym: 0.1, _log=lambda *a, **k: None)
+    assert StrategyBot._slice_volume(fake, "A", 1000.0) == (1000.0, "volume")
+
+
+def test_child_qty_uses_buyer_volume_only():
+    from quant.execution.router import pov_child_qty
+    # 10% of 500 buyer shares = 50 (not 100 from the full 1000)
+    assert pov_child_qty(1000, 1000.0 * 0.5, 0.1) == 50

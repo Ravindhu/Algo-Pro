@@ -178,8 +178,8 @@ class BotConfig:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
         if not 5 <= self.vwap_poll_seconds <= 300:
             raise ValueError("vwap_poll_seconds must be in [5, 300]")
-        if self.pov_mode not in ("fixed", "band"):
-            raise ValueError("pov_mode must be 'fixed' or 'band'")
+        if self.pov_mode not in ("fixed", "band", "buyer"):
+            raise ValueError("pov_mode must be 'fixed', 'band' or 'buyer'")
         bad = set(self.pov_band or {}) - set(BAND_KEYS)
         if bad:
             raise ValueError(f"pov_band may set only {sorted(BAND_KEYS)}; got {sorted(bad)}")
@@ -315,6 +315,7 @@ class StrategyBot:
         entry_guard: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
         vwap_provider: Optional[Callable[[str], Optional[float]]] = None,
         vwap_tick: Optional[Callable[[datetime], None]] = None,
+        buyer_share_provider: Optional[Callable[[str], Optional[float]]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -342,6 +343,7 @@ class StrategyBot:
         self.cfg = cfg
         self._vwap_provider = vwap_provider  # buyer-initiated VWAP per symbol; None = not available
         self.vwap_tick = vwap_tick           # called by the runner between cycles to poll quotes
+        self._buyer_share_provider = buyer_share_provider  # buyer share of volume per symbol (buyer mode)
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit
@@ -656,6 +658,17 @@ class StrategyBot:
                   rate=decision.rate / 100.0)
         return decision.rate / 100.0, decision.reason
 
+    def _slice_volume(self, symbol: str, bar_volume: float) -> Tuple[float, str]:
+        """Volume the POV applies to. Buyer mode: last bar volume x buyer share of volume today.
+        No share known -> the full bar volume (logged). Other modes: unchanged."""
+        if self.cfg.pov_mode != "buyer":
+            return bar_volume, "volume"
+        share = self._buyer_share_provider(symbol) if self._buyer_share_provider is not None else None
+        if share is None:
+            self._log("pov_buyer_fallback", symbol=symbol, reason="no buyer share yet")
+            return bar_volume, "fallback"
+        return bar_volume * share, "buyer"
+
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         for key, p in list(self._parents.items()):
             if self._faults:
@@ -676,6 +689,7 @@ class StrategyBot:
                 self._log("pov_band_halt", key=key, reason=why)
                 continue
             bar_volume = float(df["volume"].iloc[-2])  # last closed bar
+            bar_volume, _vol_why = self._slice_volume(p.intent.symbol, bar_volume)
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
             if qty < 1:
                 self._log("child_zero", key=key, remaining=p.remaining, bar_volume=bar_volume)
