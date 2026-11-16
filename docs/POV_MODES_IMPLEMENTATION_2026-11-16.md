@@ -17,19 +17,18 @@ Every 5-minute bot run, for each open parent (an entry being sliced):
 
 Between runs, the bot polls quotes every 15 seconds (only in modes that need them) to keep the buyer VWAP and buyer share current.
 
-## 2. The five modes
+## 2. The two options
 
-Set with `pov_mode` in `config/bot.yaml`. Default is `fixed`, so nothing changes until you switch.
+Set with `pov_mode` in `config/bot.yaml`. The default is `peg_band_buyer`. Any other value stops the bot at start.
 
-| Mode | Rate | Volume | Entry price | Quote polls |
+| Option | Entry rate | Entry volume | Entry price | Quote polls |
 |---|---|---|---|---|
-| `fixed` (default) | `pov` | full last bar | old entry LIMIT (last close + slippage cap) | no |
-| `band` | VWAP band | full last bar | old entry LIMIT | yes |
-| `buyer` | `pov` | last bar × buyer share | old entry LIMIT | yes |
-| `band_buyer` | VWAP band | last bar × buyer share | old entry LIMIT | yes |
-| `peg_band_buyer` | VWAP band | last bar × buyer share, then capped at a share of the best-bid size | BUY: best bid + one tick, never to the ask; bounded reprice | yes |
+| `peg_band_buyer` (default) | VWAP band (fixed `pov` if no VWAP) | last bar × buyer share (full bar if no share) | BUY: best bid + one tick, never to the ask; bounded reprice | yes |
+| `fixed` | `pov` | full last bar | old entry LIMIT (last close + slippage cap) | no |
 
-Exits are always MARKET in every mode. Only BUY entries use the peg.
+**Exits are always fixed:** `pov` on the full last bar, MARKET, never banded, buyer-sized or halted. A band halt must never stall an exit.
+
+**Single fallback (peg mode):** if any entry input is missing (band VWAP, buyer share, depth or best bid), the child uses fixed volume (`pov` × full last bar) and the old entry price.
 
 ## 3. The rate: the VWAP band (`pov_band.py`, existing module)
 
@@ -74,7 +73,7 @@ Other rules that apply in all modes: a halt skips slicing for that run, and the 
 
 | Key | Default | Range | Used by |
 |---|---|---|---|
-| `pov_mode` | `fixed` | fixed, band, buyer, band_buyer, peg_band_buyer | all |
+| `pov_mode` | `peg_band_buyer` | peg_band_buyer, fixed (anything else refused) | all |
 | `pov` | 0.1 | (0, 1] | all (fixed rate, passthrough) |
 | `pov_band.vwap_ceiling_pct` | 0.5 | > 0 | band modes |
 | `pov_band.vwap_floor_pct` | 3.0 | > 0 | band modes |

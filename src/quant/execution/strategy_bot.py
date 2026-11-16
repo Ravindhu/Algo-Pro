@@ -159,7 +159,7 @@ class BotConfig:
     trail_mult: float = 2.0
     # POV mode: 'fixed' slices at pov (old behaviour, default). 'band' sets the POV per parent from
     # the VWAP band in pov_band.py: high of band -> lower POV, low of band -> higher POV.
-    pov_mode: str = "fixed"
+    pov_mode: str = "peg_band_buyer"   # the default. Only 'peg_band_buyer' and 'fixed' are allowed
     pov_band: Dict[str, Any] = field(default_factory=dict)
     peg_wait_seconds: float = 5.0     # peg_band_buyer: wait this long before checking a peg LIMIT
     peg_tick_size: float = 0.05       # peg: BUY goes this far above the best bid (0 turns it off); never to the ask
@@ -197,8 +197,8 @@ class BotConfig:
             raise ValueError("peg_max_attempts must be in [1, 5]")
         if not 5 <= self.vwap_poll_seconds <= 300:
             raise ValueError("vwap_poll_seconds must be in [5, 300]")
-        if self.pov_mode not in ("fixed", "band", "buyer", "band_buyer", "peg_band_buyer"):
-            raise ValueError("pov_mode must be 'fixed', 'band', 'buyer', 'band_buyer' or 'peg_band_buyer'")
+        if self.pov_mode not in ("peg_band_buyer", "fixed"):
+            raise ValueError("pov_mode must be 'peg_band_buyer' (default) or 'fixed'")
         bad = set(self.pov_band or {}) - set(BAND_KEYS)
         if bad:
             raise ValueError(f"pov_band may set only {sorted(BAND_KEYS)}; got {sorted(bad)}")
@@ -750,12 +750,18 @@ class StrategyBot:
             if df is None:
                 report["skipped"].append(f"{p.intent.symbol}: no bars for slice")
                 continue
-            pov, why = self._pov_for(p.intent.symbol, df, p.intent.side)
+            if p.intent.kind == "entry":
+                pov, why = self._pov_for(p.intent.symbol, df, p.intent.side)
+            else:
+                pov, why = self.cfg.pov, "exit_fixed"  # exits are never banded, bought-share sized or halted
             if pov <= 0:
                 self._log("pov_band_halt", key=key, reason=why)
                 continue
             raw_volume = float(df["volume"].iloc[-2])  # last closed bar
-            bar_volume, _vol_why = self._slice_volume(p.intent.symbol, raw_volume)
+            if p.intent.kind == "entry":
+                bar_volume, _vol_why = self._slice_volume(p.intent.symbol, raw_volume)
+            else:
+                bar_volume, _vol_why = raw_volume, "exit_fixed"
             peg_px = None
             peg_bid_qty = 0
             cap = None

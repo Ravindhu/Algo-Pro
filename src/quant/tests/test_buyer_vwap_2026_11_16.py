@@ -96,7 +96,7 @@ def test_bot_band_mode_uses_book_vwap_when_available():
     book = BuyerVwapBook(None, "k")
     book.apply_quote("A", _q(100, 99, 0), DAY)
     book.apply_quote("A", _q(100, 100, 100), DAY)
-    cfg = BotConfig(pov_mode="band", pov=0.1)
+    cfg = BotConfig(pov_mode="peg_band_buyer", pov=0.1)
     import pandas as pd
     df = pd.DataFrame({"close": [100.0, 100.0, 100.0]})
     fake = SimpleNamespace(cfg=cfg, _vwap_provider=book.vwap, _log=lambda *a, **k: None)
@@ -127,13 +127,13 @@ def test_buyer_volume_none_before_any_poll_today():
 
 
 def test_buyer_mode_scales_volume_by_buyer_share():
-    cfg = BotConfig(pov_mode="buyer", pov=0.1)
+    cfg = BotConfig(pov_mode="peg_band_buyer", pov=0.1)
     fake = SimpleNamespace(cfg=cfg, _buyer_share_provider=lambda sym: 0.5, _log=lambda *a, **k: None)
     assert StrategyBot._slice_volume(fake, "A", 1000.0) == (500.0, "buyer")
 
 
 def test_buyer_mode_falls_back_to_full_volume_without_share():
-    cfg = BotConfig(pov_mode="buyer", pov=0.1)
+    cfg = BotConfig(pov_mode="peg_band_buyer", pov=0.1)
     fake = SimpleNamespace(cfg=cfg, _buyer_share_provider=lambda sym: None, _log=lambda *a, **k: None)
     assert StrategyBot._slice_volume(fake, "A", 1000.0) == (1000.0, "fallback")
 
@@ -151,7 +151,7 @@ def test_child_qty_uses_buyer_volume_only():
 
 
 def test_band_buyer_uses_band_pov_and_buyer_volume():
-    cfg = BotConfig(pov_mode="band_buyer", pov=0.1)
+    cfg = BotConfig(pov_mode="peg_band_buyer", pov=0.1)
     book_vwap = lambda sym: 100.0
     fake = SimpleNamespace(cfg=cfg, _vwap_provider=book_vwap, _buyer_share_provider=lambda s: 0.5,
                            _log=lambda *a, **k: None)
@@ -164,7 +164,7 @@ def test_band_buyer_uses_band_pov_and_buyer_volume():
 
 
 def test_band_buyer_falls_back_part_by_part():
-    cfg = BotConfig(pov_mode="band_buyer", pov=0.1)
+    cfg = BotConfig(pov_mode="peg_band_buyer", pov=0.1)
     import pandas as pd
     df = pd.DataFrame({"close": [100.0, 100.0, 100.0]})
     no_vwap = SimpleNamespace(cfg=cfg, _vwap_provider=lambda s: None, _buyer_share_provider=lambda s: 0.5,
@@ -176,7 +176,9 @@ def test_band_buyer_falls_back_part_by_part():
     assert StrategyBot._slice_volume(no_share, "A", 1000.0) == (1000.0, "fallback")
 
 
-def test_band_buyer_mode_is_accepted_and_bad_mode_refused():
-    assert BotConfig(pov_mode="band_buyer").pov_mode == "band_buyer"
-    with pytest.raises(ValueError):
-        BotConfig(pov_mode="peg")
+def test_only_two_pov_modes_allowed():
+    assert BotConfig().pov_mode == "peg_band_buyer"
+    assert BotConfig(pov_mode="fixed").pov_mode == "fixed"
+    for bad in ("band", "buyer", "band_buyer", "peg"):
+        with pytest.raises(ValueError):
+            BotConfig(pov_mode=bad)

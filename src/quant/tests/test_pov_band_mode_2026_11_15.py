@@ -21,15 +21,15 @@ def _pov(cfg: BotConfig, vwap, ltp: float, side: str = "BUY"):
     return StrategyBot._pov_for(fake, "TEST", _df(ltp), side)
 
 
-def test_fixed_is_default_and_uses_cfg_pov():
-    cfg = BotConfig()
-    assert cfg.pov_mode == "fixed"
+def test_default_is_peg_band_buyer_and_fixed_uses_cfg_pov():
+    assert BotConfig().pov_mode == "peg_band_buyer"
+    cfg = BotConfig(pov_mode="fixed")
     fake = SimpleNamespace(cfg=cfg, _vwap_provider=None, _log=lambda *a, **k: None)
     assert StrategyBot._pov_for(fake, "TEST", _df(100.0), "BUY") == (cfg.pov, "fixed")
 
 
 def test_band_high_gives_lower_pov_than_low():
-    cfg = BotConfig(pov_mode="band")
+    cfg = BotConfig(pov_mode="peg_band_buyer")
     near_ceiling, _ = _pov(cfg, vwap=100.0, ltp=100.4)   # high of band
     near_floor, _ = _pov(cfg, vwap=100.0, ltp=97.1)      # low of band
     assert 0 < near_ceiling < near_floor <= 0.25
@@ -37,31 +37,31 @@ def test_band_high_gives_lower_pov_than_low():
 
 
 def test_band_above_ceiling_halts():
-    rate, reason = _pov(BotConfig(pov_mode="band"), vwap=100.0, ltp=101.0)
+    rate, reason = _pov(BotConfig(pov_mode="peg_band_buyer"), vwap=100.0, ltp=101.0)
     assert rate == 0.0
     assert reason == "halt"
 
 
 def test_band_below_floor_uses_fixed_pov_as_passthrough():
-    cfg = BotConfig(pov=0.1, pov_mode="band")
+    cfg = BotConfig(pov=0.1, pov_mode="peg_band_buyer")
     rate, reason = _pov(cfg, vwap=100.0, ltp=96.0)
     assert reason == "passthrough"
     assert rate == pytest.approx(0.1)
 
 
 def test_band_without_verified_vwap_falls_back_to_fixed():
-    cfg = BotConfig(pov=0.1, pov_mode="band")
+    cfg = BotConfig(pov=0.1, pov_mode="peg_band_buyer")
     rate, reason = _pov(cfg, vwap=None, ltp=100.0)
     assert (rate, reason) == (0.1, "fallback")
 
 
 @pytest.mark.parametrize("bad", [
     {"pov_mode": "vwap"},
-    {"pov_mode": "band", "pov_band": {"unknown": 1}},
-    {"pov_mode": "band", "pov_band": {"min_pov": 0.3, "max_pov": 0.1}},
-    {"pov_mode": "band", "pov_band": {"max_pov": 1.5}},
-    {"pov_mode": "band", "pov_band": {"passthrough_floor": "zero"}},
-    {"pov_mode": "band", "pov_band": {"vwap_floor_pct": 0}},
+    {"pov_mode": "peg_band_buyer", "pov_band": {"unknown": 1}},
+    {"pov_mode": "peg_band_buyer", "pov_band": {"min_pov": 0.3, "max_pov": 0.1}},
+    {"pov_mode": "peg_band_buyer", "pov_band": {"max_pov": 1.5}},
+    {"pov_mode": "peg_band_buyer", "pov_band": {"passthrough_floor": "zero"}},
+    {"pov_mode": "peg_band_buyer", "pov_band": {"vwap_floor_pct": 0}},
 ])
 def test_bad_band_config_is_refused(bad):
     with pytest.raises(ValueError):
