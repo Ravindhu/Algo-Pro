@@ -434,6 +434,11 @@ def run_with_config(
     # ---- Pre-trade gate: intent check now, then a fresh check per child.
     # The gate is fail-closed on a *breach* and fail-open when a limit is not
     # configured, so an operator who sets no limits keeps the old behaviour.
+    # Owner limits (config/risk_limits.yaml) are merged in first: for every cap
+    # both sources set the stricter value wins, and an unreadable owner file
+    # blocks entries (see blue_engine/core/owner_limits.py).
+    from blue_engine.core.owner_limits import apply_owner_limits
+    raw = apply_owner_limits(raw)
     # NOTE: read limits from the RAW config -- parse_master_config() normalises
     # to a whitelist of keys and drops the "risk" block, so cfg would lose it.
     # WIRE_PNL: day_pnl / open_exposure now come from the LIVE broker feed

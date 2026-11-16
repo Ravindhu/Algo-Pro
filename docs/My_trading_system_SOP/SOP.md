@@ -1446,3 +1446,11 @@ gated (no real order leaves the machine).
 - JSON-patch edit protocol implemented (docs/FRONTLINE_PATCH_PROTOCOL_PLAN.md): agent.patch.enabled opt-in; the model returns a small JSON patch over the last validated advice, applied locally in core/llm/patch_protocol.py; the patched result still passes _SCHEMAS validation and _CAPS clamp. edit_model routes the edit call to the cheapest backend; the per-engine edit instruction is compiled once and memoised.
 - Sector advisor: validated advice cached on disk for SECTOR_ADVICE_TTL_SECONDS (default 86400) under runtime llm_cache/sector; a second identical run makes zero LLM calls. PM note cache now expires after PM_NOTE_TTL_SECONDS.
 - Verification: Blue_engine 1835 passed; src/quant 786 passed, 1 skipped, 1 xfailed.
+
+## 17. Risk-limit consolidation and audit fixes (2026-11-16)
+- Pre-session install: run `pip install -r requirements.txt` before tests. Without `httpx` and `websocket`, six risk and monitor tests fail for environment reasons, not code reasons.
+- Owner limits now apply on the blue path. `blue_engine/core/owner_limits.py` merges `config/risk_limits.yaml` into the runner's `risk` block before the gate is built. For each cap both sources set, the stricter value wins. An unreadable owner file blocks entries. Owner values are never loosened.
+- Consequence to check before a live start: `max_daily_loss` is fail-closed. If the broker positionbook returns no P&L field, every entry is refused with "cannot evaluate max_daily_loss". Confirm the broker feed reports P&L, or set `day_pnl` explicitly.
+- Paper runner (`scripts/run_paper.py`) passes `held_qty` for exit intents, so a SELL exit larger than the ledger position is refused.
+- Open: `tests/unit/test_upgrade_pin.py` fails. The vendored OpenAlgo tree fingerprints to `8885432395b2`, but `openalgo.UPSTREAM_PIN` says `df6ca31e5c95`. Commit a8de573 changed the watched files. Re-pin with `scripts/verify/upgrade_check.py --update-pin` only after reviewing the upstream changelog.
+- Book-level caps in `config/risk_limits.yaml` (sector, beta, CVaR, drawdown) are still null by design. A live start stays refused until the owner sets them.

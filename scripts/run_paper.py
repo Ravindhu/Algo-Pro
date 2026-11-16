@@ -135,7 +135,11 @@ def run(signals_csv, limits_path, out_dir, broker=None, readers=None, *,
     def _submit(intent: TradeIntent) -> None:
         state.open_symbols = _open_symbols(ledger)
         funds = readers.funds() if (readers is not None and intent.kind == "entry") else None
-        decision = check_intent(intent, state, limits, kill, safe, available_funds=funds, halt=halt)
+        # The gate cannot see the book, so exits must carry the ledger's held quantity:
+        # a SELL exit larger than the position would open a short on this long-only book.
+        held = ledger.positions().get(intent.symbol, 0) if intent.kind == "exit" else None
+        decision = check_intent(intent, state, limits, kill, safe, available_funds=funds, halt=halt,
+                                held_qty=held)
         audit.append("decision", {"intent_id": intent.intent_id, "approved": decision.approved,
                                   "reasons": list(decision.reasons)})
         if not decision.approved:

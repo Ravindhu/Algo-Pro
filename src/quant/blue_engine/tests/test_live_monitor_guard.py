@@ -20,6 +20,11 @@ class PositionClient:
             raise self.error
         return self.response
 
+    def quotes(self, **kwargs):
+        # Owner caps are merged into every runner config, so monetary limits now
+        # need a live reference price before the first POV poll.
+        return {"status": "success", "data": {"ltp": 100.0}}
+
 
 def _telemetry(*, drawdown=False):
     equity = [100.0, 90.0] if drawdown else [100.0, 100.0]
@@ -139,12 +144,14 @@ def test_runner_installs_guard_on_the_live_slicer(monkeypatch):
 
     class Slicer:
         pre_order_check = None
+        symbol = "INFY"
+        exchange = "NSE"
 
         def execute(self, intent):
             assert self.monitor_observer()
             authorized.append(self.pre_order_check(
                 phase="accumulating", quantity=intent["quantity"],
-                action=intent["action"]))
+                action=intent["action"], price=100.0))
             return {"child_orders": 0}
 
     slicer = Slicer()
@@ -165,6 +172,10 @@ def test_runner_installs_guard_on_the_live_slicer(monkeypatch):
         "exchange": "NSE",
         "strategies": {"pov": True},
         "pov": {"action": "BUY", "quantity": 5},
+        # Owner caps now apply to every runner config, and max_daily_loss needs a
+        # verified P&L. The fake broker reports none, so state it explicitly here.
+        "day_pnl": 0.0,
+        "open_exposure": 0.0,
         "live_monitor": {
             "enabled": True,
             "baseline_source": "verified_live",
