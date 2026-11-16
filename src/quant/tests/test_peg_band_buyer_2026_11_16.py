@@ -154,3 +154,22 @@ def test_thin_reprice_bid_stops_the_chain():
 def test_peg_bid_fraction_is_validated():
     with pytest.raises(ValueError):
         BotConfig(pov_mode="peg_band_buyer", peg_bid_fraction=0)
+
+
+def test_peg_one_tick_above_best_bid_when_below_ask():
+    assert peg_level("BUY", _depth(100.0, 100.20), None, 0.05) == (100.05, 10)
+
+
+def test_peg_never_reaches_the_ask():
+    # bid + tick would equal the ask: stay at the bid, do not cross the spread
+    assert peg_level("BUY", _depth(100.0, 100.05), None, 0.05) == (100.0, 10)
+
+
+def test_peg_tick_off_keeps_best_bid_and_cap_applies_after_tick():
+    assert peg_level("BUY", _depth(100.0, 100.20), None, 0.0) == (100.0, 10)
+    assert peg_level("BUY", _depth(100.0, 100.20), 100.04, 0.05) is None
+
+
+def test_peg_tick_size_is_validated():
+    with pytest.raises(ValueError):
+        BotConfig(pov_mode="peg_band_buyer", peg_tick_size=-0.1)

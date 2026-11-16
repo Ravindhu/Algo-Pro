@@ -45,6 +45,7 @@ Baseline before any change (commit 25055bf): 3376 passed, 1 skipped, 1 xfailed,
 - [x] P6 Per-cycle egress IP guard blocks new entries only (item 8).
 - [x] P7 Doc drift: `bot.yaml` comment, dashboard flow copy, live docs (item 7).
 - [x] P9 Per-strategy breakeven and trail (`exits:`); broker stop follows the moved stop.
+- [x] P16 Peg one tick above best bid (`peg_tick_size`, default 0.05), never to the ask. 4 more tests.
 - [x] P15 Peg best-bid size cap (`peg_bid_fraction`, default 0.5). 4 more tests.
 - [x] P14 Bounded peg (`pov_mode: peg_band_buyer`): best-bid LIMIT, max reprices, wait, single fixed fallback. 9 tests in `src/quant/tests/test_peg_band_buyer_2026_11_16.py`. Analyzer check of the open-LIMIT reply still needed.
 - [x] P13 Combined band and buyer mode (`pov_mode: band_buyer`), each part with its own fallback. PEG not built (owner decision). 3 more tests.

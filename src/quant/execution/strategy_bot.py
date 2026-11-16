@@ -162,6 +162,7 @@ class BotConfig:
     pov_mode: str = "fixed"
     pov_band: Dict[str, Any] = field(default_factory=dict)
     peg_wait_seconds: float = 5.0     # peg_band_buyer: wait this long before checking a peg LIMIT
+    peg_tick_size: float = 0.05       # peg: BUY goes this far above the best bid (0 turns it off); never to the ask
     peg_bid_fraction: float = 0.5     # peg: a child may take at most this share of the shares at the best bid
     peg_max_attempts: int = 3         # peg_band_buyer: max LIMIT placements per child (bounded reprice)
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
@@ -188,6 +189,8 @@ class BotConfig:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
         if not 1 <= self.peg_wait_seconds <= 60:
             raise ValueError("peg_wait_seconds must be in [1, 60]")
+        if not 0 <= self.peg_tick_size <= 1:
+            raise ValueError("peg_tick_size must be in [0, 1]")
         if not 0 < self.peg_bid_fraction <= 1:
             raise ValueError("peg_bid_fraction must be in (0, 1]")
         if not 1 <= self.peg_max_attempts <= 5:
@@ -700,7 +703,7 @@ class StrategyBot:
         except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
             self._log("peg_depth_error", symbol=symbol, error=repr(exc))
             return None
-        return peg_level("BUY", depth, cap)
+        return peg_level("BUY", depth, cap, self.cfg.peg_tick_size)
 
     def _submit_peg(self, p: "_Parent", qty: int, px: float, cap: Optional[float]):
         """One child as a LIMIT at the best bid. If it is not filled and was cancelled cleanly, reprice
