@@ -26,3 +26,34 @@ exclude = ["quant.openalgo_platform*"]  # vendored upstream platform, not an ins
 #   tests/parity    -> local vs blue_engine numeric parity
 #   src/quant/blue_engine/tests -> the engine's own suite
 testpaths = ["tests/unit", "src/quant/tests", "tests/parity", "src/quant/blue_engine/tests"]
+
+# Deprecation policy (2026-11-16). Our OWN code must not use a deprecated API:
+# a DeprecationWarning is a scheduled breakage, and two had already accumulated
+# silently (pandas 4 `sort_index(inplace=)`, `datetime.utcfromtimestamp`) because
+# nothing failed the build on them.
+#
+# Scope is deliberate: `error` applies to our modules only. Forcing third-party
+# libraries to raise would make the suite depend on a dependency's upgrade
+# schedule, and the fix would not be ours to make. Those are filtered to
+# `ignore` and should instead be handled by pinning versions in requirements.txt.
+#
+# Filter order matters: pytest applies filters so the LAST matching entry wins,
+# hence the broad `error` comes first and the third-party `ignore` entries below
+# override it for the libraries they name.
+filterwarnings = [
+    "error::DeprecationWarning",
+    "ignore::DeprecationWarning:pandas.*",
+    "ignore::DeprecationWarning:numpy.*",
+    "ignore::DeprecationWarning:_pytest.*",
+    "ignore::DeprecationWarning:pytest.*",
+    "ignore::DeprecationWarning:pluggy.*",
+    "ignore::DeprecationWarning:websocket.*",
+    "ignore::DeprecationWarning:urllib3.*",
+    "ignore::DeprecationWarning:requests.*",
+    "ignore::DeprecationWarning:optuna.*",
+    "ignore::DeprecationWarning:flask.*",
+    "ignore::DeprecationWarning:werkzeug.*",
+    "ignore::DeprecationWarning:sqlalchemy.*",
+    "ignore::DeprecationWarning:dateutil.*",
+    "ignore::DeprecationWarning:yfinance.*",
+]
