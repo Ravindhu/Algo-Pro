@@ -45,6 +45,7 @@ Baseline before any change (commit 25055bf): 3376 passed, 1 skipped, 1 xfailed,
 - [x] P6 Per-cycle egress IP guard blocks new entries only (item 8).
 - [x] P7 Doc drift: `bot.yaml` comment, dashboard flow copy, live docs (item 7).
 - [x] P9 Per-strategy breakeven and trail (`exits:`); broker stop follows the moved stop.
+- [x] P13 Combined band and buyer mode (`pov_mode: band_buyer`), each part with its own fallback. PEG not built (owner decision). 3 more tests.
 - [x] P12 Item 3: buyer-initiated volume and buyer share; `pov_mode: buyer` sizes children from buyer-side volume. 4 more tests in `src/quant/tests/test_buyer_vwap_2026_11_16.py`.
 - [x] P11 Buyer-initiated VWAP per screened symbol from quote polls (`execution/buyer_vwap.py`), fed to band mode. 9 tests in `src/quant/tests/test_buyer_vwap_2026_11_16.py`.
 - [x] P10 Band POV mode (`pov_mode: band`, default fixed). Design note `docs/PEG_AND_BUYER_VOLUME_DESIGN.md`. 12 tests in `src/quant/tests/test_pov_band_mode_2026_11_15.py`.

@@ -178,8 +178,8 @@ class BotConfig:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
         if not 5 <= self.vwap_poll_seconds <= 300:
             raise ValueError("vwap_poll_seconds must be in [5, 300]")
-        if self.pov_mode not in ("fixed", "band", "buyer"):
-            raise ValueError("pov_mode must be 'fixed', 'band' or 'buyer'")
+        if self.pov_mode not in ("fixed", "band", "buyer", "band_buyer"):
+            raise ValueError("pov_mode must be 'fixed', 'band', 'buyer' or 'band_buyer'")
         bad = set(self.pov_band or {}) - set(BAND_KEYS)
         if bad:
             raise ValueError(f"pov_band may set only {sorted(BAND_KEYS)}; got {sorted(bad)}")
@@ -635,7 +635,7 @@ class StrategyBot:
     def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:
         """POV fraction for one parent's child. Fixed mode: cfg.pov. Band mode: the VWAP band from
         pov_band.py, using the last closed close. No verified VWAP -> cfg.pov (logged)."""
-        if self.cfg.pov_mode != "band":
+        if self.cfg.pov_mode not in ("band", "band_buyer"):
             return self.cfg.pov, "fixed"
         vwap = self._vwap_provider(symbol) if self._vwap_provider is not None else None
         if vwap is None or not vwap > 0:
@@ -661,7 +661,7 @@ class StrategyBot:
     def _slice_volume(self, symbol: str, bar_volume: float) -> Tuple[float, str]:
         """Volume the POV applies to. Buyer mode: last bar volume x buyer share of volume today.
         No share known -> the full bar volume (logged). Other modes: unchanged."""
-        if self.cfg.pov_mode != "buyer":
+        if self.cfg.pov_mode not in ("buyer", "band_buyer"):
             return bar_volume, "volume"
         share = self._buyer_share_provider(symbol) if self._buyer_share_provider is not None else None
         if share is None:

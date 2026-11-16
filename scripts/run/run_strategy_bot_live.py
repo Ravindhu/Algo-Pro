@@ -187,7 +187,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         cfg=cfg,
         vwap_provider=vwap_book.vwap,
         buyer_share_provider=vwap_book.buyer_share,
-        vwap_tick=vwap_tick if cfg.pov_mode in ("band", "buyer") else None,
+        vwap_tick=vwap_tick if cfg.pov_mode in ("band", "buyer", "band_buyer") else None,
         strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path)) for n in cfg.strategies],
         bars=LiveBars(readonly, api_key),
         sender=LiveSender(client),

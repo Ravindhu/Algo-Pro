@@ -25,8 +25,11 @@ Plain-English design for the four items the owner asked about. Live trading stay
   Only the buyer-side part of the volume is used to size children. With no buyer share yet, it uses the full
   bar volume and logs the fallback. Fixed mode is unchanged.
 - Approximation: the day's buyer share is applied to the last bar, not to that bar's own buyer volume.
+- Combined (`pov_mode: band_buyer`): band sets the rate (pov), buyer share sets the volume. Child = rate x (last bar volume x buyer share).
+  Each part falls back on its own: no VWAP -> fixed pov rate; no buyer share -> full bar volume. Halt zone -> no child that cycle.
 
 ## 3. PEG order
+- Status: NOT BUILT, by owner decision (2026-11-16). Left out until the owner asks for it.
 - OpenAlgo pricetypes are MARKET, LIMIT, SL and SL-M only. PEG is not supported.
 - Emulation would be a LIMIT order that is cancelled and re-placed at a new peg price. That needs
   a repricing loop much faster than the 5-minute bot cycle. Not built. Needs an owner decision on
