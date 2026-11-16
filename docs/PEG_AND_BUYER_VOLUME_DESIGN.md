@@ -17,8 +17,10 @@ Plain-English design for the four items the owner asked about. Live trading stay
   Until then, band mode may fall back to fixed POV when no buyer volume is counted.
 
 ## 2. Buyer-initiated volume (from buyer-initiated orders)
-- Needs trade-level data (each trade with its price and whether it hit the ask). Same blocker as item 1.
-- Not built. Would need the owner to confirm a tape source first.
+- Built as an estimate from the same quote polls as item 1 (`BuyerVwapBook.buyer_volume`, `buyer_share`).
+- Meaning: shares traded in intervals where LTP >= ask, out of shares traded in intervals whose side could be decided.
+- It is not a count of market orders. OpenAlgo's order book only shows this account's own orders, so market-wide order flow is not available.
+- Limits are the same as item 1 (poll-based, restart re-baselines the day).
 
 ## 3. PEG order
 - OpenAlgo pricetypes are MARKET, LIMIT, SL and SL-M only. PEG is not supported.

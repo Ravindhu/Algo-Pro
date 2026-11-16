@@ -31,6 +31,7 @@ class _SymState:
     last_volume: Optional[float] = None
     buyer_notional: float = 0.0
     buyer_volume: float = 0.0
+    classified_volume: float = 0.0   # volume whose side could be decided (LTP and ask present)
     counted_polls: int = 0
     polls: int = 0
 
@@ -76,6 +77,7 @@ class BuyerVwapBook:
         delta = volume - prev
         if ltp is None or ltp <= 0 or ask is None or ask <= 0:
             return False  # cannot classify this interval: not counted
+        st.classified_volume += delta
         if ltp < ask:
             return False  # seller-initiated (or at bid side): not counted
         st.buyer_notional += ltp * delta
@@ -107,13 +109,33 @@ class BuyerVwapBook:
             return None
         return st.buyer_notional / st.buyer_volume
 
+    def buyer_volume(self, symbol: str) -> Optional[float]:
+        """Buyer-initiated volume today (shares), or None if the symbol was not polled today."""
+        st = self._state.get(symbol)
+        if st is None or st.day != self._day:
+            return None
+        return st.buyer_volume
+
+    def buyer_share(self, symbol: str) -> Optional[float]:
+        """Buyer-initiated volume as a fraction of the volume that could be classified today (0 to 1)."""
+        st = self._state.get(symbol)
+        if st is None or st.day != self._day or st.classified_volume <= 0:
+            return None
+        return st.buyer_volume / st.classified_volume
+
     def snapshot(self) -> Dict[str, Dict[str, Any]]:
-        """Audit view: per symbol, the counted buyer volume and VWAP for today."""
-        return {
-            sym: {"buyer_volume": st.buyer_volume, "buyer_vwap": (st.buyer_notional / st.buyer_volume)
-                  if st.buyer_volume > 0 else None, "counted_polls": st.counted_polls, "polls": st.polls}
-            for sym, st in self._state.items()
-        }
+        """Audit view per symbol: buyer volume, classified volume, buyer share, VWAP, poll counts."""
+        out = {}
+        for sym, st in self._state.items():
+            out[sym] = {
+                "buyer_volume": st.buyer_volume,
+                "classified_volume": st.classified_volume,
+                "buyer_share": (st.buyer_volume / st.classified_volume) if st.classified_volume > 0 else None,
+                "buyer_vwap": (st.buyer_notional / st.buyer_volume) if st.buyer_volume > 0 else None,
+                "counted_polls": st.counted_polls,
+                "polls": st.polls,
+            }
+        return out
 
 
 __all__ = ["BuyerVwapBook"]

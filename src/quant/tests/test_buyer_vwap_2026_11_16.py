@@ -107,3 +107,20 @@ def test_bot_band_mode_uses_book_vwap_when_available():
 def test_bot_refuses_bad_poll_interval():
     with pytest.raises(ValueError):
         BotConfig(vwap_poll_seconds=1)
+
+
+def test_buyer_volume_and_share_count_only_classifiable_volume():
+    book = BuyerVwapBook(None, "k")
+    book.apply_quote("A", _q(100, 99, 0), DAY)
+    book.apply_quote("A", _q(100, 100, 100), DAY)     # buyer 100
+    book.apply_quote("A", _q(99, 100, 200), DAY)      # seller 100
+    book.apply_quote("A", {"ltp": 100, "volume": 300}, DAY)  # no ask: unclassified, not in share
+    assert book.buyer_volume("A") == 100
+    assert book.buyer_share("A") == pytest.approx(0.5)
+    snap = book.snapshot()["A"]
+    assert snap["classified_volume"] == 200 and snap["buyer_share"] == pytest.approx(0.5)
+
+
+def test_buyer_volume_none_before_any_poll_today():
+    book = BuyerVwapBook(None, "k")
+    assert book.buyer_volume("ZZZ") is None and book.buyer_share("ZZZ") is None
