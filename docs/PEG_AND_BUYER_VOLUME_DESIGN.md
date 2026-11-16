@@ -6,9 +6,15 @@ Plain-English design for the four items the owner asked about. Live trading stay
 - Definition in the code: a candle counts only when the last traded price is at or above the ask
   (`ltp >= ask`). The VWAP is the price-weighted average over those counted candles only
   (`pov_band.BuyerInitiatedDailyVWAP`).
-- Blocker: the ask at each historical candle, or a trade tape, is needed. OpenAlgo's verified
-  endpoints (`quotes`, `depth`, `history`) do not give per-candle ask history. Not built.
-- Until a verified source exists, the band uses no VWAP and falls back to fixed POV.
+- Source now used: live quote polls, not historical candles. Each poll reads LTP, ask and
+  cumulative day volume (OpenAlgo `quotes`). Volume added since the last poll counts as buyer-initiated
+  only when LTP >= ask at that poll. VWAP = sum(LTP x counted volume) / sum(counted volume).
+- Built in `src/quant/execution/buyer_vwap.py` (`BuyerVwapBook`), one accumulator per screened symbol,
+  reset each IST day. The live runner polls every `vwap_poll_seconds` (default 15) only in band mode.
+- Limits: poll-based, not trade by trade. A restart re-baselines, so the day's VWAP is partial after one.
+  Intervals with no LTP, ask or volume are not counted.
+- Open check: confirm on the analyzer that `quotes` returns `ask` and a cumulative `volume` for NSE stocks.
+  Until then, band mode may fall back to fixed POV when no buyer volume is counted.
 
 ## 2. Buyer-initiated volume (from buyer-initiated orders)
 - Needs trade-level data (each trade with its price and whether it hit the ask). Same blocker as item 1.

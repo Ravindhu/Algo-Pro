@@ -154,6 +154,7 @@ class BotConfig:
     # the VWAP band in pov_band.py: high of band -> lower POV, low of band -> higher POV.
     pov_mode: str = "fixed"
     pov_band: Dict[str, Any] = field(default_factory=dict)
+    vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
     screen_path: str = "data/screened/latest.json"
@@ -175,6 +176,8 @@ class BotConfig:
             for k, v in over.items():
                 if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
+        if not 5 <= self.vwap_poll_seconds <= 300:
+            raise ValueError("vwap_poll_seconds must be in [5, 300]")
         if self.pov_mode not in ("fixed", "band"):
             raise ValueError("pov_mode must be 'fixed' or 'band'")
         bad = set(self.pov_band or {}) - set(BAND_KEYS)
@@ -311,6 +314,7 @@ class StrategyBot:
         position_store=None,
         entry_guard: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
         vwap_provider: Optional[Callable[[str], Optional[float]]] = None,
+        vwap_tick: Optional[Callable[[datetime], None]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -337,6 +341,7 @@ class StrategyBot:
             raise ValueError("bot needs an API key")
         self.cfg = cfg
         self._vwap_provider = vwap_provider  # buyer-initiated VWAP per symbol; None = not available
+        self.vwap_tick = vwap_tick           # called by the runner between cycles to poll quotes
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit

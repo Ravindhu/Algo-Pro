@@ -131,6 +131,10 @@ def make_egress_guard(allowed_ip: str, egress_fn=None):
     return guard
 
 
+from quant.execution.buyer_vwap import BuyerVwapBook  # noqa: E402
+from quant.execution.strategy_bot import read_screen as _read_screen  # noqa: E402
+
+
 def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_key: str,
                    transport: Callable = http_transport, reader=None,
                    startup_fn: Callable = _live_checks.startup_checks,
@@ -172,8 +176,17 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
     if not allowed_ip:
         raise BotRefused("live needs live.allowed_egress_ip in config/settings.yaml")
 
+    # Buyer-initiated VWAP per screened symbol, from quote polls. Only used in band mode.
+    vwap_book = BuyerVwapBook(readonly, api_key, exchange="NSE")
+    def vwap_tick(now):
+        symbols = [r["symbol"] for r in _read_screen(cfg.screen_path, now, cfg.max_screen_age_minutes)]
+        if symbols:
+            vwap_book.poll(symbols, now)
+
     bot = StrategyBot(
         cfg=cfg,
+        vwap_provider=vwap_book.vwap,
+        vwap_tick=vwap_tick if cfg.pov_mode == "band" else None,
         strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path)) for n in cfg.strategies],
         bars=LiveBars(readonly, api_key),
         sender=LiveSender(client),

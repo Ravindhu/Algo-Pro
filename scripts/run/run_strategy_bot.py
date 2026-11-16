@@ -134,9 +134,16 @@ def run(bot: StrategyBot, audit: AuditLog, *, state_dir, clock: Callable[[], dat
         done += 1
         if max_cycles is not None and done >= max_cycles:
             break
-        for _ in range(int(bot.cfg.interval_minutes * 60)):  # sleep 1 s at a time so STOP is quick
+        tick = getattr(bot, "vwap_tick", None)
+        poll_s = max(1, int(bot.cfg.vwap_poll_seconds))
+        for i in range(int(bot.cfg.interval_minutes * 60)):  # sleep 1 s at a time so STOP is quick
             if stop.exists():
                 break
+            if tick is not None and i % poll_s == 0:
+                try:
+                    tick(clock())
+                except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
+                    audit.append("vwap_tick_error", {"error": repr(exc)})
             sleep(1)
     return done
 

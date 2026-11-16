@@ -22,6 +22,7 @@ Baseline before any change (commit 25055bf): 3376 passed, 1 skipped, 1 xfailed,
 | 10 | Found during the work: the live runner never passed the P&L store, so daily loss counters reset on restart. | Fixed in code: the live runner passes `PnlStore` (`data/bot_live/pnl_state.json`). |
 | 11 | Requested: breakeven and trail per strategy. Before, every strategy used the global 1R and 2 ATR. | Done: `exits:` block in `config/bot.yaml` sets breakeven_r and trail_mult per strategy. Unlisted strategies use the global values. Unknown names or bad values are refused at start. |
 | 12 | Found while doing 11: the broker SL-M stayed at the original stop when breakeven or the trail moved the bot's stop. | Done: a moved stop cancels and re-places the broker SL-M at the new trigger. If re-placing fails, new entries are blocked and the bot-side stop still protects. |
+| 14 | Requested: buyer-initiated VWAP for each screened stock from market data | Done in code. Built from quote polls (LTP, ask, cumulative volume), counted only when LTP >= ask. Feeds band mode. Needs the analyzer check of `ask` and `volume` before live. |
 | 13 | Requested: band-based POV slicing (high of band = lower POV, low of band = higher POV). Blocked for buyer VWAP and buyer volume (no verified ask or trade tape). | Done in code behind `pov_mode: band`, default stays `fixed`. Band uses the existing `pov_band.py` rule with the last closed close. With no verified buyer VWAP it falls back to `pov`. PEG and buyer-initiated volume are not built; see `docs/PEG_AND_BUYER_VOLUME_DESIGN.md`. |
 
 ## Design notes
@@ -44,6 +45,7 @@ Baseline before any change (commit 25055bf): 3376 passed, 1 skipped, 1 xfailed,
 - [x] P6 Per-cycle egress IP guard blocks new entries only (item 8).
 - [x] P7 Doc drift: `bot.yaml` comment, dashboard flow copy, live docs (item 7).
 - [x] P9 Per-strategy breakeven and trail (`exits:`); broker stop follows the moved stop.
+- [x] P11 Buyer-initiated VWAP per screened symbol from quote polls (`execution/buyer_vwap.py`), fed to band mode. 9 tests in `src/quant/tests/test_buyer_vwap_2026_11_16.py`.
 - [x] P10 Band POV mode (`pov_mode: band`, default fixed). Design note `docs/PEG_AND_BUYER_VOLUME_DESIGN.md`. 12 tests in `src/quant/tests/test_pov_band_mode_2026_11_15.py`.
 - [x] P8 Full test run: 3415 passed, 1 skipped, 1 xfailed; 1 failed (`test_upgrade_pin`, pre-existing, vendored fingerprint). 27 new tests in `src/quant/tests/test_audit_fixes_2026_11_15.py`.
 
