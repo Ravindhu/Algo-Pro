@@ -32,6 +32,8 @@ Plain-English design for the four items the owner asked about. Live trading stay
 - Status: BUILT as a bounded peg (2026-11-16), used only in `pov_mode: peg_band_buyer`.
 - Price: best bid for BUY entries from the depth reply (`execution/peg.py`). Never above the entry cap
   (last close plus entry_max_slippage_bps). Exits stay MARKET.
+- Best volume: a child may take at most `peg_bid_fraction` (default 0.5) of the shares resting at the best bid.
+  A thin bid cuts the child down; a bid with no room stops the peg for that child (parent stays open).
 - Bounded: each child gets at most `peg_max_attempts` LIMIT placements (default 3). A reprice happens only
   after a clean cancel of an unfilled order. A partial fill or a failed cancel stops at once.
 - Wait: LIMIT entries wait `peg_wait_seconds` (default 5) before the status check (only in peg mode).

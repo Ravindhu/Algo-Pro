@@ -12,10 +12,11 @@ OpenAlgo has no PEG order type, so the bot emulates it with a LIMIT order at the
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 
-def peg_price(side: str, depth_reply: Any, cap: Optional[float] = None) -> Optional[float]:
+def peg_level(side: str, depth_reply: Any, cap: Optional[float] = None) -> Optional[Tuple[float, int]]:
+    """(price, quantity) of the best level, or None. Quantity is the shares resting at that price."""
     if not isinstance(depth_reply, dict) or str(depth_reply.get("status", "")).lower() != "success":
         return None
     data = depth_reply.get("data")
@@ -29,13 +30,19 @@ def peg_price(side: str, depth_reply: Any, cap: Optional[float] = None) -> Optio
         return None
     try:
         px = float(raw)
+        qty = float(levels[0].get("quantity", levels[0].get("qty", 0)) or 0)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(px) or px <= 0:
+    if not math.isfinite(px) or px <= 0 or not math.isfinite(qty) or qty < 0:
         return None
     if cap is not None and px > cap:
         return None
-    return round(px, 2)
+    return round(px, 2), int(qty)
 
 
-__all__ = ["peg_price"]
+def peg_price(side: str, depth_reply: Any, cap: Optional[float] = None) -> Optional[float]:
+    level = peg_level(side, depth_reply, cap)
+    return level[0] if level else None
+
+
+__all__ = ["peg_level", "peg_price"]

@@ -42,7 +42,7 @@ from quant.core.types import TradeIntent
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.execution.pov_band import BandConfig, compute_target_pov_rate
-from quant.execution.peg import peg_price
+from quant.execution.peg import peg_level
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
@@ -162,6 +162,7 @@ class BotConfig:
     pov_mode: str = "fixed"
     pov_band: Dict[str, Any] = field(default_factory=dict)
     peg_wait_seconds: float = 5.0     # peg_band_buyer: wait this long before checking a peg LIMIT
+    peg_bid_fraction: float = 0.5     # peg: a child may take at most this share of the shares at the best bid
     peg_max_attempts: int = 3         # peg_band_buyer: max LIMIT placements per child (bounded reprice)
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
@@ -187,6 +188,8 @@ class BotConfig:
                     raise ValueError(f"exits {name}.{k} must be a number > 0")
         if not 1 <= self.peg_wait_seconds <= 60:
             raise ValueError("peg_wait_seconds must be in [1, 60]")
+        if not 0 < self.peg_bid_fraction <= 1:
+            raise ValueError("peg_bid_fraction must be in (0, 1]")
         if not 1 <= self.peg_max_attempts <= 5:
             raise ValueError("peg_max_attempts must be in [1, 5]")
         if not 5 <= self.vwap_poll_seconds <= 300:
@@ -688,8 +691,8 @@ class StrategyBot:
         """Peg applies to BUY entries only. Exits stay MARKET so they always try to fill."""
         return self.cfg.pov_mode == "peg_band_buyer" and p.intent.kind == "entry" and p.intent.side == "BUY"
 
-    def _peg_price_now(self, symbol: str, cap: Optional[float]) -> Optional[float]:
-        """Best bid from the depth reply, never above cap. None if unavailable (caller uses the fixed path)."""
+    def _peg_price_now(self, symbol: str, cap: Optional[float]) -> Optional[Tuple[float, int]]:
+        """(best bid price, shares at that bid), never above cap. None if unavailable (caller uses the fixed path)."""
         if self._depth_provider is None:
             return None
         try:
@@ -697,17 +700,22 @@ class StrategyBot:
         except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
             self._log("peg_depth_error", symbol=symbol, error=repr(exc))
             return None
-        return peg_price("BUY", depth, cap)
+        return peg_level("BUY", depth, cap)
 
     def _submit_peg(self, p: "_Parent", qty: int, px: float, cap: Optional[float]):
         """One child as a LIMIT at the best bid. If it is not filled and was cancelled cleanly, reprice
         from the current bid, up to peg_max_attempts. A partial fill or a failed cancel stops at once."""
         outcome = None
         child = None
+        qty_cap = qty
         for attempt in range(self.cfg.peg_max_attempts):
             if attempt > 0:
-                px = self._peg_price_now(p.intent.symbol, cap)
-                if px is None:
+                level = self._peg_price_now(p.intent.symbol, cap)
+                if level is None:
+                    break
+                px, bid_qty = level
+                qty = min(qty_cap, int(bid_qty * self.cfg.peg_bid_fraction))
+                if qty < 1:
                     break
                 p.seq += 1
                 self._log("peg_reprice", key=p.key, attempt=attempt + 1, px=px)
@@ -746,10 +754,13 @@ class StrategyBot:
             raw_volume = float(df["volume"].iloc[-2])  # last closed bar
             bar_volume, _vol_why = self._slice_volume(p.intent.symbol, raw_volume)
             peg_px = None
+            peg_bid_qty = 0
             cap = None
             if self._peg_on(p):
                 cap = self._entry_price(p, df)[1]
-                peg_px = self._peg_price_now(p.intent.symbol, cap)
+                level = self._peg_price_now(p.intent.symbol, cap)
+                peg_px = level[0] if level is not None else None
+                peg_bid_qty = level[1] if level is not None else 0
                 if why == "fallback" or _vol_why == "fallback" or peg_px is None:
                     # Single fallback for peg mode: fixed POV on full bar volume, old entry price.
                     self._log("peg_fallback_fixed", key=key, band=why, volume=_vol_why, peg=peg_px is not None)
@@ -760,6 +771,11 @@ class StrategyBot:
             if qty < 1:
                 self._log("child_zero", key=key, remaining=p.remaining, bar_volume=bar_volume)
                 continue
+            if peg_px is not None:
+                qty = min(qty, int(peg_bid_qty * self.cfg.peg_bid_fraction))  # best-bid size cap
+                if qty < 1:
+                    self._log("peg_thin_bid", key=key, bid_qty=peg_bid_qty)
+                    continue
             p.seq += 1
             try:
                 if peg_px is not None:
