@@ -23,3 +23,18 @@ C. Sell-fail: which timeframe is the engulfing candle on, and what is the entry 
 5. Bot cycle every 5 minutes. Time limits scaled to 5 minutes.
 6. Paper run on real bars, then analyze mode. Live stays off until owner sign-off.
 7. Decision note, flow document and diagram updated, as the repo rules require.
+
+## Owner answers, round 3 (2026-11-18)
+Pattern per timeframe (MTF / HTF / LTF):
+- Engulfing strategy: engulfing / OCL / OCL
+- OCL strategy: OCL / OCL / OCL
+- Sell-fail top: OCL / OCL / OCL
+- Sell-fail bottom: OCL / OCL / OCL
+
+Engulfing entry, stop and target: NOT kept (owner answer "No"). New values still to be given.
+
+Sell-fail trigger: buy once a candle with a 50% body breaks and closes above the sell engulfing pattern's high.
+
+Open:
+- The sell-fail table says OCL on all three timeframes, but the sell-fail rule starts from an engulfing candle. Which timeframe holds that engulfing candle?
+- New engulfing entry, stop and target values.
