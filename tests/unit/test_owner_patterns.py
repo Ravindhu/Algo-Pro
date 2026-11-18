@@ -79,3 +79,40 @@ def test_sell_fail_voided_by_earlier_break():
 
 def test_sell_fail_short_history_is_safe():
     assert op.find_sell_fail_trigger(_frame([RED]), last=0) is None
+
+
+# ---- OCL Red-Red-Green (last 3 bars only) ----
+RRG_C1 = (10.0, 10.2, 9.0, 9.2)    # red: open 10.0, close 9.2 (body bottom 9.2)
+RRG_C2 = (11.0, 11.1, 10.1, 10.5)  # red: closes 10.5 > C1 open 10.0 (aggressive 1 break)
+RRG_C3 = (10.4, 11.6, 10.3, 11.2)  # green: closes 11.2 > C2 close 10.5 (aggressive 2 break)
+
+
+def test_ocl_rrg_detected_with_levels():
+    res = op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, RRG_C3]), last=2)
+    assert res == {"aggressive_1": 10.0, "aggressive_2": 10.5,
+                   "conservative": 9.2, "trigger_index": 2}
+
+
+def test_ocl_rrg_uses_last_three_bars_only():
+    older = (20.0, 21.0, 19.0, 19.5)  # an older bar with a lower body: must not count
+    res = op.find_ocl_rrg(_frame([older, RRG_C1, RRG_C2, RRG_C3]), last=3)
+    assert res["conservative"] == 9.2
+
+
+def test_ocl_rrg_needs_c2_to_close_above_c1_open():
+    c2_low = (11.0, 11.1, 9.5, 9.8)  # closes 9.8, below C1 open 10.0
+    assert op.find_ocl_rrg(_frame([RRG_C1, c2_low, RRG_C3]), last=2) is None
+
+
+def test_ocl_rrg_needs_c3_to_close_above_c2_close():
+    c3_low = (10.4, 10.9, 10.3, 10.4)  # green but closes 10.4, below C2 close 10.5
+    assert op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, c3_low]), last=2) is None
+
+
+def test_ocl_rrg_needs_red_red_green_colours():
+    c3_red = (11.2, 11.3, 10.3, 10.6)  # red third bar
+    assert op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, c3_red]), last=2) is None
+
+
+def test_ocl_rrg_short_history_is_safe():
+    assert op.find_ocl_rrg(_frame([RRG_C1, RRG_C2]), last=1) is None

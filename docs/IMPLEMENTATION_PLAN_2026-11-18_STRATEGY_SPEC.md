@@ -70,3 +70,13 @@ Status: spec complete. Ready to build after owner go-ahead.
 - Sell-fail level: the higher of the two candles' highs (the pattern's two candles only). Matches `find_sell_fail_trigger`.
 - OCL key-level breaks: upward direction only. "Candle 2 breaks candle 1 open" and "candle 3 breaks candle 2 close" mean the price closes above those levels.
 - Still open: the swing window for the conservative level (how many candles count as the swing).
+
+## Build status: OCL check (2026-11-19)
+- `find_ocl_rrg` in `src/quant/strategies/owner_patterns.py`, using the last 3 closed bars only.
+  - Pattern: red, red, green.
+  - Aggressive key level 1: C1 open. C2 must close above it.
+  - Aggressive key level 2: C2 close. C3 must close above it.
+  - Conservative key level: the lowest body bottom among the three candles.
+- Tests: 17 total in `tests/unit/test_owner_patterns.py`, all passing.
+- Assumption: "break" means a close above the level (as stated in round 5). Confirm if you meant an intrabar touch.
+- Not built yet: the entry trigger and order logic for each strategy, the wiring into the bot, and the timeframe bar feed.
