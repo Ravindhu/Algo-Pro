@@ -65,3 +65,8 @@ Status: spec complete. Ready to build after owner go-ahead.
 - Assumption to confirm: the sell-fail level is the higher of the two pattern highs.
 - Open for phase 2 (OCL key levels): the owner's text says "2nd candle break 1st candle open" and "3rd candle break 2nd candle close", but not the direction of the break. Also, the conservative level is "lowest body of the swing". Which bar counts as the swing, and what is the break direction?
 - Not built yet: wiring into the bot, the multi-timeframe bar feed, and the bot timeframe. Those come after the OCL checks.
+
+## Owner answers, round 5 (2026-11-19)
+- Sell-fail level: the higher of the two candles' highs (the pattern's two candles only). Matches `find_sell_fail_trigger`.
+- OCL key-level breaks: upward direction only. "Candle 2 breaks candle 1 open" and "candle 3 breaks candle 2 close" mean the price closes above those levels.
+- Still open: the swing window for the conservative level (how many candles count as the swing).
