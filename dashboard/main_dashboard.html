@@ -296,6 +296,12 @@
         <input type="number" id="su-fixed" min="0.01" step="0.01" placeholder="e.g. 20"></div>
       <div><label for="su-bps">Brokerage bps of notional (bps method)</label>
         <input type="number" id="su-bps" min="0" step="0.01" placeholder="e.g. 3"></div>
+      <div><label for="su-htf">HTF, trend bias (all strategies)</label>
+        <select id="su-htf"></select></div>
+      <div><label for="su-mtf">MTF, setup (all strategies)</label>
+        <select id="su-mtf"></select></div>
+      <div><label for="su-ltf">LTF, entry (all strategies)</label>
+        <select id="su-ltf"></select></div>
     </div>
     <div class="actions">
       <button class="go" id="setupsave" type="submit">Save setup</button>
@@ -803,6 +809,9 @@
   // ---- Trade setup (reads and writes /api/setup) ----
   function setSetupMsg(text, cls) { const m = $("setupmsg"); m.textContent = text; m.className = cls || ""; }
 
+  // [select id, API key] for the three common timeframes. Empty select sends null (clears).
+  const TF_FIELDS = [["su-htf", "htf_interval"], ["su-mtf", "mtf_interval"], ["su-ltf", "ltf_interval"]];
+
   function fillSetup(s) {
     $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
     $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
@@ -817,6 +826,12 @@
     $("su-method").value = b.method || "bps";
     $("su-fixed").value = b.fixed_per_order == null ? "" : String(b.fixed_per_order);
     $("su-bps").value = b.bps == null ? "" : String(b.bps);
+    for (const [id, key] of TF_FIELDS) {
+      const opts = [Object.assign(document.createElement("option"), {value: "", textContent: "not set"}),
+        ...(s.timeframe_options || []).map(v => Object.assign(document.createElement("option"), {value: v, textContent: v}))];
+      $(id).replaceChildren(...opts);
+      $(id).value = s[key] || "";
+    }
     const ex = s.brokerage_example;
     $("brokerage-example").textContent = ex
       ? `Example: a ₹${ex.example_notional.toLocaleString("en-IN")} ${ex.product} order costs ₹${ex.brokerage} brokerage + ₹${ex.stt} STT per side; round trip ₹${ex.round_trip}.`
@@ -873,6 +888,7 @@
     if (cap) payload.live_max_capital_inr = Number(cap);
     const ip = $("su-ip").value.trim();
     if (ip) payload.live_allowed_egress_ip = ip;
+    for (const [id, key] of TF_FIELDS) payload[key] = $(id).value || null;
     setSetupMsg("Saving…", "d");
     try {
       const r = await fetch("/api/setup", {method: "POST",

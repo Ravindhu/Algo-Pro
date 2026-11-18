@@ -31,7 +31,9 @@ def test_read_setup_returns_current_values(paths):
     assert read_setup(settings, strategies, limits) == {
         "risk_per_trade": 0.0025, "max_symbols_per_portfolio": None, "strategy": None,
         "strategies": ["alpha", "beta"], "live_max_capital_inr": None, "live_allowed_egress_ip": None,
-        "brokerage": None, "brokerage_example": None}
+        "brokerage": None, "brokerage_example": None,
+        "htf_interval": None, "mtf_interval": None, "ltf_interval": None,
+        "timeframe_options": ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "1d"]}
 
 
 def test_save_writes_risk_strategy_and_symbol_cap_to_their_files(paths):

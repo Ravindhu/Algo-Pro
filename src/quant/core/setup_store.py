@@ -8,6 +8,9 @@ API (owner sign-in required).
   and enforced by the Risk gate (risk/symbol_cap.py). Null (not set) blocks new symbols.
 - live.max_capital_inr and live.allowed_egress_ip in config/settings.yaml: read by the live start gate.
 - trade_setup.strategy in config/settings.yaml: saved only. No engine stage uses it yet.
+- trade_setup.timeframes (htf, mtf, ltf): common to all strategies. Saved only, no engine
+  stage reads them yet. Allowed values in TIMEFRAMES; when all three are set, LTF < MTF < HTF.
+  Plan: docs/IMPLEMENTATION_PLAN_2026-11-18_TIMEFRAMES.md.
 - trade_setup.brokerage: product (delivery/intraday) x method (fixed rupees per
   order, or bps of notional). Read by core/broker_costs.py, which maps it onto
   the backtest CostModel block (decision 0037) so every charging path uses the
@@ -39,8 +42,12 @@ DEFAULT_RISK = 0.0025
 RISK_MAX = 0.05          # same upper bound as RiskLimits.risk_per_trade
 SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
 KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
-        "live_max_capital_inr", "live_allowed_egress_ip", "brokerage")
+        "live_max_capital_inr", "live_allowed_egress_ip", "brokerage",
+        "htf_interval", "mtf_interval", "ltf_interval")
 LIVE_KEYS = ("live_max_capital_inr", "live_allowed_egress_ip")
+# Timeframe labels, same style as the OCL params (htf_interval, ltf_interval in config/bot.yaml).
+TIMEFRAMES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "1d": 1440}
+TF_KEYS = {"htf_interval": "htf", "mtf_interval": "mtf", "ltf_interval": "ltf"}  # API key -> yaml key
 
 
 def strategy_names(strategies_dir) -> List[str]:
@@ -65,20 +72,36 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
     if Path(limits_path).exists():
         symbols = RiskLimits.from_yaml(limits_path).max_symbols_per_portfolio
     live = data.get("live") or {}
-    brokerage = (data.get("trade_setup") or {}).get("brokerage")
+    trade = data.get("trade_setup") or {}
+    brokerage = trade.get("brokerage")
     summary = None
     if isinstance(brokerage, dict):
         summary = broker_costs.charge_summary(brokerage)
+    tf = trade.get("timeframes") or {}
     return {
         "risk_per_trade": risk,
         "max_symbols_per_portfolio": symbols,
-        "strategy": (data.get("trade_setup") or {}).get("strategy"),
+        "strategy": trade.get("strategy"),
         "strategies": strategy_names(strategies_dir),
         "live_max_capital_inr": live.get("max_capital_inr"),
         "live_allowed_egress_ip": live.get("allowed_egress_ip"),
         "brokerage": brokerage if isinstance(brokerage, dict) else None,
         "brokerage_example": summary,
+        "htf_interval": tf.get("htf"),
+        "mtf_interval": tf.get("mtf"),
+        "ltf_interval": tf.get("ltf"),
+        "timeframe_options": list(TIMEFRAMES),
     }
+
+
+def check_timeframe_order(tf: Mapping[str, Any]) -> None:
+    """LTF < MTF < HTF in minutes. Checked only when all three are set. Raises ValueError."""
+    if not all(tf.get(k) for k in ("ltf", "mtf", "htf")):
+        return
+    ltf, mtf, htf = (TIMEFRAMES[tf[k]] for k in ("ltf", "mtf", "htf"))
+    if not ltf < mtf < htf:
+        raise ValueError(
+            f"timeframes must go LTF < MTF < HTF, got LTF {tf['ltf']}, MTF {tf['mtf']}, HTF {tf['htf']}")
 
 
 def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) -> Dict[str, Any]:
@@ -111,6 +134,10 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                 raise ValueError("live_allowed_egress_ip must be an IPv4 address, e.g. 203.0.113.10")
         elif key == "brokerage":
             clean[key] = broker_costs.validate_brokerage(value)
+        elif key in TF_KEYS:  # null clears the timeframe
+            if value is not None and (not isinstance(value, str) or value not in TIMEFRAMES):
+                raise ValueError(f"{key} must be one of: {', '.join(TIMEFRAMES)}")
+            clean[key] = value
         else:  # strategy
             if value not in strategies:
                 raise ValueError(f"unknown strategy: {value!r}. Choose one of: {', '.join(strategies) or 'none'}")
@@ -127,7 +154,7 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
     if "max_symbols_per_portfolio" in clean:
         limit_result = apply_limit_updates(limits_path, {"max_symbols_per_portfolio": clean["max_symbols_per_portfolio"]})
         old["max_symbols_per_portfolio"] = limit_result["old"]["max_symbols_per_portfolio"]
-    file_keys = {"risk_per_trade", "strategy", "brokerage", *LIVE_KEYS}
+    file_keys = {"risk_per_trade", "strategy", "brokerage", *LIVE_KEYS, *TF_KEYS}
     if file_keys & set(clean):
         current = _load(settings)
         sizing = dict(current.get("sizing") or {})
@@ -142,6 +169,14 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
         if "brokerage" in clean:
             old["brokerage"] = trade.get("brokerage")
             trade["brokerage"] = clean["brokerage"]
+        if set(TF_KEYS) & set(clean):
+            tf = dict(trade.get("timeframes") or {})
+            for api_key, yaml_key in TF_KEYS.items():
+                if api_key in clean:
+                    old[api_key] = tf.get(yaml_key)
+                    tf[yaml_key] = clean[api_key]
+            check_timeframe_order(tf)  # refuse before anything is written
+            trade["timeframes"] = tf
         if "live_max_capital_inr" in clean:
             old["live_max_capital_inr"] = live.get("max_capital_inr")
             live["max_capital_inr"] = clean["live_max_capital_inr"]
