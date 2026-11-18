@@ -38,3 +38,11 @@ Sell-fail trigger: buy once a candle with a 50% body breaks and closes above the
 Open:
 - The sell-fail table says OCL on all three timeframes, but the sell-fail rule starts from an engulfing candle. Which timeframe holds that engulfing candle?
 - New engulfing entry, stop and target values.
+
+## Owner answers, round 4 (2026-11-18)
+- Engulfing strategy pattern: same as the OCL pattern (RRG).
+- Engulfing key levels: aggressive = open of the 1st candle. Conservative = lowest body of the two candles.
+- Sell-fail engulfing candle: red-green engulfing pattern on MTF.
+
+Open:
+- Engulfing stop loss and target: not yet given.
