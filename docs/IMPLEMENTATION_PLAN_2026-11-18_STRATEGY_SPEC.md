@@ -57,3 +57,11 @@ Open:
 - Sell-fail stop loss, take profit, breakeven and trailing: same as the OCL LTF rules (owner confirmed 2026-11-18).
 
 Status: spec complete. Ready to build after owner go-ahead.
+
+## Build status (2026-11-19)
+- Phase 1 done: `src/quant/strategies/owner_patterns.py` (detection only, no orders or exits) with `tests/unit/test_owner_patterns.py` (11 tests).
+  - `is_red_green_engulf`: red bar, then green bar, both bodies more than 50%, green closes above red high.
+  - `find_sell_fail_trigger`: sell-fail pattern (green closes above red low, bodies more than 50%), then a green trigger with a body over 50% that closes above the pattern high. An earlier close above the level voids the pattern.
+- Assumption to confirm: the sell-fail level is the higher of the two pattern highs.
+- Open for phase 2 (OCL key levels): the owner's text says "2nd candle break 1st candle open" and "3rd candle break 2nd candle close", but not the direction of the break. Also, the conservative level is "lowest body of the swing". Which bar counts as the swing, and what is the break direction?
+- Not built yet: wiring into the bot, the multi-timeframe bar feed, and the bot timeframe. Those come after the OCL checks.
