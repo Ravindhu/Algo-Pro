@@ -46,3 +46,15 @@ Open:
 
 Open:
 - Engulfing stop loss and target: not yet given.
+
+## Owner answers, round 4 (2026-11-18)
+- Sell-fail engulfing candle: on MTF, as a Red-Green engulfing pattern. This replaces the OCL-on-MTF in the sell-fail table above.
+- Engulfing (strategy) entry levels:
+  - Aggressive key level: open of the 1st candle.
+  - Conservative key level: lowest body of the two candles.
+- Engulfing stop loss, take profit, breakeven and trailing: same as the OCL LTF rules.
+
+Still unspecified (assumed to be same as the OCL LTF rules, to confirm):
+- Sell-fail stop loss, take profit, breakeven and trailing.
+
+Status: spec complete except the item above. Ready to build after owner go-ahead.
