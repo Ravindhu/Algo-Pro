@@ -101,9 +101,18 @@ class CostModel:
     Args:
         cost_config: overrides merged over ``cost_aware.DEFAULT_COST_BPS``. The
             keys are the same ones ``portfolio.optim.cost_aware`` uses, so a
-            single config block configures the planner and the simulator.
-        slippage_bps: modelled slippage on top of the statutory stack. This is
-            the term Loop C calibrates from live fills.
+            single config block configures the planner and the simulator. Its
+            ``slippage`` key is honoured as the market term (per side), and
+            ``flat_brokerage_per_order`` switches brokerage to a rupee fee.
+            Indian STT differs by product; the default stack is DELIVERY
+            (0.1% both sides). For intraday pass ``{"stt": 2.5}``: 0.025% on
+            the sell leg only, so it is charged on both legs and the buy leg of
+            an intraday round trip is over-charged by 2.5 bps — conservative,
+            and stated here rather than hidden.
+        slippage_bps: modelled slippage per side. ``None`` (the default) reads
+            ``cost_config['slippage']`` and falls back to
+            ``cost_aware.DEFAULT_SLIPPAGE_BPS``, so changing that ONE key moves
+            the planner and this simulator together.
         latency_bps: timing penalty per position change.
         impact_coefficient: the square-root market-impact coefficient. Impact is
             ``coef * sqrt(order_notional / bar_notional)`` in bps. 0 disables it.
@@ -113,19 +122,30 @@ class CostModel:
     """
 
     def __init__(self, *, cost_config: Optional[Dict[str, Any]] = None,
-                 slippage_bps: float = config.DEFAULT_SLIPPAGE_BPS,
+                 slippage_bps: Optional[float] = None,
                  latency_bps: float = config.DEFAULT_LATENCY_BPS,
                  impact_coefficient: float = 8.0,
                  charge_both_legs: bool = True) -> None:
-        from ..portfolio.optim.cost_aware import estimate_cost_bps
-        self.rates = estimate_cost_bps(cost_config)
-        for key, value in (cost_config or {}).items():
+        from ..portfolio.optim.cost_aware import (DEFAULT_SLIPPAGE_BPS,
+                                                 estimate_cost_bps)
+        # Estimate the statutory stack WITHOUT the configured slippage. Slippage
+        # is owned here (``self.slippage_bps``), so a config block can never be
+        # charged twice: once as a statutory rate and once as a price move.
+        stack = {k: v for k, v in (cost_config or {}).items() if k != "slippage"}
+        self.rates = estimate_cost_bps(stack)
+        for key, value in stack.items():
             try:
                 numeric = float(value)
             except (TypeError, ValueError):
                 continue
             if math.isfinite(numeric):
                 self.rates[key] = numeric
+        self.rates.pop("slippage", None)
+        # One slippage setting for the whole system.
+        if slippage_bps is None:
+            slippage_bps = (cost_config or {}).get("slippage", DEFAULT_SLIPPAGE_BPS)
+            if slippage_bps is None:
+                slippage_bps = DEFAULT_SLIPPAGE_BPS
         self.slippage_bps = float(slippage_bps)
         self.latency_bps = float(latency_bps)
         self.impact_coefficient = float(impact_coefficient)
@@ -146,9 +166,14 @@ class CostModel:
         purchase, not the sale), so this is the one term that is side-dependent.
         Getting this wrong by charging it on both sides over-states cost by
         ~1.5 bps per round trip, which matters at the edge sizes we trade.
+
+        When a flat per-order fee is configured the per-order fee REPLACES the
+        per-order brokerage rate (brokers charge one or the other, never both).
+        A fee cannot be expressed in bps without an order size, so it is left for
+        :meth:`charges_amount`.
         """
         r = self.rates
-        brokerage = r.get("brokerage", 0.0)
+        brokerage = 0.0 if r.get("flat_brokerage_per_order") else r.get("brokerage", 0.0)
         stt = r.get("stt", 0.0)
         txn = r.get("exchange_txn", 0.0)
         sebi = r.get("sebi", 0.0)
@@ -157,6 +182,25 @@ class CostModel:
         if is_buy:
             total += r.get("stamp_duty", 0.0)
         return total
+
+    def flat_fee(self) -> float:
+        """The flat fee per executed order, in rupees (0 when not configured)."""
+        from ..portfolio.optim.cost_aware import flat_brokerage_per_order
+        return flat_brokerage_per_order(self.rates)
+
+    def charges_amount(self, *, is_buy: bool, notional: float) -> float:
+        """Statutory + brokerage charge in RUPEES for one fill.
+
+        This is the number to debit: a flat per-order fee does not scale with
+        the ticket, so it cannot be charged as bps of notional (audit item 2,
+        2026-11-17). GST is charged on the fee as well, because the exchange
+        levies GST on brokerage whichever form it takes.
+        """
+        fee = notional * self.charges_bps(is_buy=is_buy) / 10000.0
+        flat = self.flat_fee()
+        if flat:
+            fee += flat * (1.0 + float(self.rates.get("gst_on_brokerage_pct", 0.0) or 0.0) / 100.0)
+        return fee
 
     def round_trip_bps(self) -> float:
         """Full round-trip statutory cost in bps (buy leg + sell leg)."""
@@ -212,7 +256,10 @@ class CostModel:
                                   bar_notional=bar_notional))
         adverse = 1.0 + slip / 10000.0
         if str(side).upper() == "SELL":
-            adverse = 1.0 / adverse          # selling lower, symmetrically
+            # Selling lower by the SAME bps the buyer pays more. The old
+            # ``1/adverse`` made the SELL leg slightly favoured, which credited
+            # the strategy with money the market never paid (audit 2026-11-17).
+            adverse = 1.0 - slip / 10000.0
         price = float(reference_price) * adverse
         return {"price": price, "slippage_bps": slip,
                 "charges_bps": self.charges_bps(is_buy=str(side).upper() == "BUY")}
@@ -224,6 +271,7 @@ class CostModel:
             "latency_bps": self.latency_bps,
             "impact_coefficient": self.impact_coefficient,
             "charge_both_legs": self.charge_both_legs,
+            "flat_fee_per_order": self.flat_fee(),
             "round_trip_bps": round(self.round_trip_bps(), 4),
         }
 

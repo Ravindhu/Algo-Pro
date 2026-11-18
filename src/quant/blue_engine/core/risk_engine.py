@@ -31,10 +31,22 @@ class RiskEngine(BaseEngine):
 
     The engine only returns recommendations. Actual order admission remains
     enforced by the runner's pre-trade ``RiskGate``.
+
+    SLIPPAGE UNITS (audit item 6, 2026-11-17). ``max_allowed_slippage_pct`` is a
+    FRACTION, as its name, its schema range (0.0 .. 0.05) and its default (0.005
+    = 50 bps) all say. Callers send ``observed_slippage_pct`` in whatever unit
+    they have, so the caller DECLARES it through ``slippage_unit``:
+    ``"fraction"`` (0.012 = 1.2%) or ``"percent"`` (1.2 = 1.2%). Anything else,
+    including a missing unit, is refused: comparing a percent against a fraction
+    vetoed every trade, and comparing a fraction as a percent let 5%-wide
+    slippage pass a 50 bps cap. A silent guess in either direction is unsafe.
     """
 
     name = "risk"
     stage = EngineStage.RISK
+
+    #: Declared units for ``observed_slippage_pct``.
+    SLIPPAGE_UNITS = ("fraction", "percent")
 
     def __init__(self, config: Optional[Dict[str, Any]] = None,
                  provider: Optional[Callable[[], Dict[str, Any]]] = None,
@@ -120,12 +132,20 @@ class RiskEngine(BaseEngine):
         observed_slippage = inputs.get("observed_slippage_pct")
         if observed_slippage is not None:
             parsed_slippage = _number(observed_slippage)
+            unit = str(inputs.get("slippage_unit") or "").strip().lower()
             if parsed_slippage is None or parsed_slippage < 0:
                 breaches.append("invalid observed slippage measurement")
-            elif parsed_slippage > self.max_slippage_pct:
+            elif unit not in self.SLIPPAGE_UNITS:
                 breaches.append(
-                    f"observed slippage {parsed_slippage:g} exceeds "
-                    f"{self.max_slippage_pct:g} limit")
+                    "observed slippage unit not declared: set slippage_unit to "
+                    f"'fraction' or 'percent' (got {unit or 'missing'!r})")
+            else:
+                as_fraction = (parsed_slippage / 100.0 if unit == "percent"
+                               else parsed_slippage)
+                if as_fraction > self.max_slippage_pct:
+                    breaches.append(
+                        f"observed slippage {as_fraction:.4%} exceeds "
+                        f"{self.max_slippage_pct:.4%} limit")
 
         intent = context.get("intent")
         gate_cfg = self.config.get("risk_gate")
@@ -141,7 +161,9 @@ class RiskEngine(BaseEngine):
         veto = bool(breaches)
         rationale = ("; ".join(breaches) if veto else
                      "No supplied risk trigger detected; this is not a connectivity health check.")
-        rationale = " ".join(rationale.split()[:15])
+        # Keep the whole reason. Truncating to 15 words used to hide the actual
+        # trigger, so a reader saw a summary that never named the breach
+        # (audit item 7, 2026-11-17). "breaches" is the full list either way.
         self.log(f"veto={veto} breaches={len(breaches)}")
         return EngineResult(
             engine=self.name,

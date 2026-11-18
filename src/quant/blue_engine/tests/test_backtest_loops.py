@@ -87,10 +87,32 @@ def test_slippage_reconciliation_rejects_ambiguous_or_empty_matches():
         reconciler.reconcile(
             cost_model=cost_model,
             matched_fills=[{"side": "BUY"}, {"side": "BUY"}])
-    with pytest.raises(ValueError, match="no matched BUY"):
-        reconciler.reconcile(
-            cost_model=cost_model,
-            matched_fills=[{
-                "fill_id": "fill-1", "side": "SELL", "reference_price": 100,
-                "backtest_price": 99, "live_price": 98,
-            }])
+    with pytest.raises(ValueError, match="no matched fills"):
+        reconciler.reconcile(cost_model=cost_model, matched_fills=[])
+
+
+def test_sell_fills_are_measured_against_the_sell_side():
+    """A SELL that filled BELOW the simulation is a cost, not a gain (audit 2026-11-17)."""
+    reconciler = SlippageReconciler(threshold_bps=1)
+    result = reconciler.reconcile(
+        cost_model=CostModel(slippage_bps=5, latency_bps=0, impact_coefficient=0),
+        matched_fills=[{
+            "fill_id": "fill-1", "side": "SELL", "reference_price": 100,
+            "backtest_price": 99, "live_price": 98,
+        }])
+    # -1 bps of price move on the sell side is 100 bps of adverse slippage.
+    assert result.mean_slippage_delta_bps == pytest.approx(100.0)
+    assert result.triggered is True
+
+
+def test_a_sell_that_filled_better_is_not_a_credit():
+    reconciler = SlippageReconciler(threshold_bps=1)
+    result = reconciler.reconcile(
+        cost_model=CostModel(slippage_bps=5, latency_bps=0, impact_coefficient=0),
+        matched_fills=[{
+            "fill_id": "fill-1", "side": "SELL", "reference_price": 100,
+            "backtest_price": 101, "live_price": 102,
+        }])
+    assert result.mean_slippage_delta_bps == pytest.approx(-100.0)
+    assert result.triggered is False
+    assert result.calibrated_slippage_bps == pytest.approx(5.0)

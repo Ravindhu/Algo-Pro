@@ -48,8 +48,8 @@ from ..ml.evaluation import metrics as _m
 from ..portfolio.risk import tail as _tail
 
 __all__ = ["compute_metrics", "returns_from_equity", "profit_factor",
-           "sortino_ratio", "calmar_ratio", "exposure_pct", "turnover",
-           "consecutive_losses"]
+           "net_profit_factor", "sortino_ratio", "calmar_ratio", "exposure_pct",
+           "turnover", "consecutive_losses"]
 
 
 def returns_from_equity(equity: Sequence[Optional[float]]) -> List[float]:
@@ -83,11 +83,13 @@ def sortino_ratio(returns: Sequence[Optional[float]], *,
       where cash paid +3% is a *loss in real terms*, and Sortino should count it
       as downside. Using zero would flatter a strategy in a high-rate regime -
       which is precisely the regime India has been in.
-    * The mean of the downside is subtracted in the numerator AND the deviation
-      is measured about the target (not about the downside mean). This is the
-      standard definition; the alternative "semi-deviation about zero" variant
-      produces a different and usually larger figure. We pick one and say which,
-      so the number is reproducible.
+    * The excess return is averaged over ALL periods, and the downside is the
+      target semi-deviation: the root of the mean SQUARED shortfall below the
+      target over the FULL sample (n, not the count of losing periods). Neither
+      figure is measured about the mean of the downside alone. This is the
+      standard definition; the "semi-deviation about zero" variant produces a
+      different and usually larger number. We pick one and say which, so the
+      number is reproducible.
     """
     clean = [float(r) for r in returns if r is not None]
     n = len(clean)
@@ -129,6 +131,21 @@ def profit_factor(gross_profit: float, gross_loss: float) -> Optional[float]:
     if gross_loss == 0:
         return None
     return gross_profit / abs(gross_loss)
+
+
+def net_profit_factor(pnls: Sequence[float]) -> Optional[float]:
+    """Profit factor on NET trade P&L: the same population as win rate and average.
+
+    WHY NET IS THE REPORTED ONE (audit item 3, 2026-11-17): win rate, wins,
+    losses and ``avg_trade_pnl`` all read net P&L. Reporting profit factor on
+    GROSS P&L made the metrics disagree about the same trade — a trade that wins
+    before costs and loses after counted as a win and as gross profit at once.
+    A trader cannot act on a factor that is blind to the costs the strategy pays.
+    The gross figure is still returned separately for decomposition.
+    """
+    wins = sum(p for p in pnls if p > 0)
+    losses = sum(p for p in pnls if p < 0)
+    return profit_factor(wins, losses)
 
 
 def consecutive_losses(pnls: Sequence[float]) -> int:
@@ -211,6 +228,8 @@ def compute_metrics(*, equity: Sequence[Optional[float]],
                   for t in trades]
     gross_profit = sum(p for p in gross_pnls if p > 0)
     gross_loss = sum(p for p in gross_pnls if p < 0)
+    net_wins = sum(wins)
+    net_losses = sum(losses)
 
     sharpe_v = _m.sharpe(rets, periods_per_year=periods_per_year,
                          risk_free=risk_free_per_period)
@@ -235,7 +254,12 @@ def compute_metrics(*, equity: Sequence[Optional[float]],
         "costs_paid": round(float(costs_paid), 4),
         "gross_profit": round(gross_profit, 4),
         "gross_loss": round(gross_loss, 4),
-        "profit_factor": _round(profit_factor(gross_profit, gross_loss)),
+        "net_profit_total": round(net_wins, 4),
+        "net_loss_total": round(net_losses, 4),
+        # NET, so it agrees with win_rate / n_wins / n_losses / avg_trade_pnl.
+        "profit_factor": _round(net_profit_factor(pnls)),
+        # Gross, for decomposition only: never the headline risk/reward figure.
+        "gross_profit_factor": _round(profit_factor(gross_profit, gross_loss)),
         "n_trades": len(trades),
         "n_wins": len(wins),
         "n_losses": len(losses),

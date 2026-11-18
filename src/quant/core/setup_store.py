@@ -8,6 +8,10 @@ API (owner sign-in required).
   and enforced by the Risk gate (risk/symbol_cap.py). Null (not set) blocks new symbols.
 - live.max_capital_inr and live.allowed_egress_ip in config/settings.yaml: read by the live start gate.
 - trade_setup.strategy in config/settings.yaml: saved only. No engine stage uses it yet.
+- trade_setup.brokerage: product (delivery/intraday) x method (fixed rupees per
+  order, or bps of notional). Read by core/broker_costs.py, which maps it onto
+  the backtest CostModel block (decision 0037) so every charging path uses the
+  method the owner's broker actually charges.
 Writes are atomic. Other keys are kept. Comments in settings.yaml are not kept on save.
 
 Flow stage: Risk gate
@@ -25,6 +29,7 @@ import yaml
 
 from quant.core.config import RiskLimits
 from quant.core.limits_store import apply_limit_updates
+from quant.core import broker_costs
 
 HEADER = (
     "# Global settings. sizing, trade_setup and live are set through the dashboard API (owner sign-in).\n"
@@ -34,7 +39,7 @@ DEFAULT_RISK = 0.0025
 RISK_MAX = 0.05          # same upper bound as RiskLimits.risk_per_trade
 SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
 KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
-        "live_max_capital_inr", "live_allowed_egress_ip")
+        "live_max_capital_inr", "live_allowed_egress_ip", "brokerage")
 LIVE_KEYS = ("live_max_capital_inr", "live_allowed_egress_ip")
 
 
@@ -60,6 +65,10 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
     if Path(limits_path).exists():
         symbols = RiskLimits.from_yaml(limits_path).max_symbols_per_portfolio
     live = data.get("live") or {}
+    brokerage = (data.get("trade_setup") or {}).get("brokerage")
+    summary = None
+    if isinstance(brokerage, dict):
+        summary = broker_costs.charge_summary(brokerage)
     return {
         "risk_per_trade": risk,
         "max_symbols_per_portfolio": symbols,
@@ -67,6 +76,8 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
         "strategies": strategy_names(strategies_dir),
         "live_max_capital_inr": live.get("max_capital_inr"),
         "live_allowed_egress_ip": live.get("allowed_egress_ip"),
+        "brokerage": brokerage if isinstance(brokerage, dict) else None,
+        "brokerage_example": summary,
     }
 
 
@@ -98,6 +109,8 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                 clean[key] = str(ipaddress.IPv4Address(str(value).strip()))
             except (ValueError, TypeError):
                 raise ValueError("live_allowed_egress_ip must be an IPv4 address, e.g. 203.0.113.10")
+        elif key == "brokerage":
+            clean[key] = broker_costs.validate_brokerage(value)
         else:  # strategy
             if value not in strategies:
                 raise ValueError(f"unknown strategy: {value!r}. Choose one of: {', '.join(strategies) or 'none'}")
@@ -114,7 +127,7 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
     if "max_symbols_per_portfolio" in clean:
         limit_result = apply_limit_updates(limits_path, {"max_symbols_per_portfolio": clean["max_symbols_per_portfolio"]})
         old["max_symbols_per_portfolio"] = limit_result["old"]["max_symbols_per_portfolio"]
-    file_keys = {"risk_per_trade", "strategy", *LIVE_KEYS}
+    file_keys = {"risk_per_trade", "strategy", "brokerage", *LIVE_KEYS}
     if file_keys & set(clean):
         current = _load(settings)
         sizing = dict(current.get("sizing") or {})
@@ -126,6 +139,9 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
         if "strategy" in clean:
             old["strategy"] = trade.get("strategy")
             trade["strategy"] = clean["strategy"]
+        if "brokerage" in clean:
+            old["brokerage"] = trade.get("brokerage")
+            trade["brokerage"] = clean["brokerage"]
         if "live_max_capital_inr" in clean:
             old["live_max_capital_inr"] = live.get("max_capital_inr")
             live["max_capital_inr"] = clean["live_max_capital_inr"]

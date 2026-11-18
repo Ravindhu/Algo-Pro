@@ -282,12 +282,27 @@
         <input type="text" id="su-ip" placeholder="not set, e.g. 203.0.113.10"></div>
       <div><label for="su-strategy">Strategy</label>
         <select id="su-strategy"></select></div>
+      <div><label for="su-product">Broker product</label>
+        <select id="su-product">
+          <option value="delivery">Delivery (STT 0.1% both sides)</option>
+          <option value="intraday">Intraday (STT 0.025%, buy leg over-charged 2.5 bps)</option>
+        </select></div>
+      <div><label for="su-method">Brokerage method</label>
+        <select id="su-method">
+          <option value="fixed">Fixed ₹ per order</option>
+          <option value="bps">bps of notional</option>
+        </select></div>
+      <div><label for="su-fixed">Fixed ₹ per order (fixed method)</label>
+        <input type="number" id="su-fixed" min="0.01" step="0.01" placeholder="e.g. 20"></div>
+      <div><label for="su-bps">Brokerage bps of notional (bps method)</label>
+        <input type="number" id="su-bps" min="0" step="0.01" placeholder="e.g. 3"></div>
     </div>
     <div class="actions">
       <button class="go" id="setupsave" type="submit">Save setup</button>
       <span id="setupmsg"></span>
       <div id="livestatus" class="muted"></div>
     </div>
+    <p class="d" id="brokerage-example"></p>
     <p class="d">Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
   </form>
 </div>
@@ -797,6 +812,15 @@
     const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
     sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
     sel.value = s.strategy || "";
+    const b = s.brokerage || {};
+    $("su-product").value = b.product || "delivery";
+    $("su-method").value = b.method || "bps";
+    $("su-fixed").value = b.fixed_per_order == null ? "" : String(b.fixed_per_order);
+    $("su-bps").value = b.bps == null ? "" : String(b.bps);
+    const ex = s.brokerage_example;
+    $("brokerage-example").textContent = ex
+      ? `Example: a ₹${ex.example_notional.toLocaleString("en-IN")} ${ex.product} order costs ₹${ex.brokerage} brokerage + ₹${ex.stt} STT per side; round trip ₹${ex.round_trip}.`
+      : "Brokerage not set: the backtest and the planner use the default bps stack until you save it.";
   }
 
   async function loadLiveStatus() {
@@ -833,6 +857,18 @@
     const strategy = $("su-strategy").value;
     if (!strategy) return setSetupMsg("Choose a strategy.", "r");
     const payload = {risk_per_trade: pctVal / 100, max_symbols_per_portfolio: symbols, strategy};
+    const method = $("su-method").value;
+    const brokerage = {product: $("su-product").value, method};
+    if (method === "fixed") {
+      const fee = Number($("su-fixed").value);
+      if (!Number.isFinite(fee) || fee <= 0) return setSetupMsg("Fixed brokerage must be a positive number of rupees.", "r");
+      brokerage.fixed_per_order = fee;
+    } else {
+      const bps = Number($("su-bps").value);
+      if (!Number.isFinite(bps) || bps < 0) return setSetupMsg("Brokerage bps must be zero or more.", "r");
+      brokerage.bps = bps;
+    }
+    payload.brokerage = brokerage;
     const cap = $("su-cap").value.trim();
     if (cap) payload.live_max_capital_inr = Number(cap);
     const ip = $("su-ip").value.trim();

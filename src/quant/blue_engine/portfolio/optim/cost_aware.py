@@ -16,6 +16,15 @@ Cost model (per side, in basis points of traded notional)
 * **stamp duty**       0.015% on buy (delivery), 0.003% on sell.
 * **SEBI**             ~0.0001%.
 * **slippage**         expected market impact (bps) — the biggest term for size.
+                       ONE setting (``DEFAULT_SLIPPAGE_BPS``) shared with the
+                       backtest simulator; charged once per side, never in bps
+                       AND as a price adjustment.
+* **flat fee**         optional ``flat_brokerage_per_order`` (rupees per order),
+                       used instead of ``brokerage`` bps when set. A flat fee
+                       dominates small tickets, which a bps rate cannot show.
+
+``turnover_bps``/``rebalance_cost`` sum these, so ONE config block drives the
+simulator (``backtest/costs.py``) and this planner with no double-counting.
 
 Defaults below are deliberately conservative (delivery-style); override from the
 ``costs`` config block. Turnover is one-way (``sum|t-c|/2``).
@@ -31,8 +40,9 @@ from ...core.results import safe_float
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_COST_BPS", "estimate_cost_bps", "rebalance_cost",
-           "no_trade_region", "should_rebalance", "apply_band"]
+__all__ = ["DEFAULT_COST_BPS", "DEFAULT_SLIPPAGE_BPS", "estimate_cost_bps",
+           "planner_costs", "rebalance_cost", "no_trade_region",
+           "should_rebalance", "apply_band", "flat_brokerage_per_order"]
 
 # Conservative India delivery defaults (bps of notional, per side).
 DEFAULT_COST_BPS: Dict[str, float] = {
@@ -42,12 +52,60 @@ DEFAULT_COST_BPS: Dict[str, float] = {
     "gst_on_brokerage_pct": 18.0,
     "stamp_duty": 1.5,     # buy side, 0.015%
     "sebi": 0.01,
-    "slippage": 5.0,       # expected impact
 }
+
+#: Expected market impact, bps per side. The ONE slippage setting in the system:
+#: the backtest simulator reads it (``backtest/costs.py``) and the rebalancing
+#: planner adds it per side, so a config change moves both. Kept out of
+#: ``DEFAULT_COST_BPS`` so that dict holds only the statutory/brokerage stack
+#: (rates that are certain), which the simulator can charge without the market
+#: term being counted twice.
+DEFAULT_SLIPPAGE_BPS = 5.0
+
+#: Rates that are NOT per-notional: a flat fee, or a percent multiplier.
+NON_BPS_KEYS = frozenset({"flat_brokerage_per_order", "gst_on_brokerage_pct"})
+
+
+def _rate_bps(costs: Dict[str, float], key: str) -> float:
+    """A rate that is bps of notional. A flat per-order fee is not one: a rupee
+    amount scales with ticket size, so treating it as bps would over-charge a
+    large order and under-charge a small one."""
+    return 0.0 if key in NON_BPS_KEYS else float(costs.get(key, 0.0) or 0.0)
+
+
+def flat_brokerage_per_order(costs: Dict[str, float]) -> float:
+    """The flat rupee fee per executed order (0 when brokerage is a bps rate)."""
+    try:
+        return max(0.0, float(costs.get("flat_brokerage_per_order", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def planner_costs(config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    """Costs for the PLANNER: the statutory stack plus the shared slippage term.
+
+    Why this exists. ``slippage`` left ``DEFAULT_COST_BPS`` because the backtest
+    simulator must not receive it as a per-fill statutory rate. But the planner
+    still has to charge expected market impact, or a rebalance would look free.
+    This is the ONE place that adds it back, so a change to
+    ``DEFAULT_SLIPPAGE_BPS`` (or to a config's ``slippage`` key) moves the
+    planner, and the simulator picks it up from the same key.
+    """
+    costs = estimate_cost_bps(config)
+    if config is None or safe_float((config or {}).get("slippage")) is None:
+        costs.setdefault("slippage", DEFAULT_SLIPPAGE_BPS)
+    return costs
 
 
 def estimate_cost_bps(config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
-    """Resolve the per-side cost breakdown (bps) from config, merged over defaults."""
+    """Resolve the per-side STATUTORY stack from config, merged over defaults.
+
+    A ``slippage`` key in ``config`` is kept, so a caller that passes the full
+    cost block gets it back unchanged. It is NOT in the defaults: the backtest
+    simulator consumes this dict as per-fill statutory rates, and slippage there
+    is a price move. Use :func:`planner_costs` to get the planner's view, which
+    includes the default market term.
+    """
     cfg = dict(DEFAULT_COST_BPS)
     for k, v in (config or {}).items():
         fv = safe_float(v)
@@ -57,15 +115,23 @@ def estimate_cost_bps(config: Optional[Dict[str, Any]] = None) -> Dict[str, floa
 
 
 def _round_trip_bps(costs: Dict[str, float]) -> float:
-    """Total round-trip cost in bps (buy + sell), including GST on brokerage+txn."""
-    brokerage = costs.get("brokerage", 0.0)
-    txn = costs.get("exchange_txn", 0.0)
-    gst_pct = costs.get("gst_on_brokerage_pct", 0.0) / 100.0
-    gst = (brokerage + txn) * gst_pct
-    per_side = (brokerage + costs.get("stt", 0.0) + txn + gst
-                + costs.get("sebi", 0.0) + costs.get("slippage", 0.0))
+    """Total round-trip cost in bps (buy + sell), including GST on brokerage+txn.
+
+    Slippage is charged ONCE per side and only when ``costs`` carries it. The
+    caller opts in with :func:`planner_costs`, which is the single place that
+    resolves the shared ``slippage`` key; ``CostModel`` (backtest/costs.py)
+    charges the same key once in the fill price, so neither can double-charge
+    it (audit item 1, 2026-11-17).
+    """
+    brokerage = _rate_bps(costs, "brokerage")
+    txn = _rate_bps(costs, "exchange_txn")
+    sebi = _rate_bps(costs, "sebi")
+    gst_pct = float(costs.get("gst_on_brokerage_pct", 0.0) or 0.0) / 100.0
+    gst = (brokerage + txn + sebi) * gst_pct
+    slippage = float(costs.get("slippage", 0.0) or 0.0)
+    per_side = (brokerage + _rate_bps(costs, "stt") + txn + sebi + gst + slippage)
     # Stamp duty is buy-side only.
-    return 2.0 * per_side + costs.get("stamp_duty", 0.0)
+    return 2.0 * per_side + _rate_bps(costs, "stamp_duty")
 
 
 def rebalance_cost(target: Dict[str, float], current: Dict[str, float],
@@ -78,7 +144,7 @@ def rebalance_cost(target: Dict[str, float], current: Dict[str, float],
     ``turnover`` is one-way fraction and ``cost_amount`` is in currency units
     when ``capital`` is given.
     """
-    costs = estimate_cost_bps(config)
+    costs = planner_costs(config)
     to = turnover(target, current)
     round_trip = _round_trip_bps(costs)
     # A one-way turnover of `to` incurs `to * round_trip` bps of notional.
@@ -100,7 +166,7 @@ def no_trade_region(target: Dict[str, float], current: Dict[str, float],
     cannot pay for itself, so it sits inside the "no-trade region". Returns a
     dict of per-sleeve absolute drift thresholds (fractions of weight).
     """
-    costs = estimate_cost_bps()
+    costs = planner_costs()
     rt = (cost_bps if cost_bps is not None
           else _round_trip_bps(costs)) / 10000.0   # as a fraction
     # Band = max(configured %, round-trip cost as a fraction). The cost term is
@@ -140,7 +206,7 @@ def apply_band(target: Dict[str, float], current: Dict[str, float], *,
     band_map = no_trade_region(
         target, current,
         band_pct=band_pct,
-        cost_bps=_round_trip_bps(estimate_cost_bps(costs_config)))
+        cost_bps=_round_trip_bps(planner_costs(costs_config)))
     effective: Dict[str, float] = {}
     held: list = []
     for k in set(target) | set(current):

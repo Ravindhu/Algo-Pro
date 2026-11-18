@@ -16,10 +16,15 @@ def poll_slice_qty(delta_volume: float, rate_pct: float) -> int:
 
 def slippage_penalised_rate(rate_pct: float, *, over_threshold: bool, penalty: float,
                             floor_pct: float) -> float:
-    """If realised slippage is over the threshold, scale the rate by ``penalty`` but never below the floor."""
+    """If realised slippage is over the threshold, scale the rate by ``penalty`` but never below the floor.
+
+    ``penalty`` is a REDUCTION multiplier and is capped at 1.0. A value above 1
+    would RAISE the participation rate exactly when slippage is already worse
+    than the threshold, which is the wrong direction (audit item 10, 2026-11-17).
+    """
     if not over_threshold:
         return float(rate_pct)
-    return max(float(floor_pct), float(rate_pct) * max(0.0, float(penalty)))
+    return max(float(floor_pct), float(rate_pct) * min(1.0, max(0.0, float(penalty))))
 
 
 def clamp_child_qty(slice_qty: int, *, remaining: int, max_slice: int | None,

@@ -166,7 +166,15 @@ class ReconciliationResult:
 
 
 class SlippageReconciler:
-    """Calibrate simulated slippage from caller-matched live long-entry fills."""
+    """Calibrate simulated slippage from caller-matched live fills, both sides.
+
+    WHY BOTH SIDES (audit item 9, 2026-11-17). Calibrating on BUY fills only is
+    biased: it samples one half of the order flow and, in a one-way market,
+    measures the move rather than the slippage. Each fill is now measured
+    AGAINST the side we traded, so a BUY that filled higher and a SELL that
+    filled lower both count as cost, and the mean is used. It is still floored
+    at zero: a negative mean is not a credit.
+    """
 
     def __init__(self, *, threshold_bps: float = 1.0) -> None:
         if not math.isfinite(threshold_bps) or threshold_bps < 0:
@@ -177,10 +185,15 @@ class SlippageReconciler:
                   matched_fills: Iterable[Dict[str, Any]]) -> ReconciliationResult:
         """Update a copied cost model using unique, explicitly matched fills.
 
-        Each record must include a unique ``fill_id``, ``side='BUY'``,
+        Each record must include a unique ``fill_id``, ``side`` (BUY or SELL),
         ``reference_price``, ``backtest_price`` and ``live_price``. Matching is
         deliberately required from the caller; timestamps alone are not a safe
         way to pair executions from different systems.
+
+        The signed delta for one fill is
+        ``(live - simulated) / reference * 1e4 * direction``, where direction is
+        +1 for a BUY and -1 for a SELL, so the result is positive when the fill
+        was worse than the simulation on either side.
         """
         deltas: List[float] = []
         seen_ids = set()
@@ -194,17 +207,16 @@ class SlippageReconciler:
             side = str(fill.get("side", "")).upper()
             if side not in ("BUY", "SELL"):
                 raise ValueError(f"fill {fill_id!r} has invalid side {side!r}")
-            if side != "BUY":
-                continue
             reference = float(fill["reference_price"])
             simulated = float(fill["backtest_price"])
             live = float(fill["live_price"])
             if reference <= 0 or not all(
                     math.isfinite(value) for value in (reference, simulated, live)):
                 raise ValueError(f"fill {fill_id!r} contains invalid prices")
-            deltas.append((live - simulated) / reference * 10000.0)
+            direction = 1.0 if side == "BUY" else -1.0
+            deltas.append((live - simulated) / reference * 10000.0 * direction)
         if not deltas:
-            raise ValueError("no matched BUY fills available for slippage calibration")
+            raise ValueError("no matched fills available for slippage calibration")
 
         mean_delta = statistics.fmean(deltas)
         previous = float(cost_model.slippage_bps)

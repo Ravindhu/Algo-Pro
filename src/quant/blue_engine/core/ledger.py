@@ -338,7 +338,18 @@ def record_child(*, execution_id, order_id=None, quantity=0, ltp=0.0,
         if avg_price is None:
             avg_price = ltp
         try:
-            _in_memory_get(execution_id).children[-1]["avg_price"] = avg_price
+            row = _in_memory_get(execution_id)
+            for child in row.children:
+                # By child_number, NOT ``children[-1]``: with concurrent children
+                # another claim can append between claim_child and this line, and
+                # the price then landed on the wrong child (audit item 11,
+                # 2026-11-17).
+                if child.get("child_number") == child_number:
+                    child["avg_price"] = avg_price
+                    break
+            else:
+                raise KeyError(child_number)
+            _persist(row)
         except Exception:
             pass
         # Only credit the child as filled when the caller explicitly opted in.

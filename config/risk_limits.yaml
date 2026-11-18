@@ -5,8 +5,11 @@
 # 2026-11-14: removed TWO duplicate max_symbols_per_portfolio keys (YAML silently
 #             kept the last one, so the comment on the first was a lie) and added
 #             the book-level caps from v5 2.6.
-# Change only after a human review. Any null value makes the gate reject entries
-# (fail closed). Mirrors RiskGate keys in src/quant/blue_engine/core/risk_gate.py.
+# Change only after a human review. NULL SEMANTICS (one rule, 2026-11-17): a null
+# means NOT SET. Nothing is added for it, no threshold is invented for it, and its
+# check REFUSES when it runs (fail closed): a live start or a gated intent with an
+# unset cap is refused. A null never switches a check off.
+# Mirrors RiskGate keys in src/quant/blue_engine/core/risk_gate.py.
 max_order_quantity: 10          # shares per order
 max_order_notional: 10000       # INR per order
 max_open_exposure: 20000        # INR across all open entries
@@ -17,7 +20,9 @@ max_symbols_per_portfolio: 8    # distinct symbols held at once (owner, 2026-11-
 blocked: false                  # true = stop all entries
 
 # --- Book-level caps (v5 2.6). A live start is REFUSED while any of these four is null
-#     (2026-11-15): a null cap switches its check off. Owner must set them before live. ---
+#     (2026-11-15). A null is NOT SET, not "check disabled": portfolio_risk_checks
+#     refuses an unset cap and RiskLimits.unset() blocks a live start. Owner must set
+#     them before live. ---
 max_sector_pct: null            # fraction of capital in one sector (0.30 = 30%)
 max_beta: null                  # book beta versus the index (1.20 = 1.2x)
 max_cvar: null                  # fraction of capital, 99% CVaR (0.05 = 5%)

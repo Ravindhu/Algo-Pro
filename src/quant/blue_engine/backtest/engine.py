@@ -488,9 +488,8 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                         order_notional=candidate_notional,
                         bar_notional=bar.volume * bar.close)
                     candidate_price = float(candidate_fill["price"])
-                    candidate_fee = (
-                        candidate * candidate_price
-                        * float(candidate_fill["charges_bps"]) / 10000.0)
+                    candidate_fee = config.cost_model.charges_amount(
+                        is_buy=True, notional=candidate * candidate_price)
                     if candidate * candidate_price + candidate_fee <= cash:
                         low = candidate
                     else:
@@ -514,7 +513,10 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
                     bar_notional=bar_notional)
                 fill_price = float(fill["price"])
                 charges_bps = float(fill["charges_bps"])
-                fee = order_quantity * fill_price * charges_bps / 10000.0
+                # Rupees, not bps: a flat per-order fee does not scale with the
+                # ticket (audit item 2, 2026-11-17).
+                fee = config.cost_model.charges_amount(
+                    is_buy=(side == "BUY"), notional=order_quantity * fill_price)
                 execution_cost = order_quantity * abs(fill_price - reference_price)
                 total_fill_cost = fee + execution_cost
                 costs_paid += total_fill_cost
@@ -636,6 +638,8 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
             (last_bar.close - average_entry_reference) * abs(quantity) * direction)
         mae, mfe = _excursion(direction, average_entry_reference,
                               trade_high, trade_low)
+        exit_cost_hypothetical = config.cost_model.charges_amount(
+            is_buy=(quantity < 0), notional=abs(quantity) * last_bar.close)
         trades.append({
             "entry_ts": average_entry_ts,
             "exit_ts": None,
@@ -644,8 +648,12 @@ def run_backtest(rows: Any, strategy: Any, params: Dict[str, Any], *,
             "entry_price": average_entry_reference,
             "exit_price": last_bar.close,
             "gross_pnl": gross_mark_pnl,
-            "costs": entry_cost_remaining,
-            "pnl": gross_mark_pnl - entry_cost_remaining,
+            "costs": entry_cost_remaining + exit_cost_hypothetical,
+            # The exit is HYPOTHETICAL until it happens, so charge the cost it
+            # would incur: equity is already marked at the close, and leaving the
+            # exit leg free made the open tail optimistic (audit 2026-11-17).
+            # It stays marked ``status: OPEN`` so nothing mistakes it for a trade.
+            "pnl": gross_mark_pnl - entry_cost_remaining - exit_cost_hypothetical,
             "status": "OPEN",
             "mae": mae,
             "mfe": mfe,
