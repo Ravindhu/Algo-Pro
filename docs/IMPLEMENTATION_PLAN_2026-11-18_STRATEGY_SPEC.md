@@ -54,7 +54,6 @@ Open:
   - Conservative key level: lowest body of the two candles.
 - Engulfing stop loss, take profit, breakeven and trailing: same as the OCL LTF rules.
 
-Still unspecified (assumed to be same as the OCL LTF rules, to confirm):
-- Sell-fail stop loss, take profit, breakeven and trailing.
+- Sell-fail stop loss, take profit, breakeven and trailing: same as the OCL LTF rules (owner confirmed 2026-11-18).
 
-Status: spec complete except the item above. Ready to build after owner go-ahead.
+Status: spec complete. Ready to build after owner go-ahead.
