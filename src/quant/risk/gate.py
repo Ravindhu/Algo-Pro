@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Dict, List, Optional, Set
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Set
 
+from quant.core import owner_limits_store
 from quant.core.config import RiskLimits
 from quant.core.types import GateDecision, TradeIntent
 from quant.monitor.safe_mode import Mode, SafeMode
@@ -45,7 +47,13 @@ def check_intent(
     available_funds: Optional[float] = None,
     halt: Optional[HaltHandler] = None,
     held_qty: Optional[int] = None,
+    owner_limits: Optional[Mapping[str, Any]] = None,
 ) -> GateDecision:
+    """Owner limits are applied HERE (audit item 5): this is the single entry
+    point for every order intent, so the owner's hard caps travel with every
+    check rather than depending on each caller having run the blue-side merge.
+    ``owner_limits`` is the parsed config/risk_limits.yaml block; ``None`` loads
+    the real file once per call. An unreadable owner file fails closed."""
     reasons: List[str] = []
     is_entry = intent.kind == "entry"
     if is_entry and halt is not None and halt.frozen:
@@ -84,7 +92,15 @@ def check_intent(
 
     if is_entry:
         reasons += symbol_cap_checks(intent, state.open_symbols, limits)
-    reasons += pretrade_checks(intent, limits)
+    # Owner hard caps: this gate is the single entry point, so they are applied
+    # here for every caller (audit item 5, 2026-11-17). An explicit argument wins
+    # (tests inject a file); otherwise the real config/risk_limits.yaml is used.
+    # An unreadable owner file returns the BLOCKED sentinel: blocked refuses.
+    if owner_limits is None:
+        owner_limits = owner_limits_store.load()
+    if owner_limits.get("blocked"):
+        reasons.append("owner limits: config/risk_limits.yaml unreadable or blocked=true")
+    reasons += pretrade_checks(intent, limits, owner_limits=owner_limits)
     reasons += price_band_checks(intent)
     reasons += liquidity_checks(intent, limits)
     if is_entry and limits.max_open_exposure is None:
