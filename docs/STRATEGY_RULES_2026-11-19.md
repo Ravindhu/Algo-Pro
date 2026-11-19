@@ -9,7 +9,7 @@ All rules use closed bars only. Oldest bar first. The bar in progress is never u
 ## 1. Words used
 
 - **MTF**: multi timeframe, the largest of the three. Example: Daily.
-- **HTF**: higher timeframe. Example: 4-hour (not supported yet, see section 8).
+- **HTF**: higher timeframe. Example: 1-hour (owner decision 2026-11-19, replaces 4-hour).
 - **LTF**: lower timeframe, the smallest. Example: 5-minute.
 - Order is always LTF < HTF < MTF. Set in the dashboard Trade setup panel and checked by `check_timeframe_order`.
 - **Body**: |close - open|. **Range**: high - low. A candle has a "50% body" when body / range > 0.5.
@@ -67,7 +67,7 @@ Mapping (owner confirmed): MTF sweeps on HTF. HTF sweeps on LTF. LTF needs no sw
 
 ## 5. Trigger freshness (owner question, 2026-11-19)
 
-Answer: yes. The bot takes a trigger only when the touch is on the newest closed LTF bar. An older touch means the setup is already stale and entering later could be far from the level, so the sequence returns nothing. Implemented as `fresh=True` in `sequence_signal` (the bot path). The tests of the plain sequence keep `fresh=False`.
+Owner confirmed 2026-11-19: yes. The bot takes a trigger only when the touch is on the newest closed LTF bar. An older touch means the setup is already stale and entering later could be far from the level, so the sequence returns nothing. Implemented as `fresh=True` in `sequence_signal` (the bot path). The tests of the plain sequence keep `fresh=False`.
 
 Consequence: with a 5-minute LTF and a 5-minute bot cycle, every touch is seen once. If the LTF is shorter than the bot interval (for example 1-minute), a touch can happen between two cycles and be missed. The owner should keep LTF at or above the bot interval, or change the rule.
 
@@ -96,7 +96,7 @@ Owner rule (r4): stop, target, breakeven and trail = the OCL LTF rules. The 3R a
 1. Level rules for the sell-fail strategies (levels 2, 4 and 5 in section 2) are my assumptions. Confirm or correct.
 2. Stop and target (section 7): confirm 3R and the stop reference.
 3. The 3-candle OCL break: confirm it needs nothing beyond C3 green and closing above C2 open.
-4. 4-hour HTF is not an OpenAlgo interval. It needs 1-hour bars combined into 4-hour bars aligned to the NSE session start at 09:15. Owner decision.
+4. HTF: owner decided 2026-11-19 to use 1-hour instead of 4-hour. No 4-hour bar is built. (Closed.)
 5. Retire the old `ocl`, `ocl_sell_fail_top`, `ocl_sell_fail_bottom` adapter names, or keep them alongside?
 6. Keep the sell-fail trigger candle (section 3.3) as an extra entry condition, or not?
 
@@ -108,3 +108,40 @@ Owner rule (r4): stop, target, breakeven and trail = the OCL LTF rules. The 3R a
 - Bot cycle: `src/quant/execution/strategy_bot.py`.
 - Runners (refuse to start without all three timeframes): `scripts/run/run_strategy_bot.py`, `scripts/run/run_strategy_bot_live.py`.
 - Tests: `tests/unit/test_owner_patterns.py`, `tests/unit/test_engulf_signal.py`, `tests/unit/test_mtf_bars.py`, `tests/unit/test_setup_timeframes.py`, `src/quant/tests/test_audit_fixes_2026_11_10.py`.
+
+## 10. Assumptions in use (2026-11-19)
+
+Each item below is a rule the code uses that the owner has not explicitly confirmed. Confirm or correct each one.
+
+Entry and exits
+1. Entry = the LTF OCL aggressive key level that was touched (not the touch bar's close or open).
+2. Stop = lowest low of the LTF OCL candles C1..C3. For a 4-candle break, C1..C3 are the three candles before C4.
+3. Target = 3R (3 times the stop distance).
+4. ATR = ATR(14) on LTF closed bars. Used only by the existing ATR checks.
+5. Breakeven at 1R and trail at 2 ATR, from `config/bot.yaml`, unless set per strategy.
+6. Entry is a limit order, at most `entry_max_slippage_bps` (20) above the last close.
+
+Pattern rules
+7. A "break" of a level = a candle CLOSE above it, not an intrabar touch.
+8. 3-candle OCL break needs only: C3 green and C3 close above C2 open. No extra candle condition.
+9. The sell-fail trigger candle (green, body over 50%, close above the pattern high) is NOT required in the five sequences. It exists as `find_sell_fail_trigger` and is unused.
+10. Level for `engulfing_fail` = higher of the two egpattern highs.
+11. Level for `ocl_sell_fail_top_seq` = highest high of the OCL candles.
+12. Level for `ocl_sell_fail_bottom_seq` = lowest low of the OCL candles.
+13. A sweep = a later bar's low below the swing low (wick or body). Swing = 3-candle swing low.
+14. Swing search looks back 20 HTF bars. The newest sweep is used.
+
+Sequence scope
+15. Only the newest MTF setup is checked. If it is not touched, older setups are ignored.
+16. The touch must come after the setup's last candle.
+17. The OCL must form after the HTF sweep time. The newest OCL that qualifies is used.
+18. Trigger must be on the newest closed LTF bar (owner confirmed 2026-11-19).
+
+Data and bot
+19. Closed bars only. Intraday bar fresh if it ended at most 15 minutes ago. Daily bar fresh if at most 4 days old.
+20. Screen file at most 10 minutes old. Symbols with ASM/GSM flags are skipped.
+21. Long only (BUY). No short side.
+22. Parent key = symbol + strategy + side + trigger bar time. One setup gives one parent.
+23. Timeframe sweep mapping: MTF sweeps on HTF, HTF sweeps on LTF, LTF needs no sweep (owner confirmed).
+24. HTF = 1-hour, LTF = 5-minute (or at least the bot interval), MTF = Daily in the owner's example. These are settings, not hard-coded.
+25. Paper mode only. Live stays off.

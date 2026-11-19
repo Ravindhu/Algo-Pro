@@ -216,3 +216,4 @@ Flow doc / SVG: the bot wiring changed the Strategy and Execution stages. The SV
 - Assumed levels for the sell-fail and engulfing-fail strategies: see `docs/STRATEGY_RULES_2026-11-19.md` section 8.
 - Runners refuse any of the five without all three timeframes.
 - Live stays off.
+- HTF decision (owner, 2026-11-19): use 1-hour instead of 4-hour. No 4-hour bar is built.
