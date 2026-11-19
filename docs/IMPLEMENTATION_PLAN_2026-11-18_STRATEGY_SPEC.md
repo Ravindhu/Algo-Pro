@@ -121,3 +121,17 @@ Status: spec complete. Ready to build after owner go-ahead.
   - Sell-fail strategy: "RGE sell-fail".
   - OCL strategies: unchanged (OCL, OCL sell-fail top, OCL sell-fail bottom).
   Owner to confirm the names.
+
+## Owner rules, round 7 (2026-11-19): five strategies and names
+1. Pattern `egpattern` (red-green engulfing), strategy `Engulfing`.
+2. Pattern `egpattern` used for sell-fail, strategy `Engulfing fail` (the fifth strategy).
+3. OCL, OCL sell-fail top, OCL sell-fail bottom (unchanged names).
+
+Entry flow, all strategies:
+- The pattern is confirmed only when its bar closes.
+- On the next candle, price touches the AGGRESSIVE key level.
+- Then wait for the next timeframe to take a liquidity sweep before looking for the entry.
+
+Still to confirm:
+- Direction: the next timeframe is LOWER or HIGHER? Owner wording varies between "one lower time" and "wait for one HTF". (Earlier: LTF sweep before OCL. Latest: HTF after an MTF touch.)
+- Sweep definition: wick beyond the level and back inside on the same bar, or a bar close beyond the level?
