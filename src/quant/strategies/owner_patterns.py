@@ -194,4 +194,4 @@ def engulf_signal(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     if atr_val is None or atr_val <= 0:
         return None
     return {"side": "BUY", "entry": entry, "sl_dist": float(sl_dist), "tp_dist": float(rr * sl_dist),
-            "atr": float(atr_val), "time": str(ltf.index[-1]), "strategy": "engulfing"}
+            "atr": float(atr_val), "time": str(res["trigger_time"]), "strategy": "engulfing"}  # stable key: same setup = same parent

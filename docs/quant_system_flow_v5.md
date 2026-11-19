@@ -338,6 +338,15 @@ reach the broker, the network or the file system in ways the quant layer must no
 | `portfolio.attribution.tearsheet` | Not wrapped | Performance attribution | Report only. No decision recorded |
 | `jobs.backfill_nav`, `jobs.sector_hm_report` | Not wrapped | Scheduled jobs | Scripts that write files. Only the read-only job gates are wrapped |
 
+## 4.4 Strategy stage (added 2026-11-19)
+
+Drawn as the bottom "Strategy stage" row in `quant_system_flow_v5.svg`. Rules: `docs/STRATEGY_RULES_2026-11-19.md`.
+
+- Built, paper only: closed bars for MTF, HTF and LTF (`src/quant/data/mtf_bars.py`), the Engulfing sequence (`owner_patterns.engulf_sequence`), the Engulfing signal (`engulf_signal`), and the bot cycle that calls it every 5 minutes (`strategy_bot.py`, `signal_for`).
+- Output goes to the Risk gate like every other bot trade. The Risk gate stays the only path to orders.
+- Not built: Engulfing fail, OCL, OCL sell-fail top and bottom (dashed in the SVG).
+- The bot runners refuse to start for Engulfing without all three timeframes set.
+
 ## 5. Small items (checklist, not drawn as blocks)
 
 1. Corporate-action order: splits, bonuses, dividends, demergers

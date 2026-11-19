@@ -37,6 +37,17 @@ def test_engulf_signal_builds_buy_levels(monkeypatch):
     assert sig["tp_dist"] == pytest.approx(3 * sig["sl_dist"])
     assert sig["atr"] > 0
     assert sig["strategy"] == "engulfing"
+    assert sig["time"] == str(ltf.index[-1]) or sig["time"] == str(_fake_seq(ltf)["trigger_time"])
+
+
+def test_signal_time_is_trigger_time_not_last_bar(monkeypatch):
+    ltf = _ltf()
+    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: _fake_seq(ltf))
+    sig = op.engulf_signal(None, None, ltf)
+    assert sig["time"] == str(ltf.index[-1])  # fake trigger is the last bar
+    later = pd.concat([ltf, _ltf(31).iloc[-1:]])
+    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: {**_fake_seq(ltf), "trigger_time": ltf.index[-1]})
+    assert op.engulf_signal(None, None, later)["time"] == str(ltf.index[-1])
 
 
 def test_engulf_signal_none_without_sequence(monkeypatch):
