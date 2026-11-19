@@ -40,3 +40,13 @@ Still open (the bot's position model is one Position per signal parent, so these
 
 ## Open items
 - Backtested target N for the aggressive-only exit (owner: needs a backtest).
+
+## Status update (2026-11-19, later)
+- DONE: next HTF cycle in the replay (`run_cycles`): after an HTF invalidation, the first new HTF OCL that forms below the invalidated price is used, its key must be touched, and the LTF loop runs again. No new sweep.
+- DONE: sweep rule: the NEWEST 3-candle swing low that formed before the MTF touch and is broken after the touch (`first_sweep_after`).
+- DONE: HTF OCL choice: the first (oldest) OCL after the sweep.
+- DONE: HTF invalidation uses HTF candle closes (rule 12), and it ends the cycle even before an entry.
+- DONE: order freshness helper `fresh_entries` (only entries on the newest closed LTF bar may become orders).
+- DONE (tests): `tests/unit/test_cycle.py` 14 tests, incl. next HTF cycle.
+- NOT DONE: bot wiring in `strategy_bot.py` (POV hand-off of the cycle position, broker stop at HTF OCL low, using fresh_entries in _scan, restart persistence).
+- NOT DONE: backtested target N. The repo has no historical OHLCV bars (data/ has only fii, sectors and a key file), so N cannot be found here. Needs bar history from the owner's OpenAlgo setup.

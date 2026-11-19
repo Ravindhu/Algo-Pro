@@ -278,3 +278,21 @@ def setup_low(mtf: pd.DataFrame, kind: str, end: int) -> float:
     ocl = find_ocl_rrg(mtf, end)
     start = _ocl_start(end, ocl)
     return float(min(ml[start: end + 1]))
+
+
+def first_sweep_after(htf: pd.DataFrame, touch_time) -> Optional[tuple]:
+    """Sweep for the cycle (owner 2026-11-19: one sweep is enough). Takes the NEWEST 3-candle swing low that
+    formed before the MTF touch and is broken (wick or body) at or after the touch.
+    Returns (swing_index, sweep_index) or None."""
+    low = htf["low"].to_numpy(dtype=float)
+    best = None
+    for i in range(1, len(htf) - 1):
+        if htf.index[i] >= touch_time:
+            break
+        if not is_swing_low_3(htf, i):
+            continue
+        for k in range(i + 1, len(htf)):
+            if htf.index[k] >= touch_time and low[k] < low[i]:
+                best = (i, k)
+                break
+    return best

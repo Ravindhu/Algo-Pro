@@ -61,11 +61,20 @@ def test_target_pending_until_backtest_sets_n():
     assert res.mode == "target_pending" and res.target is None
 
 
-def test_htf_close_below_hard_stop_invalidates_the_cycle():
-    below_htf_low = (9.5, 9.6, 8.5, 8.7)  # closes 8.7 < HTF low 9.0
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, below_htf_low), target_r=3.0)
+HTF_FILL = (10.0, 10.2, 9.9, 10.1)
+HTF_INVAL = HTF + [HTF_FILL] * 4 + [(9.5, 9.6, 8.5, 8.7)]  # HTF candle closes 8.7 < HTF low 9.0, at index 12
+
+
+def test_htf_close_below_hard_stop_ends_the_cycle_after_its_entry():
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_INVAL), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0)
     assert res.status == "htf_invalidated"
-    assert len(res.entries) == 1  # entry before the invalidation is kept in the result
+    assert [e.kind for e in res.entries] == ["aggressive"]  # conservative touch came after the HTF invalidation
+
+
+def test_htf_invalidated_before_any_entry_takes_no_entry():
+    early = HTF + [(9.5, 9.6, 8.5, 8.7)]  # HTF close 8.7 at index 8, before the LTF touch
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(early), _ltf(AGG_TOUCH), target_r=3.0)
+    assert res.status == "htf_invalidated" and res.entries == []
 
 
 def test_mtf_close_below_setup_low_ends_the_whole_cycle():
@@ -113,3 +122,38 @@ def test_new_ocl_must_form_below_the_previous_stop_out_level():
     ltf = _ltf(AGG_TOUCH, below_low, *ocl_above, touch_above)
     res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_DEEP), ltf, target_r=3.0)
     assert [e.price for e in res.entries] == [11.0]
+
+
+# ---- next HTF cycle: HTF invalidated at 12, new HTF OCL below 9.0 forms at 13..15, key touched at 16 ----
+HTF_RECYCLE = HTF_INVAL + [
+    (8.9, 8.95, 8.6, 8.6),   # 13 red
+    (8.8, 8.85, 8.55, 8.6),  # 14 red, C2 open 8.8 = key
+    (8.6, 9.0, 8.55, 8.9),   # 15 green, closes above 8.8 -> 3-candle break, key 8.8 (< 9.0)
+    (8.9, 9.0, 8.7, 8.85),   # 16 touches key 8.8
+]
+LTF_RECYCLE = [LTF_FILL] * 8 + [RRG_C1, RRG_C2, C3_BREAK, AGG_TOUCH] + [LTF_FILL] * 5 + [
+    (9.0, 9.1, 8.5, 8.6),    # 17 red
+    (8.8, 8.9, 8.3, 8.4),    # 18 red, open 8.8 = key
+    (8.4, 9.0, 8.3, 8.9),    # 19 green, closes above 8.8
+    (8.9, 9.0, 8.6, 8.85),   # 20 touches 8.8
+]
+
+
+def test_next_htf_cycle_runs_after_htf_invalidation():
+    results = cycle.run_cycles("egpattern_open", _frame(MTF), _frame(HTF_RECYCLE), _frame(LTF_RECYCLE), target_r=3.0)
+    assert [r.status for r in results] == ["htf_invalidated", "open"]
+    assert results[0].htf_low == 9.0 and [e.price for e in results[0].entries] == [11.0]
+    assert results[1].htf_low == pytest.approx(8.55)
+    assert [e.price for e in results[1].entries] == [8.8]
+
+
+def test_no_new_htf_ocl_below_the_invalidated_price_means_no_second_cycle():
+    results = cycle.run_cycles("egpattern_open", _frame(MTF), _frame(HTF_INVAL), _ltf(AGG_TOUCH), target_r=3.0)
+    assert len(results) == 1
+
+
+def test_fresh_entries_keeps_only_the_newest_bar():
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0)
+    assert [e.time for e in cycle.fresh_entries(res, newest_ltf_time=12)] == [12]
+    assert cycle.fresh_entries(res, newest_ltf_time=99) == []
+    assert cycle.fresh_entries(None, newest_ltf_time=12) == []

@@ -1,26 +1,27 @@
-"""Cycle replay for the five sequence strategies (owner rules 2026-11-19, rules doc section 11).
+"""Cycle replay for the five sequence strategies (owner rules 2026-11-19, rules doc sections 11 and 12).
 
 Flow stage: Strategy, Engulf sequence, Strategy bot cycle
-Status: PHASE 1 IMPLEMENTED (2026-11-19). Pure logic, no orders. Bot wiring is phase 2.
+Status: PHASE 2 IMPLEMENTED (2026-11-19): next HTF cycle and order freshness. Pure logic, no orders.
+Bot wiring (strategy_bot.py) is still open.
 
-Replays the whole cycle from closed bars, so no state is stored between cycles:
-  MTF setup -> MTF touch -> HTF sweep -> HTF OCL forms and its key level is touched
-  -> LTF OCL loop: aggressive touch = entry; conservative touch of the same OCL = entry (trail mode);
-     a close below the LTF OCL low arms the wait for a new LTF OCL below that level (added entry).
-Hard stop: the HTF OCL low. A close below it ends the HTF cycle (status htf_invalidated).
-MTF invalidation: a close below the MTF setup low ends the whole cycle (status mtf_invalidated).
-Exit mode: 'trail' if any conservative touch happened (ATR trail, no fixed target);
-           'target' if only aggressive touches happened (target = avg + target_r x R, R = avg - HTF OCL low);
-           'target_pending' if target_r is not yet set (owner: backtested best N, not known yet).
-Assumptions (see rules doc section 10): HTF OCL key touch is required; entries are the newest LTF bars only in phase 2.
+Replays the whole history from closed bars, so no state is stored between cycles:
+  MTF setup -> MTF touch -> HTF sweep (once) -> HTF OCL forms after the sweep and its key is touched
+  -> LTF OCL loop after the HTF key touch:
+       aggressive touch = entry; conservative touch of the same OCL = entry (trail mode);
+       a close below the LTF OCL low arms the wait for a new LTF OCL below that level (added entry).
+  -> HTF invalidated (an HTF candle closes below the HTF OCL low): the cycle ends. A new HTF OCL must form
+     below that invalidated price, its key must be touched, and the LTF loop runs again (no new sweep).
+  -> MTF invalidated (an MTF candle closes below the MTF setup low): the whole replay ends.
+Exit mode per cycle: 'trail' after any conservative touch; otherwise 'target' (avg + target_r x R) or 'target_pending'.
+Freshness: fresh_entries() returns only the entries on the newest closed LTF bar (the only ones that can become orders).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _newest_setup, _ocl_start,
-                                            find_ocl_rrg, find_swing_low_sweep, setup_low)
+                                            find_ocl_rrg, first_sweep_after, setup_low)
 
 
 @dataclass
@@ -41,55 +42,61 @@ class CycleResult:
     target: Optional[float] = None
 
 
-def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Optional[CycleResult]:
-    """Replay the cycle on closed bars. Returns None when no MTF setup has been touched yet."""
-    if len(mtf) < 3 or len(htf) < 4 or len(ltf) < 4:
+def _mtf_touch(kind: str, mtf) -> Optional[Tuple[object, Optional[object], float]]:
+    """(touch_time, mtf_invalidation_time or None, pattern_low) for the newest touched MTF setup, else None."""
+    if len(mtf) < 3:
         return None
     setup = _newest_setup(mtf, kind)
     if setup is None:
         return None
     end, level = setup
     pattern_low = setup_low(mtf, kind, end)
-    mo, mh, ml, _ = _arrays(mtf)
+    _, mh, ml, _ = _arrays(mtf)
     mc = mtf["close"].to_numpy(dtype=float)
     n_m = len(mtf) - 1
     touch = next((k for k in range(end + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
     if touch is None:
         return None
-    touch_time = mtf.index[touch]
-    inval_k = next((k for k in range(touch + 1, n_m + 1) if mc[k] < pattern_low), None)
-    mtf_inval_time = mtf.index[inval_k] if inval_k is not None else None
+    inval = next((k for k in range(touch + 1, n_m + 1) if mc[k] < pattern_low), None)
+    return mtf.index[touch], (mtf.index[inval] if inval is not None else None), pattern_low
 
-    # HTF sweep (not needed for the bottom strategy)
-    if kind in NO_SWEEP_KINDS:
-        start_time = touch_time
-    else:
-        sweep = find_swing_low_sweep(htf, len(htf) - 1)
-        if sweep is None or htf.index[sweep["sweep_index"]] < touch_time:
-            return None
-        start_time = htf.index[sweep["sweep_index"]]
 
-    # HTF OCL formed after the sweep (newest first), and its key level touched after it forms
+def _htf_stage(htf, start_time, floor: Optional[float]):
+    """First HTF OCL (oldest first) that forms at or after start_time, with its key touched after it forms.
+    If floor is given, the OCL key must be below it (new HTF OCL below the invalidated price).
+    Returns (end_index, ocl, touch_index) or None."""
     _, hh, hl, _ = _arrays(htf)
-    h_found = None
-    for m in range(len(htf) - 1, 2, -1):
+    for m in range(3, len(htf)):
         if htf.index[m] < start_time:
-            break
+            continue
         o = find_ocl_rrg(htf, m)
         if o is None:
             continue
+        if floor is not None and not (o["key_level"] < floor):
+            continue
         touches = [p for p in range(m + 1, len(htf)) if hl[p] <= o["key_level"] <= hh[p]]
         if not touches:
-            return None  # HTF OCL formed, key level not touched yet
-        h_found = (m, o, touches[0])
-        break
-    if h_found is None:
-        return None
-    hm, hoc, hp = h_found
-    htf_low = float(min(hl[_ocl_start(hm, hoc): hm + 1]))
-    htf_key_time = htf.index[hp]
+            return None  # OCL formed, key not touched yet
+        return m, o, touches[0]
+    return None
 
-    # LTF loop, bar by bar after the HTF key touch
+
+def _htf_low(htf, m: int, ocl: dict) -> float:
+    _, _, hl, _ = _arrays(htf)
+    return float(min(hl[_ocl_start(m, ocl): m + 1]))
+
+
+def _htf_invalid_time(htf, after_index: int, htf_low: float):
+    """First HTF candle after after_index that closes below htf_low (owner: HTF invalidated = HTF close)."""
+    hc = htf["close"].to_numpy(dtype=float)
+    for p in range(after_index + 1, len(htf)):
+        if hc[p] < htf_low:
+            return htf.index[p]
+    return None
+
+
+def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
+    """Run the LTF OCL loop after after_time. Returns (entries, any_conservative, status, end_time)."""
     _, lh, ll, lc = _arrays(ltf)
     n_l = len(ltf) - 1
     entries: List[Entry] = []
@@ -97,15 +104,17 @@ def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Opt
     prev_low = None
     any_cons = False
     status = "waiting"
+    end_time = None
     for k in range(n_l + 1):
         t = ltf.index[k]
-        if t <= htf_key_time:
+        if t <= after_time:
             continue
         if mtf_inval_time is not None and t >= mtf_inval_time:
             status = "mtf_invalidated"
             break
-        if entries and lc[k] < htf_low:
+        if htf_inval_time is not None and t >= htf_inval_time:
             status = "htf_invalidated"
+            end_time = htf_inval_time
             break
         if cur is not None and k > cur["end"]:
             if lc[k] < cur["low"]:
@@ -130,7 +139,10 @@ def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Opt
             cur = {"end": k, "agg": o["key_level"], "cons": o["conservative"],
                    "low": float(min(ll[s: s + 3])), "agg_touched": False, "cons_touched": False}
             prev_low = None
+    return entries, any_cons, status, end_time
 
+
+def _finish(kind, status, htf_low, entries, any_cons, target_r):
     if not entries:
         return CycleResult(kind=kind, status=status, htf_low=htf_low)
     if status == "waiting":
@@ -144,3 +156,50 @@ def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Opt
         mode, target = "target", avg + target_r * (avg - htf_low)
     return CycleResult(kind=kind, status=status, htf_low=htf_low, entries=entries,
                        avg_entry=avg, mode=mode, target=target)
+
+
+def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> List[CycleResult]:
+    """All HTF cycles in the history, in order. Empty list when no MTF setup has been touched."""
+    if len(mtf) < 3 or len(htf) < 4 or len(ltf) < 4:
+        return []
+    got = _mtf_touch(kind, mtf)
+    if got is None:
+        return []
+    touch_time, mtf_inval_time, _ = got
+    if kind in NO_SWEEP_KINDS:
+        start = touch_time
+    else:
+        sweep = first_sweep_after(htf, touch_time)
+        if sweep is None:
+            return []
+        start = htf.index[sweep[1]]
+    results: List[CycleResult] = []
+    floor = None
+    while True:
+        h = _htf_stage(htf, start, floor)
+        if h is None:
+            break
+        m, ocl, hp = h
+        htf_low = _htf_low(htf, m, ocl)
+        key_time = htf.index[hp]
+        inval_time = _htf_invalid_time(htf, hp, htf_low)
+        entries, any_cons, status, _ = _ltf_loop(ltf, key_time, htf_low, inval_time, mtf_inval_time)
+        results.append(_finish(kind, status, htf_low, entries, any_cons, target_r))
+        if status != "htf_invalidated":
+            break  # open, waiting or MTF invalidated: this is the end of the replay
+        floor = htf_low
+        start = inval_time  # the next HTF OCL must form after the invalidation
+    return results
+
+
+def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Optional[CycleResult]:
+    """The last cycle in the history (the current one), or None when no cycle exists."""
+    results = run_cycles(kind, mtf, htf, ltf, target_r)
+    return results[-1] if results else None
+
+
+def fresh_entries(result: Optional[CycleResult], newest_ltf_time) -> List[Entry]:
+    """Only entries on the newest closed LTF bar may become orders (owner rule, 2026-11-19)."""
+    if result is None:
+        return []
+    return [e for e in result.entries if e.time == newest_ltf_time]
