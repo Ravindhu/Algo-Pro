@@ -1,7 +1,7 @@
 """One position per HTF cycle: quantity, POV fills, pause and resume, average price. Pure logic, no I/O.
 
 Flow stage: Strategy bot framework, Protection, Algo router
-Status: PHASE 2 PART 2 IMPLEMENTED (2026-11-19). Rules: docs/STRATEGY_RULES_2026-11-19.md sections 11 and 12.
+Status: PHASE 2 IMPLEMENTED (2026-11-19). Part 2 of 2. Rules: docs/STRATEGY_RULES_2026-11-19.md sections 11 and 12.
 Not yet wired into strategy_bot.py (broker stop and POV hand-off are the next step).
 
 Rules:
