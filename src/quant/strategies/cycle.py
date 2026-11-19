@@ -1,8 +1,7 @@
 """Cycle replay for the five sequence strategies (owner rules 2026-11-19, rules doc sections 11 and 12).
 
 Flow stage: Strategy, Engulf sequence, Strategy bot cycle
-Status: PHASE 2 IMPLEMENTED (2026-11-19): next HTF cycle and order freshness. Pure logic, no orders.
-Bot wiring (strategy_bot.py) is still open.
+Status: PHASE 2 IMPLEMENTED (2026-11-19): next HTF cycle, order freshness, bot wiring (paused flag and cycle id). Pure logic, no orders.
 
 Replays the whole history from closed bars, so no state is stored between cycles:
   MTF setup -> MTF touch -> HTF sweep (once) -> HTF OCL forms after the sweep and its key is touched
@@ -40,6 +39,8 @@ class CycleResult:
     avg_entry: Optional[float] = None
     mode: Optional[str] = None            # trail | target | target_pending
     target: Optional[float] = None
+    htf_key_time: object = None           # identifies this HTF cycle (the HTF bar that touched the key)
+    ltf_paused: bool = False              # an LTF stop-out closed and no new LTF OCL has formed since
 
 
 def _mtf_touch(kind: str, mtf) -> Optional[Tuple[object, Optional[object], float]]:
@@ -96,7 +97,8 @@ def _htf_invalid_time(htf, after_index: int, htf_low: float):
 
 
 def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
-    """Run the LTF OCL loop after after_time. Returns (entries, any_conservative, status, end_time)."""
+    """Run the LTF OCL loop after after_time.
+    Returns (entries, any_conservative, status, end_time, paused). paused: waiting for a new LTF OCL."""
     _, lh, ll, lc = _arrays(ltf)
     n_l = len(ltf) - 1
     entries: List[Entry] = []
@@ -139,12 +141,14 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
             cur = {"end": k, "agg": o["key_level"], "cons": o["conservative"],
                    "low": float(min(ll[s: s + 3])), "agg_touched": False, "cons_touched": False}
             prev_low = None
-    return entries, any_cons, status, end_time
+    paused = prev_low is not None and status == "waiting"
+    return entries, any_cons, status, end_time, paused
 
 
-def _finish(kind, status, htf_low, entries, any_cons, target_r):
+def _finish(kind, status, htf_low, entries, any_cons, target_r, htf_key_time=None, paused=False):
     if not entries:
-        return CycleResult(kind=kind, status=status, htf_low=htf_low)
+        return CycleResult(kind=kind, status=status, htf_low=htf_low, htf_key_time=htf_key_time,
+                           ltf_paused=paused)
     if status == "waiting":
         status = "open"
     avg = sum(e.price for e in entries) / len(entries)
@@ -155,7 +159,8 @@ def _finish(kind, status, htf_low, entries, any_cons, target_r):
     else:
         mode, target = "target", avg + target_r * (avg - htf_low)
     return CycleResult(kind=kind, status=status, htf_low=htf_low, entries=entries,
-                       avg_entry=avg, mode=mode, target=target)
+                       avg_entry=avg, mode=mode, target=target,
+                       htf_key_time=htf_key_time, ltf_paused=paused)
 
 
 def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> List[CycleResult]:
@@ -183,8 +188,9 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Li
         htf_low = _htf_low(htf, m, ocl)
         key_time = htf.index[hp]
         inval_time = _htf_invalid_time(htf, hp, htf_low)
-        entries, any_cons, status, _ = _ltf_loop(ltf, key_time, htf_low, inval_time, mtf_inval_time)
-        results.append(_finish(kind, status, htf_low, entries, any_cons, target_r))
+        entries, any_cons, status, _, paused = _ltf_loop(ltf, key_time, htf_low, inval_time, mtf_inval_time)
+        results.append(_finish(kind, status, htf_low, entries, any_cons, target_r,
+                               htf_key_time=key_time, paused=paused))
         if status != "htf_invalidated":
             break  # open, waiting or MTF invalidated: this is the end of the replay
         floor = htf_low

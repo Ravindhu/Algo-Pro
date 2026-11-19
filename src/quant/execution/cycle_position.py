@@ -2,7 +2,7 @@
 
 Flow stage: Strategy bot framework, Protection, Algo router
 Status: PHASE 2 IMPLEMENTED (2026-11-19). Part 2 of 2. Rules: docs/STRATEGY_RULES_2026-11-19.md sections 11 and 12.
-Not yet wired into strategy_bot.py (broker stop and POV hand-off are the next step).
+Not used by strategy_bot.py: the bot keeps the same state in _Parent and Position (see docs/IMPLEMENTATION_PLAN_2026-11-19_CYCLE.md, known gaps).
 
 Rules:
 - Quantity is sized once, at the first trigger: qty = floor(risk_amount / (trigger_price - htf_low)).

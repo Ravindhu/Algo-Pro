@@ -2,7 +2,7 @@
 
 Flow stage: Strategy, Strategy bot cycle, Risk gate (exits)
 Source: `docs/STRATEGY_RULES_2026-11-19.md` section 11.
-Status: PHASE 1 DONE (2026-11-19). PHASE 2 PARTLY DONE: exit rules only. Bot wiring still open (see below).
+Status: PHASE 1 DONE (2026-11-19). PHASE 2 DONE in paper mode (2026-11-19): exit rules, next HTF cycle, freshness, bot wiring, restart guard. Backtested target N still open. Live stays off.
 
 ## Phase 1: cycle replay (pure logic, no orders) — DONE
 - Built as a replay over closed bars (`src/quant/strategies/cycle.py`, `run_cycle`), so no state is stored between cycles.
@@ -48,5 +48,19 @@ Still open (the bot's position model is one Position per signal parent, so these
 - DONE: HTF invalidation uses HTF candle closes (rule 12), and it ends the cycle even before an entry.
 - DONE: order freshness helper `fresh_entries` (only entries on the newest closed LTF bar may become orders).
 - DONE (tests): `tests/unit/test_cycle.py` 14 tests, incl. next HTF cycle.
-- NOT DONE: bot wiring in `strategy_bot.py` (POV hand-off of the cycle position, broker stop at HTF OCL low, using fresh_entries in _scan, restart persistence).
+- DONE: bot wiring in `strategy_bot.py` (`_scan_cycle`, paper mode):
+  - One parent per HTF cycle, keyed by `sym|strategy|BUY|cycle|<HTF key bar time>`. The first fresh trigger sizes the quantity through the full risk gate (`_gate_entry`). Later triggers in the same cycle add nothing.
+  - Entries count only on the newest closed LTF bar (`fresh_entries`).
+  - LTF stop-out (`CycleResult.ltf_paused`) pauses slicing. The next LTF touch resumes it with the same remaining quantity.
+  - POV fills average into one Position (existing `_record_fill`). Stop = HTF OCL low, and the broker stop follows `Position.stop`.
+  - Cycle positions: breakeven off. Trail from entry only after a conservative touch. Target = average + N x R, or None while N is not set.
+  - Earlier HTF cycles that ended: their unfilled quantity is dropped. Open positions stay under their stop.
+  - Restart guard: `_cycle_done` is persisted across days and restarts. A cycle that already opened, or still has a position, is never opened again with a second quantity.
+  - Tests: `src/quant/tests/test_strategy_bot_cycle.py` (7 tests), `tests/unit/test_cycle_state.py` (4 tests).
+- NOT DONE / KNOWN GAPS:
+  - `cycle_position.py` (`CyclePosition`) is tested but NOT used by the bot. The bot tracks the same state in `_Parent` and `Position`. Decide later: delete it or use it. Do not run both.
+  - The unfilled quantity of a cycle is not restored from disk (only the position is). After a restart the remaining quantity of that cycle is dropped, never refilled. Safe, but it means less fill than the rules intend.
+  - The gate's `tp_dist` for cycle entries is a placeholder (3 x risk). Exits never use it.
+  - The broker SL-M sync at the HTF OCL low is inherited from the existing stop path and is not separately verified against OpenAlgo.
+  - Sell-fail trigger candle, OCL-top 4-candle conservative level (C3 open vs close) and the breakeven default are still owner decisions (see the rules doc).
 - NOT DONE: backtested target N. The repo has no historical OHLCV bars (data/ has only fii, sectors and a key file), so N cannot be found here. Needs bar history from the owner's OpenAlgo setup.

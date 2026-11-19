@@ -13,6 +13,9 @@ One cycle (run every interval_minutes):
   3. For each symbol: read closed bars and daily stats (ADV, previous close). No data means skip.
   4. Run each strategy's signal(df). An approved signal becomes a parent plan (full quantity
      checked by the gate). A parent is stored once, however many cycles it appears.
+     Sequence strategies (is_cycle) use the cycle rules instead: one parent per HTF cycle, sized once by
+     the gate at the first fresh trigger; an LTF stop-out pauses it; the next LTF touch resumes it.
+     Cycle stop = HTF OCL low. Breakeven off; ATR trail only after a conservative touch.
   5. Manage open positions on their last closed bar: stop, target, breakeven and ATR trail
      (exit_manager.py). Exits go through the same gate. A stale last bar is used only for
      max_outage_cycles cycles; after that the exit is held and a CRITICAL alert is raised.
@@ -51,6 +54,7 @@ from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.pre_gate import PreGate, PreGateConfig
 from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
+from quant.strategies.cycle import fresh_entries
 from quant.strategies.signals.risk_adapter import gate_signal, levels_from_signal
 
 ALLOWED_MODES = ("paper", "analyze", "live")
@@ -289,13 +293,16 @@ class _Parent:
     remaining: int
     circuit_pct: float
     stop: float = 0.0
-    target: float = 0.0
+    target: Optional[float] = None   # None = no fixed target (trail mode, or target not set yet)
     atr: float = 0.0
     strategy: str = ""
     adv_shares: Optional[float] = None
     prev_close: Optional[float] = None
     cycles: int = 0
     seq: int = 0
+    cycle: bool = False              # one parent per HTF cycle (owner cycle rules, 2026-11-19)
+    trail: bool = False              # a conservative touch happened: ATR trail from entry, no breakeven
+    paused: bool = False             # LTF stop-out closed: no slicing until the next LTF OCL touch
 
 
 class _BotBook:
@@ -381,7 +388,10 @@ class StrategyBot:
         self.recon: Optional[ReconGate] = None  # set by run_startup_recon; None = not yet run (entries blocked)
         self._exit_cfg = ExitConfig(breakeven_r=cfg.breakeven_r, trail_mult=cfg.trail_mult)
         self._done: set = set()
-        self.alerts = alerts                      # CRITICAL/WARNING go here; None = audit log only
+        # Cycle keys already opened (one parent per HTF cycle). Kept across days and restarts,
+        # so an old HTF cycle can never be opened again with a second full-size quantity.
+        self._cycle_done: set = set()
+        self.alerts = alerts                     # CRITICAL/WARNING go here; None = audit log only
         self._booked: Dict[str, float] = {}       # notional added to open exposure, per position key
         self._marks: Dict[str, float] = {}        # mark-to-market P&L each open position has added to daily P&L
         self._cycle_no = 0                        # cycle counter, used to age the last known bar
@@ -600,7 +610,42 @@ class StrategyBot:
         except Exception:
             return 0.0  # no funds known: entries are refused
 
+    def _gate_entry(self, key: str, sig: dict, strat, sym: str, circuit_pct: float, stats, now,
+                    ref_price: float) -> Optional[TradeIntent]:
+        """Lot check, pre-gate and the full risk gate for one new parent. Returns the sized intent or None (logged)."""
+        lot = stats.get("lot_size", 1)
+        if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
+            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
+            return None
+        # Pre-gate (capital protection): calendar, handoff contract, auction window and
+        # feed health. The overnight gap and stress/VaR checks run inside gate_signal on
+        # the real intent (proper ref price + size).
+        pre = self._pre_gate.check(
+            TradeIntent(intent_id=f"{key}-PRE", strategy_id=strat.name, symbol=sym,
+                        side="BUY", qty=1, ref_price=ref_price, kind="entry",
+                        prev_close=None, trade_day=now.date()),
+            now=now, feed_book=self.feed_health,
+        )
+        if not pre.ok:
+            self._log("pre_gate_refused", key=key, reasons=list(pre.reasons))
+            return None
+        res = gate_signal(
+            sig, symbol=sym, strategy_id=strat.name, equity=self._funds,
+            risk_fraction=self.cfg.risk_per_trade, state=self.state, limits=self._limits,
+            kill=self._kill, safe=self._safe, halt=self._halt, available_funds=self._funds,
+            adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
+            circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
+            pre_gate=self._pre_gate, now=now, feed_book=self.feed_health,
+        )
+        self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
+        if not res.ok or res.intent is None:
+            return None
+        return res.intent
+
     def _scan(self, strat, sym, df, circuit_pct, stats, now, report) -> None:
+        if getattr(strat, "is_cycle", False):
+            self._scan_cycle(strat, sym, df, circuit_pct, stats, now, report)
+            return
         try:
             sig = (strat.signal_for(sym, df, now) if hasattr(strat, "signal_for")
                    else strat.signal(df))
@@ -618,41 +663,93 @@ class StrategyBot:
         key = f"{sym}|{strat.name}|{str(sig.get('side'))}|{sig.get('time')}"
         if key in self._parents or key in self._done:
             return
-        lot = stats.get("lot_size", 1)
-        if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
-            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
+        intent = self._gate_entry(key, sig, strat, sym, circuit_pct, stats, now,
+                                  ref_price=float(df["close"].iloc[-2]))
+        if intent is None:
             return
-        # Pre-gate (capital protection): calendar, handoff contract, auction window and
-        # feed health. The overnight gap and stress/VaR checks run inside gate_signal on
-        # the real intent (proper ref price + size).
-        pre = self._pre_gate.check(
-            TradeIntent(intent_id=f"{key}-PRE", strategy_id=strat.name, symbol=sym,
-                        side="BUY", qty=1, ref_price=float(df["close"].iloc[-2]), kind="entry",
-                        prev_close=None, trade_day=now.date()),
-            now=now, feed_book=self.feed_health,
-        )
-        if not pre.ok:
-            self._log("pre_gate_refused", key=key, reasons=list(pre.reasons))
-            return
-        res = gate_signal(
-            sig, symbol=sym, strategy_id=strat.name, equity=self._funds,
-            risk_fraction=self.cfg.risk_per_trade, state=self.state, limits=self._limits,
-            kill=self._kill, safe=self._safe, halt=self._halt, available_funds=self._funds,
-            adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
-            circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
-            pre_gate=self._pre_gate, now=now, feed_book=self.feed_health,
-        )
-        self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
-        if not res.ok or res.intent is None:
-            return
-        self.state.seen_ids.add(res.intent.intent_id)
+        self.state.seen_ids.add(intent.intent_id)
         self._done.add(key)
         _, stop, target = levels_from_signal(sig)
-        self._parents[key] = _Parent(key=key, intent=res.intent, remaining=res.intent.qty,
+        self._parents[key] = _Parent(key=key, intent=intent, remaining=intent.qty,
                                      circuit_pct=circuit_pct, stop=stop, target=target,
                                      atr=float(sig["atr"]), strategy=strat.name,
                                      adv_shares=stats["adv_shares"], prev_close=stats["prev_close"])
         report["parents_opened"] += 1
+
+    @staticmethod
+    def _cycle_key(strat, sym: str, res) -> Optional[str]:
+        """One key per HTF cycle: the HTF bar that touched the OCL key identifies the cycle."""
+        if res.htf_key_time is None:
+            return None
+        return f"{sym}|{strat.name}|BUY|cycle|{res.htf_key_time}"
+
+    def _scan_cycle(self, strat, sym, df, circuit_pct, stats, now, report) -> None:
+        """Cycle rules (owner 2026-11-19, rules doc sections 11 and 12).
+
+        One parent per HTF cycle. The first fresh trigger sizes the quantity once through the risk gate;
+        every later trigger in that cycle keeps the same quantity. The LTF stop-out pauses slicing;
+        the next LTF OCL touch resumes it. The cycle's stop is the HTF OCL low (hard stop, no LTF stop).
+        Only the newest closed LTF bar can open or resume a cycle (freshness)."""
+        try:
+            view = strat.cycle_for(sym, now)
+        except Exception as exc:
+            self._log("strategy_error", strategy=strat.name, symbol=sym, error=repr(exc))
+            return
+        if view is None or not view.results:
+            return
+        cur = view.results[-1]
+        for old in view.results[:-1]:  # earlier HTF cycles have ended: drop their unfilled quantity
+            old_key = self._cycle_key(strat, sym, old)
+            if old_key is not None and old_key in self._parents:
+                self._close(old_key, "HTF cycle ended: unfilled quantity dropped")
+        key = self._cycle_key(strat, sym, cur)
+        if key is None:
+            return
+        if cur.status == "htf_invalidated":
+            if key in self._parents:
+                self._close(key, "HTF invalidated: unfilled quantity dropped")
+            return
+        fresh = fresh_entries(cur, view.newest_ltf_time)
+        parent = self._parents.get(key)
+        if parent is None:
+            if not fresh or key in self._cycle_done or key in self._positions:
+                return  # never a second quantity for the same HTF cycle
+            if view.atr is None:
+                self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="no ATR for cycle")
+                return
+            trigger = float(fresh[0].price)
+            sl_dist = trigger - float(cur.htf_low)
+            if sl_dist <= 0:
+                self._log("parent_skipped", strategy=strat.name, symbol=sym,
+                          reason="trigger not above HTF OCL low")
+                return
+            # tp_dist is a placeholder for the gate's checks only. Exits use the stop and the target
+            # from the cycle rules, never this value.
+            sig = {"side": "BUY", "entry": trigger, "sl_dist": sl_dist, "tp_dist": 3.0 * sl_dist,
+                   "atr": view.atr, "time": str(cur.htf_key_time), "strategy": strat.name}
+            intent = self._gate_entry(key, sig, strat, sym, circuit_pct, stats, now, ref_price=trigger)
+            if intent is None or intent.qty < 1:
+                return
+            self.state.seen_ids.add(intent.intent_id)
+            self._cycle_done.add(key)
+            self._parents[key] = _Parent(key=key, intent=intent, remaining=intent.qty,
+                                         circuit_pct=circuit_pct, stop=float(cur.htf_low),
+                                         target=cur.target, atr=view.atr, strategy=strat.name,
+                                         adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
+                                         cycle=True, trail=cur.mode == "trail", paused=False)
+            report["parents_opened"] += 1
+            return
+        # Existing cycle: a new LTF touch resumes filling, an LTF stop-out pauses it.
+        if fresh:
+            parent.paused = False
+        elif cur.ltf_paused:
+            parent.paused = True
+        parent.target = cur.target
+        parent.trail = cur.mode == "trail"
+        pos = self._positions.get(key)
+        if pos is not None:
+            pos.target = cur.target
+            pos.trail_from_start = parent.trail
 
     def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:
         """POV fraction for one parent's child. Fixed mode: cfg.pov. Band mode: the VWAP band from
@@ -741,6 +838,8 @@ class StrategyBot:
             if self._faults:
                 report["skipped"].append("slicing paused: open fault")
                 break  # never add exposure while a stop or a fill is unresolved
+            if p.paused:
+                continue  # LTF stop-out: no slicing until the next LTF OCL touch (owner rule 11.8)
             p.cycles += 1
             if p.remaining <= 0 or p.cycles > self.cfg.max_cycles:
                 self._close(key, "fully sliced" if p.remaining <= 0 else "max cycles reached")
@@ -834,6 +933,8 @@ class StrategyBot:
                 key=p.key, symbol=p.intent.symbol, side=p.intent.side, qty=qty, entry=fill,
                 stop=p.stop, target=p.target, atr=p.atr, adv_shares=p.adv_shares,
                 prev_close=p.prev_close, circuit_pct=p.circuit_pct, strategy=p.strategy,
+                # cycle positions: no breakeven (owner 11.9); ATR trail from entry after a conservative touch
+                breakeven_enabled=not p.cycle, trail_from_start=bool(p.cycle and p.trail),
             )
             self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
         else:
@@ -995,6 +1096,7 @@ class StrategyBot:
             "booked": {k: round(float(v), 2) for k, v in self._booked.items()},
             "marks": {k: round(float(v), 2) for k, v in self._marks.items()},
             "done": sorted(self._done),
+            "cycle_done": sorted(self._cycle_done),
             "positions": positions,
         })
 
@@ -1019,6 +1121,7 @@ class StrategyBot:
         self._positions = restored
         self.state.open_notional = float(doc.get("open_notional", 0.0))
         self._booked = {str(k): float(v) for k, v in doc.get("booked", {}).items()}
+        self._cycle_done = set(str(k) for k in doc.get("cycle_done", []))  # all days, not only today
         if same_day:
             self._marks = {str(k): float(v) for k, v in doc.get("marks", {}).items()}
             self._done = set(str(k) for k in doc.get("done", []))
