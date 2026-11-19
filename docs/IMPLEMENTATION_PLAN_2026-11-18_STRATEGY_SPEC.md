@@ -195,7 +195,7 @@ Still to confirm:
 - Added `engulf_signal` in `src/quant/strategies/owner_patterns.py`: runs `engulf_sequence` on MTF/HTF/LTF closed bars and builds a BUY signal.
 - Added `EngulfSequenceStrategy` in `src/quant/strategies/engulf_sequence_strategy.py`: gets closed bars from `MultiTimeframeBars` via `signal_for(symbol, df, now)`.
 - `StrategyBot._scan` calls `signal_for` when a strategy has it, otherwise `signal(df)` as before.
-- `scripts/run/run_strategy_bot.py` loads MTF/HTF/LTF from trade setup (`load_timeframes`). If all three are set, `engulfing` uses the sequence strategy. If not, it keeps the old single-timeframe `Engulfing` class, so existing behaviour is unchanged.
+- `scripts/run/run_strategy_bot.py` loads MTF/HTF/LTF from trade setup (`load_timeframes`). If all three are set, `engulfing` uses the sequence strategy. If not all three are set, the runner refuses to start (BotRefused). The paper runner and the live runner both follow this rule. Timeframes come from `config/settings.yaml` trade_setup.timeframes.
 - Paper mode only. The runner still refuses any mode other than paper, and `live_enabled` must stay false.
 
 ASSUMPTIONS, owner to confirm before live:

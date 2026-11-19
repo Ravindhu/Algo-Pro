@@ -73,8 +73,8 @@ PAPER_SYMBOL_LABEL = "PORTFOLIO"  # the engulfing class needs a symbol; the bot 
 
 def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None):
     if name == "engulfing":
-        if feed is None:  # timeframes not all set: keep the existing single-timeframe class
-            return Engulfing(PAPER_SYMBOL_LABEL)
+        if feed is None:
+            raise BotRefused("engulfing needs MTF, HTF and LTF set in the trade setup; the runner does not start without them")
         return EngulfSequenceStrategy(feed)
     # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
     # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol

@@ -240,7 +240,8 @@ def test_runner_builds_live_bot_when_gate_passes_and_places_no_order(tmp_path):
                             limits_sha256=file_sha256(LIMITS))
     passing = lambda **k: {"ok": True, "reasons": [], "approval": approval, "capital_cap": 500000.0}
     settings = tmp_path / "settings.yaml"
-    settings.write_text("live:\n  allowed_egress_ip: '203.0.113.10'\n  max_capital_inr: 500000\n", encoding="utf-8")
+    settings.write_text("live:\n  allowed_egress_ip: '203.0.113.10'\n  max_capital_inr: 500000\n"
+                        "trade_setup:\n  timeframes:\n    htf: 1h\n    mtf: 1d\n    ltf: 5m\n", encoding="utf-8")
     bot, audit = run.build_live_bot(bot_cfg_path=cfg, limits_path=LIMITS, state_dir=tmp_path / "s",
                                     base_url="http://x", api_key="K", transport=transport,
                                     reader=FakeReader(), startup_fn=passing,

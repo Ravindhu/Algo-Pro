@@ -192,13 +192,15 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         if symbols:
             vwap_book.poll(symbols, now)
 
+    tf = _paper.load_timeframes(settings_path or _live_checks.SETTINGS_FILE)
+    feed = _paper.MultiTimeframeBars(readonly, api_key, tf) if all(tf.values()) else None
     bot = StrategyBot(
         cfg=cfg,
         vwap_provider=vwap_book.vwap,
         buyer_share_provider=vwap_book.buyer_share,
         depth_provider=lambda sym: readonly.depth(api_key, sym, "NSE"),
         vwap_tick=vwap_tick if cfg.pov_mode == "peg_band_buyer" else None,
-        strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path)) for n in cfg.strategies],
+        strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path), feed) for n in cfg.strategies],
         bars=LiveBars(readonly, api_key),
         sender=_live_sender(client, cfg),
         audit=audit,

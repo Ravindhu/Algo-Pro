@@ -217,7 +217,8 @@ class _Reader:
 
 def _live_build(tmp_path, cash, cap, seen):
     settings = tmp_path / "settings.yaml"
-    settings.write_text("live:\n  allowed_egress_ip: '203.0.113.10'\n  max_capital_inr: 500000\n", encoding="utf-8")
+    settings.write_text("live:\n  allowed_egress_ip: '203.0.113.10'\n  max_capital_inr: 500000\n"
+                        "trade_setup:\n  timeframes:\n    htf: 1h\n    mtf: 1d\n    ltf: 5m\n", encoding="utf-8")
     limits = tmp_path / "risk_limits.yaml"
     limits.write_text("max_order_quantity: 10\nmax_order_notional: 10000\nmax_open_exposure: 20000\n"
                       "max_daily_loss: 1000\nmax_strategy_loss: 500\nmax_adv_pct: 0.01\n"

@@ -344,6 +344,9 @@ def test_analyze_sender_does_not_count_open_order_as_filled():
 
 # ---- runner -------------------------------------------------------------------------------------
 
+TF = {"mtf": "1d", "htf": "1h", "ltf": "5m"}
+
+
 def _write_cfg(tmp_path, **over):
     screen = tmp_path / "latest.json"
     screen.write_text(json.dumps({"as_of": NOW.isoformat(), "results": []}), encoding="utf-8")
@@ -381,7 +384,7 @@ def test_runner_refuses_analyze_mode(tmp_path):
     bot_yaml, limits = _write_cfg(tmp_path, mode="analyze")
     with pytest.raises(BotRefused):
         run.build_bot(bot_cfg_path=bot_yaml, limits_path=limits, state_dir=tmp_path / "s",
-                      reader=_NoReader(), api_key="KEY", paper_capital=100000)
+                      reader=_NoReader(), api_key="KEY", paper_capital=100000, timeframes=TF)
 
 
 def test_runner_refuses_live_flag(tmp_path):
@@ -389,7 +392,7 @@ def test_runner_refuses_live_flag(tmp_path):
     bot_yaml, limits = _write_cfg(tmp_path, live_enabled=True)
     with pytest.raises(BotRefused):
         run.build_bot(bot_cfg_path=bot_yaml, limits_path=limits, state_dir=tmp_path / "s",
-                      reader=_NoReader(), api_key="KEY", paper_capital=100000)
+                      reader=_NoReader(), api_key="KEY", paper_capital=100000, timeframes=TF)
 
 
 def test_runner_runs_cycles_and_places_no_orders_when_source_unapproved(tmp_path):
@@ -397,7 +400,7 @@ def test_runner_runs_cycles_and_places_no_orders_when_source_unapproved(tmp_path
     bot_yaml, limits = _write_cfg(tmp_path)
     state = tmp_path / "s"
     bot, audit = run.build_bot(bot_cfg_path=bot_yaml, limits_path=limits, state_dir=state,
-                               reader=_NoReader(), api_key="KEY", paper_capital=100000)
+                               reader=_NoReader(), api_key="KEY", paper_capital=100000, timeframes=TF)
     done = run.run(bot, audit, state_dir=state, clock=lambda: NOW, sleep=lambda s: None, max_cycles=2)
     assert done == 2
     kinds = [r["kind"] for r in audit.read_all()]
@@ -410,8 +413,16 @@ def test_runner_stops_on_stop_flag(tmp_path):
     bot_yaml, limits = _write_cfg(tmp_path)
     state = tmp_path / "s"
     bot, audit = run.build_bot(bot_cfg_path=bot_yaml, limits_path=limits, state_dir=state,
-                               reader=_NoReader(), api_key="KEY", paper_capital=100000)
+                               reader=_NoReader(), api_key="KEY", paper_capital=100000, timeframes=TF)
     (state / run.STOP_FLAG).write_text("stop", encoding="utf-8")
     done = run.run(bot, audit, state_dir=state, clock=lambda: NOW, sleep=lambda s: None)
     assert done == 0
     assert "runner_stopped" in [r["kind"] for r in audit.read_all()]
+
+
+def test_runner_refuses_engulfing_without_timeframes(tmp_path):
+    run = _runner()
+    bot_yaml, limits = _write_cfg(tmp_path)
+    with pytest.raises(BotRefused, match="MTF, HTF and LTF"):
+        run.build_bot(bot_cfg_path=bot_yaml, limits_path=limits, state_dir=tmp_path / "s",
+                      reader=_NoReader(), api_key="KEY", paper_capital=100000, timeframes=None)
