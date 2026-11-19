@@ -275,3 +275,37 @@ Fixing order, if the owner wants it:
 3. Make `cycle.avg_entry` quantity-weighted with the same sizes, so replay and bot
    agree.
 4. Set the per-cycle loss ceiling, then enable the remaining four strategies.
+
+## 14. Worked example of the ladder (owner 2026-11-19)
+
+After the HTF OCL has formed. This is the same ladder as section 11.4 and 11.5, written as a
+step-by-step table so the implementation can be checked against it line by line.
+
+| # | Event | Size |
+|---|---|---|
+| 1 | OCL #1 aggressive touch | 0.10 % |
+| 1b | OCL #1 conservative touch | +0.15 % (OCL #1 total 0.25 %) |
+| 2 | close below OCL #1 low → invalidated | remaining unfilled qty paused |
+| 3 | OCL #2 forms below → aggressive | remaining qty + 0.25 % at OCL #2's price |
+| 3b | OCL #2 conservative touch | +0.15 % |
+| 4 | OCL #2 invalidated | remaining rolls forward |
+| 5 | OCL #3 forms below → aggressive | remaining qty + 0.25 % at OCL #3's price |
+| 5b | after that entry, stop opening at 0.25 % | wait |
+| 6 | wait for: conservative touch, then a new OCL | — |
+| 7 | that new OCL → entry | 0.50 % |
+| 7b | then back to waiting for the same condition | repeat |
+| 8 | HTF close below HTF OCL low | cycle ends |
+| — | remainder | rolls forward to every new OCL until HTF invalidation |
+
+Worked numbers (equity ₹1,00,000, HTF L ₹93, OCL #1 agg ₹100 / cons ₹95, OCL #2 agg ₹94):
+
+```
+OCL #1 agg  : floor(1,00,000 x 0.0010 / (100-93)) = 14 sh
+OCL #1 cons : floor(1,00,000 x 0.0015 / (95-93))  = 30 sh   (OCL #1 total 0.25 %)
+   44 sized; say 20 filled before the close below the OCL #1 low -> 24 remain
+OCL #2 agg  : 24 carried + floor(1,00,000 x 0.0025 / (94-93)) = 24 + 250 = 274 sh
+```
+
+The 250 is correct arithmetic, not a bug: a ₹1 stop distance makes 0.25 % of equity a large
+share count. `max_order_quantity` / `max_order_notional` clamp it at the gate (11.9 item 26),
+which is why those caps must stay set before any paper run.
