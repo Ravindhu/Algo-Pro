@@ -1,6 +1,6 @@
 # Implementation plan: risk ladder for the cycle strategies (2026-11-19)
 
-Status: PLAN ONLY. No code changed yet. Live stays OFF. Paper mode only.
+Status: P0, P1 and P2 done (2026-11-19). P3 to P5 open. Live stays OFF. Paper mode only.
 Rules source: `docs/STRATEGY_RULES_2026-11-19.md` section 11 (rules) and section 14 (worked example).
 Gap list source: the same file, section 13.
 
@@ -70,7 +70,17 @@ This plan does not edit the owner's doc.
 Each phase: validate, run relevant tests, update this doc, commit, push. Stop and report if a
 test fails. Never push a failing phase.
 
-## 6. Owner decisions needed before P2
+## 6. Owner decisions (answered 2026-11-19)
+
+1. Section 14 numbers: the typed example values are illustrative only. The FORMULA is the rule.
+2. N = 2.1 (settings.yaml `cycle.target_r`).
+3. Per-cycle loss ceiling = 3.1 % of equity (settings.yaml `cycle.loss_ceiling`).
+4. Stop stays at HTF L. Conservative touches do not move it (see 6b).
+
+6b. Plain-words note on item 4: each entry has the same stop, the HTF OCL low. A conservative touch
+only adds shares; it never raises the stop. This matches section 11.7 item 17.
+
+### Old question list (kept for history)
 
 1. Correct the section 14 numbers (OCL #1 conservative = 75 sh, not 30; total 89, not 44).
 2. Value of N (backtested target multiple). Until set, aggressive-only cycles are refused.
@@ -89,5 +99,13 @@ test fails. Never push a failing phase.
 
 ## 8. Progress log
 
+- 2026-11-19: P1 done: N = 2.1 and loss ceiling 3.1 % in config/settings.yaml `cycle`; runner passes N to
+  the sequence strategy; bot refuses cycles with no N (target_pending) with a log line; replay unchanged.
+- 2026-11-19: P2 done: src/quant/strategies/risk_ladder.py (formula, probe/ladder/pair stages, carry,
+  per-cycle ceiling, fail closed when the ceiling is unset). Tests: tests/unit/test_risk_ladder.py (12 pass).
+  Open in P2: the owner rules do not say whether carried shares join the 0.50 % conviction entry.
+  Built as NO (carry stays separate). Owner to confirm.
+  Pre-existing failures (before this change, same 16): src/quant/tests/test_strategy_bot*.py. Cause: the
+  pre-entry gate refuses the test entries (pre_gate_refused). Not touched yet.
 - 2026-11-19: P0 started. Repo cloned to /home/claude/algo-pro at 19aeb5f. Code gaps confirmed.
   Section 14 arithmetic error found. Waiting for owner decisions (section 6).

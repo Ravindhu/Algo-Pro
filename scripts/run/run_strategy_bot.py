@@ -76,7 +76,9 @@ def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None)
     if name in SEQUENCE_KINDS:
         if feed is None:
             raise BotRefused(f"{name} needs MTF, HTF and LTF set in the trade setup; the runner does not start without them")
-        return SequenceStrategy(feed, name, SEQUENCE_KINDS[name])
+        from quant.strategies.risk_ladder import load_cycle_settings
+        cyc = load_cycle_settings(pathlib.Path("config/settings.yaml"))
+        return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"])
     # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
     # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol
     # settings come from config/bot.yaml strategies.<name>.params (pattern, HTF/LTF intervals,

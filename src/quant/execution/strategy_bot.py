@@ -698,6 +698,10 @@ class StrategyBot:
         if view is None or not view.results:
             return
         cur = view.results[-1]
+        if cur.mode == "target_pending" and self._cycle_key(strat, sym, cur) not in self._parents:
+            # Fail closed (rules doc 11.7): no exit rule means no trade. N is set in settings.yaml cycle.target_r.
+            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="target N not set")
+            return
         for old in view.results[:-1]:  # earlier HTF cycles have ended: drop their unfilled quantity
             old_key = self._cycle_key(strat, sym, old)
             if old_key is not None and old_key in self._parents:
