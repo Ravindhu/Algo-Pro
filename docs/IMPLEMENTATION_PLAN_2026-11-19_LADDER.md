@@ -74,7 +74,7 @@ test fails. Never push a failing phase.
 
 1. Section 14 numbers: the typed example values are illustrative only. The FORMULA is the rule.
 2. N = 2.1 (settings.yaml `cycle.target_r`).
-3. Per-cycle loss ceiling = 3.1 % of equity (settings.yaml `cycle.loss_ceiling`).
+3. Per-cycle loss ceiling = 1 % of equity (settings.yaml `cycle.loss_ceiling`). Owner changed it from 3.1 % to 1 % on 2026-11-19.
 4. Stop stays at HTF L. Conservative touches do not move it (see 6b).
 
 6b. Plain-words note on item 4: each entry has the same stop, the HTF OCL low. A conservative touch
@@ -99,7 +99,7 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
 
 ## 8. Progress log
 
-- 2026-11-19: P1 done: N = 2.1 and loss ceiling 3.1 % in config/settings.yaml `cycle`; runner passes N to
+- 2026-11-19: P1 done: N = 2.1 and loss ceiling 1 % in config/settings.yaml (3.1 % at the time, changed to 1 %) `cycle`; runner passes N to
   the sequence strategy; bot refuses cycles with no N (target_pending) with a log line; replay unchanged.
 - 2026-11-19: P2 done: src/quant/strategies/risk_ladder.py (formula, probe/ladder/pair stages, carry,
   per-cycle ceiling, fail closed when the ceiling is unset). Tests: tests/unit/test_risk_ladder.py (12 pass).

@@ -62,7 +62,7 @@ def load_cycle_settings(path) -> Dict[str, float]:
                 raise ValueError(f"cycle.{key} must be a positive number, got {val!r}")
             out[key] = float(val)
     if out["loss_ceiling"] is not None and out["loss_ceiling"] > 0.2:
-        raise ValueError("cycle.loss_ceiling is a fraction of equity; 0.031 means 3.1 %")
+        raise ValueError("cycle.loss_ceiling is a fraction of equity; 0.01 means 1 %")
     return out
 
 

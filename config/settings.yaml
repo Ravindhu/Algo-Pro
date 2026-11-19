@@ -9,9 +9,9 @@ sizing:
 cycle:
   # Owner 2026-11-19. target_r = N in avg + N x R (rules doc 11.7). 2.1 = owner value.
   target_r: 2.1
-  # Per-cycle loss ceiling as a fraction of equity: 0.031 = 3.1 %. Planned risk at stop of all
+  # Per-cycle loss ceiling as a fraction of equity: 0.01 = 1 % (owner 2026-11-19, was 3.1 %). Planned risk at stop of all
   # orders in one HTF cycle may not exceed this (rules doc 11.10, risk_ladder.py).
-  loss_ceiling: 0.031
+  loss_ceiling: 0.01
 
 dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.

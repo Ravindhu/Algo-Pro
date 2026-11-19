@@ -13,7 +13,7 @@ EQUITY = 100_000.0
 L = 93.0
 
 
-def _ladder(ceiling=0.031):
+def _ladder(ceiling=0.05):  # wide, so mechanics tests are not cut by the owner's 1 % budget
     return RiskLadder(equity=EQUITY, htf_low=L, loss_ceiling=ceiling)
 
 
@@ -94,6 +94,22 @@ def test_per_cycle_loss_ceiling_refuses_over_budget_orders():
     assert r.planned_risk_inr() <= 0.001 * EQUITY
 
 
+def test_owner_one_percent_ceiling_blocks_the_next_order():
+    r = _ladder(ceiling=0.01)  # owner value: 1 % of 1,00,000 = 1000 INR planned risk at stop
+    assert r.aggressive_touch("OCL1", 100) is not None       # 14 sh x 7 = 98 INR
+    assert r.conservative_touch("OCL1", 95) is not None      # 75 sh x 2 = 150 INR; total 248
+    r.invalidate("OCL1")                                     # unfilled shares are carried forward
+    o2 = r.aggressive_touch("OCL2", 94)                      # carry + 250 sh x 1 = risk added
+    assert o2 is not None
+    r.invalidate("OCL2")
+    carry = r.carry
+    assert carry > 0
+    # OCL3 at 93.5: carry + floor(250 / 0.5) shares = carry + 500 sh, risk = (carry + 500) x 0.5
+    # that pushes planned risk over the 1 % budget, so it is refused
+    assert r.aggressive_touch("OCL3", 93.5) is None
+    assert r.planned_risk_inr() <= 0.01 * EQUITY
+
+
 def test_unset_ceiling_fails_closed():
     r = RiskLadder(equity=EQUITY, htf_low=L, loss_ceiling=None)
     assert r.aggressive_touch("OCL1", 100) is None
@@ -107,9 +123,9 @@ def test_load_cycle_settings_missing_file_is_not_set(tmp_path):
 
 def test_load_cycle_settings_reads_owner_values(tmp_path):
     p = tmp_path / "settings.yaml"
-    p.write_text("cycle:\n  target_r: 2.1\n  loss_ceiling: 0.031\n", encoding="utf-8")
+    p.write_text("cycle:\n  target_r: 2.1\n  loss_ceiling: 0.01\n", encoding="utf-8")
     out = load_cycle_settings(p)
-    assert math.isclose(out["target_r"], 2.1) and math.isclose(out["loss_ceiling"], 0.031)
+    assert math.isclose(out["target_r"], 2.1) and math.isclose(out["loss_ceiling"], 0.01)
 
 
 def test_load_cycle_settings_refuses_percent_typed_as_whole_number(tmp_path):
