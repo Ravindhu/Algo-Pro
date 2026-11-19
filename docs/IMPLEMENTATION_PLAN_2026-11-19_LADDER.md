@@ -146,3 +146,18 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   refusal sends nothing and is audited. Full suite: no new failures vs baseline (27 unrelated remain).
   Note: the ceiling is a cap on planned loss at the HTF stop, not a daily loss limit. The daily loss kill
   switch (max_daily_loss) is separate and still applies.
+- 2026-11-19 (owner decisions after review):
+  (5) After the third OCL entry, stop opening at probe rate; carried shares wait for the escalation pair. (Option A, kept.)
+  (6) Each LTF OCL carries 0.25 % of fresh risk in total: 0.10 % at its aggressive touch plus 0.15 % at its
+      conservative touch of the SAME OCL. Ladder OCLs follow the same split: carried shares join the 0.10 % aggressive
+      entry. The conservative add applies to any OCL that has an entry, including the third OCL, so the third OCL
+      also totals 0.25 %. Code: risk_ladder.py (LADDER constant removed; OCL_TOTAL = 0.25 %).
+  (7) Shares a per-order cap blocks are carried (not dropped), logged as ladder_clamp (planned, placed, carried).
+      Before the gate, the order is clamped to min(max_order_quantity, max_order_notional / price), so the gate
+      approves the capped size. Before this, the gate refused the whole order and the touch was skipped for good.
+  POV: an aggressive child goes to the POV slicer. The fills it reports are attributed FIFO to the oldest open order.
+  Unfilled shares at a stop-out are carried (existing design, covered by tests).
+  Tests: tests/unit/test_risk_ladder.py, test_cycle*.py, src/quant/tests/test_strategy_bot_cycle.py (52 pass).
+  Full suite: no new failures vs untouched baseline.
+  Still open: replay does not model clamps or partial-fill carry (documented). Rules doc section 11 text must be
+  updated by the owner to match (0.25 % per OCL, option A, clamp carry).

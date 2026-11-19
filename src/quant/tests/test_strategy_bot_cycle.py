@@ -187,7 +187,7 @@ def test_no_loss_ceiling_means_no_cycle_order(tmp_path):
 
 
 def test_invalidation_then_next_ocl_adds_fresh_quantity_and_resumes(tmp_path):
-    """Probe filled, stop-out pauses, the next OCL below adds 0.25 % (no unfilled left to carry)."""
+    """Probe filled, stop-out pauses, the next OCL below adds 0.10 % at its aggressive level (no unfilled left to carry)."""
     strat = ScriptedCycle("scripted", [
         _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
         _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
@@ -203,13 +203,13 @@ def test_invalidation_then_next_ocl_adds_fresh_quantity_and_resumes(tmp_path):
     bot.cycle(NOW + timedelta(minutes=10))
     assert _parent(bot).paused is False
     b = _parent(bot).ladder.orders[1]
-    assert b.reason == "ladder" and b.carry == 0 and b.qty == 2500  # 0.25 % of 1,000,000 over 1 INR
+    assert b.reason == "ladder" and b.carry == 0 and b.qty == 1000  # 0.10 % of 1,000,000 over 1 INR
     assert _child_qtys(audit) == [500, 500]
 
 
 def test_partial_fill_is_carried_into_the_next_ocl(tmp_path):
     """Probe 500 shares, only 100 fill (thin bar). The stop-out carries the 400 unfilled into OCL B:
-    the next order is 400 carried + 2500 fresh = 2900 shares."""
+    the next order is 400 carried + 1000 fresh (0.10 %) = 1400 shares."""
     strat = ScriptedCycle("scripted", [
         _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
         _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
@@ -224,8 +224,8 @@ def test_partial_fill_is_carried_into_the_next_ocl(tmp_path):
     assert _parent(bot).paused is True
     bot.cycle(NOW + timedelta(minutes=10))
     b = _parent(bot).ladder.orders[1]
-    assert b.carry == 400 and b.qty == 2900
-    assert _parent(bot).remaining == 400 + 2500 - 100  # carried + fresh, counted once, minus the child sent now
+    assert b.carry == 400 and b.qty == 1400
+    assert _parent(bot).remaining == 400 + 1000 - 100  # carried + fresh, counted once, minus the child sent now
     assert _child_qtys(audit) == [100, 100]
 
 
@@ -327,3 +327,52 @@ def test_loss_ceiling_refusal_sends_nothing_and_is_audited(tmp_path):
     assert len(refusals) == 1
     assert refusals[0]["reason"] == "loss_ceiling"
     assert refusals[0]["ceiling_inr"] == pytest.approx(500.0)
+
+
+def test_shares_blocked_by_a_cap_are_carried_not_dropped(tmp_path, monkeypatch):
+    """Owner 2026-11-19: shares a cap blocks are carried, like unfilled shares. Cap = 500 shares.
+    Probe A plans 500 and only 100 fill (thin bar), so 400 are unfilled. OCL B plans 400 carried +
+    1000 fresh = 1400, but the cap places 500 and blocks 900. The 900 must be carried, never dropped."""
+    from quant.core import owner_limits_store as ols
+    capped = tmp_path / "owner_caps_capped.yaml"
+    capped.write_text("max_order_quantity: 500\nmax_order_notional: 100000000\n"
+                      "max_open_exposure: 100000000\nblocked: false\n", encoding="utf-8")
+    monkeypatch.setattr(ols, "DEFAULT_PATH", capped)
+    ols.reset()
+    strat = ScriptedCycle("scripted", [
+        _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT),
+                       ("aggressive", "B", 99.0, T_NEXT)]), T_NEXT),
+    ])
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [100]
+    assert _parent(bot).ladder.carry == 0 and _parent(bot).remaining == 400
+    bot.cycle(NOW + timedelta(minutes=5))
+    assert _parent(bot).ladder.carry == 400  # the 400 unfilled shares of A are released
+    bot.cycle(NOW + timedelta(minutes=10))
+    b = _parent(bot).ladder.orders[1]
+    assert b.carry == 400 and b.qty == 500   # planned 1400, placed 500 (the cap)
+    assert _parent(bot).ladder.carry == 900  # the blocked 900 are carried again
+    clamps = [p for k, p in audit.records if k == "ladder_clamp"]
+    assert [c["carried"] for c in clamps] == [900]
+    ols.reset()
+
+
+def test_a_small_cap_clamps_the_first_probe_and_keeps_the_rest(tmp_path, monkeypatch):
+    """Cap 50 shares: the 500-share probe is clamped to 50 (not refused), and 450 are carried."""
+    from quant.core import owner_limits_store as ols
+    capped = tmp_path / "owner_caps_50.yaml"
+    capped.write_text("max_order_quantity: 50\nmax_order_notional: 100000000\n"
+                      "max_open_exposure: 100000000\nblocked: false\n", encoding="utf-8")
+    monkeypatch.setattr(ols, "DEFAULT_PATH", capped)
+    ols.reset()
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot, audit = _bot(tmp_path, strat)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [50]
+    assert _parent(bot).ladder.carry == 450
+    assert _parent(bot).ladder.orders[0].qty == 50
+    assert [p["carried"] for k, p in audit.records if k == "ladder_clamp"] == [450]
+    ols.reset()

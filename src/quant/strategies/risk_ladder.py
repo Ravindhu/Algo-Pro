@@ -6,10 +6,15 @@ Status: PHASE 2 IMPLEMENTED (2026-11-19): pure logic, no broker, no orders sent.
 Simple words:
 - Every entry is sized at its own price against the HTF OCL low (HTF L):
       shares = floor(equity * risk / (entry - HTF L)) (+ carried shares)
+- Each LTF OCL carries 0.25 % of fresh risk in total: 0.10 % at its aggressive touch,
+  plus 0.15 % at its conservative touch of the SAME OCL (owner 2026-11-19: the 0.15 % is
+  part of the 0.25 %, not on top).
 - Stages (per HTF cycle):
   * probe: OCL #1 aggressive touch = 0.10 %; its conservative touch = +0.15 %.
-  * ladder: a new OCL below the invalidated level gets carried shares + 0.25 %.
-    This runs for OCL #2 and OCL #3. After the OCL #3 entry, stop at the probe rate.
+  * ladder: a new OCL below the invalidated level: carried shares join its aggressive
+    entry (carried + 0.10 %), then its conservative touch = +0.15 %.
+    This runs for OCL #2 and OCL #3. After the OCL #3 entry, stop at the probe rate
+    (owner 2026-11-19: carried shares then wait for the escalation pair).
   * waiting_pair: only the escalation pair can open a trade. A conservative touch arms
     the pair; then a NEW OCL (different id) whose aggressive level is touched = 0.50 %.
     One entry, no split, then back to waiting. Carried shares ARE added to the 0.50 % entry
@@ -28,8 +33,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 PROBE_AGGRESSIVE = 0.0010   # first OCL, aggressive touch
-PROBE_CONSERVATIVE = 0.0015  # same OCL, conservative touch (OCL total 0.25 %)
-LADDER = 0.0025             # carried shares + fresh 0.25 % at each later OCL
+PROBE_CONSERVATIVE = 0.0015  # same OCL, conservative touch (OCL total 0.25 %, with the 0.10 % above)
+OCL_TOTAL = PROBE_AGGRESSIVE + PROBE_CONSERVATIVE  # 0.25 % fresh risk per LTF OCL (owner 2026-11-19)
 CONVICTION = 0.0050         # escalation pair only, one-shot, re-earned
 LADDER_OCL_LIMIT = 3        # after this many OCL entries, only the pair can open trades
 _EPS = 1e-9
@@ -151,7 +156,7 @@ class RiskLadder:
         if self.ocl_entries == 0:
             risk, carry, reason = PROBE_AGGRESSIVE, 0, "probe_aggressive"
         else:
-            risk, carry, reason = LADDER, self.carry, "ladder"
+            risk, carry, reason = PROBE_AGGRESSIVE, self.carry, "ladder"  # carried shares join the 0.10 % entry
         qty = shares_for(self.equity, risk, price, self.htf_low, carry)
         order = self._add(ocl_id, price, qty, risk, reason)
         if order is None:
@@ -165,20 +170,20 @@ class RiskLadder:
         return order
 
     def conservative_touch(self, ocl_id: str, price: float) -> Optional[Order]:
-        """A conservative level was touched. In probe stage it adds +0.15 % to that OCL.
-        In waiting stage it only arms the escalation pair."""
+        """A conservative level was touched.
+        On the OCL that already has an entry (any stage, including the third OCL) it adds +0.15 %,
+        so that OCL totals 0.25 % (owner 2026-11-19). On any other OCL it only arms the escalation pair."""
         self.last_refused = None
         if price <= self.htf_low:
             return None
+        if self._current_ocl == ocl_id and not self._current_cons:
+            self._current_cons = True
+            self.armed_ocl = ocl_id
+            qty = shares_for(self.equity, PROBE_CONSERVATIVE, price, self.htf_low)
+            return self._add(ocl_id, price, qty, PROBE_CONSERVATIVE, "probe_conservative")
         if self.stage == "waiting_pair":
             self.armed_ocl = ocl_id
-            return None
-        if self._current_ocl != ocl_id or self._current_cons:
-            return None
-        self._current_cons = True
-        self.armed_ocl = ocl_id
-        qty = shares_for(self.equity, PROBE_CONSERVATIVE, price, self.htf_low)
-        return self._add(ocl_id, price, qty, PROBE_CONSERVATIVE, "probe_conservative")
+        return None
 
     def record_fill(self, order: Order, qty: int) -> None:
         order.filled = min(order.qty, order.filled + max(0, int(qty)))

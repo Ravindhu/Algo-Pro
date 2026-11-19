@@ -115,7 +115,7 @@ def test_close_below_ltf_ocl_low_arms_a_new_ocl_that_adds_an_entry():
     assert [e.price for e in res.entries] == [11.0, 8.8]
     from quant.strategies.risk_ladder import shares_for
     q1 = shares_for(EQUITY, 0.0010, 11.0, 8.5)   # probe at 11.0
-    q2 = shares_for(EQUITY, 0.0025, 8.8, 8.5)    # new OCL below the stop-out: fresh 0.25 %, nothing carried
+    q2 = shares_for(EQUITY, 0.0010, 8.8, 8.5)    # new OCL below the stop-out: aggressive 0.10 % (its conservative +0.15 % is separate), nothing carried
     assert res.avg_entry == pytest.approx((q1 * 11.0 + q2 * 8.8) / (q1 + q2))
     assert res.status == "open"
 

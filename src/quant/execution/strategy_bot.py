@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import copy
+import math
 import time
 
 import yaml
@@ -317,6 +318,21 @@ class _BotBook:
 
     def open_positions(self) -> Dict[str, Position]:
         return dict(self._bot._positions)
+
+
+def _cap_to_owner_order(qty: int, price: float) -> int:
+    """Largest order the owner's per-order caps allow: max_order_quantity and max_order_notional / price.
+    No cap set = no clamp here (the gate's own pre-trade check still refuses unset caps)."""
+    from quant.core import owner_limits_store as _ols
+    owner = _ols.load()
+    limit = int(qty)
+    cap_qty = owner.get("max_order_quantity")
+    if cap_qty is not None:
+        limit = min(limit, int(float(cap_qty)))
+    cap_notional = owner.get("max_order_notional")
+    if cap_notional is not None and price > 0:
+        limit = min(limit, int(math.floor(float(cap_notional) / price)))
+    return max(0, limit)
 
 
 class StrategyBot:
@@ -770,7 +786,10 @@ class StrategyBot:
                    "atr": view.atr, "time": str(t), "strategy": strat.name}
             # The gate sizes floor(equity * risk / sl_dist). Passing the whole order as the risk
             # fraction makes the gate size exactly `total` shares (tiny margin for float rounding).
-            risk_frac = total * sl_dist / float(ladder.equity) * (1.0 + 1e-9)
+            # Owner 2026-11-19 (rule 26): per-order caps CLAMP the child; the rest is carried below.
+            # The gate is asked for the capped size, so it approves that size instead of refusing.
+            sized = _cap_to_owner_order(total, float(price))
+            risk_frac = sized * sl_dist / float(ladder.equity) * (1.0 + 1e-9)
             intent = self._gate_entry(key, sig, strat, sym, circuit_pct, stats, now, ref_price=float(price),
                                       risk_fraction=risk_frac, equity=float(ladder.equity))
             if intent is None or intent.qty < 1:
@@ -779,8 +798,15 @@ class StrategyBot:
                      else ladder.conservative_touch(ocl_id, price))
             if order is None:
                 continue  # cannot happen: the trial said yes on the same state
+            planned_qty = order.qty
             if int(intent.qty) < order.qty:
                 order.qty = int(intent.qty)  # the gate or a cap clamped the order
+            if order.qty < planned_qty:
+                # Owner 2026-11-19: shares a cap blocks are carried, like unfilled shares (never dropped).
+                shortfall = planned_qty - order.qty
+                ladder.carry += shortfall
+                self._log("ladder_clamp", key=key, trigger=kind, ocl=ocl_id, planned=planned_qty,
+                          placed=order.qty, carried=shortfall, price=float(price))
             fresh = max(0, order.qty - order.carry)
             if parent is None:
                 parent = _Parent(key=key, intent=intent, remaining=0, circuit_pct=circuit_pct,

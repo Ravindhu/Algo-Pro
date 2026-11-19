@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from quant.strategies.risk_ladder import (CONVICTION, LADDER, PROBE_AGGRESSIVE, PROBE_CONSERVATIVE,
+from quant.strategies.risk_ladder import (CONVICTION, PROBE_AGGRESSIVE, PROBE_CONSERVATIVE,
                                           RiskLadder, load_cycle_settings, shares_for)
 
 EQUITY = 100_000.0
@@ -20,11 +20,11 @@ def _ladder(ceiling=0.05):  # wide, so mechanics tests are not cut by the owner'
 def test_shares_formula_matches_section_14_example():
     assert shares_for(EQUITY, PROBE_AGGRESSIVE, 100, L) == 14          # 100 / 7
     assert shares_for(EQUITY, PROBE_CONSERVATIVE, 95, L) == 75         # 150 / 2 (doc said 30: wrong)
-    assert shares_for(EQUITY, LADDER, 94, L) == 250                    # 250 / 1
+    assert shares_for(EQUITY, PROBE_AGGRESSIVE, 94, L) == 100          # ladder OCL aggressive 0.10 %: 100 / 1
 
 
 def test_carry_is_added_to_fresh_shares():
-    assert shares_for(EQUITY, LADDER, 94, L, carry=69) == 69 + 250
+    assert shares_for(EQUITY, PROBE_AGGRESSIVE, 94, L, carry=69) == 69 + 100
 
 
 def test_price_at_or_below_htf_low_gives_zero():
@@ -44,7 +44,7 @@ def test_probe_then_conservative_then_invalidate_carries_unfilled():
     assert carried == (14 - 10) + (75 - 20)  # 4 + 55 unfilled
     o2 = r.aggressive_touch("OCL2", 94)
     assert o2.reason == "ladder"
-    assert o2.qty == carried + 250
+    assert o2.qty == carried + 100  # ladder: carried + 0.10 % at the aggressive level
 
 
 def test_ladder_stops_after_third_ocl_and_only_pair_can_open():
@@ -98,16 +98,22 @@ def test_owner_one_percent_ceiling_blocks_the_next_order():
     r = _ladder(ceiling=0.01)  # owner value: 1 % of 1,00,000 = 1000 INR planned risk at stop
     assert r.aggressive_touch("OCL1", 100) is not None       # 14 sh x 7 = 98 INR
     assert r.conservative_touch("OCL1", 95) is not None      # 75 sh x 2 = 150 INR; total 248
-    r.invalidate("OCL1")                                     # unfilled shares are carried forward
-    o2 = r.aggressive_touch("OCL2", 94)                      # carry + 250 sh x 1 = risk added
-    assert o2 is not None
-    r.invalidate("OCL2")
-    carry = r.carry
-    assert carry > 0
-    # OCL3 at 93.5: carry + floor(250 / 0.5) shares = carry + 500 sh, risk = (carry + 500) x 0.5
-    # that pushes planned risk over the 1 % budget, so it is refused
-    assert r.aggressive_touch("OCL3", 93.5) is None
+    r.invalidate("OCL1")                                     # 89 unfilled shares carried
+    o2 = r.aggressive_touch("OCL2", 94)                      # 89 carried + 100 sh x 1 = 189 sh
+    assert o2 is not None and o2.qty == 189
+    r.invalidate("OCL2")                                     # 189 shares carried
+    o3 = r.aggressive_touch("OCL3", 93.5)                    # 189 + 200 sh x 0.5 = 389 sh; total 631.5
+    assert o3 is not None and o3.qty == 389
+    assert r.conservative_touch("OCL3", 93.5) is not None    # OCL3 completes 0.25 %: +150 INR; total 781.5
     assert r.planned_risk_inr() <= 0.01 * EQUITY
+    assert r.planned_risk_inr() == 781.5
+
+
+def test_each_ocl_totals_a_quarter_percent():
+    r = _ladder(ceiling=0.05)
+    o = r.aggressive_touch("OCL2_fresh", 94)  # 0.10 % at the aggressive level
+    c = r.conservative_touch("OCL2_fresh", 93.5)
+    assert o.risk + c.risk == 0.0025  # 0.10 % + 0.15 % = 0.25 % per LTF OCL
 
 
 def test_unset_ceiling_fails_closed():
