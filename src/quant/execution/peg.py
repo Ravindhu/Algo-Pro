@@ -5,7 +5,8 @@ Status: PHASE 3 IMPLEMENTED (pure pricing; no order route)
 
 OpenAlgo has no PEG order type, so the bot emulates it with a LIMIT order at the best bid
 (for BUY). Pricing rules:
-- Read the first level of the depth reply: bids for BUY, asks for SELL.
+- BUY: the bid level with the largest quantity among the top 5 bids (rules 14g), one tick above it.
+  SELL: the first ask level.
 - No level, no price, or a non-finite price gives None. The caller then uses the fixed path.
 - The peg is never above the cap that the caller passes (last close plus the entry slippage).
 """
@@ -31,14 +32,34 @@ def peg_level(side: str, depth_reply: Any, cap: Optional[float] = None,
     if not isinstance(levels, list) or not levels or not isinstance(levels[0], dict):
         return None
     ask_levels = data.get("asks")
-    raw = levels[0].get("price")
-    if isinstance(raw, bool):
-        return None
-    try:
-        px = float(raw)
-        qty = float(levels[0].get("quantity", levels[0].get("qty", 0)) or 0)
-    except (TypeError, ValueError):
-        return None
+    if str(side).upper() == "BUY":
+        # Owner 2026-11-19 (rules 14g): the bid level with the largest resting quantity among the top 5.
+        # Ties go to the higher price. Levels that do not parse are skipped.
+        best = None
+        for level in levels[:5]:
+            if not isinstance(level, dict) or isinstance(level.get("price"), bool):
+                continue
+            try:
+                lp = float(level.get("price"))
+                lq = float(level.get("quantity", level.get("qty", 0)) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(lp) or lp <= 0 or not math.isfinite(lq) or lq < 0:
+                continue
+            if best is None or (lq, lp) > (best[1], best[0]):
+                best = (lp, lq)
+        if best is None:
+            return None
+        px, qty = best
+    else:
+        raw = levels[0].get("price")
+        if isinstance(raw, bool):
+            return None
+        try:
+            px = float(raw)
+            qty = float(levels[0].get("quantity", levels[0].get("qty", 0)) or 0)
+        except (TypeError, ValueError):
+            return None
     if not math.isfinite(px) or px <= 0 or not math.isfinite(qty) or qty < 0:
         return None
     if str(side).upper() == "BUY" and tick > 0:

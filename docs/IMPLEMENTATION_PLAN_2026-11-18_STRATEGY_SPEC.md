@@ -217,3 +217,16 @@ Flow doc / SVG: the bot wiring changed the Strategy and Execution stages. The SV
 - Runners refuse any of the five without all three timeframes.
 - Live stays off.
 - HTF decision (owner, 2026-11-19): use 1-hour instead of 4-hour. No 4-hour bar is built.
+
+## Progress log: owner update 2026-11-19 (rules doc sections 2, 3.2, 4.1; explainer)
+- Engulfing and engulfing_fail now record a conservative level: lowest body bottom of the two candles
+  (`owner_patterns._mtf_conservative`). Recorded, not used for the touch, as before.
+- ocl_top: the aggressive level (highest body top) is taken from the OCL pattern C1..C3 only. For a
+  4-candle break the trigger candle C4 is no longer part of the level. The conservative level stays the
+  open of the candle before the trigger.
+- ocl_seq records the LTF OCL conservative level; ocl_bottom has none.
+- Peg (rules 14g): BUY pegs one tick above the bid level with the largest quantity among the top 5 bids
+  (ties to the higher price), never at or above the ask and never above the cap. Fallback unchanged:
+  LIMIT at last close plus entry_max_slippage_bps.
+- Tests: tests/unit/test_owner_patterns.py, src/quant/tests/test_peg_band_buyer_2026_11_16.py (169 related
+  tests pass). Full suite: no new failures vs the untouched baseline.

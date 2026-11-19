@@ -130,14 +130,13 @@ def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Opt
 # Five strategies share one sequence. They differ only in the MTF setup and its key level.
 #   MTF setup confirmed on bar close -> later MTF bar touches the level -> HTF swing low swept
 #   -> LTF OCL forms after the sweep -> LTF bar touches the OCL aggressive key level = trigger.
-# SEQUENCE_KINDS: strategy name -> MTF setup kind. The level rules are ASSUMPTIONS where
-# marked (owner to confirm, see docs/STRATEGY_RULES_2026-11-19.md).
+# SEQUENCE_KINDS: strategy name -> MTF setup kind. Levels follow docs/STRATEGY_RULES_2026-11-19.md section 2 and 4.1.
 SEQUENCE_KINDS = {
     "engulfing": "egpattern_open",          # owner r4: aggressive level = open of candle 1
     "engulfing_fail": "egpattern_body",     # owner 2026-11-19: level = highest candle body top of the two candles
     "ocl_seq": "ocl_key",                   # OCL on MTF; level = OCL aggressive key level
     "ocl_sell_fail_top_seq": "ocl_top",     # owner 2026-11-19: aggressive level = highest candle body top of the OCL pattern
-    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # owner 2026-11-19: conservative level = lowest body bottom of the OCL pattern; NO HTF sweep
+    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # owner 2026-11-19: one level only (lowest body bottom of the OCL pattern); NO HTF sweep
 }
 
 # Kinds that skip the HTF sweep step (owner 2026-11-19: the bottom conservative level is already a swing, so no sweep needed)
@@ -172,12 +171,23 @@ def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
             if kind == "ocl_key":
                 level = float(ocl["key_level"])
             elif kind == "ocl_top":
-                level = float(max(max(mo[k], mc[k]) for k in range(start, m + 1)))  # highest body top
+                # highest body top of the OCL pattern C1..C3 (the 4-candle trigger C4 is not part of the pattern)
+                level = float(max(max(mo[k], mc[k]) for k in range(start, start + 3)))
             else:
                 level = float(min(min(mo[k], mc[k]) for k in range(start, m + 1)))  # lowest body bottom
             return m, level
         return None
     raise ValueError(f"unknown setup kind {kind!r}")
+
+
+def _mtf_conservative(mtf: pd.DataFrame, kind: str, end: int) -> Optional[float]:
+    """Conservative level of the MTF setup that ends at candle `end` (see rules section 4.1)."""
+    mo, _, _, mc = _arrays(mtf)
+    if kind in ("egpattern_open", "egpattern_body"):
+        return float(min(mo[end - 1], mc[end - 1], mo[end], mc[end]))  # lowest body bottom of the two candles
+    if kind == "ocl_top":
+        return float(mo[end - 1])
+    return None
 
 
 def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
@@ -194,9 +204,12 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
         return None
     end, level = setup
     mo, _, _, _ = _arrays(mtf)
-    # Top strategy has two key levels (owner 2026-11-19): aggressive = touch level (above);
-    # conservative = open of the candle before the trigger (C2 for 3-candle, C3 for 4-candle). Recorded, not used for the touch.
-    conservative_level = float(mo[end - 1]) if kind == "ocl_top" else None
+    # Conservative level (owner 2026-11-19, rules section 4.1). Recorded, not used for the touch:
+    #   engulfing / engulfing_fail: lowest body bottom of the two engulfing candles
+    #   ocl_top: open of the candle before the trigger (C2 for 3-candle, C3 for 4-candle)
+    #   ocl_seq: the LTF OCL conservative level (set below, when the LTF OCL is found)
+    #   ocl_bottom: none (single level)
+    conservative_level = _mtf_conservative(mtf, kind, end)
     _, mh, ml, _ = _arrays(mtf)
     n_m = len(mtf) - 1
     touch = next((k for k in range(end + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
@@ -225,7 +238,7 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
         if fresh and touches[0] != n_l:
             return None  # touched earlier: stale, do not enter on an old bar
         return {"pattern_time": mtf.index[end], "touch_time": touch_time, "sweep_time": sweep_time,
-                "conservative_level": conservative_level,
+                "conservative_level": ocl["conservative"] if kind == "ocl_key" else conservative_level,
                 "ocl_time": ltf.index[m], "ocl_start_time": ltf.index[_ocl_start(m, ocl)],
                 "trigger_time": ltf.index[touches[0]], "entry": float(key)}
     return None

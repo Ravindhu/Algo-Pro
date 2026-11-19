@@ -159,7 +159,8 @@ def _ltf_with_ocl(touch=LTF_TOUCH):
 def test_engulf_sequence_full_path_triggers():
     res = op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl())
     assert res == {"pattern_time": 1, "touch_time": 2, "sweep_time": 3,
-                   "ocl_time": 5, "ocl_start_time": 3, "conservative_level": None, "trigger_time": 6, "entry": 11.0}
+                   "ocl_time": 5, "ocl_start_time": 3, "conservative_level": 8.0, "trigger_time": 6, "entry": 11.0}
+    # conservative = lowest body bottom of the two engulfing candles: min(10.0, 8.2, 8.0, 10.8) = 8.0 (rules 4.1)
 
 
 def test_engulf_sequence_waits_when_no_mtf_touch():
@@ -268,3 +269,25 @@ def test_ocl_top_records_conservative_level_c2_open():
 def test_bottom_has_no_second_level():
     res = op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom")
     assert res["conservative_level"] is None
+
+
+def test_engulfing_fail_level_is_highest_body_top_and_conservative_is_lowest_body_bottom():
+    mtf = _frame([RED, GREEN_ENGULF, (10.8, 10.9, 10.5, 10.6)])  # a later bar is needed (the setup must be complete)
+    kind_level = op._newest_setup(mtf, "egpattern_body")
+    assert kind_level is not None and kind_level[1] == 10.8        # highest body top: max(10.0, 8.2, 8.0, 10.8)
+    assert op._mtf_conservative(mtf, "egpattern_body", kind_level[0]) == 8.0
+
+
+def test_ocl_top_level_uses_pattern_c1_to_c3_not_the_four_candle_trigger():
+    # C1 red, C2 red, C3 green (does not break C2 open), C4 green closes above C2 open: 4-candle break.
+    c1 = (10.0, 10.2, 9.0, 9.1)     # body top 10.0
+    c2 = (9.6, 9.7, 8.9, 9.0)       # body top 9.6, body bottom 9.0
+    c3 = (9.0, 9.4, 8.8, 9.2)       # green, closes 9.2 below C2 open 9.6: no 3-candle break
+    c4 = (9.1, 10.5, 9.0, 9.9)      # trigger: closes 9.9 above C2 open 9.6; body top 9.9 (must NOT count)
+    c5 = (9.9, 10.0, 9.8, 9.95)     # a later bar, so the completed setup is found
+    mtf = _frame([c1, c2, c3, c4, c5])
+    ocl = op.find_ocl_rrg(mtf, 3)
+    assert ocl is not None and ocl["break"] == "4-candle"
+    _, level = op._newest_setup(mtf, "ocl_top")
+    assert level == 10.0            # highest body top of C1..C3 only
+    assert op._mtf_conservative(mtf, "ocl_top", 3) == 9.0   # open of C3 (candle before the 4-candle trigger)

@@ -173,3 +173,21 @@ def test_peg_tick_off_keeps_best_bid_and_cap_applies_after_tick():
 def test_peg_tick_size_is_validated():
     with pytest.raises(ValueError):
         BotConfig(pov_mode="peg_band_buyer", peg_tick_size=-0.1)
+
+
+def test_peg_picks_the_bid_level_with_the_largest_quantity_in_the_top_five():
+    depth = {"status": "success", "data": {
+        "bids": [{"price": 100.0, "quantity": 10}, {"price": 99.95, "quantity": 50},
+                 {"price": 99.90, "quantity": 500}, {"price": 99.85, "quantity": 5}, {"price": 99.80, "quantity": 9999}],
+        "asks": [{"price": 100.20, "quantity": 10}]}}
+    # the 5th level (99.80, 9999 shares) is in the top 5, so it is the largest: peg one tick above it
+    assert peg_level("BUY", depth, None, 0.05) == (99.85, 9999)
+
+
+def test_peg_ignores_levels_beyond_the_fifth_bid():
+    depth = {"status": "success", "data": {
+        "bids": [{"price": 100.0, "quantity": 10}, {"price": 99.95, "quantity": 20}, {"price": 99.90, "quantity": 30},
+                 {"price": 99.85, "quantity": 40}, {"price": 99.80, "quantity": 50}, {"price": 99.75, "quantity": 9999}],
+        "asks": [{"price": 100.20, "quantity": 10}]}}
+    # top 5 = 100.0, 99.95, 99.90, 99.85, 99.80 (largest 50 at 99.80); the 6th level (9999) is outside the top 5
+    assert peg_level("BUY", depth, None, 0.05) == (99.85, 50)
