@@ -16,11 +16,13 @@ Freshness: fresh_entries() returns only the entries on the newest closed LTF bar
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _newest_setup, _ocl_start,
                                             find_ocl_rrg, first_sweep_after, setup_low)
+from quant.strategies.risk_ladder import RiskLadder
 
 
 @dataclass
@@ -154,15 +156,45 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
     return entries, any_cons, status, end_time, paused, events
 
 
-def _finish(kind, status, htf_low, entries, any_cons, target_r, htf_key_time=None, paused=False,
-            events=None):
+def ladder_plan(events, htf_low, equity, loss_ceiling):
+    """The bot's risk ladder run on the replay events (plan P4). Returns the planned orders.
+
+    Full fill is assumed for every order (the replay has no fills), so nothing is carried here.
+    Live fills (POV) can differ, so the live average can differ from this one."""
+    if equity is None or loss_ceiling is None:
+        return []  # fail closed: no sizing without the capital and the owner ceiling
+    ladder = RiskLadder(equity=float(equity), htf_low=float(htf_low), loss_ceiling=loss_ceiling)
+    orders = []
+    for kind, ocl_id, price, _t in events:
+        if kind == "invalidated":
+            ladder.invalidate(ocl_id)
+            continue
+        if kind not in ("aggressive", "conservative"):
+            continue
+        touch_name = "aggressive_touch" if kind == "aggressive" else "conservative_touch"
+        trial = copy.deepcopy(ladder)  # same check as the bot: only commit when the trial plans an order
+        if getattr(trial, touch_name)(ocl_id, price) is None:
+            continue
+        order = getattr(ladder, touch_name)(ocl_id, price)
+        if order is None:
+            continue
+        ladder.record_fill(order, order.qty)  # full fill assumed
+        orders.append(order)
+    return orders
+
+
+def _finish(kind, status, htf_low, entries, any_cons, events, target_r, equity, loss_ceiling,
+            htf_key_time=None, paused=False):
+    """Cycle result. Average = quantity-weighted mean of the ladder orders (plan P4), not a price mean."""
     events = list(events or [])
-    if not entries:
+    orders = ladder_plan(events, htf_low, equity, loss_ceiling)
+    if not orders:
         return CycleResult(kind=kind, status=status, htf_low=htf_low, htf_key_time=htf_key_time,
                            ltf_paused=paused, events=events)
     if status == "waiting":
         status = "open"
-    avg = sum(e.price for e in entries) / len(entries)
+    total = sum(o.qty for o in orders)
+    avg = sum(o.qty * o.price for o in orders) / total
     if any_cons:
         mode, target = "trail", None
     elif target_r is None:
@@ -174,8 +206,11 @@ def _finish(kind, status, htf_low, entries, any_cons, target_r, htf_key_time=Non
                        htf_key_time=htf_key_time, ltf_paused=paused, events=events)
 
 
-def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> List[CycleResult]:
-    """All HTF cycles in the history, in order. Empty list when no MTF setup has been touched."""
+def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
+               equity: Optional[float], loss_ceiling: Optional[float]) -> List[CycleResult]:
+    """All HTF cycles in the history, in order. Empty list when no MTF setup has been touched.
+    equity and loss_ceiling are the same values the bot uses (owner settings). loss_ceiling None = no
+    orders (fail closed)."""
     if len(mtf) < 3 or len(htf) < 4 or len(ltf) < 4:
         return []
     got = _mtf_touch(kind, mtf)
@@ -201,8 +236,8 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Li
         inval_time = _htf_invalid_time(htf, hp, htf_low)
         entries, any_cons, status, _, paused, events = _ltf_loop(ltf, key_time, htf_low, inval_time,
                                                                  mtf_inval_time)
-        results.append(_finish(kind, status, htf_low, entries, any_cons, target_r,
-                               htf_key_time=key_time, paused=paused, events=events))
+        results.append(_finish(kind, status, htf_low, entries, any_cons, events, target_r,
+                               equity, loss_ceiling, htf_key_time=key_time, paused=paused))
         if status != "htf_invalidated":
             break  # open, waiting or MTF invalidated: this is the end of the replay
         floor = htf_low
@@ -210,9 +245,10 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Li
     return results
 
 
-def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Optional[CycleResult]:
+def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
+              equity: Optional[float], loss_ceiling: Optional[float]) -> Optional[CycleResult]:
     """The last cycle in the history (the current one), or None when no cycle exists."""
-    results = run_cycles(kind, mtf, htf, ltf, target_r)
+    results = run_cycles(kind, mtf, htf, ltf, target_r, equity=equity, loss_ceiling=loss_ceiling)
     return results[-1] if results else None
 
 

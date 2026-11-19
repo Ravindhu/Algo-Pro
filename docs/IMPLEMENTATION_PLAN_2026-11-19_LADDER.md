@@ -1,6 +1,6 @@
 # Implementation plan: risk ladder for the cycle strategies (2026-11-19)
 
-Status: P0 to P3 done (2026-11-19). P4 and P5 open. Live stays OFF. Paper mode only.
+Status: P0 to P4 done (2026-11-19). P5 open. Live stays OFF. Paper mode only.
 Rules source: `docs/STRATEGY_RULES_2026-11-19.md` section 11 (rules) and section 14 (worked example).
 Gap list source: the same file, section 13.
 
@@ -130,3 +130,12 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   (d) Tests: 98 bot and cycle tests pass; cycle tests rewritten to the ladder model (a stop-out now adds
       carry + 0.25 %, not the same quantity as before). Full suite: no new failures vs baseline; 27 unrelated
       failures remain.
+- 2026-11-19: P4 done (replay). cycle.ladder_plan runs the same RiskLadder on the replay events. The cycle
+  average is the quantity-weighted mean of the planned orders, and the target is avg + N x (avg - HTF L).
+  run_cycles/run_cycle/SequenceStrategy take equity (paper capital, the same as the bot's read_funds) and the
+  owner loss ceiling; ceiling None returns no orders (fail closed). Runner passes both.
+  Known limit: the replay assumes every order fills in full, so no carry happens in the replay. Live POV
+  fills can be partial, so the live average can differ from the replay when fills are partial. The replay
+  average is the expected value under full fills; the bot's average is the real fill-weighted one.
+  Replay tests: tests/unit/test_cycle*.py updated (avg 9.3125 for the probe + conservative case; new OCL case
+  computed with the ladder formula). Full suite: no new failures vs baseline; 27 unrelated remain.

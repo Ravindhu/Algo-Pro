@@ -7,6 +7,7 @@ import sys
 import pandas as pd
 import pytest
 
+EQUITY = 1_000_000.0  # paper capital, same as the bot's read_funds
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -40,24 +41,25 @@ def _ltf(*extra):
 
 
 def test_full_cycle_aggressive_then_conservative_trails():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert res.status == "open"
     assert [e.kind for e in res.entries] == ["aggressive", "conservative"]
     assert [e.price for e in res.entries] == [11.0, 9.2]
-    assert res.avg_entry == pytest.approx(10.1)
+    # ladder sizes (plan P4): probe 0.10 % at 11.0 = 500 sh; conservative 0.15 % at 9.2 = 7,500 sh
+    assert res.avg_entry == pytest.approx((500 * 11.0 + 7500 * 9.2) / 8000)  # quantity-weighted, 9.3125
     assert res.htf_low == HTF_LOW
     assert res.mode == "trail" and res.target is None
 
 
 def test_aggressive_only_books_at_backtested_target():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert [e.kind for e in res.entries] == ["aggressive"]
     # R = avg 11.0 - HTF low 9.0 = 2.0; target = 11.0 + 3 x 2.0 = 17.0
     assert res.mode == "target" and res.target == pytest.approx(17.0)
 
 
 def test_target_pending_until_backtest_sets_n():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH))
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), equity=EQUITY, loss_ceiling=0.01)
     assert res.mode == "target_pending" and res.target is None
 
 
@@ -66,38 +68,38 @@ HTF_INVAL = HTF + [HTF_FILL] * 4 + [(9.5, 9.6, 8.5, 8.7)]  # HTF candle closes 8
 
 
 def test_htf_close_below_hard_stop_ends_the_cycle_after_its_entry():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_INVAL), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_INVAL), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert res.status == "htf_invalidated"
     assert [e.kind for e in res.entries] == ["aggressive"]  # conservative touch came after the HTF invalidation
 
 
 def test_htf_invalidated_before_any_entry_takes_no_entry():
     early = HTF + [(9.5, 9.6, 8.5, 8.7)]  # HTF close 8.7 at index 8, before the LTF touch
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(early), _ltf(AGG_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(early), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert res.status == "htf_invalidated" and res.entries == []
 
 
 def test_mtf_close_below_setup_low_ends_the_whole_cycle():
     mtf = _frame(MTF + [(9.0, 9.1, 7.0, 7.5)])  # closes 7.5 < MTF low 7.9
-    res = cycle.run_cycle("egpattern_open", mtf, _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", mtf, _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert res.status == "mtf_invalidated"
     assert res.entries == []
 
 
 def test_no_entry_while_only_waiting_for_ltf_ocl():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _frame([LTF_FILL] * 12))
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _frame([LTF_FILL] * 12), equity=EQUITY, loss_ceiling=0.01)
     assert res.status == "waiting" and res.entries == [] and res.htf_low == HTF_LOW
 
 
 def test_no_cycle_without_mtf_touch():
     no_touch = (10.8, 10.9, 10.5, 10.9)  # low 10.5 > level 10.0
     assert cycle.run_cycle("egpattern_open", _frame([RED, GREEN_ENGULF, no_touch]),
-                           _frame(HTF), _ltf(AGG_TOUCH)) is None
+                           _frame(HTF), _ltf(AGG_TOUCH), equity=EQUITY, loss_ceiling=0.01) is None
 
 
 def test_no_cycle_without_htf_sweep():
     flat_htf = _frame([(10, 10.5, 9.5, 10.0)] * 8)
-    assert cycle.run_cycle("egpattern_open", _frame(MTF), flat_htf, _ltf(AGG_TOUCH)) is None
+    assert cycle.run_cycle("egpattern_open", _frame(MTF), flat_htf, _ltf(AGG_TOUCH), equity=EQUITY, loss_ceiling=0.01) is None
 
 
 HTF_DEEP = [HTF[0], HTF[1], HTF[2], HTF[3], (10.0, 10.2, 8.5, 9.2)] + HTF[5:]  # HTF OCL C1 low 8.5 -> HTF low 8.5
@@ -108,10 +110,13 @@ def test_close_below_ltf_ocl_low_arms_a_new_ocl_that_adds_an_entry():
     ocl2 = [(8.9, 8.95, 8.6, 8.6), (8.8, 8.85, 8.55, 8.6), (8.6, 8.95, 8.55, 8.9)]  # RRG, key = C2 open 8.8 < 9.0, closes above HTF low 8.5
     touch2 = (8.9, 9.0, 8.7, 8.85)                # touches key 8.8
     ltf = _ltf(AGG_TOUCH, below_low, *ocl2, touch2)
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_DEEP), ltf, target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_DEEP), ltf, target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert res.htf_low == 8.5
     assert [e.price for e in res.entries] == [11.0, 8.8]
-    assert res.avg_entry == pytest.approx(9.9)
+    from quant.strategies.risk_ladder import shares_for
+    q1 = shares_for(EQUITY, 0.0010, 11.0, 8.5)   # probe at 11.0
+    q2 = shares_for(EQUITY, 0.0025, 8.8, 8.5)    # new OCL below the stop-out: fresh 0.25 %, nothing carried
+    assert res.avg_entry == pytest.approx((q1 * 11.0 + q2 * 8.8) / (q1 + q2))
     assert res.status == "open"
 
 
@@ -120,7 +125,7 @@ def test_new_ocl_must_form_below_the_previous_stop_out_level():
     ocl_above = [(9.3, 9.4, 9.0, 9.1), (9.4, 9.5, 9.1, 9.2), (9.1, 9.9, 9.0, 9.7)]  # key 9.4 is not below 9.0
     touch_above = (9.6, 9.8, 9.2, 9.5)
     ltf = _ltf(AGG_TOUCH, below_low, *ocl_above, touch_above)
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_DEEP), ltf, target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_DEEP), ltf, target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert [e.price for e in res.entries] == [11.0]
 
 
@@ -140,7 +145,7 @@ LTF_RECYCLE = [LTF_FILL] * 8 + [RRG_C1, RRG_C2, C3_BREAK, AGG_TOUCH] + [LTF_FILL
 
 
 def test_next_htf_cycle_runs_after_htf_invalidation():
-    results = cycle.run_cycles("egpattern_open", _frame(MTF), _frame(HTF_RECYCLE), _frame(LTF_RECYCLE), target_r=3.0)
+    results = cycle.run_cycles("egpattern_open", _frame(MTF), _frame(HTF_RECYCLE), _frame(LTF_RECYCLE), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert [r.status for r in results] == ["htf_invalidated", "open"]
     assert results[0].htf_low == 9.0 and [e.price for e in results[0].entries] == [11.0]
     assert results[1].htf_low == pytest.approx(8.55)
@@ -148,12 +153,12 @@ def test_next_htf_cycle_runs_after_htf_invalidation():
 
 
 def test_no_new_htf_ocl_below_the_invalidated_price_means_no_second_cycle():
-    results = cycle.run_cycles("egpattern_open", _frame(MTF), _frame(HTF_INVAL), _ltf(AGG_TOUCH), target_r=3.0)
+    results = cycle.run_cycles("egpattern_open", _frame(MTF), _frame(HTF_INVAL), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert len(results) == 1
 
 
 def test_fresh_entries_keeps_only_the_newest_bar():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert [e.time for e in cycle.fresh_entries(res, newest_ltf_time=12)] == [12]
     assert cycle.fresh_entries(res, newest_ltf_time=99) == []
     assert cycle.fresh_entries(None, newest_ltf_time=12) == []

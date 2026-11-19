@@ -72,13 +72,15 @@ def _strategy_params(bot_cfg_path) -> dict:
 PAPER_SYMBOL_LABEL = "PORTFOLIO"  # the engulfing class needs a symbol; the bot uses the screen's symbols instead
 
 
-def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None):
+def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None,
+                   equity: Optional[float] = None, loss_ceiling: Optional[float] = None):
     if name in SEQUENCE_KINDS:
         if feed is None:
             raise BotRefused(f"{name} needs MTF, HTF and LTF set in the trade setup; the runner does not start without them")
         from quant.strategies.risk_ladder import load_cycle_settings
         cyc = load_cycle_settings(ROOT / "config" / "settings.yaml")
-        return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"])
+        return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"],
+                                equity=equity, loss_ceiling=loss_ceiling)
     # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
     # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol
     # settings come from config/bot.yaml strategies.<name>.params (pattern, HTF/LTF intervals,
@@ -114,7 +116,8 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
     alerts = alerts or Alerts(on_critical=on_critical)
     bot = StrategyBot(
         cfg=cfg,
-        strategies=[_make_strategy(n, strategy_params, feed) for n in cfg.strategies],
+        strategies=[_make_strategy(n, strategy_params, feed, equity=float(paper_capital),
+                                   loss_ceiling=cycle_cfg["loss_ceiling"]) for n in cfg.strategies],
         bars=LiveBars(reader, api_key),
         sender=PaperSender(broker or PaperBroker()),
         audit=audit,

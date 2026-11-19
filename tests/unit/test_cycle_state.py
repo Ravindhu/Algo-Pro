@@ -8,6 +8,7 @@ from datetime import datetime
 
 import pandas as pd
 
+EQUITY = 1_000_000.0  # paper capital, same as the bot's read_funds
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -37,13 +38,13 @@ def _ltf(*extra):
 
 
 def test_result_carries_htf_cycle_id():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
     assert res.htf_key_time == 7  # the HTF bar that touched the key (index 7)
     assert res.ltf_paused is False
 
 
 def test_stop_out_without_new_ocl_is_paused():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT))
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT), equity=EQUITY, loss_ceiling=0.01)
     assert [e.kind for e in res.entries] == ["aggressive"]
     assert res.ltf_paused is True
     assert res.status == "open"
@@ -54,7 +55,7 @@ def test_new_ltf_ocl_after_stop_out_clears_pause_only_after_it_forms():
     NEW_C1 = (8.8, 8.9, 8.0, 8.1)     # red
     NEW_C2 = (8.9, 8.95, 8.1, 8.2)    # red, open 8.9 = new key level (below 9.0)
     NEW_C3 = (8.4, 9.6, 8.3, 9.5)     # green, closes above C2 open
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT, NEW_C1, NEW_C2, NEW_C3))
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT, NEW_C1, NEW_C2, NEW_C3), equity=EQUITY, loss_ceiling=0.01)
     assert res.ltf_paused is False
 
 

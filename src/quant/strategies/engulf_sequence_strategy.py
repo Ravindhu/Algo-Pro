@@ -29,13 +29,16 @@ class SequenceStrategy:
 
     is_cycle = True  # the bot runs the cycle rules (owner 2026-11-19), not a single trigger
 
-    def __init__(self, feed, name: str, kind: Optional[str] = None, target_r: Optional[float] = None) -> None:
+    def __init__(self, feed, name: str, kind: Optional[str] = None, target_r: Optional[float] = None,
+                 equity: Optional[float] = None, loss_ceiling: Optional[float] = None) -> None:
         if kind is None:
             kind = SEQUENCE_KINDS[name]
         self._feed = feed
         self.name = name
         self.kind = kind
         self.target_r = target_r  # None = target_pending (owner: backtested N not set yet)
+        self.equity = equity  # same capital the bot sizes with (paper capital)
+        self.loss_ceiling = loss_ceiling  # None = no orders in the replay (fail closed)
 
     def signal(self, df) -> Optional[dict]:
         return None  # needs the three timeframes, so the bot calls signal_for instead
@@ -45,7 +48,8 @@ class SequenceStrategy:
         if frames is None:
             return None
         mtf, htf, ltf = frames["mtf"], frames["htf"], frames["ltf"]
-        results = run_cycles(self.kind, mtf, htf, ltf, target_r=self.target_r)
+        results = run_cycles(self.kind, mtf, htf, ltf, target_r=self.target_r,
+                             equity=self.equity, loss_ceiling=self.loss_ceiling)
         if not results or len(ltf) == 0:
             return None
         atr_val = None
