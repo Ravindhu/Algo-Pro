@@ -135,3 +135,11 @@ Entry flow, all strategies:
 Still to confirm:
 - Direction: the next timeframe is LOWER or HIGHER? Owner wording varies between "one lower time" and "wait for one HTF". (Earlier: LTF sweep before OCL. Latest: HTF after an MTF touch.)
 - Sweep definition: wick beyond the level and back inside on the same bar, or a bar close beyond the level?
+
+## Owner rules, round 8 (2026-11-19): liquidity sweep
+- Flow: pattern confirmed on bar close, then a new candle touches the aggressive key level, then the bot looks for the liquidity sweep.
+- MTF setup: sweep on HTF. The HTF swing low must be taken.
+- HTF setup: sweep on LTF.
+- Swing = 3-candle swing (proposed): the middle candle's low is lower than the low of the candle before and the candle after. Confirm.
+- Conflict to resolve: one line says "every timeframe sweeps in one lower timeframe", but the MTF and HTF lines say MTF uses HTF and HTF uses LTF. Working assumption: MTF sweep on HTF, HTF sweep on LTF.
+- Open: LTF setup sweep (on which timeframe?). Sweep definition (wick beyond and back inside, or close beyond).
