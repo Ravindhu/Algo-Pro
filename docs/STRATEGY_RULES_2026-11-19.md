@@ -29,8 +29,8 @@ All five follow the same sequence (section 4). They differ only in the MTF setup
 | 1 | `engulfing` | egpattern | open of candle 1 (owner r4) | `egpattern_open` | Built, paper |
 | 2 | `engulfing_fail` | egpattern (sell-fail engulf on MTF, owner r4) | highest candle body top of the two candles (owner 2026-11-19) | `egpattern_body` | Built, paper |
 | 3 | `ocl_seq` | OCL (RRG) | OCL aggressive key level (owner r4 and r6) | `ocl_key` | Built, paper |
-| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | open of the candle before the trigger: C2 open (3-candle), C3 open (4-candle) (owner 2026-11-19; CONFLICT, see section 10 item 11) | `ocl_top` | Built, paper |
-| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | lowest low from OCL C1 to the sell-fail candle, the swing low (owner 2026-11-19) | `ocl_bottom` | Built, paper |
+| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | highest candle body top of the OCL pattern (aggressive level, owner 2026-11-19) | `ocl_top` | Built, paper |
+| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | lowest candle body bottom of the OCL pattern, up to the breakout candle (conservative level, owner 2026-11-19). NO HTF sweep. | `ocl_bottom` | Built, paper |
 
 Each strategy is standalone. None depends on another. The sell-fail sequence and the OCL sequence use the same HTF sweep and LTF OCL steps as Engulfing.
 
@@ -59,7 +59,7 @@ Owner rules (r3 and r5): the sell-fail trigger is a green candle with a body ove
 
 1. The MTF setup is confirmed when its bar closes (section 2 gives the setup and level).
 2. A later MTF bar touches the level (low at or below, high at or above).
-3. After the touch, the HTF 3-candle swing low is swept.
+3. After the touch, the HTF 3-candle swing low is swept. (Not for `ocl_sell_fail_bottom_seq`, which skips this step.)
 4. After the sweep, an LTF OCL forms (section 3.2).
 5. An LTF bar after that OCL touches its aggressive key level. This is the **trigger**. Entry = that key level.
 
@@ -126,8 +126,8 @@ Pattern rules
 8. 3-candle OCL break needs only: C3 green and C3 close above C2 open. No extra candle condition.
 9. The sell-fail trigger candle (green, body over 50%, closes above the pattern high) is NOT required in the five sequences. Why: the owner's round 10 says the LTF touch of the key level is the trigger. The candle rule exists as `find_sell_fail_trigger`, unused. Owner to say whether to add it as an extra entry condition for the sell-fail strategies.
 10. Level for `engulfing_fail` = highest candle body top of the two egpattern candles (max of open and close). Owner 2026-11-19.
-11. Level for `ocl_sell_fail_top_seq` = open of the candle before the trigger: C2 open for a 3-candle OCL, C3 open for a 4-candle OCL. Owner 2026-11-19. CONFLICT: the owner's earlier rule set the 4-candle aggressive key level at C3 CLOSE. Confirm which one applies to the 4-candle top level.
-12. Level for `ocl_sell_fail_bottom_seq` = lowest low from OCL C1 to the sell-fail candle (the swing low). Owner 2026-11-19.
+11. Level for `ocl_sell_fail_top_seq` = highest candle body top (max of open and close) across the OCL pattern candles. Owner 2026-11-19 (aggressive level). The conservative level (C2 open for 3-candle, C3 open for 4-candle) is recorded but not used for the touch.
+12. Level for `ocl_sell_fail_bottom_seq` = lowest candle body bottom across the OCL pattern, up to the breakout candle (the trigger candle, C3 or C4). Owner 2026-11-19 (conservative level). No HTF sweep for this strategy (`NO_SWEEP_KINDS`).
 13. A sweep = a later bar's low below the swing low (wick or body). Swing = 3-candle swing low.
 14. Swing search looks back 20 HTF bars. The newest sweep is used.
 

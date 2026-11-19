@@ -200,8 +200,8 @@ def test_each_sequence_kind_triggers_on_its_own_setup(kind, mtf_rows):
     assert res["trigger_time"] == 6
 
 
-def test_ocl_top_level_is_c2_open_so_a_bar_below_it_does_not_touch():
-    # top level = C2 open 11.0; this MTF bar tops out at 10.9, so it does not touch the level
+def test_ocl_top_level_is_highest_body_top_so_a_bar_below_it_does_not_touch():
+    # top level = highest body top of C1..C3 = C3 close 11.2; this bar tops out at 10.9, so no touch
     no_top_touch = (10.3, 10.9, 10.3, 10.7)
     assert op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, no_top_touch]), _frame(HTF_BARS),
                        _ltf_with_ocl(), "ocl_top") is None
@@ -241,3 +241,19 @@ def test_sequence_signal_stop_is_low_of_ocl_c1_to_c3():
     assert sig["sl_dist"] == pytest.approx(2.0)
     assert sig["tp_dist"] == pytest.approx(6.0)
     assert sig["strategy"] == "engulfing"
+
+
+def test_ocl_bottom_needs_no_htf_sweep():
+    # HTF with no swing low, so no sweep exists. The bottom strategy still triggers; the key strategy does not.
+    no_sweep_htf = _frame([(10, 10.5, 9.5, 10.0), (9.8, 10, 9.6, 9.9), (9.9, 10.2, 9.7, 10.1), (10, 10.3, 9.9, 10.2)])
+    mtf = _frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH])
+    assert op.sequence(mtf, no_sweep_htf, _ltf_with_ocl(), "ocl_bottom") is not None
+    assert op.sequence(mtf, no_sweep_htf, _ltf_with_ocl(), "ocl_key") is None
+
+
+def test_ocl_bottom_level_is_lowest_body_bottom_not_wick():
+    # body bottoms: C1 9.2, C2 10.5, C3 10.4 -> level 9.2 (C1 wick low 9.0 is not used)
+    mtf = _frame([RRG_C1, RRG_C2, C3_BREAK, (9.1, 9.3, 9.0, 9.15)])  # low 9.0 <= 9.2 <= high 9.3: touches
+    assert op.sequence(mtf, _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom") is not None
+    no_touch_body = _frame([RRG_C1, RRG_C2, C3_BREAK, (9.4, 9.8, 9.3, 9.5)])  # low 9.3 > 9.2: no touch
+    assert op.sequence(no_touch_body, _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom") is None

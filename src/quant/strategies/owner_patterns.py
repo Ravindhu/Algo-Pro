@@ -136,9 +136,12 @@ SEQUENCE_KINDS = {
     "engulfing": "egpattern_open",          # owner r4: aggressive level = open of candle 1
     "engulfing_fail": "egpattern_body",     # owner 2026-11-19: level = highest candle body top of the two candles
     "ocl_seq": "ocl_key",                   # OCL on MTF; level = OCL aggressive key level
-    "ocl_sell_fail_top_seq": "ocl_top",     # ASSUMED: level = open of the candle before the trigger (C2 open for 3-candle, C3 open for 4-candle)
-    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # owner 2026-11-19: level = lowest low from OCL C1 to the sell-fail candle (swing low)
+    "ocl_sell_fail_top_seq": "ocl_top",     # owner 2026-11-19: aggressive level = highest candle body top of the OCL pattern
+    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # owner 2026-11-19: conservative level = lowest body bottom of the OCL pattern; NO HTF sweep
 }
+
+# Kinds that skip the HTF sweep step (owner 2026-11-19: the bottom conservative level is already a swing, so no sweep needed)
+NO_SWEEP_KINDS = {"ocl_bottom"}
 
 
 def _ocl_start(end: int, ocl: dict) -> int:
@@ -169,9 +172,9 @@ def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
             if kind == "ocl_key":
                 level = float(ocl["key_level"])
             elif kind == "ocl_top":
-                level = float(mo[m - 1])  # open of the candle before the trigger: C2 (3-candle) or C3 (4-candle)
+                level = float(max(max(mo[k], mc[k]) for k in range(start, m + 1)))  # highest body top
             else:
-                level = float(min(ml[start:m + 1]))
+                level = float(min(min(mo[k], mc[k]) for k in range(start, m + 1)))  # lowest body bottom
             return m, level
         return None
     raise ValueError(f"unknown setup kind {kind!r}")
@@ -196,10 +199,13 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     if touch is None:
         return None
     touch_time = mtf.index[touch]
-    sweep = find_swing_low_sweep(htf, len(htf) - 1)
-    if sweep is None or htf.index[sweep["sweep_index"]] < touch_time:
-        return None
-    sweep_time = htf.index[sweep["sweep_index"]]
+    if kind in NO_SWEEP_KINDS:
+        sweep_time = touch_time  # no HTF sweep: the LTF OCL only has to form after the touch
+    else:
+        sweep = find_swing_low_sweep(htf, len(htf) - 1)
+        if sweep is None or htf.index[sweep["sweep_index"]] < touch_time:
+            return None
+        sweep_time = htf.index[sweep["sweep_index"]]
     lo, lh, ll, _ = _arrays(ltf)
     n_l = len(ltf) - 1
     for m in range(n_l, 1, -1):
