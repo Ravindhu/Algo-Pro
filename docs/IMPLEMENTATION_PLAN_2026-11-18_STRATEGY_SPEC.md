@@ -159,3 +159,8 @@ Still to confirm:
   - A sweep: a later bar's low goes below the swing low. A wick or a body close both count.
 - Tests: 22 in `tests/unit/test_owner_patterns.py`, all passing.
 - Not built yet: the sweep-then-OCL sequence across timeframes, the entry logic, the bar feed, and the bot wiring.
+
+## Owner answers, round 10 (2026-11-19)
+- The sequence completes when the LTF bar touches the AGGRESSIVE key level. That touch is the trigger. The bot checks every 5 minutes.
+- The LTF touch also confirms the sweep.
+- Open: which aggressive key level does the LTF touch use? (a) the level of the LTF pattern itself, or (b) the level of the original pattern on its own timeframe?
