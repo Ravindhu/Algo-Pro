@@ -101,3 +101,12 @@ Status: spec complete. Ready to build after owner go-ahead.
 - Assumption to confirm: the 3-candle break needs no extra condition beyond C3 green and closing above C1 open.
 - Tests: 18 in `tests/unit/test_owner_patterns.py`, all passing.
 - Replaces the earlier 2-candle break rule (C2 closing above C1 open).
+
+## OCL break rule, final (owner, 2026-11-19; implemented)
+- Pattern: C1 red, C2 red, C3 green.
+- 3-candle break: C3 closes above C2 open. Aggressive key level = C2 open.
+- 4-candle break: C4 closes above C2 open. Aggressive key level = C3 close.
+- Priority: the first break decides. If C3 already broke C2 open, the 4-candle break is ignored.
+- Conservative level: lowest body bottom of C1, C2 and C3.
+- Replaces the previous rule (levels from C1 open and C2 close).
+- Tests: 18 in `tests/unit/test_owner_patterns.py`, all passing.
