@@ -181,3 +181,11 @@ Still to confirm:
 - Tests: 27 in `tests/unit/test_owner_patterns.py`, all passing.
 - Assumption to confirm: entry price = the key level touched.
 - Not built yet: the OCL-start path, the sell-fail sequence, stops and targets, and the bar feed and bot cycle.
+
+## Build status: closed bars for MTF, HTF, LTF (2026-11-19)
+- `MultiTimeframeBars` in `src/quant/data/mtf_bars.py`. Read only. Returns closed bars for the three trade setup labels, or None for the whole set when any feed is unusable.
+  - Drops the forming bar. Daily uses OpenAlgo "D" and closed days only.
+  - Intraday freshness: last closed bar must have ended within 15 minutes of now.
+  - Daily freshness: last closed day at most 4 days old (weekend and holiday tolerance).
+- Tests: 9 in `tests/unit/test_mtf_bars.py`, all passing.
+- Not built yet: wiring into the bot cycle (every 5 minutes), and the 4-hour timeframe. OpenAlgo's interval list has no 4h. A 4-hour bar would have to be built by combining 1-hour bars. Owner decision needed.
