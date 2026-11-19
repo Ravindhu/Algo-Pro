@@ -67,13 +67,12 @@ def find_sell_fail_trigger(df: pd.DataFrame, last: int, window: int = 10) -> Opt
 def find_ocl_rrg(df: pd.DataFrame, last: int) -> Optional[dict]:
     """OCL Red-Red-Green check on the last 3 closed bars only. `last` = newest closed bar index.
 
-    Candles: C1 = last-2, C2 = last-1, C3 = last.
-    Pattern: C1 red, C2 red, C3 green.
-    Break rules (upward only, owner 2026-11-19):
-      - C2 closes above C1 open. Aggressive key level 1 = C1 open.
-      - C3 closes above C2 close. Aggressive key level 2 = C2 close.
-    Conservative key level = the lowest body bottom (min of open and close) among C1, C2, C3.
-    Returns {"aggressive_1", "aggressive_2", "conservative", "trigger_index"} or None.
+    Candles: C1 = last-2, C2 = last-1, C3 = last. Pattern: C1 red, C2 red, C3 green.
+    The first break that happens confirms the setup (upward closes only, owner 2026-11-19):
+      - "2-candle" break: C2 closes above C1 open. Key level = C1 open. Confirmed on C2.
+      - "3-candle" break: C3 closes above C2 close. Key level = C2 close. Confirmed on C3.
+    Conservative level = the lowest body bottom (min of open and close) among C1, C2, C3. It applies to both breaks.
+    Returns {"break", "key_level", "conservative", "trigger_index"} or None.
     """
     if last < 2 or last >= len(df):
         return None
@@ -81,10 +80,11 @@ def find_ocl_rrg(df: pd.DataFrame, last: int) -> Optional[dict]:
     c1, c2, c3 = last - 2, last - 1, last
     if not (c[c1] < o[c1] and c[c2] < o[c2] and c[c3] > o[c3]):
         return None
-    if not c[c2] > o[c1]:
-        return None
-    if not c[c3] > c[c2]:
-        return None
-    conservative = min(min(o[k], c[k]) for k in (c1, c2, c3))
-    return {"aggressive_1": float(o[c1]), "aggressive_2": float(c[c2]),
-            "conservative": float(conservative), "trigger_index": last}
+    conservative = float(min(min(o[k], c[k]) for k in (c1, c2, c3)))
+    if c[c2] > o[c1]:
+        return {"break": "2-candle", "key_level": float(o[c1]),
+                "conservative": conservative, "trigger_index": c2}
+    if c[c3] > c[c2]:
+        return {"break": "3-candle", "key_level": float(c[c2]),
+                "conservative": conservative, "trigger_index": c3}
+    return None

@@ -80,3 +80,13 @@ Status: spec complete. Ready to build after owner go-ahead.
 - Tests: 17 total in `tests/unit/test_owner_patterns.py`, all passing.
 - Assumption: "break" means a close above the level (as stated in round 5). Confirm if you meant an intrabar touch.
 - Not built yet: the entry trigger and order logic for each strategy, the wiring into the bot, and the timeframe bar feed.
+
+## OCL break rule (owner answers 2026-11-19, implemented)
+- Setup is red, red, green on the last 3 closed bars.
+- The first break that happens sets the key level:
+  - 2-candle break: C2 closes above C1 open. Key level = C1 open. Confirmed on C2.
+  - 3-candle break: C3 closes above C2 close. Key level = C2 close. Confirmed on C3.
+- Conservative level = lowest body bottom of C1, C2 and C3. It applies to both breaks.
+- Assumption: C3 must still be green for a 2-candle break, as the pattern requires. Confirm if the 2-candle break should fire without it.
+- Tests: 18 in `tests/unit/test_owner_patterns.py`, all passing.
+- Not in the test run: `src/quant/tests/test_nse_fii.py::test_market_inputs_serves_a_stored_value` fails because it uses the fixed date 2026-11-14 and now the data is stale. It is not related to this change; fix separately.
