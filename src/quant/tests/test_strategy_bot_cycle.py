@@ -107,7 +107,7 @@ def _limits():
                       max_strategy_loss=25_000.0, max_adv_pct=0.01, max_symbols_per_portfolio=20)
 
 
-def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None):
+def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceiling=0.01):
     screen = tmp_path / "latest.json"
     as_of = restore_at or NOW  # a restarted bot reads a fresh screen (the live screen is refreshed each cycle)
     screen.write_text(json.dumps({"as_of": as_of.isoformat(), "results": [
@@ -120,7 +120,7 @@ def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None):
                       audit=audit, api_key="KEY", read_funds=lambda: 1_000_000.0, limits=_limits(),
                       kill=KillSwitch(tmp_path / "kill.json"), safe=SafeMode(), halt=HaltHandler(),
                       state=RiskState(), position_store=store,
-                      cycle_loss_ceiling=0.01)  # owner value: 1 % of equity
+                      cycle_loss_ceiling=loss_ceiling)  # owner value 1 % of equity (tests may lower it)
     if restore_at is not None:
         bot.restore_positions(restore_at)  # before startup recon, as in the live runner
     bot.run_startup_recon(None)
@@ -314,3 +314,16 @@ def test_restart_after_a_cycle_ended_never_reopens_it(tmp_path):
     assert _key() not in bot2._parents
     bot2.cycle(NEXT_DAY)
     assert _key() not in bot2._parents
+
+
+def test_loss_ceiling_refusal_sends_nothing_and_is_audited(tmp_path):
+    """Probe 500 sh x 2 INR = 1000 INR planned risk. A ceiling of 0.05 % (500 INR) refuses it."""
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot, audit = _bot(tmp_path, strat, loss_ceiling=0.0005)
+    bot.cycle(NOW)
+    assert _key() not in bot._parents
+    assert _child_qtys(audit) == []
+    refusals = [p for k, p in audit.records if k == "ladder_refused"]
+    assert len(refusals) == 1
+    assert refusals[0]["reason"] == "loss_ceiling"
+    assert refusals[0]["ceiling_inr"] == pytest.approx(500.0)

@@ -146,3 +146,12 @@ def test_ladder_round_trips_through_its_saved_form():
     assert back.to_doc() == doc
     o2 = back.aggressive_touch("OCL2", 94)
     assert o2 is not None and o2.carry == r.carry
+
+
+def test_refusal_by_the_loss_ceiling_is_recorded():
+    r = _ladder(ceiling=0.001)  # 100 INR of planned risk at stop
+    assert r.aggressive_touch("OCL1", 100) is not None  # 98 INR fits
+    assert r.conservative_touch("OCL1", 95) is None  # 150 INR more: refused
+    assert r.last_refused == "loss_ceiling"
+    assert r.aggressive_touch("OCL1", 100) is None  # same OCL: no reason recorded as a ceiling refusal
+    assert r.last_refused is None

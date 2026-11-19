@@ -108,6 +108,7 @@ class RiskLadder:
     _current: Optional[Order] = None
     _current_ocl: Optional[str] = None
     _current_cons: bool = False
+    last_refused: Optional[str] = None  # why the last touch planned no order: loss_ceiling (audit trail)
 
     # ---- helpers -------------------------------------------------------------------------
     def planned_risk_inr(self) -> float:
@@ -120,7 +121,10 @@ class RiskLadder:
         return self.planned_risk_inr() + extra <= self.loss_ceiling * self.equity + _EPS
 
     def _add(self, ocl_id: str, price: float, qty: int, risk: float, reason: str) -> Optional[Order]:
-        if qty < 1 or not self._ceiling_allows(qty, price):
+        if qty < 1:
+            return None
+        if not self._ceiling_allows(qty, price):
+            self.last_refused = "loss_ceiling"
             return None
         order = Order(ocl_id=ocl_id, price=price, qty=qty, risk=risk, reason=reason)
         self.orders.append(order)
@@ -129,6 +133,7 @@ class RiskLadder:
     # ---- events --------------------------------------------------------------------------
     def aggressive_touch(self, ocl_id: str, price: float) -> Optional[Order]:
         """An OCL's aggressive level was touched. Returns the planned order, or None."""
+        self.last_refused = None
         if price <= self.htf_low:
             return None
         if self.stage == "waiting_pair":
@@ -162,6 +167,7 @@ class RiskLadder:
     def conservative_touch(self, ocl_id: str, price: float) -> Optional[Order]:
         """A conservative level was touched. In probe stage it adds +0.15 % to that OCL.
         In waiting stage it only arms the escalation pair."""
+        self.last_refused = None
         if price <= self.htf_low:
             return None
         if self.stage == "waiting_pair":

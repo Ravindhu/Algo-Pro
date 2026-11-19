@@ -759,6 +759,10 @@ class StrategyBot:
             trial_order = (trial.aggressive_touch(ocl_id, price) if kind == "aggressive"
                            else trial.conservative_touch(ocl_id, price))
             if trial_order is None:
+                if trial.last_refused:  # audit: an order was wanted but the owner loss ceiling refused it
+                    self._log("ladder_refused", key=key, trigger=kind, ocl=ocl_id, reason=trial.last_refused,
+                              planned_risk_inr=round(trial.planned_risk_inr(), 2),
+                              ceiling_inr=round(float(trial.loss_ceiling or 0.0) * float(trial.equity), 2))
                 continue  # nothing to size: wrong stage, same OCL, pair not armed, or ceiling
             total = int(trial_order.qty)
             sl_dist = float(price) - float(cur.htf_low)

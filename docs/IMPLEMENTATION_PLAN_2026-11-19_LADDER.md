@@ -1,6 +1,6 @@
 # Implementation plan: risk ladder for the cycle strategies (2026-11-19)
 
-Status: P0 to P4 done (2026-11-19). P5 open. Live stays OFF. Paper mode only.
+Status: P0 to P5 done (2026-11-19). Remaining: owner order caps (section 11.9 item 26) and the replay full-fill limit. Live stays OFF. Paper mode only.
 Rules source: `docs/STRATEGY_RULES_2026-11-19.md` section 11 (rules) and section 14 (worked example).
 Gap list source: the same file, section 13.
 
@@ -139,3 +139,10 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   average is the expected value under full fills; the bot's average is the real fill-weighted one.
   Replay tests: tests/unit/test_cycle*.py updated (avg 9.3125 for the probe + conservative case; new OCL case
   computed with the ladder formula). Full suite: no new failures vs baseline; 27 unrelated remain.
+- 2026-11-19: P5 done. Owner loss ceiling 1 % of equity (settings.yaml cycle.loss_ceiling = 0.01, loaded as
+  0.01 in the check). The ladder enforces it on the planned risk at the HTF stop for each HTF cycle, in the
+  bot and in the replay. A refused order is now audited: ladder_refused with reason loss_ceiling, planned
+  risk and the ceiling in INR. Fail closed when the ceiling is unset. Tests: ladder refusal recorded; bot
+  refusal sends nothing and is audited. Full suite: no new failures vs baseline (27 unrelated remain).
+  Note: the ceiling is a cap on planned loss at the HTF stop, not a daily loss limit. The daily loss kill
+  switch (max_daily_loss) is separate and still applies.
