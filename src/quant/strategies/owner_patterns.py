@@ -93,3 +93,32 @@ def find_ocl_rrg(df: pd.DataFrame, last: int) -> Optional[dict]:
         return {"break": "4-candle", "key_level": float(c[a + 2]),
                 "conservative": conservative(a), "trigger_index": last}
     return None
+
+
+def is_swing_low_3(df: pd.DataFrame, i: int) -> bool:
+    """3-candle swing low at bar i: low i is below the low of bar i-1 and bar i+1 (both must be closed)."""
+    if i < 1 or i + 1 >= len(df):
+        return False
+    low = df["low"].to_numpy(dtype=float)
+    return bool(low[i] < low[i - 1] and low[i] < low[i + 1])
+
+
+def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Optional[dict]:
+    """Liquidity sweep of a 3-candle swing low on closed bars. `last` = newest closed bar index.
+
+    Newest swing low first. A sweep is any later bar (up to `last`) whose low goes below the swing low.
+    A wick break and a body close below the level both count; a body close below the level
+    also means the low is below it, so one test covers both (owner 2026-11-19).
+    Returns {"swing_index", "swing_low", "sweep_index"} or None.
+    """
+    if last < 2 or last >= len(df):
+        return None
+    low = df["low"].to_numpy(dtype=float)
+    for i in range(last - 1, max(1, last - lookback) - 1, -1):
+        if i + 1 > last or not is_swing_low_3(df, i):
+            continue
+        level = low[i]
+        for k in range(i + 1, last + 1):
+            if low[k] < level:
+                return {"swing_index": i, "swing_low": float(level), "sweep_index": k}
+    return None

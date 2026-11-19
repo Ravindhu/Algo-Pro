@@ -121,3 +121,25 @@ def test_ocl_rrg_short_history_is_safe():
 
 def test_engulfing_is_still_two_candles():
     assert op.is_red_green_engulf(_frame([RED, GREEN_ENGULF]), 1) is True
+
+
+# ---- 3-candle swing low and liquidity sweep ----
+def test_swing_low_needs_both_neighbours_higher():
+    f = _frame([(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7)])
+    assert op.is_swing_low_3(f, 1) is True
+    assert op.is_swing_low_3(_frame([(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.6, 9.9), (9.9, 10.2, 9.3, 9.8)]), 1) is False
+
+
+def test_sweep_detected_when_later_low_breaks_swing_low():
+    bars = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.6, 8.7, 9.1)]
+    res = op.find_swing_low_sweep(_frame(bars), last=3)
+    assert res == {"swing_index": 1, "swing_low": 9.0, "sweep_index": 3}
+
+
+def test_no_sweep_when_no_low_breaks_swing_low():
+    bars = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.8, 9.1, 9.6)]
+    assert op.find_swing_low_sweep(_frame(bars), last=3) is None
+
+
+def test_sweep_short_history_is_safe():
+    assert op.find_swing_low_sweep(_frame([(10, 10.5, 9.5, 10.0)]), last=0) is None

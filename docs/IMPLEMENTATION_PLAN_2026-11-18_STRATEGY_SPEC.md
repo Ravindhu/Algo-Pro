@@ -149,3 +149,13 @@ Still to confirm:
 - LTF: no sweep required.
 - Sweep counts when the swept level is broken by a wick OR by a body close. After the break, the OCL is formed.
 - 3-candle swing: confirmed.
+
+## Owner confirmed (2026-11-19): sweep mapping
+- MTF pattern sweeps on HTF. HTF pattern sweeps on LTF. LTF needs no sweep.
+
+## Build status: liquidity sweep detection (2026-11-19)
+- `is_swing_low_3` and `find_swing_low_sweep` in `src/quant/strategies/owner_patterns.py`.
+  - A 3-candle swing low: the middle candle's low is below the lows on both sides.
+  - A sweep: a later bar's low goes below the swing low. A wick or a body close both count.
+- Tests: 22 in `tests/unit/test_owner_patterns.py`, all passing.
+- Not built yet: the sweep-then-OCL sequence across timeframes, the entry logic, the bar feed, and the bot wiring.
