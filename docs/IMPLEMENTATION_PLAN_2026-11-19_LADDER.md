@@ -108,3 +108,10 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   pre-entry gate refuses the test entries (pre_gate_refused). Not touched yet.
 - 2026-11-19: P0 started. Repo cloned to /home/claude/algo-pro at 19aeb5f. Code gaps confirmed.
   Section 14 arithmetic error found. Waiting for owner decisions (section 6).
+- 2026-11-19: Red bot tests fixed (prerequisite for P3). Causes: (a) httpx and websocket-client were
+  missing in the sandbox, so the feed guard failed closed; installed. (b) The owner caps in
+  config/risk_limits.yaml (10 shares, 10,000 INR) now apply at the gate, so test entries were refused;
+  the bot tests now use a test-only caps file (real file unchanged). (c) The cycle tests used
+  target_pending, which P1 now refuses; they use the owner N = 2.1, and a new test checks the refusal.
+  Result: 98 bot and cycle tests pass. Full suite: no failure that is not in the pre-work baseline
+  (27 unrelated failures remain there: exit_bot, pov_executor, audit_fixes, bot_recon and others).

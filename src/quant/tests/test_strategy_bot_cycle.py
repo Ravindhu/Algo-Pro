@@ -11,6 +11,8 @@ Rules checked here:
 - cycle positions: no breakeven; trail from entry only after a conservative touch; target None until N is set.
 """
 import json
+
+import pytest
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -26,6 +28,20 @@ from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
 from quant.strategies.cycle import CycleResult, Entry
 from quant.strategies.engulf_sequence_strategy import CycleView
+
+
+@pytest.fixture(autouse=True)
+def _test_only_owner_caps(tmp_path, monkeypatch):
+    """Owner caps in config/risk_limits.yaml (10 shares, 10,000 INR) would refuse these test
+    entries. Point the gate at a test-only file with large caps. The real file is not changed."""
+    from quant.core import owner_limits_store as ols
+    p = tmp_path / "owner_caps_for_tests.yaml"
+    p.write_text("max_order_quantity: 1000000\nmax_order_notional: 100000000\n"
+                 "max_open_exposure: 100000000\nblocked: false\n", encoding="utf-8")
+    monkeypatch.setattr(ols, "DEFAULT_PATH", p)
+    monkeypatch.setattr(ols, "_loaded_from", None)
+    monkeypatch.setattr(ols, "_cached", {})
+    yield
 
 NOW = datetime(2026, 11, 17, 10, 15)
 T_OLD = pd.Timestamp("2026-11-17 10:00")
@@ -70,7 +86,8 @@ class ScriptedCycle:
         return self.views.pop(0) if self.views else None
 
 
-def _result(entries=(), paused=False, mode="target_pending", target=None, status="open"):
+# target N = 2.1 (owner): avg 100 + 2.1 x (100 - 98) = 104.2. target_pending (N unset) is tested separately.
+def _result(entries=(), paused=False, mode="target", target=104.2, status="open"):
     return CycleResult(kind="egpattern_open", status=status, htf_low=HTF_LOW, entries=list(entries),
                        avg_entry=None, mode=mode, target=target, htf_key_time=HTF_KEY, ltf_paused=paused)
 
@@ -121,7 +138,7 @@ def test_first_fresh_trigger_opens_one_cycle_parent_with_hard_htf_stop(tmp_path)
     assert pos.stop == HTF_LOW
     assert pos.breakeven_enabled is False
     assert pos.trail_from_start is False
-    assert pos.target is None  # target_pending: no fixed target until N is set
+    assert pos.target == pytest.approx(104.2)  # target = avg + N x R, N = 2.1 (owner)
     assert _child_qtys(audit)[0] == 500  # POV 10% of 5000 bar volume, first child
 
 
@@ -255,11 +272,22 @@ def test_cycle_parent_is_not_dropped_by_the_max_cycles_age_limit(tmp_path):
     assert sum(_child_qtys(audit)) == 1000
 
 
+def test_target_pending_refuses_the_cycle_fail_closed(tmp_path):
+    """Owner rule 11.7: an aggressive-only cycle with no N set has no exit rule, so it is never opened."""
+    strat = ScriptedCycle("scripted", [_view(_result([Entry(T_NEW, 100.0, "aggressive")],
+                                                     mode="target_pending", target=None), T_NEW)])
+    bot, audit = _bot(tmp_path, strat)
+    bot.cycle(NOW)
+    assert _key() not in bot._parents
+    assert _child_qtys(audit) == []
+    assert any(k == "parent_skipped" and p.get("reason") == "target N not set" for k, p in audit.records)
+
+
 def test_conservative_touch_switches_position_to_atr_trail(tmp_path):
     strat = ScriptedCycle("scripted", [
         _view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW),
         _view(_result([Entry(T_NEW, 100.0, "aggressive"), Entry(T_NEXT, 99.0, "conservative")],
-                      mode="trail"), T_NEXT),
+                      mode="trail", target=None), T_NEXT),  # trail mode: no fixed target (rules 11.7)
     ])
     bot, _ = _bot(tmp_path, strat)
     bot.cycle(NOW)

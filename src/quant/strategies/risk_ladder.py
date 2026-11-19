@@ -1,7 +1,7 @@
 """Risk ladder for the cycle strategies (owner rules 2026-11-19, rules doc section 11 and 14).
 
 Flow stage: Strategy bot cycle (sizing of each entry)
-Status: P2 (pure logic, no broker, no orders sent). Plan: docs/IMPLEMENTATION_PLAN_2026-11-19_LADDER.md
+Status: PHASE 2 IMPLEMENTED (2026-11-19): pure logic, no broker, no orders sent. Plan: docs/IMPLEMENTATION_PLAN_2026-11-19_LADDER.md
 
 Simple words:
 - Every entry is sized at its own price against the HTF OCL low (HTF L):
