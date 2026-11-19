@@ -30,6 +30,9 @@ from quant.execution.openalgo_client import OpenAlgoClient, PaperBroker, http_tr
 from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
 from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused, PaperSender, StrategyBot  # noqa: E402
 from quant.data.live_bars import LiveBars  # noqa: E402
+from quant.data.mtf_bars import MultiTimeframeBars  # noqa: E402
+from quant.core.setup_store import load_timeframes  # noqa: E402
+from quant.strategies.engulf_sequence_strategy import EngulfSequenceStrategy  # noqa: E402
 from quant.monitor.paper_loop import now_ist  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
 from quant.notify.alerts import Alerts  # noqa: E402
@@ -68,9 +71,11 @@ def _strategy_params(bot_cfg_path) -> dict:
 PAPER_SYMBOL_LABEL = "PORTFOLIO"  # the engulfing class needs a symbol; the bot uses the screen's symbols instead
 
 
-def _make_strategy(name: str, strategy_params: Optional[dict] = None):
+def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None):
     if name == "engulfing":
-        return Engulfing(PAPER_SYMBOL_LABEL)
+        if feed is None:  # timeframes not all set: keep the existing single-timeframe class
+            return Engulfing(PAPER_SYMBOL_LABEL)
+        return EngulfSequenceStrategy(feed)
     # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
     # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol
     # settings come from config/bot.yaml strategies.<name>.params (pattern, HTF/LTF intervals,
@@ -85,7 +90,8 @@ def _make_strategy(name: str, strategy_params: Optional[dict] = None):
 
 def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
               paper_capital: float, broker=None, alerts: Optional[Alerts] = None,
-              on_critical: Optional[Callable[[str], None]] = None) -> Tuple[StrategyBot, AuditLog]:
+              on_critical: Optional[Callable[[str], None]] = None,
+              timeframes: Optional[dict] = None) -> Tuple[StrategyBot, AuditLog]:
     """Wire the bot from config. Raises BotRefused for any mode other than paper."""
     cfg = load_bot_config(bot_cfg_path)
     if cfg.mode != "paper":
@@ -93,13 +99,17 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
     if cfg.live_enabled:
         raise BotRefused("live_enabled must stay false")
     strategy_params = _strategy_params(bot_cfg_path)
+    tf = timeframes or {}
+    feed = None
+    if all(tf.get(k) for k in ("mtf", "htf", "ltf")):
+        feed = MultiTimeframeBars(reader, api_key, {k: tf[k] for k in ("mtf", "htf", "ltf")})
     state_dir = pathlib.Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     audit = AuditLog(state_dir / "audit.jsonl")
     alerts = alerts or Alerts(on_critical=on_critical)
     bot = StrategyBot(
         cfg=cfg,
-        strategies=[_make_strategy(n, strategy_params) for n in cfg.strategies],
+        strategies=[_make_strategy(n, strategy_params, feed) for n in cfg.strategies],
         bars=LiveBars(reader, api_key),
         sender=PaperSender(broker or PaperBroker()),
         audit=audit,
@@ -152,6 +162,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--config", default=str(ROOT / "config" / "bot.yaml"))
     p.add_argument("--limits", default=str(ROOT / "config" / "risk_limits.yaml"))
+    p.add_argument("--settings", default=str(ROOT / "config" / "settings.yaml"))
     p.add_argument("--state-dir", default=str(ROOT / "data" / "bot"))
     p.add_argument("--base-url", required=True, help="OpenAlgo server URL (read-only history)")
     p.add_argument("--paper-capital", type=float, default=0.0, help="simulated capital in INR")
@@ -163,6 +174,7 @@ def main(argv=None) -> int:
     bot, audit = build_bot(
         bot_cfg_path=args.config, limits_path=args.limits, state_dir=args.state_dir, reader=reader,
         api_key=api_key, paper_capital=args.paper_capital,
+        timeframes=load_timeframes(args.settings),
         on_critical=lambda msg: print(f"CRITICAL: {msg}", flush=True),
     )
     run(bot, audit, state_dir=args.state_dir, max_cycles=args.max_cycles)

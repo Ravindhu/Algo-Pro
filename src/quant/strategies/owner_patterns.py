@@ -15,6 +15,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from quant.indicators.indicators import atr as atr_series
+
 BODY_MIN = 0.5
 
 
@@ -165,3 +167,31 @@ def engulf_sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame) -> 
         return {"pattern_time": mtf.index[j], "touch_time": touch_time, "sweep_time": sweep_time,
                 "ocl_time": ltf.index[m], "trigger_time": ltf.index[trig], "entry": float(key)}
     return None
+
+
+def engulf_signal(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
+                  atr_period: int = 14, rr: float = 3.0) -> Optional[dict]:
+    """Bot signal for the Engulfing strategy, from engulf_sequence. ASSUMED rules (owner to confirm):
+    entry = the touched LTF key level; stop = lowest low of the LTF OCL pattern candles (C1..C3);
+    target = rr x stop distance (3R); ATR = ATR(atr_period) on the LTF closed bars.
+    Returns the bot signal dict or None.
+    """
+    res = engulf_sequence(mtf, htf, ltf)
+    if res is None:
+        return None
+    m = ltf.index.get_loc(res["ocl_time"])
+    if m < 2:
+        return None  # OCL needs three candles C1..C3 before it
+    lows = ltf["low"].to_numpy(dtype=float)
+    stop = float(min(lows[m - 2: m + 1]))
+    entry = float(res["entry"])
+    sl_dist = entry - stop
+    if sl_dist <= 0:
+        return None
+    highs = ltf["high"].to_numpy(dtype=float).tolist()
+    closes = ltf["close"].to_numpy(dtype=float).tolist()
+    atr_val = atr_series(highs, lows.tolist(), closes, period=atr_period)[-1]
+    if atr_val is None or atr_val <= 0:
+        return None
+    return {"side": "BUY", "entry": entry, "sl_dist": float(sl_dist), "tp_dist": float(rr * sl_dist),
+            "atr": float(atr_val), "time": str(ltf.index[-1]), "strategy": "engulfing"}

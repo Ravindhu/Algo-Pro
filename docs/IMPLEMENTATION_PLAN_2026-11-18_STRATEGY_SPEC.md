@@ -189,3 +189,22 @@ Still to confirm:
   - Daily freshness: last closed day at most 4 days old (weekend and holiday tolerance).
 - Tests: 9 in `tests/unit/test_mtf_bars.py`, all passing.
 - Not built yet: wiring into the bot cycle (every 5 minutes), and the 4-hour timeframe. OpenAlgo's interval list has no 4h. A 4-hour bar would have to be built by combining 1-hour bars. Owner decision needed.
+
+## Phase F: loader connected to the bot (paper only), 2026-11-19
+
+- Added `engulf_signal` in `src/quant/strategies/owner_patterns.py`: runs `engulf_sequence` on MTF/HTF/LTF closed bars and builds a BUY signal.
+- Added `EngulfSequenceStrategy` in `src/quant/strategies/engulf_sequence_strategy.py`: gets closed bars from `MultiTimeframeBars` via `signal_for(symbol, df, now)`.
+- `StrategyBot._scan` calls `signal_for` when a strategy has it, otherwise `signal(df)` as before.
+- `scripts/run/run_strategy_bot.py` loads MTF/HTF/LTF from trade setup (`load_timeframes`). If all three are set, `engulfing` uses the sequence strategy. If not, it keeps the old single-timeframe `Engulfing` class, so existing behaviour is unchanged.
+- Paper mode only. The runner still refuses any mode other than paper, and `live_enabled` must stay false.
+
+ASSUMPTIONS, owner to confirm before live:
+1. Entry = the LTF key level that was touched.
+2. Stop = lowest low of the LTF OCL candles C1..C3.
+3. Target = 3R (3 x stop distance).
+4. ATR = ATR(14) on LTF closed bars. Used only for the existing ATR checks.
+5. 4-hour timeframe is still not supported (no OpenAlgo interval).
+
+Tests: `tests/unit/test_engulf_signal.py` (8 tests). Full suites: 2099 pass. Known pre-existing failures: `test_upgrade_pin` (vendored pin) and `test_nse_fii` (fixed 2026-11-14 date).
+
+Flow doc / SVG: the bot wiring changed the Strategy and Execution stages. The SVG update is pending and is tracked as a follow-up.

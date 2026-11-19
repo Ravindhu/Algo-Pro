@@ -602,7 +602,8 @@ class StrategyBot:
 
     def _scan(self, strat, sym, df, circuit_pct, stats, now, report) -> None:
         try:
-            sig = strat.signal(df)
+            sig = (strat.signal_for(sym, df, now) if hasattr(strat, "signal_for")
+                   else strat.signal(df))
         except Exception as exc:
             self._log("strategy_error", strategy=strat.name, symbol=sym, error=repr(exc))
             return
