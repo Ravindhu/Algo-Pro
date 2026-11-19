@@ -429,7 +429,7 @@ def test_runner_refuses_engulfing_without_timeframes(tmp_path):
 
 
 @pytest.mark.parametrize("name, kind", [
-    ("engulfing", "egpattern_open"), ("engulfing_fail", "egpattern_high"), ("ocl_seq", "ocl_key"),
+    ("engulfing", "egpattern_open"), ("engulfing_fail", "egpattern_body"), ("ocl_seq", "ocl_key"),
     ("ocl_sell_fail_top_seq", "ocl_top"), ("ocl_sell_fail_bottom_seq", "ocl_bottom"),
 ])
 def test_sequence_strategies_need_timeframes_and_map_to_their_kind(name, kind):

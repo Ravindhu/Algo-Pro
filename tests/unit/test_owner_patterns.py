@@ -184,12 +184,12 @@ def test_engulf_sequence_short_history_is_safe():
 # ---- Sequence kinds (five strategies), freshness, stop ----
 MTF_OCL_TOUCH = (11.3, 11.8, 10.9, 11.5)    # touches OCL key 11.0 and OCL top 11.6
 MTF_OCL_BOTTOM_TOUCH = (9.5, 9.6, 8.9, 9.2)  # touches OCL bottom 9.0
-MTF_EG_HIGH_TOUCH = (10.8, 11.2, 10.5, 10.9)  # touches egpattern high level 11.0
+MTF_EG_HIGH_TOUCH = (10.8, 11.2, 10.5, 10.9)  # body-top level is 10.8 (green body top); this bar touches it
 
 
 @pytest.mark.parametrize("kind, mtf_rows", [
     ("egpattern_open", [RED, GREEN_ENGULF, ENG_M_TOUCH]),
-    ("egpattern_high", [RED, GREEN_ENGULF, MTF_EG_HIGH_TOUCH]),
+    ("egpattern_body", [RED, GREEN_ENGULF, MTF_EG_HIGH_TOUCH]),
     ("ocl_key", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
     ("ocl_top", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
     ("ocl_bottom", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]),
@@ -200,11 +200,18 @@ def test_each_sequence_kind_triggers_on_its_own_setup(kind, mtf_rows):
     assert res["trigger_time"] == 6
 
 
-def test_ocl_top_level_is_highest_high_so_a_key_level_touch_is_not_enough():
-    # top level = 11.6; this MTF bar tops out at 11.0, so it does not touch the top level
-    no_top_touch = (10.8, 11.0, 10.5, 10.9)
+def test_ocl_top_level_is_c2_open_so_a_bar_below_it_does_not_touch():
+    # top level = C2 open 11.0; this MTF bar tops out at 10.9, so it does not touch the level
+    no_top_touch = (10.3, 10.9, 10.3, 10.7)
     assert op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, no_top_touch]), _frame(HTF_BARS),
                        _ltf_with_ocl(), "ocl_top") is None
+
+
+def test_engulfing_fail_level_is_highest_body_top_not_wick():
+    # RED body top 10.0, GREEN body top 10.8 -> level 10.8 (the GREEN high 11.0 is a wick)
+    bar_above_body_top_only_by_wick = (10.9, 11.0, 10.85, 10.85)  # low 10.85 > 10.8: no touch
+    assert op.sequence(_frame([RED, GREEN_ENGULF, bar_above_body_top_only_by_wick]), _frame(HTF_BARS),
+                       _ltf_with_ocl(), "egpattern_body") is None
 
 
 def test_unknown_kind_raises():

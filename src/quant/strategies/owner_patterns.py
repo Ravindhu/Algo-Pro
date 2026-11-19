@@ -134,10 +134,10 @@ def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Opt
 # marked (owner to confirm, see docs/STRATEGY_RULES_2026-11-19.md).
 SEQUENCE_KINDS = {
     "engulfing": "egpattern_open",          # owner r4: aggressive level = open of candle 1
-    "engulfing_fail": "egpattern_high",     # ASSUMED: level = higher high of the two candles (sell-fail level, r5)
+    "engulfing_fail": "egpattern_body",     # owner 2026-11-19: level = highest candle body top of the two candles
     "ocl_seq": "ocl_key",                   # OCL on MTF; level = OCL aggressive key level
-    "ocl_sell_fail_top_seq": "ocl_top",     # ASSUMED: level = highest high of the OCL candles
-    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # ASSUMED: level = lowest low of the OCL candles
+    "ocl_sell_fail_top_seq": "ocl_top",     # ASSUMED: level = open of the candle before the trigger (C2 open for 3-candle, C3 open for 4-candle)
+    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # owner 2026-11-19: level = lowest low from OCL C1 to the sell-fail candle (swing low)
 }
 
 
@@ -149,13 +149,16 @@ def _ocl_start(end: int, ocl: dict) -> int:
 def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
     """Newest completed MTF setup as (end_index, level). end_index = last candle of the pattern.
     The pattern must have a later bar, so the search starts one bar before the newest."""
-    mo, mh, ml, _ = _arrays(mtf)
+    mo, mh, ml, mc = _arrays(mtf)
     n_m = len(mtf) - 1
-    if kind in ("egpattern_open", "egpattern_high"):
+    if kind in ("egpattern_open", "egpattern_body"):
         j = next((i for i in range(n_m - 1, 0, -1) if is_red_green_engulf(mtf, i)), None)
         if j is None:
             return None
-        level = float(mo[j - 1]) if kind == "egpattern_open" else float(max(mh[j - 1], mh[j]))
+        if kind == "egpattern_open":
+            level = float(mo[j - 1])
+        else:  # highest body top (max of open and close) of the two candles
+            level = float(max(max(mo[j - 1], mc[j - 1]), max(mo[j], mc[j])))
         return j, level
     if kind in ("ocl_key", "ocl_top", "ocl_bottom"):
         for m in range(n_m - 1, 1, -1):
@@ -166,7 +169,7 @@ def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
             if kind == "ocl_key":
                 level = float(ocl["key_level"])
             elif kind == "ocl_top":
-                level = float(max(mh[start:m + 1]))
+                level = float(mo[m - 1])  # open of the candle before the trigger: C2 (3-candle) or C3 (4-candle)
             else:
                 level = float(min(ml[start:m + 1]))
             return m, level

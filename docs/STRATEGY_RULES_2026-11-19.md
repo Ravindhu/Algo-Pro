@@ -27,10 +27,10 @@ All five follow the same sequence (section 4). They differ only in the MTF setup
 | # | Bot name | MTF setup | Touch level (MTF) | Code kind | Status |
 |---|---|---|---|---|---|
 | 1 | `engulfing` | egpattern | open of candle 1 (owner r4) | `egpattern_open` | Built, paper |
-| 2 | `engulfing_fail` | egpattern (sell-fail engulf on MTF, owner r4) | higher of the two highs (ASSUMED, sell-fail level r5) | `egpattern_high` | Built, paper |
+| 2 | `engulfing_fail` | egpattern (sell-fail engulf on MTF, owner r4) | highest candle body top of the two candles (owner 2026-11-19) | `egpattern_body` | Built, paper |
 | 3 | `ocl_seq` | OCL (RRG) | OCL aggressive key level (owner r4 and r6) | `ocl_key` | Built, paper |
-| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | highest high of the OCL candles (ASSUMED) | `ocl_top` | Built, paper |
-| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | lowest low of the OCL candles (ASSUMED) | `ocl_bottom` | Built, paper |
+| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | open of the candle before the trigger: C2 open (3-candle), C3 open (4-candle) (owner 2026-11-19; CONFLICT, see section 10 item 11) | `ocl_top` | Built, paper |
+| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | lowest low from OCL C1 to the sell-fail candle, the swing low (owner 2026-11-19) | `ocl_bottom` | Built, paper |
 
 Each strategy is standalone. None depends on another. The sell-fail sequence and the OCL sequence use the same HTF sweep and LTF OCL steps as Engulfing.
 
@@ -83,7 +83,7 @@ Every `interval_minutes` (5, in `config/bot.yaml`):
 ## 7. Entry, stop, target, breakeven and trail
 
 Assumed until the owner confirms (same for all five):
-- Entry = the LTF OCL aggressive key level that was touched. Entry is a limit order (`entry_max_slippage_bps`, 20 by default).
+- Entry reference = the LTF OCL aggressive key level that was touched. Actual fills follow the bot's POV slicer (owner 2026-11-19), as for all bot parents.
 - Stop = lowest low of the LTF OCL candles C1..C3 (for a 4-candle break, C1..C3 are the three candles before C4).
 - Target = 3R.
 - ATR = ATR(14) on LTF closed bars.
@@ -119,15 +119,15 @@ Entry and exits
 3. Target = 3R (3 times the stop distance).
 4. ATR = ATR(14) on LTF closed bars. Used only by the existing ATR checks.
 5. Breakeven at 1R and trail at 2 ATR, from `config/bot.yaml`, unless set per strategy.
-6. Entry is a limit order, at most `entry_max_slippage_bps` (20) above the last close.
+6. Execution is the bot's POV slicer (owner 2026-11-19). The entry key level is the reference price for sizing and stops, not a single fill price.
 
 Pattern rules
 7. A "break" of a level = a candle CLOSE above it, not an intrabar touch.
 8. 3-candle OCL break needs only: C3 green and C3 close above C2 open. No extra candle condition.
-9. The sell-fail trigger candle (green, body over 50%, close above the pattern high) is NOT required in the five sequences. It exists as `find_sell_fail_trigger` and is unused.
-10. Level for `engulfing_fail` = higher of the two egpattern highs.
-11. Level for `ocl_sell_fail_top_seq` = highest high of the OCL candles.
-12. Level for `ocl_sell_fail_bottom_seq` = lowest low of the OCL candles.
+9. The sell-fail trigger candle (green, body over 50%, closes above the pattern high) is NOT required in the five sequences. Why: the owner's round 10 says the LTF touch of the key level is the trigger. The candle rule exists as `find_sell_fail_trigger`, unused. Owner to say whether to add it as an extra entry condition for the sell-fail strategies.
+10. Level for `engulfing_fail` = highest candle body top of the two egpattern candles (max of open and close). Owner 2026-11-19.
+11. Level for `ocl_sell_fail_top_seq` = open of the candle before the trigger: C2 open for a 3-candle OCL, C3 open for a 4-candle OCL. Owner 2026-11-19. CONFLICT: the owner's earlier rule set the 4-candle aggressive key level at C3 CLOSE. Confirm which one applies to the 4-candle top level.
+12. Level for `ocl_sell_fail_bottom_seq` = lowest low from OCL C1 to the sell-fail candle (the swing low). Owner 2026-11-19.
 13. A sweep = a later bar's low below the swing low (wick or body). Swing = 3-candle swing low.
 14. Swing search looks back 20 HTF bars. The newest sweep is used.
 
