@@ -364,6 +364,7 @@ class StrategyBot:
         buyer_share_provider: Optional[Callable[[str], Optional[float]]] = None,
         depth_provider: Optional[Callable[[str], Any]] = None,
         cycle_loss_ceiling: Optional[float] = None,
+        cycle_portfolio_loss_ceiling: Optional[float] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -433,6 +434,9 @@ class StrategyBot:
         # they were tested. Unset stays None, and the check refuses when enabled -
         # this only makes the operator's setting reachable.
         self._cycle_loss_ceiling = cycle_loss_ceiling  # None = not set = no cycle order (fail closed)
+        # Owner 2026-11-19: planned risk at the HTF stops across ALL open cycles (all symbols) may not exceed this
+        # fraction of equity. None = not set = no new ladder order (fail closed).
+        self._cycle_portfolio_loss_ceiling = cycle_portfolio_loss_ceiling
         self._pre_gate = pre_gate if pre_gate is not None else PreGate(
             PreGateConfig(
                 max_sector_pct=getattr(limits, "max_sector_pct", None),
@@ -780,6 +784,12 @@ class StrategyBot:
                               planned_risk_inr=round(trial.planned_risk_inr(), 2),
                               ceiling_inr=round(float(trial.loss_ceiling or 0.0) * float(trial.equity), 2))
                 continue  # nothing to size: wrong stage, same OCL, pair not armed, or ceiling
+            ok_port, port_used, port_cap = self._portfolio_ceiling_check(
+                key, ladder, trial_order.qty, float(price))
+            if not ok_port:
+                self._log("ladder_refused", key=key, trigger=kind, ocl=ocl_id, reason="portfolio_loss_ceiling",
+                          planned_risk_inr=round(port_used, 2), ceiling_inr=round(port_cap, 2))
+                continue
             total = int(trial_order.qty)
             sl_dist = float(price) - float(cur.htf_low)
             sig = {"side": "BUY", "entry": float(price), "sl_dist": sl_dist, "tp_dist": 3.0 * sl_dist,
@@ -836,6 +846,16 @@ class StrategyBot:
             pos.target = cur.target
             pos.trail_from_start = parent.trail
         self._persist_positions()
+
+    def _portfolio_ceiling_check(self, key: str, ladder, qty: int, price: float) -> Tuple[bool, float, float]:
+        """(allowed, planned risk in use across all open cycles, cap in INR). Fail closed when the cap is unset."""
+        cap = self._cycle_portfolio_loss_ceiling
+        used = sum(p.ladder.planned_risk_inr() for p in self._parents.values() if p.ladder is not None)
+        if cap is None:
+            return False, used, 0.0
+        cap_inr = float(cap) * float(ladder.equity)
+        added = int(qty) * (float(price) - float(ladder.htf_low))
+        return used + added <= cap_inr + 1e-9, used, cap_inr
 
     def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:
         """POV fraction for one parent's child. Fixed mode: cfg.pov. Band mode: the VWAP band from

@@ -130,6 +130,7 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
         state=RiskState(),
         alerts=alerts,
         cycle_loss_ceiling=cycle_cfg["loss_ceiling"],
+        cycle_portfolio_loss_ceiling=cycle_cfg["portfolio_loss_ceiling"],
     )
     bot.run_startup_recon(None)  # paper: no broker book to compare, so entries are allowed
     return bot, audit

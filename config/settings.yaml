@@ -12,6 +12,9 @@ cycle:
   # Per-cycle loss ceiling as a fraction of equity: 0.01 = 1 % (owner 2026-11-19, was 3.1 %). Planned risk at stop of all
   # orders in one HTF cycle may not exceed this (rules doc 11.10, risk_ladder.py).
   loss_ceiling: 0.01
+  # Owner 2026-11-19 (recommended, accepted): planned risk at the HTF stops across ALL open cycles (all symbols)
+  # may not exceed this fraction of equity. 0.03 = 3 %. Not set = no new ladder orders (fail closed).
+  portfolio_loss_ceiling: 0.03
 
 dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.

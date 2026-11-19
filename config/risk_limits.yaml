@@ -11,8 +11,8 @@
 # unset cap is refused. A null never switches a check off.
 # Mirrors RiskGate keys in src/quant/blue_engine/core/risk_gate.py.
 max_order_quantity: 10          # shares per order
-max_order_notional: 10000       # INR per order
-max_open_exposure: 20000        # INR across all open entries
+max_order_notional: 100000      # INR per order = 10% of capital 10,00,000 (owner 2026-11-20, recommended)
+max_open_exposure: 300000      # INR across all open entries = 30% of capital (owner 2026-11-20, recommended)
 max_daily_loss: 20000           # INR, daily loss budget = 2% of capital 10,00,000 (owner 2026-11-19; set in dashboard Trade setup)
 max_strategy_loss: 15000        # INR, loss budget per strategy per day = 1.5% of capital (owner 2026-11-19; set in dashboard Trade setup)
 max_adv_pct: 0.01               # max 1% of average daily volume per order

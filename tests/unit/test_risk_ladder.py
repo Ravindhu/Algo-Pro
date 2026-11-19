@@ -124,14 +124,15 @@ def test_unset_ceiling_fails_closed():
 
 def test_load_cycle_settings_missing_file_is_not_set(tmp_path):
     out = load_cycle_settings(tmp_path / "nope.yaml")
-    assert out == {"target_r": None, "loss_ceiling": None}
+    assert out == {"target_r": None, "loss_ceiling": None, "portfolio_loss_ceiling": None}
 
 
 def test_load_cycle_settings_reads_owner_values(tmp_path):
     p = tmp_path / "settings.yaml"
-    p.write_text("cycle:\n  target_r: 2.1\n  loss_ceiling: 0.01\n", encoding="utf-8")
+    p.write_text("cycle:\n  target_r: 2.1\n  loss_ceiling: 0.01\n  portfolio_loss_ceiling: 0.03\n", encoding="utf-8")
     out = load_cycle_settings(p)
     assert math.isclose(out["target_r"], 2.1) and math.isclose(out["loss_ceiling"], 0.01)
+    assert math.isclose(out["portfolio_loss_ceiling"], 0.03)
 
 
 def test_load_cycle_settings_refuses_percent_typed_as_whole_number(tmp_path):

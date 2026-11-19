@@ -209,7 +209,7 @@ shares(entry) = floor(equity * risk / (entry_price - HTF L))
 |---|---|---|
 | Probe, aggressive | an OCL's aggressive level is touched | **0.10 %** |
 | Probe, conservative | the same OCL's conservative level is then touched | **+0.15 %** (OCL total 0.25 %) |
-| Ladder entry | a new OCL forms BELOW the last invalidated level, its aggressive level is touched | **remaining carried qty + 0.25 %** |
+| Ladder entry | a new OCL forms BELOW the last invalidated level, its aggressive level is touched | **remaining carried qty + 0.10 %** (its conservative touch adds +0.15 %; each OCL totals 0.25 %, owner 2026-11-20) |
 | Conviction entry | after the escalation pair (11.1), the new OCL's aggressive level is touched | **0.50 %** (single entry; no split) |
 
 `equity * risk` is the rupee amount the entry may lose if the HTF L is hit. Because every new OCL sits closer to HTF L, the same risk buys MORE shares — that is the point of the ladder.
@@ -217,10 +217,10 @@ shares(entry) = floor(equity * risk / (entry_price - HTF L))
 ### 11.4 Probe stage (0.25 % per OCL)
 
 6. OCL #1 aggressive touch → **0.10 %**.
-7. If price later returns to OCL #1's conservative level → **+0.15 %**. Entries are averaged (11.9).
+7. If price later returns to an OCL's conservative level (any OCL that has an entry, including the third) → **+0.15 %** on that same OCL. Each OCL totals **0.25 %** (0.10 % + 0.15 %). Entries are averaged (11.9).
 8. A candle closes below OCL #1's low → the OCL is invalidated. **The unfilled quantity is paused, not lost.** The remainder is carried forward.
-9. The next OCL that forms BELOW the invalidated level, when its aggressive level is touched → **carried remainder + 0.25 %** at that OCL's own price.
-10. Repeat 8-9 for every further invalidation. The remainder **rolls forward through every new OCL until the HTF is invalidated** (owner 2026-11-19).
+9. The next OCL that forms BELOW the invalidated level, when its aggressive level is touched → **carried remainder + 0.10 %** at that OCL's own price (owner 2026-11-20: the 0.25 % per OCL includes the 0.15 % conservative add in step 7).
+10. Repeat 8-9 for each invalidation, up to the third OCL entry (11.5). After the third OCL, the carried remainder waits for the escalation pair (owner 2026-11-20, option A). It is added to the 0.50 % entry only.
 
 ### 11.5 When trading stops and escalates
 
@@ -234,7 +234,7 @@ shares(entry) = floor(equity * risk / (entry_price - HTF L))
 
 ### 11.6 If the pair never fires
 
-16. If no conservative level is ever touched, the cycle stays at probe risk (0.25 % per OCL, plus the rolling remainder) for its whole life. The cycle ends only at the HTF or MTF invalidation.
+16. The cycle keeps its probe-rate entries (0.25 % per OCL, up to the third OCL) and any carried remainder waits for the pair. It ends only at the HTF or MTF invalidation.
 
 ### 11.7 Stop, average and exits
 
@@ -255,13 +255,13 @@ shares(entry) = floor(equity * risk / (entry_price - HTF L))
 23. Every entry is a separate quantity, gated at its own price and size. The entry price is the reference for sizing; actual fills follow the POV slicer.
 24. A gated child that is partly filled when the OCL is invalidated keeps its **unfilled** quantity. That remainder is added to the next OCL's new risk slice (11.4 step 9).
 25. Later entries do NOT re-use an earlier slice: the remainder is **carried AND a fresh 0.25 % is added** (owner 2026-11-19).
-26. Per-order caps (`max_order_quantity`, `max_order_notional`, open exposure) clamp each child independently. Expect the clamp to bite when an OCL sits close to HTF L: 0.25 % of equity over a ₹1 stop is a large share count, and the cap is what keeps it sane.
+26. Per-order caps (`max_order_quantity`, `max_order_notional`, open exposure) clamp each child independently. Shares a cap blocks are carried to the next OCL, not dropped (owner 2026-11-20). Each clamp is logged as `ladder_clamp`. Expect the clamp to bite when an OCL sits close to HTF L: 0.25 % of equity over a ₹1 stop is a large share count, and the cap is what keeps it sane.
 27. Average entry = the fill-weighted mean (the bot already keeps this; `pos.entry` is updated on every added child).
 
 ### 11.10 Open items on this flow
 
 - **N (the backtested target multiple) is not set.** Until it is, an aggressive-only cycle has no exit. The bot must refuse those trades, not run them.
-- **Per-cycle loss ceiling is not set.** Probe 0.25 + ladder 0.25 + several 0.50s can realise well over 1 % of equity in one chopped cycle. Today only the daily-loss cap stops it. The owner has not chosen a per-cycle ceiling.
+- **Loss ceilings are set (owner 2026-11-19 and 2026-11-20):** 1 % of equity planned risk per HTF cycle, and 3 % of equity planned risk across all open cycles (all symbols). Each ceiling refuses the order that would exceed it, and is fail closed when unset.
 
 ## 13. What the code does NOT yet do (audited 2026-11-19)
 

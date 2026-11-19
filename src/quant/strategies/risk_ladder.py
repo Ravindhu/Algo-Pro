@@ -55,7 +55,7 @@ def load_cycle_settings(path) -> Dict[str, float]:
     """
     import yaml as _yaml
 
-    out = {"target_r": None, "loss_ceiling": None}
+    out = {"target_r": None, "loss_ceiling": None, "portfolio_loss_ceiling": None}
     if path is None or not Path(path).exists():
         return out
     data = _yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
@@ -66,8 +66,9 @@ def load_cycle_settings(path) -> Dict[str, float]:
             if not isinstance(val, (int, float)) or float(val) <= 0:
                 raise ValueError(f"cycle.{key} must be a positive number, got {val!r}")
             out[key] = float(val)
-    if out["loss_ceiling"] is not None and out["loss_ceiling"] > 0.2:
-        raise ValueError("cycle.loss_ceiling is a fraction of equity; 0.01 means 1 %")
+    for key in ("loss_ceiling", "portfolio_loss_ceiling"):
+        if out[key] is not None and out[key] > 0.2:
+            raise ValueError(f"cycle.{key} is a fraction of equity; 0.03 means 3 %")
     return out
 
 

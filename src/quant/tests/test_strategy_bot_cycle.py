@@ -107,7 +107,7 @@ def _limits():
                       max_strategy_loss=25_000.0, max_adv_pct=0.01, max_symbols_per_portfolio=20)
 
 
-def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceiling=0.01):
+def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceiling=0.01, portfolio_ceiling=0.03):
     screen = tmp_path / "latest.json"
     as_of = restore_at or NOW  # a restarted bot reads a fresh screen (the live screen is refreshed each cycle)
     screen.write_text(json.dumps({"as_of": as_of.isoformat(), "results": [
@@ -120,7 +120,8 @@ def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceilin
                       audit=audit, api_key="KEY", read_funds=lambda: 1_000_000.0, limits=_limits(),
                       kill=KillSwitch(tmp_path / "kill.json"), safe=SafeMode(), halt=HaltHandler(),
                       state=RiskState(), position_store=store,
-                      cycle_loss_ceiling=loss_ceiling)  # owner value 1 % of equity (tests may lower it)
+                      cycle_loss_ceiling=loss_ceiling,  # owner value 1 % of equity (tests may lower it)
+                      cycle_portfolio_loss_ceiling=portfolio_ceiling)  # owner value 3 % of equity
     if restore_at is not None:
         bot.restore_positions(restore_at)  # before startup recon, as in the live runner
     bot.run_startup_recon(None)
@@ -376,3 +377,27 @@ def test_a_small_cap_clamps_the_first_probe_and_keeps_the_rest(tmp_path, monkeyp
     assert _parent(bot).ladder.orders[0].qty == 50
     assert [p["carried"] for k, p in audit.records if k == "ladder_clamp"] == [450]
     ols.reset()
+
+
+def test_portfolio_ceiling_refuses_a_probe_that_would_exceed_it(tmp_path):
+    """Probe = 500 sh x (100 - 98) = 1000 INR planned. A 0.05 % portfolio cap is 500 INR, so it is refused."""
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot, audit = _bot(tmp_path, strat, portfolio_ceiling=0.0005)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == []
+    refusals = [p for k, p in audit.records if k == "ladder_refused"]
+    assert refusals and refusals[0]["reason"] == "portfolio_loss_ceiling"
+
+
+def test_portfolio_ceiling_unset_sends_no_ladder_order(tmp_path):
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot, audit = _bot(tmp_path, strat, portfolio_ceiling=None)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == []
+
+
+def test_portfolio_ceiling_allows_a_probe_within_three_percent(tmp_path):
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot, audit = _bot(tmp_path, strat, portfolio_ceiling=0.03)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [500]
