@@ -145,3 +145,38 @@ Data and bot
 23. Timeframe sweep mapping: MTF sweeps on HTF, HTF sweeps on LTF, LTF needs no sweep (owner confirmed).
 24. HTF = 1-hour, LTF = 5-minute (or at least the bot interval), MTF = Daily in the owner's example. These are settings, not hard-coded.
 25. Paper mode only. Live stays off.
+
+## 11. Final cycle flow (owner rules, 2026-11-19). Supersedes sections 4, 6 and 7 where they differ.
+
+Applies to all five strategies. Each strategy starts from its own MTF setup.
+
+Chain (once per cycle)
+1. MTF pattern forms. Its aggressive key level is the MTF level.
+2. Price touches the MTF aggressive key level.
+3. HTF sweep. One sweep is enough for the whole cycle (see 11.4).
+4. After the sweep, price touches the HTF aggressive key level.
+5. Wait for an LTF OCL. Its aggressive key level is touched: entry 1 (aggressive).
+
+Re-entries (LTF)
+6. Entry 1 stops out. Next entry is on the LTF OCL's CONSERVATIVE key level, with no new sweep.
+7. If entry 2 stops out, wait for a new LTF OCL to form below the previous stop-out level. Enter on its touch. Keep doing this after each stop-out. No trade-count limit.
+8. Do not start the HTF invalidation step after 2 trades. Stay in the LTF loop until the HTF is invalidated.
+
+Stop and target
+9. No stop below the LTF OCL (it stops out too often). Entries are on the LTF. The hard stop is BELOW THE HTF OCL LOW (lowest low of the HTF OCL's C1 to C3).
+10. Average entry = mean of all entry prices in the cycle.
+11. Target = average entry + 3R, where R = average entry - HTF OCL low. Fixed at the average entry at the time of the entry. (Assumption, see 11.9.)
+
+Invalidation
+12. HTF invalidated: an HTF candle closes below the HTF OCL low. Then wait for a new HTF OCL to form below that invalidated price, wait for price to touch its aggressive key level, and restart the LTF loop in 5 to 7.
+13. MTF invalidated: an MTF candle closes below the MTF pattern low. The whole cycle ends.
+
+Definitions
+- Stopped out (LTF entry): a candle closes below the LTF OCL low (C1 to C3). This is the re-entry trigger, see 11.8.
+- Sweep: the HTF swing low is broken (wick or body close). Needed once per cycle.
+
+Assumptions and open items
+- 11.8 Hard stop vs LTF close. The hard stop is at the HTF OCL low. Whether a close below the LTF OCL low also closes the trade early is NOT yet confirmed.
+- 11.9 Target fixed when? Assumed: recomputed at each new entry and kept until the position closes. Owner to confirm.
+- 11.4 Sweep scope: one sweep per cycle, including after an HTF invalidation. Assumed.
+- Trigger must be on the newest closed LTF bar (owner confirmed 2026-11-19).
