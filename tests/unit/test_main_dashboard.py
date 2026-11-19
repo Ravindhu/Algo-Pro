@@ -21,7 +21,8 @@ def test_ui_serves_the_main_dashboard():
 
 def test_page_has_trade_setup_panel():
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("setupbtn", "setup", "setupform", "su-risk", "su-symbols", "su-strategy", "setupsave"):
+    for element_id in ("setupbtn", "setup", "setupform", "su-risk", "su-symbols", "su-strategy", "setupsave",
+                       "su-capital", "su-daily", "su-strat-loss"):
         assert f'id="{element_id}"' in text, element_id
 
 
@@ -82,3 +83,10 @@ def test_flow_popup_uses_the_v5_svg_asset():
     assert '<script src="/assets/flow_svg.js"></script>' in text
     assert 'id="flowbox"' in text and "window.FLOW_SVG" in text
     assert "buildFlow" not in text  # the hand-drawn copy is gone
+
+
+def test_limits_endpoint_refuses_the_budget_owned_rupee_caps():
+    text = (ROOT / "dashboard" / "app.py").read_text(encoding="utf-8")
+    start = text.index('@app.post("/api/limits")')
+    body = text[start:text.index('@app.', start + 10)]
+    assert "BUDGET_OWNED_LIMITS" in body and "% of capital in Trade setup" in body

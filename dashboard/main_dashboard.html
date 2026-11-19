@@ -302,6 +302,12 @@
         <select id="su-mtf"></select></div>
       <div><label for="su-ltf">LTF, entry (all strategies)</label>
         <select id="su-ltf"></select></div>
+      <div><label for="su-capital">Capital base (₹)</label>
+        <input type="number" id="su-capital" min="1" step="any" placeholder="e.g. 1000000"></div>
+      <div><label for="su-daily">Max daily loss (% of capital)</label>
+        <input type="number" id="su-daily" min="0.01" max="10" step="0.01" placeholder="e.g. 2"><span class="d" id="su-daily-inr"></span></div>
+      <div><label for="su-strat-loss">Max strategy loss (% of capital)</label>
+        <input type="number" id="su-strat-loss" min="0.01" max="10" step="0.01" placeholder="e.g. 1.5"><span class="d" id="su-strat-inr"></span></div>
     </div>
     <div class="actions">
       <button class="go" id="setupsave" type="submit">Save setup</button>
@@ -309,7 +315,7 @@
       <div id="livestatus" class="muted"></div>
     </div>
     <p class="d" id="brokerage-example"></p>
-    <p class="d">Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
+    <p class="d">Loss caps are a percent of the capital base. Saving them also sets the rupee caps the Risk gate reads (max daily loss, max strategy loss). Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
   </form>
 </div>
 
@@ -353,10 +359,10 @@
           <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
         <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
           <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
-        <div class="row"><label for="lim-max_daily_loss">max daily loss (₹)</label>
-          <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any"></div>
-        <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹)</label>
-          <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any"></div>
+        <div class="row"><label for="lim-max_daily_loss">max daily loss (₹, set as % in Trade setup)</label>
+          <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any" readonly></div>
+        <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹, set as % in Trade setup)</label>
+          <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any" readonly></div>
         <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
           <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
         <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
@@ -571,6 +577,7 @@
   const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
                         "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio",
                         "max_sector_pct", "max_beta", "max_cvar", "max_drawdown"];
+  const BUDGET_OWNED = ["max_daily_loss", "max_strategy_loss"]; // set as % of capital in Trade setup
   const POLL_MS = 2000;   // never below 500 ms
   const showMoney = true; // money is always visible (owner request 2026-11-09)
   let last = null;        // last overview
@@ -777,6 +784,7 @@
     ev.preventDefault();
     const body = {};
     for (const f of LIMIT_FIELDS) {
+      if (BUDGET_OWNED.includes(f)) continue;
       const raw = $("lim-" + f).value.trim();
       if (raw === "") { body[f] = null; continue; }
       if (!Number.isFinite(Number(raw))) return setMsg(f + " must be a number.", "r");
@@ -812,7 +820,22 @@
   // [select id, API key] for the three common timeframes. Empty select sends null (clears).
   const TF_FIELDS = [["su-htf", "htf_interval"], ["su-mtf", "mtf_interval"], ["su-ltf", "ltf_interval"]];
 
+  // Show the rupee value next to each % so the owner sees the cap before saving.
+  function updateBudgetHint() {
+    const cap = Number($("su-capital").value);
+    const hint = (pctId, outId) => {
+      const pct = Number($(pctId).value);
+      $(outId).textContent = (cap > 0 && pct > 0) ? " = ₹" + Math.round(cap * pct / 100).toLocaleString("en-IN") : "";
+    };
+    hint("su-daily", "su-daily-inr");
+    hint("su-strat-loss", "su-strat-inr");
+  }
+
   function fillSetup(s) {
+    $("su-capital").value = s.capital_inr == null ? "" : String(s.capital_inr);
+    $("su-daily").value = s.max_daily_loss_pct == null ? "" : String(+(s.max_daily_loss_pct * 100).toFixed(4));
+    $("su-strat-loss").value = s.max_strategy_loss_pct == null ? "" : String(+(s.max_strategy_loss_pct * 100).toFixed(4));
+    updateBudgetHint();
     $("su-risk").value = s.risk_per_trade == null ? "" : String(+(s.risk_per_trade * 100).toFixed(4));
     $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
     $("su-cap").value = s.live_max_capital_inr == null ? "" : String(s.live_max_capital_inr);
@@ -884,6 +907,20 @@
       brokerage.bps = bps;
     }
     payload.brokerage = brokerage;
+    const capBase = $("su-capital").value.trim();
+    if (capBase) {
+      const v = Number(capBase);
+      if (!Number.isFinite(v) || v <= 0) return setSetupMsg("Capital base must be a positive number of rupees.", "r");
+      payload.capital_inr = v;
+    }
+    for (const [id, key, label] of [["su-daily", "max_daily_loss_pct", "Max daily loss"],
+                                    ["su-strat-loss", "max_strategy_loss_pct", "Max strategy loss"]]) {
+      const raw = $(id).value.trim();
+      if (!raw) continue;
+      const v = Number(raw);
+      if (!Number.isFinite(v) || v <= 0 || v > 10) return setSetupMsg(label + " must be between 0 and 10 % of capital.", "r");
+      payload[key] = v / 100;
+    }
     const cap = $("su-cap").value.trim();
     if (cap) payload.live_max_capital_inr = Number(cap);
     const ip = $("su-ip").value.trim();
@@ -911,6 +948,7 @@
     if (open) loadSetup();
   };
   $("setupform").addEventListener("submit", saveSetup);
+  for (const id of ["su-capital", "su-daily", "su-strat-loss"]) $(id).addEventListener("input", updateBudgetHint);
   $("limitform").addEventListener("submit", saveLimits);
 
   // ---- Flow node status (overview.flow). A node missing from the map is ok. Red blinks; amber does not. ----

@@ -37,6 +37,7 @@ from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.reporting.flow_status import node_statuses  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
+from quant.core.setup_store import BUDGET_OWNED_LIMITS, SETUP_LIMIT_KEYS  # noqa: E402
 from quant.core import recommendations as recs  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.core.trading_mode import request_mode, trading_mode_status  # noqa: E402
@@ -251,7 +252,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         if denied is not None:
             return denied
         try:
-            result = apply_limit_updates(paths["limits"], await request.json())
+            body = await request.json()
+            if isinstance(body, dict) and set(body) & set(BUDGET_OWNED_LIMITS):
+                raise ValueError("max daily loss and max strategy loss are set as % of capital in Trade setup")
+            result = apply_limit_updates(paths["limits"], body)
         except ValueError as exc:  # JSON errors are ValueError subclasses too
             return JSONResponse({"error": str(exc)}, status_code=422)
         AuditLog(paths["audit"]).append("limits_changed", {**result, "actor": ACTOR})
@@ -327,9 +331,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             return JSONResponse({"error": str(exc)}, status_code=422)
         audit = AuditLog(paths["audit"])
         audit.append("setup_changed", {**result, "actor": ACTOR})
-        if "max_symbols_per_portfolio" in result["new"]:  # the cap is a risk limit
-            audit.append("limits_changed", {"old": {"max_symbols_per_portfolio": result["old"]["max_symbols_per_portfolio"]},
-                                            "new": {"max_symbols_per_portfolio": result["new"]["max_symbols_per_portfolio"]},
+        limit_keys = [k for k in SETUP_LIMIT_KEYS if k in result["new"]]  # these caps are risk limits
+        if limit_keys:
+            audit.append("limits_changed", {"old": {k: result["old"].get(k) for k in limit_keys},
+                                            "new": {k: result["new"][k] for k in limit_keys},
                                             "actor": ACTOR})
         return JSONResponse({"changed": result})
 

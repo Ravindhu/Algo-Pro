@@ -27,6 +27,13 @@ live:
   max_capital_inr: null
 
 # PAPER trading (2026-11-08). Paper only; no broker orders.
+risk_budget:
+  # Owner 2026-11-19. Loss caps as a share of capital. Set from dashboard Trade setup.
+  # Saving them also writes the rupee caps in config/risk_limits.yaml.
+  capital_inr: 1000000
+  max_daily_loss_pct: 0.02
+  max_strategy_loss_pct: 0.015
+
 paper:
   # Paper capital (INR). Owner decision 2026-11-08. Used by portfolio/paper_qty.py.
   capital: 1000000

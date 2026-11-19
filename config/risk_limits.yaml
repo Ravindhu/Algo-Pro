@@ -13,8 +13,8 @@
 max_order_quantity: 10          # shares per order
 max_order_notional: 10000       # INR per order
 max_open_exposure: 20000        # INR across all open entries
-max_daily_loss: 1000            # INR, daily loss budget
-max_strategy_loss: 500          # INR, loss budget per strategy per day
+max_daily_loss: 20000           # INR, daily loss budget = 2% of capital 10,00,000 (owner 2026-11-19; set in dashboard Trade setup)
+max_strategy_loss: 15000        # INR, loss budget per strategy per day = 1.5% of capital (owner 2026-11-19; set in dashboard Trade setup)
 max_adv_pct: 0.01               # max 1% of average daily volume per order
 max_symbols_per_portfolio: 8    # distinct symbols held at once (owner, 2026-11-09)
 blocked: false                  # true = stop all entries
