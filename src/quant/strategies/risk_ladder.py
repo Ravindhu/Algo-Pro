@@ -75,10 +75,23 @@ class Order:
     risk: float
     reason: str  # probe_aggressive | probe_conservative | ladder | conviction
     filled: int = 0
+    carry: int = 0  # carried shares included in qty (already counted in the parent's remaining)
+    closed: bool = False  # its OCL was invalidated: the unfilled part now travels with the next order
 
     @property
     def unfilled(self) -> int:
-        return max(0, self.qty - self.filled)
+        return 0 if self.closed else max(0, self.qty - self.filled)
+
+    def to_doc(self) -> Dict:
+        return {"ocl_id": self.ocl_id, "price": self.price, "qty": self.qty, "risk": self.risk,
+                "reason": self.reason, "filled": self.filled, "carry": self.carry,
+                "closed": self.closed}
+
+    @staticmethod
+    def from_doc(d: Dict) -> "Order":
+        return Order(ocl_id=str(d["ocl_id"]), price=float(d["price"]), qty=int(d["qty"]),
+                     risk=float(d["risk"]), reason=str(d["reason"]), filled=int(d["filled"]),
+                     carry=int(d.get("carry", 0)), closed=bool(d.get("closed", False)))
 
 
 @dataclass
@@ -124,6 +137,7 @@ class RiskLadder:
             qty = shares_for(self.equity, CONVICTION, price, self.htf_low, self.carry)
             order = self._add(ocl_id, price, qty, CONVICTION, "conviction")
             if order is not None:
+                order.carry = self.carry
                 self.carry = 0  # carried shares are now in the 0.50 % entry
                 self.armed_ocl = None  # back to waiting: the pair must fire again
             return order
@@ -137,6 +151,7 @@ class RiskLadder:
         order = self._add(ocl_id, price, qty, risk, reason)
         if order is None:
             return None
+        order.carry = carry
         self.carry = 0  # carried shares are now in this order
         self.ocl_entries += 1
         self._current, self._current_ocl, self._current_cons = order, ocl_id, False
@@ -162,10 +177,39 @@ class RiskLadder:
     def record_fill(self, order: Order, qty: int) -> None:
         order.filled = min(order.qty, order.filled + max(0, int(qty)))
 
+    def active_order(self) -> Optional[Order]:
+        """Oldest order that still has unfilled shares (fills go to the oldest first)."""
+        for o in self.orders:
+            if o.unfilled > 0:
+                return o
+        return None
+
+    def to_doc(self) -> Dict:
+        return {"equity": self.equity, "htf_low": self.htf_low, "loss_ceiling": self.loss_ceiling,
+                "stage": self.stage, "ocl_entries": self.ocl_entries, "carry": self.carry,
+                "armed_ocl": self.armed_ocl, "orders": [o.to_doc() for o in self.orders],
+                "current_ocl": self._current_ocl, "current_cons": self._current_cons}
+
+    @staticmethod
+    def from_doc(d: Dict) -> "RiskLadder":
+        r = RiskLadder(equity=float(d["equity"]), htf_low=float(d["htf_low"]),
+                       loss_ceiling=d.get("loss_ceiling"), stage=str(d["stage"]),
+                       ocl_entries=int(d["ocl_entries"]), carry=int(d["carry"]),
+                       armed_ocl=d.get("armed_ocl"))
+        r.orders = [Order.from_doc(x) for x in d.get("orders", [])]
+        r._current_ocl = d.get("current_ocl")
+        r._current_cons = bool(d.get("current_cons", False))
+        r._current = next((o for o in r.orders if o.ocl_id == r._current_ocl), None)
+        return r
+
     def invalidate(self, ocl_id: str) -> int:
         """A candle closed below this OCL's low. Its unfilled shares are carried forward.
         Returns the carried quantity (added to the next ladder entry)."""
-        carried = sum(o.unfilled for o in self.orders if o.ocl_id == ocl_id)
+        carried = 0
+        for o in self.orders:
+            if o.ocl_id == ocl_id and o.unfilled > 0:
+                carried += o.unfilled
+                o.closed = True  # its unfilled shares now travel with the next order (planned risk stays counted)
         self.carry += carried
         if self._current_ocl == ocl_id:
             self._current, self._current_ocl = None, None

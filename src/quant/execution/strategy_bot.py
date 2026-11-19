@@ -31,11 +31,12 @@ injects the sender, so this module cannot place an order by itself.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import copy
 import time
 
 import yaml
@@ -55,6 +56,7 @@ from quant.risk.kill_switch import KillSwitch
 from quant.risk.pre_gate import PreGate, PreGateConfig
 from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
 from quant.strategies.cycle import fresh_entries
+from quant.strategies.risk_ladder import RiskLadder
 from quant.strategies.signals.risk_adapter import gate_signal, levels_from_signal
 
 ALLOWED_MODES = ("paper", "analyze", "live")
@@ -303,6 +305,8 @@ class _Parent:
     cycle: bool = False              # one parent per HTF cycle (owner cycle rules, 2026-11-19)
     trail: bool = False              # a conservative touch happened: ATR trail from entry, no breakeven
     paused: bool = False             # LTF stop-out closed: no slicing until the next LTF OCL touch
+    ladder: Any = None               # RiskLadder state of this HTF cycle (plan P3); saved with the parent
+    events_done: int = 0             # how many replay events of this cycle were handled
 
 
 class _BotBook:
@@ -343,6 +347,7 @@ class StrategyBot:
         vwap_tick: Optional[Callable[[datetime], None]] = None,
         buyer_share_provider: Optional[Callable[[str], Optional[float]]] = None,
         depth_provider: Optional[Callable[[str], Any]] = None,
+        cycle_loss_ceiling: Optional[float] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -411,6 +416,7 @@ class StrategyBot:
         # None, so the book-level checks could never run in production even though
         # they were tested. Unset stays None, and the check refuses when enabled -
         # this only makes the operator's setting reachable.
+        self._cycle_loss_ceiling = cycle_loss_ceiling  # None = not set = no cycle order (fail closed)
         self._pre_gate = pre_gate if pre_gate is not None else PreGate(
             PreGateConfig(
                 max_sector_pct=getattr(limits, "max_sector_pct", None),
@@ -611,7 +617,8 @@ class StrategyBot:
             return 0.0  # no funds known: entries are refused
 
     def _gate_entry(self, key: str, sig: dict, strat, sym: str, circuit_pct: float, stats, now,
-                    ref_price: float) -> Optional[TradeIntent]:
+                    ref_price: float, risk_fraction: Optional[float] = None,
+                    equity: Optional[float] = None) -> Optional[TradeIntent]:
         """Lot check, pre-gate and the full risk gate for one new parent. Returns the sized intent or None (logged)."""
         lot = stats.get("lot_size", 1)
         if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
@@ -630,8 +637,10 @@ class StrategyBot:
             self._log("pre_gate_refused", key=key, reasons=list(pre.reasons))
             return None
         res = gate_signal(
-            sig, symbol=sym, strategy_id=strat.name, equity=self._funds,
-            risk_fraction=self.cfg.risk_per_trade, state=self.state, limits=self._limits,
+            sig, symbol=sym, strategy_id=strat.name,
+            equity=self._funds if equity is None else equity,
+            risk_fraction=self.cfg.risk_per_trade if risk_fraction is None else risk_fraction,
+            state=self.state, limits=self._limits,
             kill=self._kill, safe=self._safe, halt=self._halt, available_funds=self._funds,
             adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
             circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
@@ -684,12 +693,13 @@ class StrategyBot:
         return f"{sym}|{strat.name}|BUY|cycle|{res.htf_key_time}"
 
     def _scan_cycle(self, strat, sym, df, circuit_pct, stats, now, report) -> None:
-        """Cycle rules (owner 2026-11-19, rules doc sections 11 and 12).
+        """Cycle rules (owner 2026-11-19; rules doc sections 11 and 14; plan P3).
 
-        One parent per HTF cycle. The first fresh trigger sizes the quantity once through the risk gate;
-        every later trigger in that cycle keeps the same quantity. The LTF stop-out pauses slicing;
-        the next LTF OCL touch resumes it. The cycle's stop is the HTF OCL low (hard stop, no LTF stop).
-        Only the newest closed LTF bar can open or resume a cycle (freshness)."""
+        One parent per HTF cycle. Each LTF event from the replay (aggressive touch, conservative touch,
+        stop-out) goes through the risk ladder (strategies/risk_ladder.py). The ladder sizes each new order
+        at its own price against the HTF OCL low, and the full risk gate must approve it. The gate sees the
+        whole order (fresh shares plus carried shares). Only events on the newest closed LTF bar can act
+        (freshness); older events are skipped. The HTF OCL low is the stop for every order."""
         try:
             view = strat.cycle_for(sym, now)
         except Exception as exc:
@@ -698,10 +708,6 @@ class StrategyBot:
         if view is None or not view.results:
             return
         cur = view.results[-1]
-        if cur.mode == "target_pending" and self._cycle_key(strat, sym, cur) not in self._parents:
-            # Fail closed (rules doc 11.7): no exit rule means no trade. N is set in settings.yaml cycle.target_r.
-            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="target N not set")
-            return
         for old in view.results[:-1]:  # earlier HTF cycles have ended: drop their unfilled quantity
             old_key = self._cycle_key(strat, sym, old)
             if old_key is not None and old_key in self._parents:
@@ -713,45 +719,88 @@ class StrategyBot:
             if key in self._parents:
                 self._close(key, "HTF invalidated: unfilled quantity dropped")
             return
-        # Never buy at or below the HTF OCL low (the hard stop of this cycle).
-        fresh = [e for e in fresh_entries(cur, view.newest_ltf_time) if e.price > cur.htf_low]
-        parent = self._parents.get(key)
-        if parent is None:
-            if not fresh or key in self._cycle_done or key in self._positions:
-                return  # never a second quantity for the same HTF cycle
-            if view.atr is None:
-                self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="no ATR for cycle")
-                return
-            trigger = float(fresh[0].price)
-            sl_dist = trigger - float(cur.htf_low)
-            if sl_dist <= 0:
-                self._log("parent_skipped", strategy=strat.name, symbol=sym,
-                          reason="trigger not above HTF OCL low")
-                return
-            # tp_dist is a placeholder for the gate's checks only. Exits use the stop and the target
-            # from the cycle rules, never this value.
-            sig = {"side": "BUY", "entry": trigger, "sl_dist": sl_dist, "tp_dist": 3.0 * sl_dist,
-                   "atr": view.atr, "time": str(cur.htf_key_time), "strategy": strat.name}
-            intent = self._gate_entry(key, sig, strat, sym, circuit_pct, stats, now, ref_price=trigger)
-            if intent is None or intent.qty < 1:
-                return
-            self.state.seen_ids.add(intent.intent_id)
-            self._cycle_done.add(key)
-            self._parents[key] = _Parent(key=key, intent=intent, remaining=intent.qty,
-                                         circuit_pct=circuit_pct, stop=float(cur.htf_low),
-                                         target=cur.target, atr=view.atr, strategy=strat.name,
-                                         adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
-                                         cycle=True, trail=cur.mode == "trail", paused=False)
-            report["parents_opened"] += 1
-            self._persist_positions()
+        if cur.mode == "target_pending" and key not in self._parents:
+            # Fail closed (rules doc 11.7): no exit rule means no trade. N is set in settings.yaml cycle.target_r.
+            self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="target N not set")
             return
-        # Existing cycle: a new LTF touch resumes filling, an LTF stop-out pauses it.
-        if fresh:
+        parent = self._parents.get(key)
+        if parent is None and (key in self._cycle_done or key in self._positions):
+            return  # never a second parent for the same HTF cycle
+        if parent is None and view.atr is None:
+            if cur.events:
+                self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="no ATR for cycle")
+            return
+        ladder = parent.ladder if parent is not None else None
+        if ladder is None:
+            if self._cycle_loss_ceiling is None:
+                if cur.events:  # fail closed: no loss ceiling set, no ladder order
+                    self._log("parent_skipped", strategy=strat.name, symbol=sym,
+                              reason="cycle loss ceiling not set")
+                return
+            ladder = RiskLadder(equity=float(self._funds), htf_low=float(cur.htf_low),
+                                loss_ceiling=self._cycle_loss_ceiling)
+        newest = view.newest_ltf_time
+        done = parent.events_done if parent is not None else 0
+        for idx in range(done, len(cur.events)):
+            kind, ocl_id, price, t = cur.events[idx]
+            done = idx + 1
+            if t != newest:
+                self._log("cycle_event_stale", key=key, event=kind, ocl=ocl_id, time=str(t))
+                continue  # freshness: a touch on an older bar never becomes an order
+            if kind == "invalidated":
+                carried = ladder.invalidate(ocl_id)
+                if parent is not None:
+                    parent.paused = True  # LTF stop-out: pause slicing until the next LTF touch
+                self._log("ladder_invalidated", key=key, ocl=ocl_id, carried=carried)
+                continue
+            if kind not in ("aggressive", "conservative"):
+                continue
+            trial = copy.deepcopy(ladder)
+            trial_order = (trial.aggressive_touch(ocl_id, price) if kind == "aggressive"
+                           else trial.conservative_touch(ocl_id, price))
+            if trial_order is None:
+                continue  # nothing to size: wrong stage, same OCL, pair not armed, or ceiling
+            total = int(trial_order.qty)
+            sl_dist = float(price) - float(cur.htf_low)
+            sig = {"side": "BUY", "entry": float(price), "sl_dist": sl_dist, "tp_dist": 3.0 * sl_dist,
+                   "atr": view.atr, "time": str(t), "strategy": strat.name}
+            # The gate sizes floor(equity * risk / sl_dist). Passing the whole order as the risk
+            # fraction makes the gate size exactly `total` shares (tiny margin for float rounding).
+            risk_frac = total * sl_dist / float(ladder.equity) * (1.0 + 1e-9)
+            intent = self._gate_entry(key, sig, strat, sym, circuit_pct, stats, now, ref_price=float(price),
+                                      risk_fraction=risk_frac, equity=float(ladder.equity))
+            if intent is None or intent.qty < 1:
+                continue
+            order = (ladder.aggressive_touch(ocl_id, price) if kind == "aggressive"
+                     else ladder.conservative_touch(ocl_id, price))
+            if order is None:
+                continue  # cannot happen: the trial said yes on the same state
+            if int(intent.qty) < order.qty:
+                order.qty = int(intent.qty)  # the gate or a cap clamped the order
+            fresh = max(0, order.qty - order.carry)
+            if parent is None:
+                parent = _Parent(key=key, intent=intent, remaining=0, circuit_pct=circuit_pct,
+                                 stop=float(cur.htf_low), target=cur.target, atr=view.atr,
+                                 strategy=strat.name, adv_shares=stats["adv_shares"],
+                                 prev_close=stats["prev_close"], cycle=True, trail=False, paused=False,
+                                 ladder=ladder)
+                self._parents[key] = parent
+                self._cycle_done.add(key)
+                report["parents_opened"] += 1
+            parent.remaining += fresh
             parent.paused = False
-        elif cur.ltf_paused:
-            parent.paused = True
+            parent.ladder = ladder
+            if kind == "conservative":
+                parent.trail = True  # a conservative touch switches the exit to the ATR trail
+            self.state.seen_ids.add(intent.intent_id)
+            self._log("ladder_order", key=key, trigger=kind, ocl=ocl_id, qty=order.qty, carry=order.carry,
+                      price=float(price), reason=order.reason)
+        if parent is None:
+            return
+        parent.events_done = done
+        parent.ladder = ladder
         parent.target = cur.target
-        parent.trail = cur.mode == "trail"
+        parent.trail = parent.trail or cur.mode == "trail"
         pos = self._positions.get(key)
         if pos is not None:
             pos.target = cur.target
@@ -850,9 +899,23 @@ class StrategyBot:
             p.cycles += 1
             # A cycle parent waits for its next LTF OCL, which can take hours, so the age limit does
             # not apply to it. It ends only when fully filled, or when its HTF cycle is invalidated.
-            if p.remaining <= 0 or (not p.cycle and p.cycles > self.cfg.max_cycles):
-                self._close(key, "fully sliced" if p.remaining <= 0 else "max cycles reached")
+            if p.remaining <= 0 and not p.cycle:
+                self._close(key, "fully sliced")
                 continue
+            if not p.cycle and p.cycles > self.cfg.max_cycles:
+                self._close(key, "max cycles reached")
+                continue
+            if p.remaining <= 0:
+                continue  # cycle parent: waits for the next ladder order, closed only at HTF invalidation
+            active = None
+            slice_intent = p.intent
+            ref_px = float(p.intent.ref_price)
+            if p.cycle and p.ladder is not None:
+                active = p.ladder.active_order()
+                if active is None:
+                    continue  # every ladder order is filled or closed; the next touch adds one
+                ref_px = float(active.price)
+                slice_intent = _dc_replace(p.intent, ref_price=ref_px)
             df = bars_cache.get(p.intent.symbol)
             if df is None:
                 df = self._bars.bars(p.intent.symbol, now)
@@ -886,6 +949,8 @@ class StrategyBot:
                     bar_volume = raw_volume
                     peg_px = None
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
+            if active is not None:
+                qty = min(qty, active.unfilled)  # one child belongs to one ladder order
             if qty < 1:
                 self._log("child_zero", key=key, remaining=p.remaining, bar_volume=bar_volume)
                 continue
@@ -899,7 +964,7 @@ class StrategyBot:
                 if peg_px is not None:
                     outcome, child = self._submit_peg(p, qty, peg_px, cap)
                 else:
-                    child = PovExecutor.make_child(p.intent, qty, p.seq)
+                    child = PovExecutor.make_child(slice_intent, qty, p.seq)
                     price_type, limit_px = self._entry_price(p, df)
                     outcome = self._executor.submit_child(child, price_type, limit_px)
             except Exception as exc:
@@ -924,7 +989,9 @@ class StrategyBot:
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
             p.remaining -= qty
-            added = qty * p.intent.ref_price  # sent counts as exposure (conservative)
+            if active is not None:
+                p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
+            added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
             self.state.open_notional += added
             self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit
             self._record_fill(p, qty, outcome.response or {})
@@ -1106,8 +1173,9 @@ class StrategyBot:
         intent = {f.name: getattr(p.intent, f.name) for f in _fields(p.intent)}
         if intent.get("trade_day") is not None:
             intent["trade_day"] = intent["trade_day"].isoformat()
-        d = {f.name: getattr(p, f.name) for f in _fields(p) if f.name != "intent"}
+        d = {f.name: getattr(p, f.name) for f in _fields(p) if f.name not in ("intent", "ladder")}
         d["intent"] = intent
+        d["ladder"] = p.ladder.to_doc() if p.ladder is not None else None
         return d
 
     @staticmethod
@@ -1117,9 +1185,12 @@ class StrategyBot:
         intent = dict(d["intent"])
         if intent.get("trade_day") is not None:
             intent["trade_day"] = _date.fromisoformat(intent["trade_day"])
+        from quant.strategies.risk_ladder import RiskLadder as _RiskLadder
         names = {f.name for f in _fields(_Parent)}
-        kwargs = {k: v for k, v in d.items() if k in names and k != "intent"}
-        return _Parent(intent=TradeIntent(**intent), **kwargs)
+        kwargs = {k: v for k, v in d.items() if k in names and k not in ("intent", "ladder")}
+        ladder_doc = d.get("ladder")
+        ladder = _RiskLadder.from_doc(ladder_doc) if ladder_doc else None
+        return _Parent(intent=TradeIntent(**intent), ladder=ladder, **kwargs)
 
     def _persist_positions(self) -> None:
         """Save the open book (positions, stop ids, exposure, marks, parents done today, cycle parents)."""

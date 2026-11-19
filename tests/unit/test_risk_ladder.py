@@ -133,3 +133,16 @@ def test_load_cycle_settings_refuses_percent_typed_as_whole_number(tmp_path):
     p.write_text("cycle:\n  loss_ceiling: 3.1\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_cycle_settings(p)
+
+
+def test_ladder_round_trips_through_its_saved_form():
+    r = _ladder(ceiling=0.05)
+    r.aggressive_touch("OCL1", 100)
+    r.conservative_touch("OCL1", 95)
+    r.record_fill(r.orders[0], 4)
+    r.invalidate("OCL1")
+    doc = r.to_doc()
+    back = RiskLadder.from_doc(doc)
+    assert back.to_doc() == doc
+    o2 = back.aggressive_touch("OCL2", 94)
+    assert o2 is not None and o2.carry == r.carry

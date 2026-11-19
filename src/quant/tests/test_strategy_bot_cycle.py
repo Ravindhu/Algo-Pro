@@ -26,7 +26,7 @@ from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
-from quant.strategies.cycle import CycleResult, Entry
+from quant.strategies.cycle import CycleResult
 from quant.strategies.engulf_sequence_strategy import CycleView
 
 
@@ -50,7 +50,7 @@ T_NEXT = pd.Timestamp("2026-11-17 10:10")
 NEXT_DAY = NOW + timedelta(days=1)
 T_DAY2 = pd.Timestamp("2026-11-18 10:05")
 HTF_KEY = pd.Timestamp("2026-11-16 15:15")
-HTF_LOW = 98.0  # entry 100 -> R = 2 -> 1250 shares with the test risk budget (same as test_strategy_bot_paper)
+HTF_LOW = 98.0  # ladder: equity 1,000,000; probe 0.10 % at 100 -> 500 shares (R = 2)
 
 
 class Audit:
@@ -66,9 +66,11 @@ class Audit:
 
 
 class Bars:
+    VOLUME = 5000.0  # POV 10 % -> 500 shares per child
+
     def bars(self, symbol, now):
         return pd.DataFrame({"open": [100.0] * 40, "high": [100.0] * 40, "low": [100.0] * 40,
-                             "close": [100.0] * 40, "volume": [5000.0] * 40})
+                             "close": [100.0] * 40, "volume": [self.VOLUME] * 40})
 
     def daily_stats(self, symbol, now):
         return {"adv_shares": 5_000_000.0, "prev_close": 100.0}
@@ -87,9 +89,12 @@ class ScriptedCycle:
 
 
 # target N = 2.1 (owner): avg 100 + 2.1 x (100 - 98) = 104.2. target_pending (N unset) is tested separately.
-def _result(entries=(), paused=False, mode="target", target=104.2, status="open"):
-    return CycleResult(kind="egpattern_open", status=status, htf_low=HTF_LOW, entries=list(entries),
-                       avg_entry=None, mode=mode, target=target, htf_key_time=HTF_KEY, ltf_paused=paused)
+def _result(events=(), mode="target", target=104.2, status="open"):
+    """A replay result. events: (kind, ocl_id, price, time) in order, kind = aggressive | conservative | invalidated.
+    target 104.2 = avg 100 + N x R with N = 2.1 (owner); mode target_pending is tested separately."""
+    return CycleResult(kind="egpattern_open", status=status, htf_low=HTF_LOW, entries=[],
+                       avg_entry=None, mode=mode, target=target, htf_key_time=HTF_KEY,
+                       ltf_paused=False, events=list(events))
 
 
 def _view(result, newest):
@@ -102,23 +107,28 @@ def _limits():
                       max_strategy_loss=25_000.0, max_adv_pct=0.01, max_symbols_per_portfolio=20)
 
 
-def _bot(tmp_path, strategy, store=None, restore_at=None, **cfg_over):
+def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None):
     screen = tmp_path / "latest.json"
     as_of = restore_at or NOW  # a restarted bot reads a fresh screen (the live screen is refreshed each cycle)
     screen.write_text(json.dumps({"as_of": as_of.isoformat(), "results": [
         {"symbol": "INFY", "selected": True, "asm_gsm": False, "circuit_pct": 0.2}]}), encoding="utf-8")
     sources = tmp_path / "data_sources.yaml"
     sources.write_text(yaml.safe_dump({"sources": {"live_feed": {"live_allowed": True}}}), encoding="utf-8")
-    cfg = BotConfig(mode="paper", screen_path=str(screen), data_sources_path=str(sources), **cfg_over)
+    cfg = BotConfig(mode="paper", screen_path=str(screen), data_sources_path=str(sources))
     audit = Audit()
-    bot = StrategyBot(cfg=cfg, strategies=[strategy], bars=Bars(), sender=PaperSender(PaperBroker()),
+    bot = StrategyBot(cfg=cfg, strategies=[strategy], bars=bars or Bars(), sender=PaperSender(PaperBroker()),
                       audit=audit, api_key="KEY", read_funds=lambda: 1_000_000.0, limits=_limits(),
                       kill=KillSwitch(tmp_path / "kill.json"), safe=SafeMode(), halt=HaltHandler(),
-                      state=RiskState(), position_store=store)
+                      state=RiskState(), position_store=store,
+                      cycle_loss_ceiling=0.01)  # owner value: 1 % of equity
     if restore_at is not None:
         bot.restore_positions(restore_at)  # before startup recon, as in the live runner
     bot.run_startup_recon(None)
     return bot, audit
+
+
+class SmallBars(Bars):
+    VOLUME = 1000.0  # POV 10 % -> 100 shares per child: partial fills, so carry can be tested
 
 
 def _key():
@@ -129,8 +139,12 @@ def _child_qtys(audit):
     return [p["qty"] for k, p in audit.records if k == "child_sent"]
 
 
+def _parent(bot):
+    return bot._parents[_key()]
+
+
 def test_first_fresh_trigger_opens_one_cycle_parent_with_hard_htf_stop(tmp_path):
-    strat = ScriptedCycle("scripted", [_view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW)])
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
     bot, audit = _bot(tmp_path, strat)
     bot.cycle(NOW)
     assert _key() in bot._parents
@@ -139,142 +153,21 @@ def test_first_fresh_trigger_opens_one_cycle_parent_with_hard_htf_stop(tmp_path)
     assert pos.breakeven_enabled is False
     assert pos.trail_from_start is False
     assert pos.target == pytest.approx(104.2)  # target = avg + N x R, N = 2.1 (owner)
-    assert _child_qtys(audit)[0] == 500  # POV 10% of 5000 bar volume, first child
+    assert _child_qtys(audit) == [500]  # probe 0.10 % of 1,000,000 over 2 INR = 500 shares
+    assert _parent(bot).ladder.orders[0].reason == "probe_aggressive"
 
 
 def test_entry_on_older_bar_does_not_open_a_cycle(tmp_path):
-    strat = ScriptedCycle("scripted", [_view(_result([Entry(T_OLD, 100.0, "aggressive")]), T_NEW)])
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_OLD)]), T_NEW)])
     bot, audit = _bot(tmp_path, strat)
     bot.cycle(NOW)
     assert _key() not in bot._parents
     assert _child_qtys(audit) == []
 
 
-def test_ltf_stop_out_pauses_and_next_ltf_touch_resumes_same_quantity(tmp_path):
-    strat = ScriptedCycle("scripted", [
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW),                  # open, 500 sent
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")], paused=True), T_NEXT),    # stop-out, paused
-        _view(_result([Entry(T_NEXT, 100.0, "aggressive")]), T_NEXT),                # new touch, resume
-    ])
-    bot, audit = _bot(tmp_path, strat)
-    bot.cycle(NOW)
-    assert _child_qtys(audit) == [500]
-    bot.cycle(NOW + timedelta(minutes=5))
-    assert _child_qtys(audit) == [500]  # paused: nothing new sent
-    assert bot._parents[_key()].paused is True
-    bot.cycle(NOW + timedelta(minutes=10))
-    assert bot._parents[_key()].paused is False
-    assert sum(_child_qtys(audit)) == 1000
-    bot.cycle(NOW + timedelta(minutes=15))  # no new view: the parent keeps filling the same quantity
-    assert sum(_child_qtys(audit)) == 1250
-
-
-def test_restart_mid_cycle_refills_the_remaining_quantity(tmp_path):
-    # Day 1: 500 of 1250 filled. Restart on day 2 with a fresh LTF touch: the remaining 750 come back
-    # from disk and keep filling. The quantity is not sized again.
-    store = PositionStore(tmp_path / "positions.json")
-    day1 = ScriptedCycle("scripted", [_view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW)])
-    bot1, audit1 = _bot(tmp_path, day1, store=store)
-    bot1.cycle(NOW)
-    assert _child_qtys(audit1) == [500]
-
-    day2 = ScriptedCycle("scripted", [_view(_result([Entry(T_DAY2, 100.0, "aggressive")]), T_DAY2)])
-    bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY)
-    assert _key() in bot2._positions  # the open position came back
-    assert bot2._parents[_key()].remaining == 750
-    bot2.cycle(NEXT_DAY)
-    assert _child_qtys(audit2) == [500]
-    assert bot2._parents[_key()].remaining == 250
-
-
-def test_restart_after_stop_out_keeps_the_parent_paused_then_refills(tmp_path):
-    # Stop-out on day 1 (position gone, parent kept with 750 left and paused). Restart on day 2.
-    # The next LTF touch refills it; nothing is sent while it is still paused.
-    store = PositionStore(tmp_path / "positions.json")
-    day1 = ScriptedCycle("scripted", [
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW),
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")], paused=True), T_NEXT),  # no fresh entry: stop-out
-    ])
-    bot1, _ = _bot(tmp_path, day1, store=store)
-    bot1.cycle(NOW)
-    bot1._finish_exit(_key(), bot1._positions[_key()], 98.0, "stop", 98.0)  # the stop closed the position
-    bot1.cycle(NOW + timedelta(minutes=5))  # paused, persisted
-    assert bot1._parents[_key()].paused is True
-    assert bot1._parents[_key()].remaining == 750
-
-    day2 = ScriptedCycle("scripted", [
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")], paused=True), T_DAY2),  # still waiting
-        _view(_result([Entry(T_DAY2, 100.0, "aggressive")]), T_DAY2),              # new touch
-    ])
-    bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY)
-    assert bot2._parents[_key()].paused is True
-    assert bot2._parents[_key()].remaining == 750
-    bot2.cycle(NEXT_DAY)
-    assert _child_qtys(audit2) == []  # paused: waits for the touch
-    bot2.cycle(NEXT_DAY + timedelta(minutes=5))
-    assert _child_qtys(audit2) == [500]  # the touch resumes and refills the same quantity
-
-
-def test_stop_out_then_next_ltf_touch_refills_in_the_same_session(tmp_path):
-    strat = ScriptedCycle("scripted", [
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW),                  # open, 500 sent
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")], paused=True), T_NEXT),    # stop-out: paused
-        _view(_result([Entry(T_NEXT, 100.0, "aggressive")]), T_NEXT),                # new touch: refill
-    ])
-    bot, audit = _bot(tmp_path, strat)
-    bot.cycle(NOW)
-    bot._finish_exit(_key(), bot._positions[_key()], 98.0, "stop", 98.0)
-    assert _key() in bot._parents  # the cycle keeps its unfilled quantity
-    bot.cycle(NOW + timedelta(minutes=5))
-    assert _child_qtys(audit) == [500]  # paused
-    bot.cycle(NOW + timedelta(minutes=10))
-    assert _child_qtys(audit) == [500, 500]
-    assert bot._parents[_key()].remaining == 250
-
-
-def test_fresh_touch_at_or_below_the_htf_low_does_not_refill(tmp_path):
-    strat = ScriptedCycle("scripted", [
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW),
-        _view(_result([Entry(T_NEXT, HTF_LOW, "aggressive")], paused=False), T_NEXT),  # touch at the hard stop
-    ])
-    bot, audit = _bot(tmp_path, strat)
-    bot.cycle(NOW)
-    bot._finish_exit(_key(), bot._positions[_key()], 98.0, "stop", 98.0)
-    bot.cycle(NOW + timedelta(minutes=5))
-    assert _child_qtys(audit) == [500]  # nothing new bought at or below the HTF low
-
-
-def test_restart_after_a_cycle_ended_never_reopens_it(tmp_path):
-    # Day 1: the cycle opens, then ends (HTF invalidated, parent closed). Restart on day 2 with a
-    # fresh trigger inside the same HTF cycle. It must not open again.
-    store = PositionStore(tmp_path / "positions.json")
-    day1 = ScriptedCycle("scripted", [_view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW)])
-    bot1, _ = _bot(tmp_path, day1, store=store)
-    bot1.cycle(NOW)
-    bot1._close(_key(), "HTF invalidated: unfilled quantity dropped")
-
-    day2 = ScriptedCycle("scripted", [_view(_result([Entry(T_DAY2, 100.0, "aggressive")]), T_DAY2)])
-    bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY)
-    assert _key() not in bot2._parents
-    bot2.cycle(NEXT_DAY)
-    assert _key() not in bot2._parents
-    assert _child_qtys(audit2) == []
-
-
-def test_cycle_parent_is_not_dropped_by_the_max_cycles_age_limit(tmp_path):
-    # max_cycles = 1 would drop an ordinary parent after its second cycle. A cycle parent keeps its
-    # unfilled quantity until it is filled or its HTF cycle is invalidated.
-    strat = ScriptedCycle("scripted", [_view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW)])
-    bot, audit = _bot(tmp_path, strat, max_cycles=1)
-    bot.cycle(NOW)
-    bot.cycle(NOW + timedelta(minutes=5))  # no new view: keeps filling
-    assert _key() in bot._parents
-    assert sum(_child_qtys(audit)) == 1000
-
-
 def test_target_pending_refuses_the_cycle_fail_closed(tmp_path):
     """Owner rule 11.7: an aggressive-only cycle with no N set has no exit rule, so it is never opened."""
-    strat = ScriptedCycle("scripted", [_view(_result([Entry(T_NEW, 100.0, "aggressive")],
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)],
                                                      mode="target_pending", target=None), T_NEW)])
     bot, audit = _bot(tmp_path, strat)
     bot.cycle(NOW)
@@ -283,10 +176,120 @@ def test_target_pending_refuses_the_cycle_fail_closed(tmp_path):
     assert any(k == "parent_skipped" and p.get("reason") == "target N not set" for k, p in audit.records)
 
 
+def test_no_loss_ceiling_means_no_cycle_order(tmp_path):
+    """Fail closed: with the ceiling not set, the ladder cannot size anything."""
+    strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot, audit = _bot(tmp_path, strat)
+    bot._cycle_loss_ceiling = None
+    bot.cycle(NOW)
+    assert _key() not in bot._parents
+    assert _child_qtys(audit) == []
+
+
+def test_invalidation_then_next_ocl_adds_fresh_quantity_and_resumes(tmp_path):
+    """Probe filled, stop-out pauses, the next OCL below adds 0.25 % (no unfilled left to carry)."""
+    strat = ScriptedCycle("scripted", [
+        _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT),
+                       ("aggressive", "B", 99.0, T_NEXT)]), T_NEXT),
+    ])
+    bot, audit = _bot(tmp_path, strat)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [500]
+    bot.cycle(NOW + timedelta(minutes=5))
+    assert _parent(bot).paused is True
+    assert _child_qtys(audit) == [500]
+    bot.cycle(NOW + timedelta(minutes=10))
+    assert _parent(bot).paused is False
+    b = _parent(bot).ladder.orders[1]
+    assert b.reason == "ladder" and b.carry == 0 and b.qty == 2500  # 0.25 % of 1,000,000 over 1 INR
+    assert _child_qtys(audit) == [500, 500]
+
+
+def test_partial_fill_is_carried_into_the_next_ocl(tmp_path):
+    """Probe 500 shares, only 100 fill (thin bar). The stop-out carries the 400 unfilled into OCL B:
+    the next order is 400 carried + 2500 fresh = 2900 shares."""
+    strat = ScriptedCycle("scripted", [
+        _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT),
+                       ("aggressive", "B", 99.0, T_NEXT)]), T_NEXT),
+    ])
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [100]
+    assert _parent(bot).remaining == 400
+    bot.cycle(NOW + timedelta(minutes=5))
+    assert _parent(bot).paused is True
+    bot.cycle(NOW + timedelta(minutes=10))
+    b = _parent(bot).ladder.orders[1]
+    assert b.carry == 400 and b.qty == 2900
+    assert _parent(bot).remaining == 400 + 2500 - 100  # carried + fresh, counted once, minus the child sent now
+    assert _child_qtys(audit) == [100, 100]
+
+
+def test_touch_at_or_below_the_htf_low_does_not_add_quantity(tmp_path):
+    strat = ScriptedCycle("scripted", [
+        _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT),
+                       ("aggressive", "B", HTF_LOW, T_NEXT)]), T_NEXT),
+    ])
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot.cycle(NOW)
+    bot.cycle(NOW + timedelta(minutes=5))
+    assert len(_parent(bot).ladder.orders) == 1  # no order at the hard stop
+    assert _child_qtys(audit) == [100]  # the closed order has nothing left to fill
+
+
+def test_restart_mid_cycle_keeps_the_remaining_quantity_and_ladder(tmp_path):
+    store = PositionStore(tmp_path / "positions.json")
+    day1 = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot1, audit1 = _bot(tmp_path, day1, store=store, bars=SmallBars())
+    bot1.cycle(NOW)
+    assert _child_qtys(audit1) == [100]
+    assert _parent(bot1).remaining == 400
+
+    day2 = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_DAY2)])
+    bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY, bars=SmallBars())
+    assert _key() in bot2._positions  # the open position came back
+    assert _parent(bot2).remaining == 400
+    assert len(_parent(bot2).ladder.orders) == 1  # ladder state came back, no second order
+    bot2.cycle(NEXT_DAY)
+    assert _child_qtys(audit2) == [100]
+    assert _parent(bot2).remaining == 300
+
+
+def test_restart_after_stop_out_keeps_the_parent_paused_then_resumes(tmp_path):
+    store = PositionStore(tmp_path / "positions.json")
+    day1 = ScriptedCycle("scripted", [
+        _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
+    ])
+    bot1, _ = _bot(tmp_path, day1, store=store, bars=SmallBars())
+    bot1.cycle(NOW)
+    bot1._finish_exit(_key(), bot1._positions[_key()], 98.0, "stop", 98.0)  # the stop closed the position
+    bot1.cycle(NOW + timedelta(minutes=5))  # invalidation processed and saved
+    assert _parent(bot1).paused is True
+    assert _parent(bot1).remaining == 400
+
+    day2 = ScriptedCycle("scripted", [
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_DAY2),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT),
+                       ("aggressive", "B", 99.0, T_DAY2)]), T_DAY2),
+    ])
+    bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY, bars=SmallBars())
+    assert _parent(bot2).paused is True
+    bot2.cycle(NEXT_DAY)
+    assert _child_qtys(audit2) == []  # paused and the touch is not there yet
+    bot2.cycle(NEXT_DAY + timedelta(minutes=5))
+    assert _child_qtys(audit2) == [100]  # the next OCL touch resumes slicing (carry + fresh)
+
+
 def test_conservative_touch_switches_position_to_atr_trail(tmp_path):
     strat = ScriptedCycle("scripted", [
-        _view(_result([Entry(T_NEW, 100.0, "aggressive")]), T_NEW),
-        _view(_result([Entry(T_NEW, 100.0, "aggressive"), Entry(T_NEXT, 99.0, "conservative")],
+        _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
+        _view(_result([("aggressive", "A", 100.0, T_NEW), ("conservative", "A", 99.0, T_NEXT)],
                       mode="trail", target=None), T_NEXT),  # trail mode: no fixed target (rules 11.7)
     ])
     bot, _ = _bot(tmp_path, strat)
@@ -296,4 +299,18 @@ def test_conservative_touch_switches_position_to_atr_trail(tmp_path):
     assert pos.trail_from_start is True
     assert pos.target is None
     assert pos.breakeven_enabled is False
-    assert bot._parents[_key()].trail is True
+    assert _parent(bot).trail is True
+
+
+def test_restart_after_a_cycle_ended_never_reopens_it(tmp_path):
+    store = PositionStore(tmp_path / "positions.json")
+    day1 = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
+    bot1, _ = _bot(tmp_path, day1, store=store)
+    bot1.cycle(NOW)
+    bot1._close(_key(), "HTF invalidated: unfilled quantity dropped")
+
+    day2 = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_DAY2)]), T_DAY2)])
+    bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY)
+    assert _key() not in bot2._parents
+    bot2.cycle(NEXT_DAY)
+    assert _key() not in bot2._parents

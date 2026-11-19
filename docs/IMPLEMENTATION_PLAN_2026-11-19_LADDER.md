@@ -1,6 +1,6 @@
 # Implementation plan: risk ladder for the cycle strategies (2026-11-19)
 
-Status: P0, P1 and P2 done (2026-11-19). P3 to P5 open. Live stays OFF. Paper mode only.
+Status: P0 to P3 done (2026-11-19). P4 and P5 open. Live stays OFF. Paper mode only.
 Rules source: `docs/STRATEGY_RULES_2026-11-19.md` section 11 (rules) and section 14 (worked example).
 Gap list source: the same file, section 13.
 
@@ -115,3 +115,18 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   target_pending, which P1 now refuses; they use the owner N = 2.1, and a new test checks the refusal.
   Result: 98 bot and cycle tests pass. Full suite: no failure that is not in the pre-work baseline
   (27 unrelated failures remain there: exit_bot, pov_executor, audit_fixes, bot_recon and others).
+- 2026-11-19: P3 done (bot). Each LTF event from the replay goes through risk_ladder.py. An order is sized
+  at its own price; the gate sees the whole order (fresh plus carried) as the risk fraction, so it sizes
+  exactly that many shares. A stop-out (invalidated event) pauses the parent and closes the old order at
+  its fills; its unfilled shares move to the next order (carry). Children are attributed FIFO to the oldest
+  open order and booked at that order's price. Ladder state is saved with the parent and restored after a
+  restart. Only events on the newest closed bar act; older events are skipped (freshness).
+  Known limits, to fix in P4 or later:
+  (a) The replay still averages entries by price, so the target (avg + N x R) uses that average, not the
+      ladder's quantity-weighted average. P4.
+  (b) Peg mode (_submit_peg) still uses the parent intent, not the ladder order's price. Peg is off by default.
+  (c) An order that the gate clamps below its planned size keeps the clamped size; any carry that does not
+      fit is dropped (logged as a clamp, not yet logged separately).
+  (d) Tests: 98 bot and cycle tests pass; cycle tests rewritten to the ladder model (a stop-out now adds
+      carry + 0.25 %, not the same quantity as before). Full suite: no new failures vs baseline; 27 unrelated
+      failures remain.

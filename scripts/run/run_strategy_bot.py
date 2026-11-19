@@ -77,7 +77,7 @@ def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None)
         if feed is None:
             raise BotRefused(f"{name} needs MTF, HTF and LTF set in the trade setup; the runner does not start without them")
         from quant.strategies.risk_ladder import load_cycle_settings
-        cyc = load_cycle_settings(pathlib.Path("config/settings.yaml"))
+        cyc = load_cycle_settings(ROOT / "config" / "settings.yaml")
         return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"])
     # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
     # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol
@@ -102,6 +102,8 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
     if cfg.live_enabled:
         raise BotRefused("live_enabled must stay false")
     strategy_params = _strategy_params(bot_cfg_path)
+    from quant.strategies.risk_ladder import load_cycle_settings as _load_cycle
+    cycle_cfg = _load_cycle(ROOT / "config" / "settings.yaml")  # owner N and loss ceiling (None = not set)
     tf = timeframes or {}
     feed = None
     if all(tf.get(k) for k in ("mtf", "htf", "ltf")):
@@ -124,6 +126,7 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
         halt=HaltHandler(),
         state=RiskState(),
         alerts=alerts,
+        cycle_loss_ceiling=cycle_cfg["loss_ceiling"],
     )
     bot.run_startup_recon(None)  # paper: no broker book to compare, so entries are allowed
     return bot, audit
