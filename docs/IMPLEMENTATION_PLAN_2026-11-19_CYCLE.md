@@ -2,12 +2,15 @@
 
 Flow stage: Strategy, Strategy bot cycle, Risk gate (exits)
 Source: `docs/STRATEGY_RULES_2026-11-19.md` section 11.
-Status: PLAN. No code yet. Waiting for owner answer 11.8 before phase 2.
+Status: PHASE 1 DONE (2026-11-19). Phase 2 (bot wiring) not started.
 
-## Phase 1: cycle state machine (pure logic, no orders)
+## Phase 1: cycle replay (pure logic, no orders) — DONE
+- Built as a replay over closed bars (`src/quant/strategies/cycle.py`, `run_cycle`), so no state is stored between cycles.
+- Tests: `tests/unit/test_cycle.py` (10 tests): full cycle with trail, aggressive-only target, target pending, HTF invalidation, MTF invalidation, no touch, no sweep, re-entry after a close below the LTF OCL low, and the below-previous-level rule.
+- Owner answers used: 11.8 (no LTF exit; a new LTF OCL below the old level adds an entry), 11.9 (trail after a conservative touch; otherwise the backtested target).
+- Not done: the target N is not known (needs a backtest). Only the first HTF cycle is replayed. After an HTF invalidation, the wait for a new HTF OCL is phase 2.
 - New module `src/quant/strategies/cycle.py`.
 - State per (symbol, strategy): stage, MTF level and low, HTF sweep done, HTF OCL low, HTF invalidation price, list of entries (price, level kind), average entry, fixed target.
-- Pure function: given the state and the newest closed bars for MTF, HTF and LTF, return the new state and events (ENTRY, STOP_OUT, HTF_INVALID, MTF_INVALID, NONE).
 - Trigger freshness: the entry must be on the newest closed LTF bar.
 - Tests: full chain, aggressive then conservative entry, re-entry after stop-out, HTF invalidation, MTF invalidation, average entry and target arithmetic, no HTF re-sweep.
 
@@ -22,6 +25,7 @@ Status: PLAN. No code yet. Waiting for owner answer 11.8 before phase 2.
 - Audit trail check for each event (entry, stop-out, invalidation).
 - Live stays off until owner sign-off.
 
-## Open items (owner)
-- 11.8: does a close below the LTF OCL low also close the trade early, with the hard stop at the HTF OCL low?
-- 11.9: target fixed at each entry, or only at the first entry?
+## Open items
+- Backtested target N for the aggressive-only exit (owner: needs a backtest).
+- Phase 2: after an HTF invalidation, wait for a new HTF OCL below the invalidated price, then its key touch.
+- Phase 2: freshness, only the newest closed LTF bar's entries are new orders.

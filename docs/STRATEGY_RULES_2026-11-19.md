@@ -158,14 +158,16 @@ Chain (once per cycle)
 5. Wait for an LTF OCL. Its aggressive key level is touched: entry 1 (aggressive).
 
 Re-entries (LTF)
-6. Entry 1 stops out. Next entry is on the LTF OCL's CONSERVATIVE key level, with no new sweep.
-7. If entry 2 stops out, wait for a new LTF OCL to form below the previous stop-out level. Enter on its touch. Keep doing this after each stop-out. No trade-count limit.
+6. Entry 1 (aggressive) is held. When price touches the same OCL's CONSERVATIVE key level, that is entry 2. Entries are averaged (see 11.10).
+7. A candle closing below the LTF OCL low (C1 to C3) does NOT close the trade. It arms the wait for a new LTF OCL that forms below that level. Its aggressive touch is a new entry, added to the position.
 8. Do not start the HTF invalidation step after 2 trades. Stay in the LTF loop until the HTF is invalidated.
 
 Stop and target
-9. No stop below the LTF OCL (it stops out too often). Entries are on the LTF. The hard stop is BELOW THE HTF OCL LOW (lowest low of the HTF OCL's C1 to C3).
+9. No stop below the LTF OCL. Entries are on the LTF. The only hard stop is BELOW THE HTF OCL LOW (lowest low of the HTF OCL's C1 to C3). It covers every entry taken from that HTF OCL.
 10. Average entry = mean of all entry prices in the cycle.
-11. Target = average entry + 3R, where R = average entry - HTF OCL low. Fixed at the average entry at the time of the entry. (Assumption, see 11.9.)
+11. Exit rules (owner 2026-11-19):
+   - If the CONSERVATIVE key level was touched in the cycle (any strategy): no fixed target. Trail with ATR (trail as far as possible).
+   - If only the AGGRESSIVE key level was touched and the OCL formed: book at the best backtested target. Target = average entry + N x R, where R = average entry - HTF OCL low, and N is the backtested best value (not yet known; to be found by backtest).
 
 Invalidation
 12. HTF invalidated: an HTF candle closes below the HTF OCL low. Then wait for a new HTF OCL to form below that invalidated price, wait for price to touch its aggressive key level, and restart the LTF loop in 5 to 7.
@@ -176,7 +178,9 @@ Definitions
 - Sweep: the HTF swing low is broken (wick or body close). Needed once per cycle.
 
 Assumptions and open items
-- 11.8 Hard stop vs LTF close. The hard stop is at the HTF OCL low. Whether a close below the LTF OCL low also closes the trade early is NOT yet confirmed.
-- 11.9 Target fixed when? Assumed: recomputed at each new entry and kept until the position closes. Owner to confirm.
+- 11.8 CONFIRMED: a close below the LTF OCL low does not close the trade. It arms the wait for a new LTF OCL.
+- 11.9 CONFIRMED: trail with ATR once the conservative level is touched; otherwise book at the best backtested target. N is open (backtest).
+- Reading to confirm: the owner's text said "didn't close the trade early" and "starts the wait for a new LTF OCL". Read here as: no exit, and a new LTF OCL below the old level is added as a new entry.
+- New OCL below the previous level = its aggressive key level is below the previous LTF OCL low.
 - 11.4 Sweep scope: one sweep per cycle, including after an HTF invalidation. Assumed.
 - Trigger must be on the newest closed LTF bar (owner confirmed 2026-11-19).

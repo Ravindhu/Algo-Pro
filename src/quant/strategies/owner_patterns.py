@@ -268,3 +268,13 @@ def sequence_signal(kind: str, mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.Dat
 def engulf_signal(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame, **kwargs) -> Optional[dict]:
     """Engulfing signal (kind egpattern_open). Kept as the named entry point for the Engulfing strategy."""
     return sequence_signal("egpattern_open", mtf, htf, ltf, name="engulfing", **kwargs)
+
+
+def setup_low(mtf: pd.DataFrame, kind: str, end: int) -> float:
+    """Lowest low of the MTF setup candles. This is the MTF invalidation price (owner 2026-11-19)."""
+    _, _, ml, _ = _arrays(mtf)
+    if kind in ("egpattern_open", "egpattern_body"):
+        return float(min(ml[end - 1], ml[end]))
+    ocl = find_ocl_rrg(mtf, end)
+    start = _ocl_start(end, ocl)
+    return float(min(ml[start: end + 1]))
