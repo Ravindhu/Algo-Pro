@@ -90,3 +90,14 @@ Status: spec complete. Ready to build after owner go-ahead.
 - Assumption: C3 must still be green for a 2-candle break, as the pattern requires. Confirm if the 2-candle break should fire without it.
 - Tests: 18 in `tests/unit/test_owner_patterns.py`, all passing.
 - Not in the test run: `src/quant/tests/test_nse_fii.py::test_market_inputs_serves_a_stored_value` fails because it uses the fixed date 2026-11-14 and now the data is stale. It is not related to this change; fix separately.
+
+## Corrected break rule (owner, 2026-11-19; implemented)
+- Engulfing: 2 candles only (unchanged): red, then green closing above the red high.
+- OCL: red-red-green (3 candles). The key level's candle sets the break candle:
+  - Key level C1 open: broken by C3 closing above it ("3-candle break"), checked on the 3rd candle.
+  - Key level C2 close: broken by C4 closing above it ("4-candle break"), checked on the 4th candle.
+  - The first break decides. If C3 already broke C1 open, the 4-candle break is not used.
+- Conservative level: lowest body bottom of C1, C2 and C3.
+- Assumption to confirm: the 3-candle break needs no extra condition beyond C3 green and closing above C1 open.
+- Tests: 18 in `tests/unit/test_owner_patterns.py`, all passing.
+- Replaces the earlier 2-candle break rule (C2 closing above C1 open).

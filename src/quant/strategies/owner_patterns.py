@@ -65,26 +65,31 @@ def find_sell_fail_trigger(df: pd.DataFrame, last: int, window: int = 10) -> Opt
 
 
 def find_ocl_rrg(df: pd.DataFrame, last: int) -> Optional[dict]:
-    """OCL Red-Red-Green check on the last 3 closed bars only. `last` = newest closed bar index.
+    """OCL Red-Red-Green check on closed bars. `last` = newest closed bar index.
 
-    Candles: C1 = last-2, C2 = last-1, C3 = last. Pattern: C1 red, C2 red, C3 green.
-    The first break that happens confirms the setup (upward closes only, owner 2026-11-19):
-      - "2-candle" break: C2 closes above C1 open. Key level = C1 open. Confirmed on C2.
-      - "3-candle" break: C3 closes above C2 close. Key level = C2 close. Confirmed on C3.
-    Conservative level = the lowest body bottom (min of open and close) among C1, C2, C3. It applies to both breaks.
+    Pattern: C1 red, C2 red, C3 green (3 candles). Each key level is broken by the candle after its source candle:
+      - 3-candle break: C3 closes above C1 open. Key level = C1 open. Checked on the 3rd candle.
+      - 4-candle break: C4 closes above C2 close. Key level = C2 close. Checked on the 4th candle.
+    The first break that happens decides. If C3 already broke C1 open, the 4-candle break is not used.
+    Conservative level = lowest body bottom (min of open and close) among the pattern's C1, C2, C3.
     Returns {"break", "key_level", "conservative", "trigger_index"} or None.
     """
     if last < 2 or last >= len(df):
         return None
     o, _, _, c = _arrays(df)
-    c1, c2, c3 = last - 2, last - 1, last
-    if not (c[c1] < o[c1] and c[c2] < o[c2] and c[c3] > o[c3]):
-        return None
-    conservative = float(min(min(o[k], c[k]) for k in (c1, c2, c3)))
-    if c[c2] > o[c1]:
-        return {"break": "2-candle", "key_level": float(o[c1]),
-                "conservative": conservative, "trigger_index": c2}
-    if c[c3] > c[c2]:
-        return {"break": "3-candle", "key_level": float(c[c2]),
-                "conservative": conservative, "trigger_index": c3}
+
+    def is_rrg(a: int) -> bool:
+        return bool(c[a] < o[a] and c[a + 1] < o[a + 1] and c[a + 2] > o[a + 2])
+
+    def conservative(a: int) -> float:
+        return float(min(min(o[k], c[k]) for k in (a, a + 1, a + 2)))
+
+    a = last - 2  # pattern = last-2, last-1, last
+    if a >= 0 and is_rrg(a) and c[last] > o[a]:
+        return {"break": "3-candle", "key_level": float(o[a]),
+                "conservative": conservative(a), "trigger_index": last}
+    a = last - 3  # pattern = last-3..last-1, C4 = last
+    if a >= 0 and is_rrg(a) and not (c[a + 2] > o[a]) and c[last] > c[a + 1]:
+        return {"break": "4-candle", "key_level": float(c[a + 1]),
+                "conservative": conservative(a), "trigger_index": last}
     return None

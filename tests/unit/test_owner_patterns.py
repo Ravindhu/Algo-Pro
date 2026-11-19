@@ -81,45 +81,44 @@ def test_sell_fail_short_history_is_safe():
     assert op.find_sell_fail_trigger(_frame([RED]), last=0) is None
 
 
-# ---- OCL Red-Red-Green (last 3 bars only) ----
-RRG_C1 = (10.0, 10.2, 9.0, 9.2)    # red: open 10.0, close 9.2 (body bottom 9.2)
-RRG_C2 = (11.0, 11.1, 10.1, 10.5)  # red: closes 10.5 > C1 open 10.0 (2-candle break)
-RRG_C3 = (10.4, 11.6, 10.3, 11.2)  # green: closes 11.2 > C2 close 10.5 (3-candle break too)
+# ---- OCL Red-Red-Green: 3-candle or 4-candle break ----
+RRG_C1 = (10.0, 10.2, 9.0, 9.2)    # red: open 10.0, close 9.2
+RRG_C2 = (11.0, 11.1, 10.1, 10.5)  # red: close 10.5 (C2 close = level 2)
+C3_BREAK = (9.6, 10.6, 9.5, 10.4)  # green: closes 10.4 above C1 open 10.0 -> 3-candle break
+C3_NO_BREAK = (9.4, 9.9, 9.3, 9.8) # green: closes 9.8, below C1 open 10.0
+C4_BREAK = (9.9, 10.8, 9.8, 10.7)  # closes 10.7 above C2 close 10.5 -> 4-candle break
 
 
-def test_two_candle_break_uses_level_one():
-    res = op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, RRG_C3]), last=2)
-    assert res == {"break": "2-candle", "key_level": 10.0, "conservative": 9.2, "trigger_index": 1}
+def test_three_candle_break_uses_c1_open():
+    res = op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, C3_BREAK]), last=2)
+    assert res == {"break": "3-candle", "key_level": 10.0, "conservative": 9.2, "trigger_index": 2}
 
 
-def test_three_candle_break_uses_level_two():
-    c2_low = (11.0, 11.1, 9.5, 9.8)     # red, closes 9.8: below C1 open, so no 2-candle break
-    c3_up = (9.9, 10.9, 9.8, 10.7)      # green, closes 10.7 above C2 close 9.8
-    res = op.find_ocl_rrg(_frame([RRG_C1, c2_low, c3_up]), last=2)
-    assert res == {"break": "3-candle", "key_level": 9.8, "conservative": 9.2, "trigger_index": 2}
+def test_four_candle_break_uses_c2_close():
+    res = op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, C3_NO_BREAK, C4_BREAK]), last=3)
+    assert res == {"break": "4-candle", "key_level": 10.5, "conservative": 9.2, "trigger_index": 3}
 
 
-def test_first_break_decides_when_both_break():
-    res = op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, RRG_C3]), last=2)
-    assert res["break"] == "2-candle" and res["key_level"] == 10.0
+def test_first_break_decides_c3_break_blocks_c4_break():
+    # C3 already broke C1 open, so a later C4 close above C2 close must not start a 4-candle break
+    res = op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, C3_BREAK, C4_BREAK]), last=3)
+    assert res is None
 
 
 def test_no_break_means_no_signal():
-    c2_low = (11.0, 11.1, 9.5, 9.8)     # red, closes 9.8: no 2-candle break
-    c3_flat = (9.7, 9.9, 9.6, 9.8)      # green, but closes 9.8: not above C2 close 9.8
-    assert op.find_ocl_rrg(_frame([RRG_C1, c2_low, c3_flat]), last=2) is None
-
-
-def test_ocl_rrg_uses_last_three_bars_only():
-    older = (20.0, 21.0, 19.0, 19.5)    # older bar with a lower body: must not count
-    res = op.find_ocl_rrg(_frame([older, RRG_C1, RRG_C2, RRG_C3]), last=3)
-    assert res["conservative"] == 9.2
+    c4_flat = (9.7, 10.0, 9.6, 9.9)  # closes 9.9, below C2 close 10.5
+    assert op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, C3_NO_BREAK, c4_flat]), last=3) is None
 
 
 def test_ocl_rrg_needs_red_red_green_colours():
-    c3_red = (11.2, 11.3, 10.3, 10.6)
+    c3_red = (10.6, 10.7, 10.0, 10.1)
     assert op.find_ocl_rrg(_frame([RRG_C1, RRG_C2, c3_red]), last=2) is None
 
 
 def test_ocl_rrg_short_history_is_safe():
     assert op.find_ocl_rrg(_frame([RRG_C1, RRG_C2]), last=1) is None
+
+
+def test_engulfing_is_still_two_candles():
+    # Engulfing rule is unchanged: red then green, green closes above red high
+    assert op.is_red_green_engulf(_frame([RED, GREEN_ENGULF]), 1) is True
