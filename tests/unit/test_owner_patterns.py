@@ -159,7 +159,7 @@ def _ltf_with_ocl(touch=LTF_TOUCH):
 def test_engulf_sequence_full_path_triggers():
     res = op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl())
     assert res == {"pattern_time": 1, "touch_time": 2, "sweep_time": 3,
-                   "ocl_time": 5, "ocl_start_time": 3, "trigger_time": 6, "entry": 11.0}
+                   "ocl_time": 5, "ocl_start_time": 3, "conservative_level": None, "trigger_time": 6, "entry": 11.0}
 
 
 def test_engulf_sequence_waits_when_no_mtf_touch():
@@ -257,3 +257,14 @@ def test_ocl_bottom_level_is_lowest_body_bottom_not_wick():
     assert op.sequence(mtf, _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom") is not None
     no_touch_body = _frame([RRG_C1, RRG_C2, C3_BREAK, (9.4, 9.8, 9.3, 9.5)])  # low 9.3 > 9.2: no touch
     assert op.sequence(no_touch_body, _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom") is None
+
+
+def test_ocl_top_records_conservative_level_c2_open():
+    # top has two key levels: aggressive (body top, touched) and conservative (C2 open 11.0, recorded)
+    res = op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "ocl_top")
+    assert res["conservative_level"] == 11.0
+
+
+def test_bottom_has_no_second_level():
+    res = op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom")
+    assert res["conservative_level"] is None

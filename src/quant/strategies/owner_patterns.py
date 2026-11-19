@@ -193,6 +193,10 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     if setup is None:
         return None
     end, level = setup
+    mo, _, _, _ = _arrays(mtf)
+    # Top strategy has two key levels (owner 2026-11-19): aggressive = touch level (above);
+    # conservative = open of the candle before the trigger (C2 for 3-candle, C3 for 4-candle). Recorded, not used for the touch.
+    conservative_level = float(mo[end - 1]) if kind == "ocl_top" else None
     _, mh, ml, _ = _arrays(mtf)
     n_m = len(mtf) - 1
     touch = next((k for k in range(end + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
@@ -221,6 +225,7 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
         if fresh and touches[0] != n_l:
             return None  # touched earlier: stale, do not enter on an old bar
         return {"pattern_time": mtf.index[end], "touch_time": touch_time, "sweep_time": sweep_time,
+                "conservative_level": conservative_level,
                 "ocl_time": ltf.index[m], "ocl_start_time": ltf.index[_ocl_start(m, ocl)],
                 "trigger_time": ltf.index[touches[0]], "entry": float(key)}
     return None
