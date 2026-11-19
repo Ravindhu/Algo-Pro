@@ -110,3 +110,14 @@ Status: spec complete. Ready to build after owner go-ahead.
 - Conservative level: lowest body bottom of C1, C2 and C3.
 - Replaces the previous rule (levels from C1 open and C2 close).
 - Tests: 18 in `tests/unit/test_owner_patterns.py`, all passing.
+
+## Owner rules, round 6 (2026-11-19)
+- Entry key level: aggressive key level for every MTF, HTF and LTF.
+- OCL extra condition: on the lower timeframe, price must SWEEP the OCL key level first. Only then does the bot look for the OCL pattern. (Sweep definition: TO CONFIRM.)
+- Sell-fail: after the red-green engulfing pattern closes, wait for the next candle to TOUCH the key level. Then look for entry. (Entry rule after the touch: TO CONFIRM.)
+- Naming (proposed, to avoid confusion with "engulfing"):
+  - Pattern: Red-Green Engulfing, short name RGE.
+  - Strategy: RGE (code id `rge`, replacing `engulfing`).
+  - Sell-fail strategy: "RGE sell-fail".
+  - OCL strategies: unchanged (OCL, OCL sell-fail top, OCL sell-fail bottom).
+  Owner to confirm the names.
