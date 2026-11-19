@@ -95,13 +95,13 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
 
 
 def check_timeframe_order(tf: Mapping[str, Any]) -> None:
-    """LTF < MTF < HTF in minutes. Checked only when all three are set. Raises ValueError."""
+    """LTF < HTF < MTF in minutes (MTF = multi timeframe, the largest). Checked only when all three are set."""
     if not all(tf.get(k) for k in ("ltf", "mtf", "htf")):
         return
-    ltf, mtf, htf = (TIMEFRAMES[tf[k]] for k in ("ltf", "mtf", "htf"))
-    if not ltf < mtf < htf:
+    ltf, htf, mtf = (TIMEFRAMES[tf[k]] for k in ("ltf", "htf", "mtf"))
+    if not ltf < htf < mtf:
         raise ValueError(
-            f"timeframes must go LTF < MTF < HTF, got LTF {tf['ltf']}, MTF {tf['mtf']}, HTF {tf['htf']}")
+            f"timeframes must go LTF < HTF < MTF, got LTF {tf['ltf']}, HTF {tf['htf']}, MTF {tf['mtf']}")
 
 
 def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) -> Dict[str, Any]:

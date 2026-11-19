@@ -164,3 +164,9 @@ Still to confirm:
 - The sequence completes when the LTF bar touches the AGGRESSIVE key level. That touch is the trigger. The bot checks every 5 minutes.
 - The LTF touch also confirms the sweep.
 - Open: which aggressive key level does the LTF touch use? (a) the level of the LTF pattern itself, or (b) the level of the original pattern on its own timeframe?
+
+## Owner rule (2026-11-19): timeframe order changed
+- Meaning: MTF = multi timeframe (largest), HTF = higher timeframe, LTF = lower timeframe.
+- Order rule is now LTF < HTF < MTF (was LTF < MTF < HTF). Enforced in `check_timeframe_order` in `src/quant/core/setup_store.py`.
+- Tests: `tests/unit/test_setup_timeframes.py` (10 passing).
+- Example from owner: MTF Daily aggressive level; HTF 4-hour sweep; LTF 5-minute OCL formed after that sweep. The LTF OCL's own aggressive level, touched, triggers the trade every 5 minutes.
