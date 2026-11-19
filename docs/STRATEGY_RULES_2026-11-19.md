@@ -24,13 +24,13 @@ All rules use closed bars only. Oldest bar first. The bar in progress is never u
 
 All five follow the same sequence (section 4). They differ only in the MTF setup and the level that gets touched.
 
-| # | Bot name | MTF setup | Touch level (MTF) | Code kind | Status |
-|---|---|---|---|---|---|
-| 1 | `engulfing` | egpattern | open of candle 1 (owner r4) | `egpattern_open` | Built, paper |
-| 2 | `engulfing_fail` | egpattern (sell-fail engulf on MTF, owner r4) | highest candle body top of the two candles (owner 2026-11-19) | `egpattern_body` | Built, paper |
-| 3 | `ocl_seq` | OCL (RRG) | OCL aggressive key level (owner r4 and r6) | `ocl_key` | Built, paper |
-| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | aggressive level = highest candle body top of the OCL pattern (touched). Conservative level = open of the candle before the trigger (recorded, 2 levels in total). | `ocl_top` | Built, paper |
-| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | one level only: lowest candle body bottom of the OCL pattern up to the breakout candle (touched). NO HTF sweep. | `ocl_bottom` | Built, paper |
+| # | Bot name | MTF setup | Aggressive level (MTF) | Conservative level (MTF) | Code kind | Status |
+|---|---|---|---|---|---|---|
+| 1 | `engulfing` | egpattern | open of candle 1 (owner r4) | **lowest body bottom of the two candles** (owner 2026-11-19): min(open C1, close C1, open C2, close C2) | `egpattern_open` | Built, paper |
+| 2 | `engulfing_fail` | egpattern (sell-fail engulf on MTF, owner r4) | highest candle body top of the two candles (owner 2026-11-19) | **lowest body bottom of the two candles** (owner 2026-11-19) | `egpattern_body` | Built, paper |
+| 3 | `ocl_seq` | OCL (RRG) | OCL aggressive key level (owner r4 and r6) | LTF OCL conservative level (lowest body bottom of C1..C3) | `ocl_key` | Built, paper |
+| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | highest candle body top of the OCL pattern (touched) | open of the candle before the trigger (C2 for a 3-candle break, C3 for a 4-candle break) | `ocl_top` | Built, paper |
+| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | one level only: lowest candle body bottom of the OCL pattern up to the breakout candle (touched). NO HTF sweep. | None (single level) | `ocl_bottom` | Built, paper |
 
 Each strategy is standalone. None depends on another. The sell-fail sequence and the OCL sequence use the same HTF sweep and LTF OCL steps as Engulfing.
 
@@ -45,10 +45,10 @@ Bot names differ from the owner's names: `ocl_seq` is the sequence version of "O
 4. Confirmed only when candle 2 closes.
 
 ### 3.2 OCL (red-red-green), 3 candles, the last 3 or 4 closed bars
-C1 red, C2 red, C3 green. The first break decides:
+C1 red, C2 red, C3 green. **The first break wins** (owner confirmed 2026-11-19), and there are only two:
 - **3-candle break**: C3 closes above C2 open. Key level = C2 open. Checked on C3. Pattern = C1..C3.
-- **4-candle break**: C4 closes above C2 open. Key level = C3 close. Checked on C4. Pattern = C1..C3, trigger candle = C4.
-- If C3 already broke C2 open, the 4-candle break is ignored.
+- **4-candle break**: C3 did **not** close above C2 open, and C4 does. Key level = C3 close. Checked on C4. Pattern = C1..C3, trigger candle = C4.
+- If C3 already broke C2 open, the 4-candle break is never considered. One pattern gives one break.
 - Conservative level = lowest body bottom of C1..C3.
 
 ### 3.3 Sell-fail
@@ -64,6 +64,22 @@ Owner rules (r3 and r5): the sell-fail trigger is a green candle with a body ove
 5. An LTF bar after that OCL touches its aggressive key level. This is the **trigger**. Entry = that key level.
 
 Mapping (owner confirmed): MTF sweeps on HTF. HTF sweeps on LTF. LTF needs no sweep. This means the sequence above sweeps on HTF.
+
+### 4.1 Where each strategy's conservative level comes from (owner 2026-11-19)
+
+Every strategy has an **aggressive** level (first touch) and a **conservative** level (second,
+cheaper touch). They differ only in how each level is measured on the MTF pattern:
+
+| Strategy | Aggressive | Conservative |
+|---|---|---|
+| `engulfing` | open of candle 1 | **lowest body bottom of the two engulfing candles**: min(open C1, close C1, open C2, close C2) |
+| `engulfing_fail` | highest body top of the two candles | **lowest body bottom of the two candles** |
+| `ocl_seq` | OCL aggressive key level | LTF OCL conservative level (lowest body bottom of C1..C3) |
+| `ocl_sell_fail_top_seq` | highest body top of the OCL pattern | open of the candle before the trigger (C2 for 3-candle, C3 for 4-candle) |
+| `ocl_sell_fail_bottom_seq` | lowest body bottom of the OCL pattern | none (single level) |
+
+It is the lowest **body**, not the lowest **low**. A long lower wick does not count. That is the
+same rule `ocl_top` and `ocl_bottom` already use for their levels.
 
 ## 5. Trigger freshness (owner question, 2026-11-19)
 
@@ -129,6 +145,7 @@ Pattern rules
 8. 3-candle OCL break needs only: C3 green and C3 close above C2 open. No extra candle condition.
 9. The sell-fail trigger candle (green, body over 50%, closes above the pattern high) is NOT required in the five sequences. Why: the owner's round 10 says the LTF touch of the key level is the trigger. The candle rule exists as `find_sell_fail_trigger`, unused. Owner to say whether to add it as an extra entry condition for the sell-fail strategies.
 10. Level for `engulfing_fail` = highest candle body top of the two egpattern candles (max of open and close). Owner 2026-11-19.
+10a. **`engulfing` now has a conservative level too** (owner 2026-11-19): the lowest body bottom of the two engulfing candles, min(open C1, close C1, open C2, close C2). `engulfing_fail` uses the same lowest body bottom as its conservative level. A wick below the body does not count.
 11. Top strategy has two key levels (owner 2026-11-19). Aggressive = highest candle body top across the OCL pattern: this is the touch level. Conservative = open of the candle before the trigger (C2 for 3-candle, C3 for 4-candle): recorded in the result as `conservative_level`, not used for the touch or the stop. Owner to say if the conservative level should set the stop.
 12. Bottom strategy has one level (owner 2026-11-19): lowest candle body bottom across the OCL pattern, up to the breakout candle (C3 or C4). It is the touch level. No HTF sweep (`NO_SWEEP_KINDS`).
 13. A sweep = a later bar's low below the swing low (wick or body). Swing = 3-candle swing low.
@@ -141,6 +158,10 @@ Risk ladder (owner 2026-11-19)
 14d. 0.50 % requires the escalation pair: conservative touch FIRST, then a new OCL. One entry only, no split.
 14e. 0.50 % is not permanent. After it, wait for the pair again.
 14f. Remainder rolls forward through every new OCL until the HTF is invalidated.
+
+Order pricing (owner 2026-11-19)
+14g. Entry LIMIT price = one tick above the bid price level that carries the **largest resting quantity among the top 5 bid levels**, never at or above the best ask, never above `last close x (1 + entry_max_slippage_bps)`. If no depth is available the bot falls back to `last close x (1 + entry_max_slippage_bps)`.
+14h. Implementation: `execution/peg.py:peg_level`, driven by `bot.yaml` `pov_mode: peg_band_buyer` and `peg_tick_size`. The 5-level scan and the highest-quantity pick were added 2026-11-19; before that it used the top of book only.
 
 Sequence scope
 15. Only the newest MTF setup is checked. If it is not touched, older setups are ignored.

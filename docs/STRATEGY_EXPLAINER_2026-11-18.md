@@ -24,13 +24,32 @@ All four are long-only (BUY). A SELL signal is refused by the bot (owner rule, 2
 |---|---|---|---|---|
 | Idea | Bullish engulfing candle, then price retraces to a Fibonacci level inside it | Red-Red-Green pattern on the higher timeframe, then a touch of a key level on the lower timeframe | A short setup that fails, so price comes back up through the level and we buy the retest | Same failed-short idea, but only after the top level has already failed. Uses the lowest swing candle |
 | Timeframes used | MTF only (its signal bar) | HTF for the pattern, LTF for the entry touch | HTF for the pattern, LTF for the entry touch | HTF for the pattern, LTF for the entry touch |
-| Entry | Price touches the fib level (88.6% of the engulfing candle) within 5 bars of the pattern | Price touches the trigger level (open of candle 3, conservative mode) and the LTF pattern confirms | First: broken candle-3 open (aggressive). If that fails: candle-2 open (conservative) | Single level: open of the lowest swing candle |
+| Aggressive (touch) level | open of candle 1 | OCL aggressive key level (C2 open for a 3-candle break, C3 close for a 4-candle break) | Highest candle body top of the OCL pattern | Lowest candle body bottom of the OCL pattern (one level only) |
+| Conservative level | **lowest body bottom of the two engulfing candles** (owner 2026-11-19) — min(open C1, close C1, open C2, close C2). A wick below the body does not count | LTF OCL conservative level (lowest body bottom of C1..C3), used for the re-entry | open of the candle before the trigger (C2 for a 3-candle break, C3 for a 4-candle break) | None (single level) |
 | Stop loss | 1.5 × ATR below entry | HTF stop: the low of the HTF pattern. LTF stop: the entry's own stop | Same two-tier stop as OCL | Stop is the low of the lowest swing candle |
 | Take profit | 3 × ATR above entry (fixed) | 3R by default (target_rr = 3.0), in FIXED exit mode only | Same as OCL: 3R in FIXED mode, none in DYNAMIC mode | Same as OCL |
 | Exit mode | Fixed TP and SL | AUTO: FIXED if entry is at the aggressive level, DYNAMIC if at the conservative level | Same as OCL | Same as OCL |
 | Breakeven (inside the strategy) | Not set in the strategy | At 1.5R, stop moves to entry plus costs | Same as OCL | Same as OCL |
 | Trailing (inside the strategy) | Not set in the strategy | 2 × ATR, measured from the highest close, only moves up | Same as OCL | Same as OCL |
 | Retries | Setup is voided if touched early | Up to 3 LTF stop-outs per pattern, each re-entry lower | Same, and can fall through to the bottom strategy | Up to 3 LTF stop-outs |
+
+## The OCL break: the first one wins (2026-11-19)
+
+The OCL pattern is C1 red, C2 red, C3 green. Two breaks are possible and the FIRST one counts:
+
+1. **3-candle break** — C3 closes above C2's open. The key level is C2's open.
+2. **4-candle break** — C3 did **not** close above C2's open, but C4 does. The key level is C3's close.
+
+If C3 already broke the level, the 4-candle break is never considered. One pattern gives one break.
+
+## The sequence strategies' conservative level for Engulfing (2026-11-19)
+
+Engulfing used to have one level only. It now has two, like the OCL strategies:
+
+- **Aggressive** = open of candle 1 (the touch level that was always there).
+- **Conservative** = the **lowest body of the two engulfing candles**, that is the lowest of the four body prices: open and close of candle 1, open and close of candle 2.
+
+It is the lowest **body**, not the lowest **low**. A long lower wick does not count. That keeps it consistent with how the OCL top and bottom strategies already measure their levels.
 
 ## How the bot actually exits (important)
 
