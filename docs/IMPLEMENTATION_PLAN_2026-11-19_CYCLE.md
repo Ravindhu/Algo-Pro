@@ -20,7 +20,7 @@ Done (2026-11-19):
 - `tests/unit/test_cycle_exit.py` (5 tests).
 
 Still open (the bot's position model is one Position per signal parent, so these need a design step before code):
-- Cycle position: all entries of one HTF cycle form ONE position with an average entry, one hard stop (HTF OCL low), and one exit mode (trail or target). Today each parent is its own Position.
+- Cycle position (rules doc section 12): one position per HTF cycle. Quantity sized once at the first trigger. The POV slicer fills it; later triggers keep the same quantity; an LTF invalidation pauses the POV slicer and keeps the unfilled quantity, which resumes at the next LTF OCL touch. Average = average fill price. One hard stop (HTF OCL low), one exit mode. Today each parent is its own Position.
 - Sizing: `risk_adapter.levels_from_signal` works from entry and distances. The cycle needs an absolute stop path. Each added entry changes the average, so the quantity must be re-sized or added on.
 - Broker stop (SL-M) sync must use the HTF OCL low, and move when the trail moves.
 - Entries become orders only when the touch is on the newest closed LTF bar (`_scan` wiring).

@@ -146,6 +146,16 @@ Data and bot
 24. HTF = 1-hour, LTF = 5-minute (or at least the bot interval), MTF = Daily in the owner's example. These are settings, not hard-coded.
 25. Paper mode only. Live stays off.
 
+## 12. Quantity and POV handover (owner rules, 2026-11-19)
+
+- One position per HTF cycle. At the first trigger the quantity is sized once: quantity = max risk per symbol / (trigger price - HTF OCL low).
+- The bot hands that quantity to the POV slicer. The POV slicer fills it over the following bars.
+- Later triggers in the same cycle (the conservative touch, or a new LTF OCL) do NOT add quantity. The POV slicer keeps filling the same quantity.
+- LTF invalidated (a candle closes below the LTF OCL low): the POV slicer stops. The unfilled quantity is kept.
+- Next LTF OCL touch: the POV slicer restarts with the remaining quantity (max quantity - filled quantity).
+- Average entry = average of the actual POV fill prices. Target and trail use this average.
+- HTF invalidated (a candle closes below the HTF OCL low): the cycle ends. Remaining quantity is not carried into a new HTF cycle.
+
 ## 11. Final cycle flow (owner rules, 2026-11-19). Supersedes sections 4, 6 and 7 where they differ.
 
 Applies to all five strategies. Each strategy starts from its own MTF setup.
