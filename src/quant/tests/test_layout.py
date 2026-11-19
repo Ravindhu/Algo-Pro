@@ -69,10 +69,7 @@ def test_only_openalgo_client_names_the_order_client():
 
 
 # SVG blocks with no module yet. Shrink this list as each gap gets a home. Empty = no gaps.
-KNOWN_GAPS: set = {
-    # Strategy stage rows specified in docs/STRATEGY_RULES_2026-11-19.md, not built yet
-    "Engulfing fail", "OCL strategy (RRG)", "OCL sell-fail top", "OCL sell-fail bottom",
-}
+KNOWN_GAPS: set = set()
 
 
 def _svg_block_titles():

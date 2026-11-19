@@ -426,3 +426,15 @@ def test_runner_refuses_engulfing_without_timeframes(tmp_path):
     with pytest.raises(BotRefused, match="MTF, HTF and LTF"):
         run.build_bot(bot_cfg_path=bot_yaml, limits_path=limits, state_dir=tmp_path / "s",
                       reader=_NoReader(), api_key="KEY", paper_capital=100000, timeframes=None)
+
+
+@pytest.mark.parametrize("name, kind", [
+    ("engulfing", "egpattern_open"), ("engulfing_fail", "egpattern_high"), ("ocl_seq", "ocl_key"),
+    ("ocl_sell_fail_top_seq", "ocl_top"), ("ocl_sell_fail_bottom_seq", "ocl_bottom"),
+])
+def test_sequence_strategies_need_timeframes_and_map_to_their_kind(name, kind):
+    run = _runner()
+    with pytest.raises(BotRefused, match="MTF, HTF and LTF"):
+        run._make_strategy(name, {}, None)
+    strat = run._make_strategy(name, {}, object())
+    assert strat.name == name and strat.kind == kind

@@ -23,12 +23,13 @@ def _ltf(n=30):
 
 def _fake_seq(ltf, ocl_pos=10, entry=102.0):
     return {"pattern_time": None, "touch_time": None, "sweep_time": None,
-            "ocl_time": ltf.index[ocl_pos], "trigger_time": ltf.index[-1], "entry": entry}
+            "ocl_time": ltf.index[ocl_pos], "ocl_start_time": ltf.index[ocl_pos - 2],
+            "trigger_time": ltf.index[-1], "entry": entry}
 
 
 def test_engulf_signal_builds_buy_levels(monkeypatch):
     ltf = _ltf()
-    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: _fake_seq(ltf))
+    monkeypatch.setattr(op, "sequence", lambda m, h, l, kind, fresh: _fake_seq(ltf))
     sig = op.engulf_signal(None, None, ltf)
     # stop = min low of C1..C3 = lows at positions 8, 9, 10
     assert sig["side"] == "BUY"
@@ -42,28 +43,28 @@ def test_engulf_signal_builds_buy_levels(monkeypatch):
 
 def test_signal_time_is_trigger_time_not_last_bar(monkeypatch):
     ltf = _ltf()
-    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: _fake_seq(ltf))
+    monkeypatch.setattr(op, "sequence", lambda m, h, l, kind, fresh: _fake_seq(ltf))
     sig = op.engulf_signal(None, None, ltf)
     assert sig["time"] == str(ltf.index[-1])  # fake trigger is the last bar
     later = pd.concat([ltf, _ltf(31).iloc[-1:]])
-    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: {**_fake_seq(ltf), "trigger_time": ltf.index[-1]})
+    monkeypatch.setattr(op, "sequence", lambda m, h, l, kind, fresh: {**_fake_seq(ltf), "trigger_time": ltf.index[-1]})
     assert op.engulf_signal(None, None, later)["time"] == str(ltf.index[-1])
 
 
 def test_engulf_signal_none_without_sequence(monkeypatch):
-    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: None)
+    monkeypatch.setattr(op, "sequence", lambda m, h, l, kind, fresh: None)
     assert op.engulf_signal(None, None, _ltf()) is None
 
 
 def test_engulf_signal_refuses_entry_at_or_below_stop(monkeypatch):
     ltf = _ltf()
-    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: _fake_seq(ltf, entry=100.0))
+    monkeypatch.setattr(op, "sequence", lambda m, h, l, kind, fresh: _fake_seq(ltf, entry=100.0))
     assert op.engulf_signal(None, None, ltf) is None
 
 
 def test_engulf_signal_refuses_ocl_too_early(monkeypatch):
     ltf = _ltf()
-    monkeypatch.setattr(op, "engulf_sequence", lambda m, h, l: _fake_seq(ltf, ocl_pos=1))
+    monkeypatch.setattr(op, "sequence", lambda m, h, l, kind, fresh: _fake_seq(ltf, ocl_pos=1))
     assert op.engulf_signal(None, None, ltf) is None
 
 
@@ -80,18 +81,20 @@ class _FakeFeed:
 def test_strategy_passes_closed_frames_to_signal(monkeypatch):
     seen = {}
 
-    def fake(m, h, l):
+    def fake(kind, m, h, l, **kw):
         seen["args"] = (m, h, l)
+        seen["kind"] = kind
         return None
 
     import quant.strategies.engulf_sequence_strategy as mod
-    monkeypatch.setattr(mod, "engulf_signal", fake)
+    monkeypatch.setattr(mod, "sequence_signal", fake)
     feed = _FakeFeed({"mtf": "M", "htf": "H", "ltf": "L"})
     strat = EngulfSequenceStrategy(feed)
     now = datetime(2026, 11, 18, 10, 0)
     assert strat.signal_for("ABC", None, now) is None
     assert feed.calls == [("ABC", now)]
     assert seen["args"] == ("M", "H", "L")
+    assert seen["kind"] == "egpattern_open"
 
 
 def test_strategy_none_when_feed_not_ready():

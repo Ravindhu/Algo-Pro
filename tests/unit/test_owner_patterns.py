@@ -159,7 +159,7 @@ def _ltf_with_ocl(touch=LTF_TOUCH):
 def test_engulf_sequence_full_path_triggers():
     res = op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl())
     assert res == {"pattern_time": 1, "touch_time": 2, "sweep_time": 3,
-                   "ocl_time": 5, "trigger_time": 6, "entry": 11.0}
+                   "ocl_time": 5, "ocl_start_time": 3, "trigger_time": 6, "entry": 11.0}
 
 
 def test_engulf_sequence_waits_when_no_mtf_touch():
@@ -179,3 +179,58 @@ def test_engulf_sequence_waits_for_ltf_touch():
 
 def test_engulf_sequence_short_history_is_safe():
     assert op.engulf_sequence(_frame([RED]), _frame(HTF_BARS), _ltf_with_ocl()) is None
+
+
+# ---- Sequence kinds (five strategies), freshness, stop ----
+MTF_OCL_TOUCH = (11.3, 11.8, 10.9, 11.5)    # touches OCL key 11.0 and OCL top 11.6
+MTF_OCL_BOTTOM_TOUCH = (9.5, 9.6, 8.9, 9.2)  # touches OCL bottom 9.0
+MTF_EG_HIGH_TOUCH = (10.8, 11.2, 10.5, 10.9)  # touches egpattern high level 11.0
+
+
+@pytest.mark.parametrize("kind, mtf_rows", [
+    ("egpattern_open", [RED, GREEN_ENGULF, ENG_M_TOUCH]),
+    ("egpattern_high", [RED, GREEN_ENGULF, MTF_EG_HIGH_TOUCH]),
+    ("ocl_key", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
+    ("ocl_top", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
+    ("ocl_bottom", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]),
+])
+def test_each_sequence_kind_triggers_on_its_own_setup(kind, mtf_rows):
+    res = op.sequence(_frame(mtf_rows), _frame(HTF_BARS), _ltf_with_ocl(), kind)
+    assert res is not None
+    assert res["trigger_time"] == 6
+
+
+def test_ocl_top_level_is_highest_high_so_a_key_level_touch_is_not_enough():
+    # top level = 11.6; this MTF bar tops out at 11.0, so it does not touch the top level
+    no_top_touch = (10.8, 11.0, 10.5, 10.9)
+    assert op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, no_top_touch]), _frame(HTF_BARS),
+                       _ltf_with_ocl(), "ocl_top") is None
+
+
+def test_unknown_kind_raises():
+    with pytest.raises(ValueError):
+        op.sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "nope")
+
+
+def test_fresh_rule_refuses_a_trigger_that_is_not_on_the_last_bar():
+    stale_ltf = _frame([LTF_FILL, LTF_FILL, LTF_FILL, RRG_C1, RRG_C2, C3_BREAK, LTF_TOUCH, LTF_FILL])
+    args = (_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), stale_ltf, "egpattern_open")
+    assert op.sequence(*args, fresh=False) is not None
+    assert op.sequence(*args, fresh=True) is None
+
+
+def test_fresh_rule_accepts_a_trigger_on_the_last_bar():
+    args = (_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "egpattern_open")
+    assert op.sequence(*args, fresh=True)["trigger_time"] == 6
+
+
+def test_sequence_signal_stop_is_low_of_ocl_c1_to_c3():
+    # ATR(14) needs history, so put 20 flat bars before the OCL
+    ltf = _frame([LTF_FILL] * 20 + [RRG_C1, RRG_C2, C3_BREAK, LTF_TOUCH])
+    sig = op.sequence_signal("egpattern_open", _frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS),
+                             ltf, name="engulfing")
+    # OCL C1..C3 = RRG_C1, RRG_C2, C3_BREAK; lowest low 9.0; entry 11.0 -> stop distance 2.0, target 6.0
+    assert sig["entry"] == 11.0
+    assert sig["sl_dist"] == pytest.approx(2.0)
+    assert sig["tp_dist"] == pytest.approx(6.0)
+    assert sig["strategy"] == "engulfing"

@@ -1,6 +1,6 @@
-"""Owner pattern checks for the four strategies (phase 1: detection only).
+"""Owner pattern checks and the five sequence strategies.
 
-Flow stage: Strategy, Engulf sequence, Engulf signal
+Flow stage: Strategy, Engulf sequence, Engulf signal, Engulfing fail, OCL strategy (RRG), OCL sell-fail top, OCL sell-fail bottom
 Status: PHASE 1 IMPLEMENTED (2026-11-19). Plan: docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md
 
 Detection only. No orders, sizing, entries, stops or exits here.
@@ -126,25 +126,70 @@ def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Opt
     return None
 
 
-def engulf_sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame) -> Optional[dict]:
-    """Engulfing strategy sequence on closed bars of three timeframes (owner rules 2026-11-19).
+# ---- Sequence strategies (owner rules 2026-11-19) ----
+# Five strategies share one sequence. They differ only in the MTF setup and its key level.
+#   MTF setup confirmed on bar close -> later MTF bar touches the level -> HTF swing low swept
+#   -> LTF OCL forms after the sweep -> LTF bar touches the OCL aggressive key level = trigger.
+# SEQUENCE_KINDS: strategy name -> MTF setup kind. The level rules are ASSUMPTIONS where
+# marked (owner to confirm, see docs/STRATEGY_RULES_2026-11-19.md).
+SEQUENCE_KINDS = {
+    "engulfing": "egpattern_open",          # owner r4: aggressive level = open of candle 1
+    "engulfing_fail": "egpattern_high",     # ASSUMED: level = higher high of the two candles (sell-fail level, r5)
+    "ocl_seq": "ocl_key",                   # OCL on MTF; level = OCL aggressive key level
+    "ocl_sell_fail_top_seq": "ocl_top",     # ASSUMED: level = highest high of the OCL candles
+    "ocl_sell_fail_bottom_seq": "ocl_bottom",  # ASSUMED: level = lowest low of the OCL candles
+}
 
-    1. MTF egpattern (red then green) is confirmed on bar close. Aggressive level = 1st candle open.
-    2. A later MTF bar touches that level.
-    3. After the touch, the HTF swing low is swept (3-candle swing).
-    4. After the sweep, an LTF OCL forms (find_ocl_rrg). Its aggressive key level is the entry.
-    5. An LTF bar after the OCL touches that key level: trigger.
-    Returns the times of each step and the entry level, or None.
+
+def _ocl_start(end: int, ocl: dict) -> int:
+    """Index of C1 for an OCL that ends (trigger candle) at `end`."""
+    return end - 2 if ocl["break"] == "3-candle" else end - 3
+
+
+def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
+    """Newest completed MTF setup as (end_index, level). end_index = last candle of the pattern.
+    The pattern must have a later bar, so the search starts one bar before the newest."""
+    mo, mh, ml, _ = _arrays(mtf)
+    n_m = len(mtf) - 1
+    if kind in ("egpattern_open", "egpattern_high"):
+        j = next((i for i in range(n_m - 1, 0, -1) if is_red_green_engulf(mtf, i)), None)
+        if j is None:
+            return None
+        level = float(mo[j - 1]) if kind == "egpattern_open" else float(max(mh[j - 1], mh[j]))
+        return j, level
+    if kind in ("ocl_key", "ocl_top", "ocl_bottom"):
+        for m in range(n_m - 1, 1, -1):
+            ocl = find_ocl_rrg(mtf, m)
+            if ocl is None:
+                continue
+            start = _ocl_start(m, ocl)
+            if kind == "ocl_key":
+                level = float(ocl["key_level"])
+            elif kind == "ocl_top":
+                level = float(max(mh[start:m + 1]))
+            else:
+                level = float(min(ml[start:m + 1]))
+            return m, level
+        return None
+    raise ValueError(f"unknown setup kind {kind!r}")
+
+
+def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
+             kind: str = "egpattern_open", fresh: bool = False) -> Optional[dict]:
+    """Sequence check on closed bars of three timeframes. Returns the time of each step and the entry, or None.
+
+    fresh=True: the trigger counts only when the touch is on the newest closed LTF bar (owner 2026-11-19).
+    An older touch means the setup is already stale, so it returns None.
     """
     if len(mtf) < 3 or len(htf) < 4 or len(ltf) < 4:
         return None
-    mo, mh, ml, _ = _arrays(mtf)
-    n_m = len(mtf) - 1
-    j = next((i for i in range(n_m - 1, 0, -1) if is_red_green_engulf(mtf, i)), None)
-    if j is None:
+    setup = _newest_setup(mtf, kind)
+    if setup is None:
         return None
-    level = float(mo[j - 1])
-    touch = next((k for k in range(j + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
+    end, level = setup
+    _, mh, ml, _ = _arrays(mtf)
+    n_m = len(mtf) - 1
+    touch = next((k for k in range(end + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
     if touch is None:
         return None
     touch_time = mtf.index[touch]
@@ -161,29 +206,38 @@ def engulf_sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame) -> 
         if ocl is None:
             continue
         key = ocl["key_level"]
-        trig = next((p for p in range(m + 1, n_l + 1) if ll[p] <= key <= lh[p]), None)
-        if trig is None:
+        touches = [p for p in range(m + 1, n_l + 1) if ll[p] <= key <= lh[p]]
+        if not touches:
             return None  # OCL formed after the sweep, not yet touched
-        return {"pattern_time": mtf.index[j], "touch_time": touch_time, "sweep_time": sweep_time,
-                "ocl_time": ltf.index[m], "trigger_time": ltf.index[trig], "entry": float(key)}
+        if fresh and touches[0] != n_l:
+            return None  # touched earlier: stale, do not enter on an old bar
+        return {"pattern_time": mtf.index[end], "touch_time": touch_time, "sweep_time": sweep_time,
+                "ocl_time": ltf.index[m], "ocl_start_time": ltf.index[_ocl_start(m, ocl)],
+                "trigger_time": ltf.index[touches[0]], "entry": float(key)}
     return None
 
 
-def engulf_signal(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
-                  atr_period: int = 14, rr: float = 3.0) -> Optional[dict]:
-    """Bot signal for the Engulfing strategy, from engulf_sequence. ASSUMED rules (owner to confirm):
-    entry = the touched LTF key level; stop = lowest low of the LTF OCL pattern candles (C1..C3);
-    target = rr x stop distance (3R); ATR = ATR(atr_period) on the LTF closed bars.
+def engulf_sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame) -> Optional[dict]:
+    """Engulfing sequence (kind egpattern_open), no freshness rule. Kept for the first tests."""
+    return sequence(mtf, htf, ltf, "egpattern_open", fresh=False)
+
+
+def sequence_signal(kind: str, mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame, *,
+                    name: str, fresh: bool = True, atr_period: int = 14, rr: float = 3.0) -> Optional[dict]:
+    """Bot signal from a sequence. ASSUMED rules (owner to confirm):
+    entry = the LTF OCL aggressive key level that was touched;
+    stop = lowest low of the LTF OCL pattern candles C1..C3;
+    target = rr x stop distance (3R); ATR = ATR(atr_period) on LTF closed bars.
     Returns the bot signal dict or None.
     """
-    res = engulf_sequence(mtf, htf, ltf)
+    res = sequence(mtf, htf, ltf, kind, fresh=fresh)
     if res is None:
         return None
-    m = ltf.index.get_loc(res["ocl_time"])
-    if m < 2:
-        return None  # OCL needs three candles C1..C3 before it
+    s = ltf.index.get_loc(res["ocl_start_time"])
+    if s + 3 > len(ltf):
+        return None
     lows = ltf["low"].to_numpy(dtype=float)
-    stop = float(min(lows[m - 2: m + 1]))
+    stop = float(min(lows[s: s + 3]))
     entry = float(res["entry"])
     sl_dist = entry - stop
     if sl_dist <= 0:
@@ -194,4 +248,9 @@ def engulf_signal(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     if atr_val is None or atr_val <= 0:
         return None
     return {"side": "BUY", "entry": entry, "sl_dist": float(sl_dist), "tp_dist": float(rr * sl_dist),
-            "atr": float(atr_val), "time": str(res["trigger_time"]), "strategy": "engulfing"}  # stable key: same setup = same parent
+            "atr": float(atr_val), "time": str(res["trigger_time"]), "strategy": name}
+
+
+def engulf_signal(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame, **kwargs) -> Optional[dict]:
+    """Engulfing signal (kind egpattern_open). Kept as the named entry point for the Engulfing strategy."""
+    return sequence_signal("egpattern_open", mtf, htf, ltf, name="engulfing", **kwargs)

@@ -1,122 +1,110 @@
 # Strategy rules and logic (2026-11-19)
 
-Flow stage: Strategy (plug-in strategies), Strategy bot framework
-Status: Engulfing detection and bot wiring are built (paper only). The other four strategies are specified, not built.
+Flow stage: Strategy (sequence strategies), Closed bars MTF/HTF/LTF, Engulf sequence, Strategy bot cycle
+Status: all five sequence strategies are built and tested, PAPER ONLY. Live stays off until owner sign-off.
 Source: owner rules in `docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md` (rounds 3 to 10). Replaces `STRATEGY_EXPLAINER_2026-11-18.md`, which is out of date.
 
-All rules work on closed bars only. Oldest bar first. The bar in progress is never used.
+All rules use closed bars only. Oldest bar first. The bar in progress is never used.
 
 ## 1. Words used
 
 - **MTF**: multi timeframe, the largest of the three. Example: Daily.
-- **HTF**: higher timeframe. Example: 4-hour (not yet supported, see section 8).
+- **HTF**: higher timeframe. Example: 4-hour (not supported yet, see section 8).
 - **LTF**: lower timeframe, the smallest. Example: 5-minute.
-- Order is always LTF < HTF < MTF. Saved in the dashboard Trade setup panel and checked by `check_timeframe_order`.
+- Order is always LTF < HTF < MTF. Set in the dashboard Trade setup panel and checked by `check_timeframe_order`.
 - **Body**: |close - open|. **Range**: high - low. A candle has a "50% body" when body / range > 0.5.
 - **Red** candle: close < open. **Green** candle: close > open.
-- **Aggressive key level**: the first level to be touched. Used as the entry level.
-- **Conservative key level**: the lowest body bottom of the pattern candles. Used as the stop reference (see section 7).
+- **Aggressive key level**: the first level price touches. Used as the entry level.
 - **Swing low (3-candle)**: the middle candle's low is below the lows of the candle before and after it.
-- **Sweep**: a later bar's low goes below a swing low. A wick break or a body close below it both count.
-- **OCL**: the pattern "red, red, green" (RRG) with a break of a key level.
-- **egpattern** (red-green engulfing): a red candle, then a green candle that closes above the red high. Both bodies more than 50%.
+- **Sweep**: a later bar's low goes below a swing low. A wick break or a body close both count.
+- **egpattern** (red-green engulfing): candle 1 red with a body over 50%, candle 2 green with a body over 50%, candle 2 closes above candle 1's high.
+- **OCL (RRG)**: candles C1 red, C2 red, C3 green. Break rules in section 3.2.
 
 ## 2. The five strategies
 
-| # | Name in the bot | Pattern | MTF | HTF | LTF | Status |
-|---|---|---|---|---|---|---|
-| 1 | Engulfing | egpattern | egpattern | sweep (3-candle swing low) | OCL, then touch | Detection built, wired to bot (paper) |
-| 2 | Engulfing fail | egpattern | egpattern (sell-fail engulf) | sweep | OCL, then touch | Not built |
-| 3 | OCL | OCL (RRG) | OCL | OCL | OCL | Pattern checks built, sequence not built |
-| 4 | OCL sell-fail top | sell-fail | OCL | OCL | OCL | Pattern checks partly built, not wired |
-| 5 | OCL sell-fail bottom | sell-fail (bottom level) | OCL | OCL | OCL | Not wired. Standalone, not chained to 4 |
+All five follow the same sequence (section 4). They differ only in the MTF setup and the level that gets touched.
 
-Each strategy is standalone. None depends on another.
+| # | Bot name | MTF setup | Touch level (MTF) | Code kind | Status |
+|---|---|---|---|---|---|
+| 1 | `engulfing` | egpattern | open of candle 1 (owner r4) | `egpattern_open` | Built, paper |
+| 2 | `engulfing_fail` | egpattern (sell-fail engulf on MTF, owner r4) | higher of the two highs (ASSUMED, sell-fail level r5) | `egpattern_high` | Built, paper |
+| 3 | `ocl_seq` | OCL (RRG) | OCL aggressive key level (owner r4 and r6) | `ocl_key` | Built, paper |
+| 4 | `ocl_sell_fail_top_seq` | OCL (RRG) | highest high of the OCL candles (ASSUMED) | `ocl_top` | Built, paper |
+| 5 | `ocl_sell_fail_bottom_seq` | OCL (RRG) | lowest low of the OCL candles (ASSUMED) | `ocl_bottom` | Built, paper |
 
-Note: the owner's round 3 table lists OCL on all three slots for sell-fail. Round 4 changed the sell-fail engulf candle to egpattern on MTF. Round 4 is used here.
+Each strategy is standalone. None depends on another. The sell-fail sequence and the OCL sequence use the same HTF sweep and LTF OCL steps as Engulfing.
+
+Bot names differ from the owner's names: `ocl_seq` is the sequence version of "OCL". The old `ocl`, `ocl_sell_fail_top`, `ocl_sell_fail_bottom` names still run the older OCL classes (they poll the client). The owner decides whether to retire those.
 
 ## 3. Pattern rules
 
 ### 3.1 egpattern (red-green engulfing), 2 candles
-1. Candle 1 is red, body more than 50% of its range.
-2. Candle 2 is green, body more than 50% of its range.
+1. Candle 1 red, body over 50%.
+2. Candle 2 green, body over 50%.
 3. Candle 2 closes above candle 1's high.
-4. The pattern is confirmed only when candle 2 closes.
-- Aggressive key level = open of candle 1.
-- Conservative key level = lowest body bottom of the two candles.
+4. Confirmed only when candle 2 closes.
 
-### 3.2 OCL (red-red-green), 3 candles, last 3 closed bars
-Candles C1, C2 (red) and C3 (green). Two possible breaks. The first break decides.
-- **3-candle break**: C3 closes above C2 open. Aggressive key level = C2 open. Checked on C3.
-- **4-candle break**: C4 closes above C2 open. Aggressive key level = C3 close. Checked on C4.
+### 3.2 OCL (red-red-green), 3 candles, the last 3 or 4 closed bars
+C1 red, C2 red, C3 green. The first break decides:
+- **3-candle break**: C3 closes above C2 open. Key level = C2 open. Checked on C3. Pattern = C1..C3.
+- **4-candle break**: C4 closes above C2 open. Key level = C3 close. Checked on C4. Pattern = C1..C3, trigger candle = C4.
 - If C3 already broke C2 open, the 4-candle break is ignored.
-- Conservative key level = lowest body bottom of C1, C2 and C3.
-- A "break" is a candle close above the level. Assumed. Owner to confirm if an intrabar touch was meant.
+- Conservative level = lowest body bottom of C1..C3.
 
-### 3.3 Sell-fail (top and bottom)
-1. A fresh engulfing candle with a body over 50%. The second candle closes above the first candle's low (bottom version) or the matching rule (top version).
-2. Level for the sell-fail = the higher of the two pattern candles' highs.
-3. Trigger: a later candle with a body over 50% closes above that level. This means the sell has failed. Buy.
-4. An earlier close above the level voids the pattern.
-- Top and bottom use the same rules. Bottom uses the bottom key level.
-- Owner to confirm the exact top-version wording (round 3 lists it as the same rule with the top key level).
+### 3.3 Sell-fail
+Owner rules (r3 and r5): the sell-fail trigger is a green candle with a body over 50% that closes above the sell pattern's high. Only the newest pattern is checked. An earlier close above the level voids it.
+- Built as `find_sell_fail_trigger` (tested). It is not used by the five strategies above. The five use the sequence in section 4 with the levels in section 2. Owner to confirm whether the sell-fail trigger candle should also be required.
 
-## 4. Entry flow (all strategies)
+## 4. Sequence (all five strategies)
 
-1. The pattern is confirmed only when its bar closes.
-2. On the next candle, price touches the AGGRESSIVE key level of that pattern.
-3. Next, the sweep is looked for on the next timeframe up (section 5).
-4. After the sweep, the OCL on the LTF forms (section 3.2).
-5. The next LTF bar touches the OCL's aggressive key level. This touch is the **trigger**. Entry = that key level.
-6. The bot checks every 5 minutes. A setup enters once (section 6).
+1. The MTF setup is confirmed when its bar closes (section 2 gives the setup and level).
+2. A later MTF bar touches the level (low at or below, high at or above).
+3. After the touch, the HTF 3-candle swing low is swept.
+4. After the sweep, an LTF OCL forms (section 3.2).
+5. An LTF bar after that OCL touches its aggressive key level. This is the **trigger**. Entry = that key level.
 
-## 5. Sweep mapping (owner confirmed)
+Mapping (owner confirmed): MTF sweeps on HTF. HTF sweeps on LTF. LTF needs no sweep. This means the sequence above sweeps on HTF.
 
-- MTF pattern: the sweep is on **HTF** (HTF 3-candle swing low must be swept).
-- HTF pattern: the sweep is on **LTF**.
-- LTF: no sweep is needed.
-- A sweep counts when a wick or a body close goes below the swing low.
+## 5. Trigger freshness (owner question, 2026-11-19)
 
-Example from owner: MTF Daily aggressive level, HTF 4-hour sweep, LTF 5-minute OCL formed after that sweep. The LTF OCL's own aggressive level, when touched, triggers the trade.
+Answer: yes. The bot takes a trigger only when the touch is on the newest closed LTF bar. An older touch means the setup is already stale and entering later could be far from the level, so the sequence returns nothing. Implemented as `fresh=True` in `sequence_signal` (the bot path). The tests of the plain sequence keep `fresh=False`.
+
+Consequence: with a 5-minute LTF and a 5-minute bot cycle, every touch is seen once. If the LTF is shorter than the bot interval (for example 1-minute), a touch can happen between two cycles and be missed. The owner should keep LTF at or above the bot interval, or change the rule.
 
 ## 6. How the bot finds setups
 
-Every `interval_minutes` (5 minutes, in `config/bot.yaml`):
+Every `interval_minutes` (5, in `config/bot.yaml`):
 1. Read the screen file. Use only symbols from a screen at most 10 minutes old, with no ASM/GSM flag.
 2. For each symbol, get closed bars for MTF, HTF and LTF (`MultiTimeframeBars`). If any feed is stale or missing, skip that symbol.
-3. Run each strategy's check on those closed bars.
-4. If a setup triggers, it becomes a parent plan. The parent key is symbol + strategy + side + trigger bar time. The same setup is stored once, however many cycles see it.
-5. The parent is then sliced and sent through the risk gate, as with all bot trades.
+3. Run each strategy's sequence on those closed bars.
+4. If a trigger is on the newest LTF bar, it becomes a parent plan. The parent key = symbol + strategy + side + trigger bar time, so one setup gives one parent.
+5. The parent goes through the risk gate, as with all bot trades.
 
-Important timing facts:
-- Checks run on closed bars only. A touch that happens between two cycles is seen at the next cycle. The entry can be a few minutes late, and price may have moved. The entry is a limit order (entry_max_slippage_bps, 20 by default).
-- A setup is found in the cycle after its trigger bar closes. With a 5-minute cycle, a 1-minute LTF is seen late.
-- Open owner decision: should a trigger count only when it is on the latest closed LTF bar? Today an older trigger still counts if the setup is not already recorded.
+## 7. Entry, stop, target, breakeven and trail
 
-## 7. Stop, target, breakeven and trail
-
-Owner rule (round 4): stop, target, breakeven and trailing for every strategy = the OCL LTF rules.
-
-Assumed until owner confirms (implemented for Engulfing only):
-- Stop = lowest low of the LTF OCL candles C1..C3.
-- Target = 3R (3 times the stop distance).
-- ATR = ATR(14) on LTF closed bars. Used by the existing ATR checks.
+Assumed until the owner confirms (same for all five):
+- Entry = the LTF OCL aggressive key level that was touched. Entry is a limit order (`entry_max_slippage_bps`, 20 by default).
+- Stop = lowest low of the LTF OCL candles C1..C3 (for a 4-candle break, C1..C3 are the three candles before C4).
+- Target = 3R.
+- ATR = ATR(14) on LTF closed bars.
 - Breakeven and trail: global values in `config/bot.yaml` (1R breakeven, 2 ATR trail), unless set per strategy under `exits`.
 
-## 8. Open items
+Owner rule (r4): stop, target, breakeven and trail = the OCL LTF rules. The 3R and the stop reference are assumed.
 
-1. 4-hour HTF is not an OpenAlgo interval. It needs 1-hour bars combined into 4-hour bars, aligned to the NSE session start at 09:15. Owner decision.
-2. Is the 3-candle break needing no more than C3 green and closing above C2 open? Owner to confirm.
-3. Sweep for the LTF setup: the LTF has no sweep, so the rule is settled. Confirm the top sell-fail wording.
-4. Freshness rule for triggers (section 6).
-5. Stop and target (section 7). Owner to confirm 3R and the stop reference.
-6. The Engulfing fail (strategy 2) and the OCL and sell-fail (3 to 5) sequences, stops and targets are not built.
+## 8. Open items for the owner
+
+1. Level rules for the sell-fail strategies (levels 2, 4 and 5 in section 2) are my assumptions. Confirm or correct.
+2. Stop and target (section 7): confirm 3R and the stop reference.
+3. The 3-candle OCL break: confirm it needs nothing beyond C3 green and closing above C2 open.
+4. 4-hour HTF is not an OpenAlgo interval. It needs 1-hour bars combined into 4-hour bars aligned to the NSE session start at 09:15. Owner decision.
+5. Retire the old `ocl`, `ocl_sell_fail_top`, `ocl_sell_fail_bottom` adapter names, or keep them alongside?
+6. Keep the sell-fail trigger candle (section 3.3) as an extra entry condition, or not?
 
 ## 9. Where the code is
 
-- Pattern checks and sequences: `src/quant/strategies/owner_patterns.py` (`is_red_green_engulf`, `find_ocl_rrg`, `find_swing_low_sweep`, `find_sell_fail_trigger`, `engulf_sequence`, `engulf_signal`).
-- Plug-in strategy: `src/quant/strategies/engulf_sequence_strategy.py`.
+- Patterns, sequence engine, kinds, signal: `src/quant/strategies/owner_patterns.py` (`SEQUENCE_KINDS`, `sequence`, `sequence_signal`, `engulf_signal`).
+- Strategy class: `src/quant/strategies/engulf_sequence_strategy.py` (`SequenceStrategy`, `EngulfSequenceStrategy`).
 - Closed bars for three timeframes: `src/quant/data/mtf_bars.py`.
 - Bot cycle: `src/quant/execution/strategy_bot.py`.
 - Runners (refuse to start without all three timeframes): `scripts/run/run_strategy_bot.py`, `scripts/run/run_strategy_bot_live.py`.
-- Tests: `tests/unit/test_owner_patterns.py`, `tests/unit/test_engulf_signal.py`, `tests/unit/test_mtf_bars.py`, `tests/unit/test_setup_timeframes.py`.
+- Tests: `tests/unit/test_owner_patterns.py`, `tests/unit/test_engulf_signal.py`, `tests/unit/test_mtf_bars.py`, `tests/unit/test_setup_timeframes.py`, `src/quant/tests/test_audit_fixes_2026_11_10.py`.

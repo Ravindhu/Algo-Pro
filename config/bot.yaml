@@ -27,7 +27,13 @@ data_sources_path: config/data_sources.yaml
 # straight through to the OCL class (pattern, HTF/LTF intervals, trigger level, exec mode).
 # Examples:
 #   strategies:
-#     - engulfing
+#     - engulfing               # sequence strategies (need MTF, HTF, LTF in trade setup)
+#     - engulfing_fail
+#     - ocl_seq
+#     - ocl_sell_fail_top_seq
+#     - ocl_sell_fail_bottom_seq
+#     - name: ocl             # legacy OCL class (polls the client), not the sequence above
+#       params: {...}
 #     - name: ocl
 #       params: {symbol: RELIANCE, htf_interval: 5m, ltf_interval: 1m, one_shot: true}
 strategies:

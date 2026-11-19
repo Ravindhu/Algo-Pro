@@ -208,3 +208,11 @@ ASSUMPTIONS, owner to confirm before live:
 Tests: `tests/unit/test_engulf_signal.py` (8 tests). Full suites: 2099 pass. Known pre-existing failures: `test_upgrade_pin` (vendored pin) and `test_nse_fii` (fixed 2026-11-14 date).
 
 Flow doc / SVG: the bot wiring changed the Strategy and Execution stages. The SVG update is pending and is tracked as a follow-up.
+
+## Phase G: all five sequence strategies, freshness rule (2026-11-19)
+- One sequence engine (`sequence`, `sequence_signal` in owner_patterns) with five MTF setup kinds (`SEQUENCE_KINDS`): engulfing, engulfing_fail, ocl_seq, ocl_sell_fail_top_seq, ocl_sell_fail_bottom_seq.
+- Trigger must be on the newest closed LTF bar (owner question 2). `fresh=True` in the bot path.
+- Stop now uses the true start of the LTF OCL (for a 4-candle break, C1 is 3 bars back, not 2).
+- Assumed levels for the sell-fail and engulfing-fail strategies: see `docs/STRATEGY_RULES_2026-11-19.md` section 8.
+- Runners refuse any of the five without all three timeframes.
+- Live stays off.
