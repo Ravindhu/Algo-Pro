@@ -143,3 +143,9 @@ Still to confirm:
 - Swing = 3-candle swing (proposed): the middle candle's low is lower than the low of the candle before and the candle after. Confirm.
 - Conflict to resolve: one line says "every timeframe sweeps in one lower timeframe", but the MTF and HTF lines say MTF uses HTF and HTF uses LTF. Working assumption: MTF sweep on HTF, HTF sweep on LTF.
 - Open: LTF setup sweep (on which timeframe?). Sweep definition (wick beyond and back inside, or close beyond).
+
+## Owner answers, round 9 (2026-11-19)
+- Mapping (owner did not follow the question, restated): MTF pattern sweeps on HTF; HTF pattern sweeps on LTF. Owner to confirm yes/no.
+- LTF: no sweep required.
+- Sweep counts when the swept level is broken by a wick OR by a body close. After the break, the OCL is formed.
+- 3-candle swing: confirmed.
