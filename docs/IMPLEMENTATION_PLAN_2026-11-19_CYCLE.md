@@ -59,7 +59,11 @@ Still open (the bot's position model is one Position per signal parent, so these
   - Tests: `src/quant/tests/test_strategy_bot_cycle.py` (7 tests), `tests/unit/test_cycle_state.py` (4 tests).
 - NOT DONE / KNOWN GAPS:
   - `cycle_position.py` (`CyclePosition`) is tested but NOT used by the bot. The bot tracks the same state in `_Parent` and `Position`. Decide later: delete it or use it. Do not run both.
-  - The unfilled quantity of a cycle is not restored from disk (only the position is). After a restart the remaining quantity of that cycle is dropped, never refilled. Safe, but it means less fill than the rules intend.
+  - Fixed (2026-11-19, refill): the unfilled quantity, paused state and cycle state of each cycle parent are saved and restored after a restart (`cycle_parents` in the position store).
+  - Fixed (2026-11-19, refill): a stop-out no longer closes a cycle parent that still has quantity. The next fresh LTF OCL touch refills it, in the same session or after a restart.
+  - Fixed (2026-11-19, refill): cycle parents are exempt from `max_cycles` (1 hour). A cycle waits for its next LTF OCL, which can take hours.
+  - Fixed (2026-11-19): a fresh touch at or below the HTF OCL low never opens or refills a cycle.
+  - Fixed (2026-11-19, paper restart): a restored position no longer blocks slicing forever in paper mode (no broker stops in paper).
   - The gate's `tp_dist` for cycle entries is a placeholder (3 x risk). Exits never use it.
   - The broker SL-M sync at the HTF OCL low is inherited from the existing stop path and is not separately verified against OpenAlgo.
   - Sell-fail trigger candle, OCL-top 4-candle conservative level (C3 open vs close) and the breakeven default are still owner decisions (see the rules doc).

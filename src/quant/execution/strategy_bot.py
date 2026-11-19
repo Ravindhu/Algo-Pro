@@ -709,7 +709,8 @@ class StrategyBot:
             if key in self._parents:
                 self._close(key, "HTF invalidated: unfilled quantity dropped")
             return
-        fresh = fresh_entries(cur, view.newest_ltf_time)
+        # Never buy at or below the HTF OCL low (the hard stop of this cycle).
+        fresh = [e for e in fresh_entries(cur, view.newest_ltf_time) if e.price > cur.htf_low]
         parent = self._parents.get(key)
         if parent is None:
             if not fresh or key in self._cycle_done or key in self._positions:
@@ -738,6 +739,7 @@ class StrategyBot:
                                          adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
                                          cycle=True, trail=cur.mode == "trail", paused=False)
             report["parents_opened"] += 1
+            self._persist_positions()
             return
         # Existing cycle: a new LTF touch resumes filling, an LTF stop-out pauses it.
         if fresh:
@@ -750,6 +752,7 @@ class StrategyBot:
         if pos is not None:
             pos.target = cur.target
             pos.trail_from_start = parent.trail
+        self._persist_positions()
 
     def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:
         """POV fraction for one parent's child. Fixed mode: cfg.pov. Band mode: the VWAP band from
@@ -841,7 +844,9 @@ class StrategyBot:
             if p.paused:
                 continue  # LTF stop-out: no slicing until the next LTF OCL touch (owner rule 11.8)
             p.cycles += 1
-            if p.remaining <= 0 or p.cycles > self.cfg.max_cycles:
+            # A cycle parent waits for its next LTF OCL, which can take hours, so the age limit does
+            # not apply to it. It ends only when fully filled, or when its HTF cycle is invalidated.
+            if p.remaining <= 0 or (not p.cycle and p.cycles > self.cfg.max_cycles):
                 self._close(key, "fully sliced" if p.remaining <= 0 else "max cycles reached")
                 continue
             df = bars_cache.get(p.intent.symbol)
@@ -1048,7 +1053,14 @@ class StrategyBot:
         self._positions.pop(key, None)
         # The mark is part of daily P&L until now. Reverse it, so the realized P&L below replaces it.
         self._reverse_mark(key, pos)
-        self._close(key, f"position exited ({reason}); parent closed")
+        parent = self._parents.get(key)
+        if parent is not None and parent.cycle and parent.remaining > 0:
+            # A cycle keeps its unfilled quantity after a stop-out: the next LTF OCL touch refills it (owner rule).
+            parent.paused = True  # no slicing until the next fresh LTF OCL touch (even if the replay has not flagged it yet)
+            self._log("cycle_position_exited", key=key, remaining=parent.remaining, reason=reason)
+            self._persist_positions()
+        else:
+            self._close(key, f"position exited ({reason}); parent closed")
         booked = self._booked.pop(key, pos.qty * pos.entry)
         self.state.open_notional = max(0.0, self.state.open_notional - booked)
         sign = 1.0 if pos.side == "BUY" else -1.0
@@ -1083,8 +1095,30 @@ class StrategyBot:
             self._alert("CRITICAL", "new entries blocked: " + "; ".join(reasons))
         return bool(ok)
 
+    @staticmethod
+    def _parent_doc(p: "_Parent") -> Dict[str, Any]:
+        """A cycle parent as plain JSON: its unfilled quantity and state survive a restart (owner: refill)."""
+        from dataclasses import fields as _fields
+        intent = {f.name: getattr(p.intent, f.name) for f in _fields(p.intent)}
+        if intent.get("trade_day") is not None:
+            intent["trade_day"] = intent["trade_day"].isoformat()
+        d = {f.name: getattr(p, f.name) for f in _fields(p) if f.name != "intent"}
+        d["intent"] = intent
+        return d
+
+    @staticmethod
+    def _parent_from_doc(d: Dict[str, Any]) -> "_Parent":
+        from datetime import date as _date
+        from dataclasses import fields as _fields
+        intent = dict(d["intent"])
+        if intent.get("trade_day") is not None:
+            intent["trade_day"] = _date.fromisoformat(intent["trade_day"])
+        names = {f.name for f in _fields(_Parent)}
+        kwargs = {k: v for k, v in d.items() if k in names and k != "intent"}
+        return _Parent(intent=TradeIntent(**intent), **kwargs)
+
     def _persist_positions(self) -> None:
-        """Save the open book (positions, stop ids, exposure, marks, parents done today)."""
+        """Save the open book (positions, stop ids, exposure, marks, parents done today, cycle parents)."""
         if self._pos_store is None:
             return
         from dataclasses import fields as _fields
@@ -1097,6 +1131,7 @@ class StrategyBot:
             "marks": {k: round(float(v), 2) for k, v in self._marks.items()},
             "done": sorted(self._done),
             "cycle_done": sorted(self._cycle_done),
+            "cycle_parents": [self._parent_doc(p) for p in self._parents.values() if p.cycle],
             "positions": positions,
         })
 
@@ -1122,12 +1157,23 @@ class StrategyBot:
         self.state.open_notional = float(doc.get("open_notional", 0.0))
         self._booked = {str(k): float(v) for k, v in doc.get("booked", {}).items()}
         self._cycle_done = set(str(k) for k in doc.get("cycle_done", []))  # all days, not only today
+        for d in doc.get("cycle_parents", []):
+            try:
+                parent = self._parent_from_doc(d)
+            except (TypeError, ValueError, KeyError) as exc:
+                self._log("cycle_parent_restore_refused", error=repr(exc))
+                self._alert("CRITICAL", "a saved cycle could not be read; check the broker before entries")
+                self._faults.add(("partial", "restore"))
+                continue
+            self._parents[parent.key] = parent
         if same_day:
             self._marks = {str(k): float(v) for k, v in doc.get("marks", {}).items()}
             self._done = set(str(k) for k in doc.get("done", []))
             self._restored_day = now.date()
         for key, pos in restored.items():
-            if not pos.broker_stop_id:
+            # Paper mode has no broker stops (self._stops is None), so there is nothing to place.
+            # Without this check a paper restart would block slicing for good.
+            if self._stops is not None and not pos.broker_stop_id:
                 self._faults.add(("stop", key))  # no broker stop on record: place one before anything else
         self._log("positions_restored", count=len(restored), same_day=same_day)
         return len(restored)
@@ -1237,6 +1283,7 @@ class StrategyBot:
     def _close(self, key: str, reason: str) -> None:
         self._parents.pop(key, None)
         self._log("parent_closed", key=key, reason=reason)
+        self._persist_positions()
 
 
 def run_loop(bot: StrategyBot, *, clock: Callable[[], datetime], sleep: Callable[[float], None],
