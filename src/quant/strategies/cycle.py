@@ -28,6 +28,7 @@ class Entry:
     time: object
     price: float
     kind: str  # "aggressive" or "conservative"
+    ocl: Optional[str] = None  # id of the LTF OCL this entry belongs to (its C3 time, as text)
 
 
 @dataclass
@@ -41,6 +42,9 @@ class CycleResult:
     target: Optional[float] = None
     htf_key_time: object = None           # identifies this HTF cycle (the HTF bar that touched the key)
     ltf_paused: bool = False              # an LTF stop-out closed and no new LTF OCL has formed since
+    # Ordered LTF events for the risk ladder (rules doc 11 and plan P3):
+    # (event, ocl_id, price, time) with event in aggressive | conservative | invalidated.
+    events: List[Tuple[str, str, float, object]] = field(default_factory=list)
 
 
 def _mtf_touch(kind: str, mtf) -> Optional[Tuple[object, Optional[object], float]]:
@@ -102,6 +106,8 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
     _, lh, ll, lc = _arrays(ltf)
     n_l = len(ltf) - 1
     entries: List[Entry] = []
+    events: List[Tuple[str, str, float, object]] = []
+    events: List[Tuple[str, str, float, object]] = []
     cur = None
     prev_low = None
     any_cons = False
@@ -121,13 +127,16 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
         if cur is not None and k > cur["end"]:
             if lc[k] < cur["low"]:
                 prev_low = cur["low"]  # stop-out level closed: arm the wait for a new LTF OCL below it
+                events.append(("invalidated", cur["id"], cur["low"], t))
                 cur = None
             else:
                 if not cur["agg_touched"] and ll[k] <= cur["agg"] <= lh[k]:
-                    entries.append(Entry(t, cur["agg"], "aggressive"))
+                    entries.append(Entry(t, cur["agg"], "aggressive", cur["id"]))
+                    events.append(("aggressive", cur["id"], cur["agg"], t))
                     cur["agg_touched"] = True
                 elif cur["agg_touched"] and not cur["cons_touched"] and ll[k] <= cur["cons"] <= lh[k]:
-                    entries.append(Entry(t, cur["cons"], "conservative"))
+                    entries.append(Entry(t, cur["cons"], "conservative", cur["id"]))
+                    events.append(("conservative", cur["id"], cur["cons"], t))
                     cur["cons_touched"] = True
                     any_cons = True
                 continue
@@ -138,17 +147,19 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
             if prev_low is not None and not (o["key_level"] < prev_low):
                 continue  # must form below the previous stop-out level
             s = _ocl_start(k, o)
-            cur = {"end": k, "agg": o["key_level"], "cons": o["conservative"],
+            cur = {"id": str(ltf.index[k]), "end": k, "agg": o["key_level"], "cons": o["conservative"],
                    "low": float(min(ll[s: s + 3])), "agg_touched": False, "cons_touched": False}
             prev_low = None
     paused = prev_low is not None and status == "waiting"
-    return entries, any_cons, status, end_time, paused
+    return entries, any_cons, status, end_time, paused, events
 
 
-def _finish(kind, status, htf_low, entries, any_cons, target_r, htf_key_time=None, paused=False):
+def _finish(kind, status, htf_low, entries, any_cons, target_r, htf_key_time=None, paused=False,
+            events=None):
+    events = list(events or [])
     if not entries:
         return CycleResult(kind=kind, status=status, htf_low=htf_low, htf_key_time=htf_key_time,
-                           ltf_paused=paused)
+                           ltf_paused=paused, events=events)
     if status == "waiting":
         status = "open"
     avg = sum(e.price for e in entries) / len(entries)
@@ -160,7 +171,7 @@ def _finish(kind, status, htf_low, entries, any_cons, target_r, htf_key_time=Non
         mode, target = "target", avg + target_r * (avg - htf_low)
     return CycleResult(kind=kind, status=status, htf_low=htf_low, entries=entries,
                        avg_entry=avg, mode=mode, target=target,
-                       htf_key_time=htf_key_time, ltf_paused=paused)
+                       htf_key_time=htf_key_time, ltf_paused=paused, events=events)
 
 
 def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> List[CycleResult]:
@@ -188,9 +199,10 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None) -> Li
         htf_low = _htf_low(htf, m, ocl)
         key_time = htf.index[hp]
         inval_time = _htf_invalid_time(htf, hp, htf_low)
-        entries, any_cons, status, _, paused = _ltf_loop(ltf, key_time, htf_low, inval_time, mtf_inval_time)
+        entries, any_cons, status, _, paused, events = _ltf_loop(ltf, key_time, htf_low, inval_time,
+                                                                 mtf_inval_time)
         results.append(_finish(kind, status, htf_low, entries, any_cons, target_r,
-                               htf_key_time=key_time, paused=paused))
+                               htf_key_time=key_time, paused=paused, events=events))
         if status != "htf_invalidated":
             break  # open, waiting or MTF invalidated: this is the end of the replay
         floor = htf_low
