@@ -1,7 +1,7 @@
 """Exit rules for open positions: stop-loss, take-profit, breakeven and ATR trail. Pure logic, no I/O.
 
 Flow stage: Protection, Session guards (exit side), Algo router
-Status: PHASE 3 IMPLEMENTED (pure rules; the bot sends the exit through the risk gate)
+Status: PHASE 3 IMPLEMENTED. PHASE 2 (2026-11-19): optional target (None = no fixed target), breakeven_enabled, trail_from_start for the cycle strategies (rules doc section 11).
 
 Rules, checked once per closed bar (the bot runs every 5 minutes on 5-minute bars):
   1. Stop first. BUY: if the bar low is at or below the stop, exit. SELL: mirror.
@@ -41,9 +41,11 @@ class Position:
     qty: int
     entry: float
     stop: float
-    target: float
+    target: Optional[float]        # None = no fixed target (trail mode, rules doc 11.9)
     atr: float
     be_done: bool = False
+    breakeven_enabled: bool = True  # False for cycle positions (no breakeven, owner 11.9)
+    trail_from_start: bool = False  # True: ATR trail applies from entry, not only after breakeven
     best: float = 0.0             # best price seen since entry (high for BUY, low for SELL)
     exit_halted: bool = False      # set when an exit reply is unclear: no automatic resend
     adv_shares: Optional[float] = None
@@ -80,25 +82,25 @@ def evaluate_bar(pos: Position, bar_open: float, bar_high: float, bar_low: float
     if pos.side == "BUY":
         if bar_low <= pos.stop:
             return min(pos.stop, bar_open), "stop"
-        if bar_high >= pos.target:
+        if pos.target is not None and bar_high >= pos.target:
             return pos.target, "target"
-        if not pos.be_done and bar_high >= pos.entry + cfg.breakeven_r * pos.risk_r:
+        if pos.breakeven_enabled and not pos.be_done and bar_high >= pos.entry + cfg.breakeven_r * pos.risk_r:
             pos.stop = max(pos.stop, pos.entry)
             pos.be_done = True
         pos.best = max(pos.best, bar_high)
-        if pos.be_done:
+        if pos.be_done or pos.trail_from_start:
             pos.stop = max(pos.stop, pos.best - cfg.trail_mult * pos.atr)
         return None, ""
 
     # SELL: mirror of BUY
     if bar_high >= pos.stop:
         return max(pos.stop, bar_open), "stop"
-    if bar_low <= pos.target:
+    if pos.target is not None and bar_low <= pos.target:
         return pos.target, "target"
-    if not pos.be_done and bar_low <= pos.entry - cfg.breakeven_r * pos.risk_r:
+    if pos.breakeven_enabled and not pos.be_done and bar_low <= pos.entry - cfg.breakeven_r * pos.risk_r:
         pos.stop = min(pos.stop, pos.entry)
         pos.be_done = True
     pos.best = min(pos.best, bar_low)
-    if pos.be_done:
+    if pos.be_done or pos.trail_from_start:
         pos.stop = min(pos.stop, pos.best + cfg.trail_mult * pos.atr)
     return None, ""

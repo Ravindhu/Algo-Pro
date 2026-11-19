@@ -2,7 +2,7 @@
 
 Flow stage: Strategy, Strategy bot cycle, Risk gate (exits)
 Source: `docs/STRATEGY_RULES_2026-11-19.md` section 11.
-Status: PHASE 1 DONE (2026-11-19). Phase 2 (bot wiring) not started.
+Status: PHASE 1 DONE (2026-11-19). PHASE 2 PARTLY DONE: exit rules only. Bot wiring still open (see below).
 
 ## Phase 1: cycle replay (pure logic, no orders) — DONE
 - Built as a replay over closed bars (`src/quant/strategies/cycle.py`, `run_cycle`), so no state is stored between cycles.
@@ -14,7 +14,20 @@ Status: PHASE 1 DONE (2026-11-19). Phase 2 (bot wiring) not started.
 - Trigger freshness: the entry must be on the newest closed LTF bar.
 - Tests: full chain, aggressive then conservative entry, re-entry after stop-out, HTF invalidation, MTF invalidation, average entry and target arithmetic, no HTF re-sweep.
 
-## Phase 2: bot wiring (blocked by owner answer 11.8)
+## Phase 2: bot wiring
+Done (2026-11-19):
+- `exit_manager.Position`: target may be None (no fixed target), `breakeven_enabled` (False for cycle positions), `trail_from_start` (ATR trail from entry). Defaults unchanged, existing tests pass.
+- `tests/unit/test_cycle_exit.py` (5 tests).
+
+Still open (the bot's position model is one Position per signal parent, so these need a design step before code):
+- Cycle position: all entries of one HTF cycle form ONE position with an average entry, one hard stop (HTF OCL low), and one exit mode (trail or target). Today each parent is its own Position.
+- Sizing: `risk_adapter.levels_from_signal` works from entry and distances. The cycle needs an absolute stop path. Each added entry changes the average, so the quantity must be re-sized or added on.
+- Broker stop (SL-M) sync must use the HTF OCL low, and move when the trail moves.
+- Entries become orders only when the touch is on the newest closed LTF bar (`_scan` wiring).
+- After an HTF invalidation: wait for a new HTF OCL below the invalidated price, then its key touch (replay only covers the first HTF cycle).
+- Restart: cycle state must survive a restart (positions are restored from file today).
+- The bot's breakeven and fixed-target defaults must stay off for cycle positions.
+
 - Bot state is kept per (symbol, strategy) across cycles, in the audit trail.
 - Exits use an absolute stop (HTF OCL low) and a fixed target (average entry + 3R), not entry minus ATR distance. The exit manager currently works from entry and distance only, so it needs an absolute-price path.
 - Multiple entries in one cycle: each entry is a child position; the position's stop and target follow the average.
@@ -27,5 +40,3 @@ Status: PHASE 1 DONE (2026-11-19). Phase 2 (bot wiring) not started.
 
 ## Open items
 - Backtested target N for the aggressive-only exit (owner: needs a backtest).
-- Phase 2: after an HTF invalidation, wait for a new HTF OCL below the invalidated price, then its key touch.
-- Phase 2: freshness, only the newest closed LTF bar's entries are new orders.
