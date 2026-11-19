@@ -1,6 +1,6 @@
 """5-minute strategy bot: screened symbols -> strategies -> risk gate -> POV child orders.
 
-Flow stage: Algo router, Risk gate, Approved order queue, Audit log, Strategy bot framework
+Flow stage: Algo router, Risk gate, Approved order queue, Audit log, Strategy bot framework, Strategy bot cycle
 Status: PHASE 3 IMPLEMENTED (paper and analyze/sandbox). PHASE 1 LIVE SENDER: live mode is
 refused unless live_enabled is true AND the injected live startup gate passes. The live
 runner (scripts/run/run_strategy_bot_live.py) is the only caller that supplies both.

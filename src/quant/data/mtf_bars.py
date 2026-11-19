@@ -1,6 +1,6 @@
 """Closed bars for the three trade setup timeframes (MTF, HTF, LTF). Read only, fails closed.
 
-Flow stage: Market inputs, Data and features
+Flow stage: Market inputs, Data and features, Closed bars MTF/HTF/LTF
 Status: PHASE 1 IMPLEMENTED (2026-11-19). Not wired into the bot cycle yet.
 
 - Labels come from the trade setup: 1m 3m 5m 10m 15m 30m 1h 1d. OpenAlgo calls daily "D".

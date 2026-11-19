@@ -1,6 +1,6 @@
 """Owner pattern checks for the four strategies (phase 1: detection only).
 
-Flow stage: Strategy
+Flow stage: Strategy, Engulf sequence, Engulf signal
 Status: PHASE 1 IMPLEMENTED (2026-11-19). Plan: docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md
 
 Detection only. No orders, sizing, entries, stops or exits here.
