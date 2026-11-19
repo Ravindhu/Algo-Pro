@@ -122,3 +122,46 @@ def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Opt
             if low[k] < level:
                 return {"swing_index": i, "swing_low": float(level), "sweep_index": k}
     return None
+
+
+def engulf_sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame) -> Optional[dict]:
+    """Engulfing strategy sequence on closed bars of three timeframes (owner rules 2026-11-19).
+
+    1. MTF egpattern (red then green) is confirmed on bar close. Aggressive level = 1st candle open.
+    2. A later MTF bar touches that level.
+    3. After the touch, the HTF swing low is swept (3-candle swing).
+    4. After the sweep, an LTF OCL forms (find_ocl_rrg). Its aggressive key level is the entry.
+    5. An LTF bar after the OCL touches that key level: trigger.
+    Returns the times of each step and the entry level, or None.
+    """
+    if len(mtf) < 3 or len(htf) < 4 or len(ltf) < 4:
+        return None
+    mo, mh, ml, _ = _arrays(mtf)
+    n_m = len(mtf) - 1
+    j = next((i for i in range(n_m - 1, 0, -1) if is_red_green_engulf(mtf, i)), None)
+    if j is None:
+        return None
+    level = float(mo[j - 1])
+    touch = next((k for k in range(j + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
+    if touch is None:
+        return None
+    touch_time = mtf.index[touch]
+    sweep = find_swing_low_sweep(htf, len(htf) - 1)
+    if sweep is None or htf.index[sweep["sweep_index"]] < touch_time:
+        return None
+    sweep_time = htf.index[sweep["sweep_index"]]
+    lo, lh, ll, _ = _arrays(ltf)
+    n_l = len(ltf) - 1
+    for m in range(n_l, 1, -1):
+        if ltf.index[m] < sweep_time:
+            break
+        ocl = find_ocl_rrg(ltf, m)
+        if ocl is None:
+            continue
+        key = ocl["key_level"]
+        trig = next((p for p in range(m + 1, n_l + 1) if ll[p] <= key <= lh[p]), None)
+        if trig is None:
+            return None  # OCL formed after the sweep, not yet touched
+        return {"pattern_time": mtf.index[j], "touch_time": touch_time, "sweep_time": sweep_time,
+                "ocl_time": ltf.index[m], "trigger_time": ltf.index[trig], "entry": float(key)}
+    return None

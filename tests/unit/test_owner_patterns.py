@@ -143,3 +143,39 @@ def test_no_sweep_when_no_low_breaks_swing_low():
 
 def test_sweep_short_history_is_safe():
     assert op.find_swing_low_sweep(_frame([(10, 10.5, 9.5, 10.0)]), last=0) is None
+
+
+# ---- Engulfing strategy sequence: MTF pattern -> touch -> HTF sweep -> LTF OCL -> touch ----
+ENG_M_TOUCH = (10.8, 10.9, 9.5, 10.2)  # low 9.5 <= level 10.0 <= high 10.9
+HTF_BARS = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.6, 8.7, 9.1)]
+LTF_FILL = (9.0, 9.5, 8.8, 9.2)
+LTF_TOUCH = (11.3, 11.8, 10.9, 11.5)   # low 10.9 <= OCL key level 11.0 <= high 11.8
+
+
+def _ltf_with_ocl(touch=LTF_TOUCH):
+    return _frame([LTF_FILL, LTF_FILL, LTF_FILL, RRG_C1, RRG_C2, C3_BREAK, touch])
+
+
+def test_engulf_sequence_full_path_triggers():
+    res = op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl())
+    assert res == {"pattern_time": 1, "touch_time": 2, "sweep_time": 3,
+                   "ocl_time": 5, "trigger_time": 6, "entry": 11.0}
+
+
+def test_engulf_sequence_waits_when_no_mtf_touch():
+    no_touch = (10.8, 10.9, 10.1, 10.5)    # low 10.1 is above the level 10.0
+    assert op.engulf_sequence(_frame([RED, GREEN_ENGULF, no_touch]), _frame(HTF_BARS), _ltf_with_ocl()) is None
+
+
+def test_engulf_sequence_needs_htf_sweep():
+    no_sweep = HTF_BARS[:3] + [(9.5, 9.6, 9.1, 9.6)]  # last low 9.1 does not take the swing low 9.0
+    assert op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(no_sweep), _ltf_with_ocl()) is None
+
+
+def test_engulf_sequence_waits_for_ltf_touch():
+    no_ltf_touch = (11.3, 11.8, 11.1, 11.5)  # low 11.1 is above the OCL key level 11.0
+    assert op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(no_ltf_touch)) is None
+
+
+def test_engulf_sequence_short_history_is_safe():
+    assert op.engulf_sequence(_frame([RED]), _frame(HTF_BARS), _ltf_with_ocl()) is None

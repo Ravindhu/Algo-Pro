@@ -170,3 +170,14 @@ Still to confirm:
 - Order rule is now LTF < HTF < MTF (was LTF < MTF < HTF). Enforced in `check_timeframe_order` in `src/quant/core/setup_store.py`.
 - Tests: `tests/unit/test_setup_timeframes.py` (10 passing).
 - Example from owner: MTF Daily aggressive level; HTF 4-hour sweep; LTF 5-minute OCL formed after that sweep. The LTF OCL's own aggressive level, touched, triggers the trade every 5 minutes.
+
+## Build status: engulfing sequence checker (2026-11-19)
+- `engulf_sequence(mtf, htf, ltf)` in `src/quant/strategies/owner_patterns.py`. Pure logic, no bot changes.
+  1. Newest MTF egpattern (red then green).
+  2. A later MTF bar touches its aggressive level (first candle open).
+  3. The HTF 3-candle swing low is swept after that touch.
+  4. An LTF OCL forms after the sweep (`find_ocl_rrg`).
+  5. An LTF bar after that OCL touches its aggressive key level: trigger. Entry = that key level.
+- Tests: 27 in `tests/unit/test_owner_patterns.py`, all passing.
+- Assumption to confirm: entry price = the key level touched.
+- Not built yet: the OCL-start path, the sell-fail sequence, stops and targets, and the bar feed and bot cycle.
