@@ -103,8 +103,7 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   the sequence strategy; bot refuses cycles with no N (target_pending) with a log line; replay unchanged.
 - 2026-11-19: P2 done: src/quant/strategies/risk_ladder.py (formula, probe/ladder/pair stages, carry,
   per-cycle ceiling, fail closed when the ceiling is unset). Tests: tests/unit/test_risk_ladder.py (12 pass).
-  Open in P2: the owner rules do not say whether carried shares join the 0.50 % conviction entry.
-  Built as NO (carry stays separate). Owner to confirm.
+  Carried shares DO join the 0.50 % conviction entry (owner 2026-11-19: join). Carry is cleared on that entry.
   Pre-existing failures (before this change, same 16): src/quant/tests/test_strategy_bot*.py. Cause: the
   pre-entry gate refuses the test entries (pre_gate_refused). Not touched yet.
 - 2026-11-19: P0 started. Repo cloned to /home/claude/algo-pro at 19aeb5f. Code gaps confirmed.

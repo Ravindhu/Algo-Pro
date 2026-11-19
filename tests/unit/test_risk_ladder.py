@@ -66,9 +66,12 @@ def test_escalation_pair_gives_one_conviction_entry_then_waits_again():
         r.aggressive_touch(f"OCL{i}", p)
         r.invalidate(f"OCL{i}")
     assert r.conservative_touch("OCL3", 95) is None  # arms the pair
+    carry_before = r.carry
+    assert carry_before > 0  # nothing filled, so every planned share is carried
     o4 = r.aggressive_touch("OCL4", 94)
     assert o4.reason == "conviction"
-    assert o4.qty == shares_for(EQUITY, CONVICTION, 94, L)  # no carry added
+    assert o4.qty == shares_for(EQUITY, CONVICTION, 94, L, carry=carry_before)
+    assert r.carry == 0  # carried shares are now inside the 0.50 % entry
     assert r.aggressive_touch("OCL5", 93.5) is None  # pair not armed again yet
     r.conservative_touch("OCL4", 93.5)
     assert r.aggressive_touch("OCL4", 93.4) is None  # same OCL cannot count as "new"

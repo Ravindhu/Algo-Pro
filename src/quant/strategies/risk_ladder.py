@@ -12,7 +12,8 @@ Simple words:
     This runs for OCL #2 and OCL #3. After the OCL #3 entry, stop at the probe rate.
   * waiting_pair: only the escalation pair can open a trade. A conservative touch arms
     the pair; then a NEW OCL (different id) whose aggressive level is touched = 0.50 %.
-    One entry, no split, then back to waiting. Carried shares are NOT added to 0.50 %.
+    One entry, no split, then back to waiting. Carried shares ARE added to the 0.50 % entry
+    (owner 2026-11-19).
 - Per-cycle loss ceiling: the planned risk at stop (qty x (price - HTF L)) of all orders in
   one HTF cycle may not exceed ceiling x equity. Orders that would go over are refused.
 
@@ -120,9 +121,10 @@ class RiskLadder:
         if self.stage == "waiting_pair":
             if self.armed_ocl is None or ocl_id == self.armed_ocl:
                 return None  # the pair needs a NEW OCL formed after the conservative touch
-            order = self._add(ocl_id, price, shares_for(self.equity, CONVICTION, price, self.htf_low),
-                              CONVICTION, "conviction")
+            qty = shares_for(self.equity, CONVICTION, price, self.htf_low, self.carry)
+            order = self._add(ocl_id, price, qty, CONVICTION, "conviction")
             if order is not None:
+                self.carry = 0  # carried shares are now in the 0.50 % entry
                 self.armed_ocl = None  # back to waiting: the pair must fire again
             return order
         if self._current_ocl == ocl_id:
