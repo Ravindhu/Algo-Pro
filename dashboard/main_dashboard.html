@@ -1503,8 +1503,10 @@
     loadEngine();
   };
 
+  let avatarVersion = 0; // changes after an upload, so the browser does not keep the old picture
   async function loadAccount() {
     const res = await jget("/api/account");
+    const avatarUrl = res.j.avatar ? res.j.avatar + (avatarVersion ? "?v=" + avatarVersion : "") : null;
     const who = res.j.signed_in;
     $("acct-who").textContent = who ? ("Signed in as " + who + " (" + (res.j.role || "viewer") + ")") : "Not signed in.";
     $("acctform").hidden = !!who;
@@ -1513,10 +1515,10 @@
     $("acct-in").hidden = !who;
     $("acctout").hidden = !who;
     const img = $("acct-avatar");
-    if (who && res.j.avatar) { img.src = res.j.avatar; img.style.display = "inline"; }
+    if (who && avatarUrl) { img.src = avatarUrl; img.style.display = "inline"; }
     else img.style.display = "none";
     const pimg = $("prof-img"), pinit = $("prof-init");
-    if (who && res.j.avatar) { pimg.src = res.j.avatar; pimg.hidden = false; pinit.hidden = true; }
+    if (who && avatarUrl) { pimg.src = avatarUrl; pimg.hidden = false; pinit.hidden = true; }
     else { pimg.hidden = true; pinit.hidden = false; }
     $("totp-remove").hidden = !res.j.totp_enabled;
     $("totp-key").textContent = "";
@@ -1566,12 +1568,41 @@
     else sMsg("acct-msg", res.j.error || "Failed.", "r");
   };
   // --- signed-in: avatar, password change, TOTP ------------------------------
+  // The server caps a picture at 256 KB, and phone photos are often larger. The picture is shrunk
+  // here to a small JPEG first, so any PNG or JPEG can be used.
+  async function shrinkPicture(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((ok, bad) => {
+        const i = new Image();
+        i.onload = () => ok(i);
+        i.onerror = () => bad(new Error("not a picture"));
+        i.src = url;
+      });
+      const scale = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext("2d");
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      for (const q of [0.85, 0.7, 0.5]) {
+        const blob = await new Promise(ok => cv.toBlob(ok, "image/jpeg", q));
+        if (blob && blob.size <= 240 * 1024) return blob;
+      }
+      return null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
   $("acct-avatar-up").onclick = async () => {
     const file = $("acct-avatar-file").files[0];
     if (!file) { sMsg("acct-msg", "Choose a PNG/JPEG picture first.", "a"); return; }
-    const res = await fetch("/api/account/avatar", {method: "POST", headers: {"Content-Type": file.type}, body: file});
+    const blob = await shrinkPicture(file).catch(() => null);
+    if (!blob) { sMsg("acct-msg", "Could not use that picture. Choose a PNG or JPEG under 256 KB, or another picture.", "r"); return; }
+    const res = await fetch("/api/account/avatar", {method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob});
     const j = await res.json().catch(() => ({}));
-    if (res.ok) { sMsg("acct-msg", "Picture saved.", "g"); loadAccount(); }
+    if (res.ok) { avatarVersion = Date.now(); sMsg("acct-msg", "Picture saved.", "g"); loadAccount(); }
     else sMsg("acct-msg", j.error || "Failed.", "r");
   };
   $("pw-change").onclick = async () => {
