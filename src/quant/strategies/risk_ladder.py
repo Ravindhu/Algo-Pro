@@ -74,7 +74,8 @@ def load_cycle_settings(path) -> Dict[str, float]:
     """
     import yaml as _yaml
 
-    out = {"target_r": None, "loss_ceiling": None, "portfolio_loss_ceiling": None}
+    out = {"target_r": None, "loss_ceiling": None, "portfolio_loss_ceiling": None,
+           "symbol_allocation_pct": None, "aggressive_share": 0.60}
     if path is None or not Path(path).exists():
         return out
     data = _yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
@@ -88,6 +89,15 @@ def load_cycle_settings(path) -> Dict[str, float]:
     for key in ("loss_ceiling", "portfolio_loss_ceiling"):
         if out[key] is not None and out[key] > 0.2:
             raise ValueError(f"cycle.{key} is a fraction of equity; 0.03 means 3 %")
+    # Owner tree (2026-11-20): share bounds are refused, never clamped (risk_tree.validate_share).
+    from quant.strategies.risk_tree import validate_share
+    if sec.get("aggressive_share") is not None:
+        out["aggressive_share"] = validate_share(sec["aggressive_share"])
+    if sec.get("symbol_allocation_pct") is not None:
+        val = sec["symbol_allocation_pct"]
+        if not isinstance(val, (int, float)) or float(val) <= 0 or float(val) > 10:
+            raise ValueError(f"cycle.symbol_allocation_pct must be a percent in (0, 10], got {val!r}")
+        out["symbol_allocation_pct"] = float(val)
     return out
 
 
@@ -224,6 +234,30 @@ class RiskLadder:
         if self.stage == "waiting_pair":
             self.armed_ocl = ocl_id
         return None
+
+    def tree_order(self, ocl_id: str, price: float, fraction: float, atr: Optional[float],
+                   reason: str) -> Optional[Order]:
+        """Owner tree (2026-11-20): an order whose budget comes from risk_tree.plan (fraction of equity).
+        qty = floor(equity x fraction / sizing stop) + carry. Stop = sizing_stop (HTF L, ATR floor, buffer).
+        The tree budget already bounds the risk, so this does not apply the old per-cycle ceiling.
+        Refused (None, with last_refused set): no ATR, price not above HTF L, or fewer than 1 share."""
+        self.last_refused = None
+        if fraction is None or fraction <= 0 or price <= self.htf_low:
+            self.last_refused = "no_budget" if (fraction is None or fraction <= 0) else "price_at_or_below_htf_low"
+            return None
+        stop = self._sizing_stop(price, atr)
+        if stop is None:
+            return None
+        carry = self.carry
+        qty = shares_for(self.equity, float(fraction), price, self.htf_low, carry, stop=stop)
+        if qty < 1:
+            self.last_refused = "under_one_share"
+            return None
+        order = Order(ocl_id=ocl_id, price=float(price), qty=qty, risk=float(fraction), reason=reason,
+                      carry=carry, stop=stop)
+        self.orders.append(order)
+        self.carry = 0  # carried shares are now inside this order
+        return order
 
     def record_fill(self, order: Order, qty: int) -> None:
         order.filled = min(order.qty, order.filled + max(0, int(qty)))

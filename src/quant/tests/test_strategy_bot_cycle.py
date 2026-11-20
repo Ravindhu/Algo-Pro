@@ -410,3 +410,109 @@ def test_adv_cap_is_one_percent_of_average_daily_volume_and_fails_safe():
     assert _adv_cap_qty(0.01, 250_000) == 2500         # 1 % of 2.5 lakh shares
     assert _adv_cap_qty(0.01, 99) == 0                 # tiny volume: nothing allowed
     assert _adv_cap_qty(None, 250_000) > 10**9         # not set: this helper does not cap (gate still refuses)
+
+
+# ---- owner tree (2026-11-20): budgets come from risk_tree.plan, not the old ladder -----------------
+def _tree_result(events, decision_events):
+    """A replay result whose tree decisions come from risk_tree.plan over decision_events (4 % allocation)."""
+    from quant.strategies.risk_tree import plan
+    r = _result(events)
+    r.tree_decisions = plan(decision_events, 4.0)
+    return r
+
+
+def test_tree_leaf_touch_is_sized_from_its_budget(tmp_path):
+    """4 % allocation, 60/40: the aggressive leaf gets 0.096 % of 10 lakh = 960 INR. Stop 2.05 -> 468 shares."""
+    r = _tree_result(
+        [("aggressive", "A", 100.0, T_NEW)],
+        [("htf_ocl", "H", T_NEW), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW)])
+    strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
+    bot, audit = _bot(tmp_path, strat)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [468]  # floor(960 / 2.05)
+    assert _parent(bot).ladder.orders[0].reason == "leaf_aggressive"  # the stage name from the tree decision
+
+
+def test_tree_touch_without_a_decision_is_skipped_and_logged(tmp_path):
+    r = _tree_result([("aggressive", "A", 100.0, T_NEW)], [("htf_ocl", "H", T_NEW)])  # no ltf_ocl / touch
+    strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
+    bot, audit = _bot(tmp_path, strat)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == []
+    assert any(k == "tree_refused" and p.get("reason") == "no_decision" for k, p in audit.records)
+
+
+def test_tree_refused_leaf_sends_nothing(tmp_path):
+    """The LTF OCL's slot was refused (its HTF gate had no slot): the touch has a refused decision."""
+    r = _tree_result([("aggressive", "A", 100.0, T_NEW)],
+                     [("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW)])  # no htf_ocl: refused
+    strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
+    bot, audit = _bot(tmp_path, strat)
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == []
+    assert any(k == "tree_refused" for k, _ in audit.records)
+
+
+def test_unfilled_shares_carry_from_a_closed_htf_ocl_into_the_next_one(tmp_path):
+    """Owner tree: unfilled shares roll forward to the next HTF OCL of the same MTF setup.
+    HTF OCL 1: leaf budget 960 INR -> 468 sh; 100 fill, then the HTF OCL is invalidated -> 368 carried.
+    HTF OCL 2: leaf budget 960 INR at stop 1.0495 -> 914 sh; order = 914 + 368 carried = 1282 sh."""
+    from quant.strategies.risk_tree import plan
+    from quant.strategies.cycle import CycleResult
+    K2 = pd.Timestamp("2026-11-16 17:00")
+    decisions = plan([
+        ("htf_ocl", str(HTF_KEY), HTF_KEY), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW),
+        ("htf_invalidated", T_NEXT), ("htf_ocl", str(K2), K2), ("ltf_ocl", "B", T_NEXT),
+        ("ltf_agg_touch", "B", T_NEXT)], 4.0)
+
+    def res(key, status, events):
+        r = CycleResult(kind="egpattern_open", status=status, htf_low=HTF_LOW, entries=[], avg_entry=None,
+                        mode="target", target=104.2, htf_key_time=key, ltf_paused=False, events=list(events))
+        r.tree_decisions = decisions
+        return r
+
+    r1_open = res(HTF_KEY, "open", [("aggressive", "A", 100.0, T_NEW)])
+    strat = ScriptedCycle("scripted", [CycleView(results=[r1_open], newest_ltf_time=T_NEW, atr=1.0)])
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == [100]
+    assert _parent(bot).ladder.orders[0].qty == 468
+    assert _parent(bot).remaining == 368
+
+    r1_done = res(HTF_KEY, "htf_invalidated", [("aggressive", "A", 100.0, T_NEW)])
+    r2_open = res(K2, "open", [("aggressive", "B", 99.0, T_NEXT)])
+    strat.views = [CycleView(results=[r1_done, r2_open], newest_ltf_time=T_NEXT, atr=1.0)]
+    bot.cycle(NOW + timedelta(minutes=10))
+    assert "mtf_carry" in [k for k, _ in audit.records]
+    assert bot._mtf_carry == {} or sum(bot._mtf_carry.values()) == 0  # consumed by the new order
+    key2 = f"INFY|scripted|BUY|cycle|{K2}"
+    p2 = bot._parents[key2]
+    assert p2.ladder.orders[-1].qty == 914 + 368  # fresh leaf budget at stop 1.0495, plus carried shares
+    assert p2.ladder.orders[-1].carry == 368
+
+
+def test_carry_is_not_consumed_when_the_new_touch_is_refused(tmp_path):
+    """No budget on the next touch: the carried shares stay in the pool, not lost."""
+    from quant.strategies.risk_tree import plan
+    from quant.strategies.cycle import CycleResult
+    K2 = pd.Timestamp("2026-11-16 17:00")
+    decisions = plan([
+        ("htf_ocl", str(HTF_KEY), HTF_KEY), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW),
+        ("htf_invalidated", T_NEXT), ("htf_ocl", str(K2), K2)], 4.0)  # no LTF OCL in the second HTF cycle
+
+    def res(key, status, events):
+        r = CycleResult(kind="egpattern_open", status=status, htf_low=HTF_LOW, entries=[], avg_entry=None,
+                        mode="target", target=104.2, htf_key_time=key, ltf_paused=False, events=list(events))
+        r.tree_decisions = decisions
+        return r
+
+    strat = ScriptedCycle("scripted", [CycleView(results=[res(HTF_KEY, "open", [("aggressive", "A", 100.0, T_NEW)])],
+                                                 newest_ltf_time=T_NEW, atr=1.0)])
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot.cycle(NOW)
+    strat.views = [CycleView(results=[res(HTF_KEY, "htf_invalidated", [("aggressive", "A", 100.0, T_NEW)]),
+                                      res(K2, "open", [("aggressive", "B", 99.0, T_NEXT)])],
+                             newest_ltf_time=T_NEXT, atr=1.0)]
+    bot.cycle(NOW + timedelta(minutes=10))
+    assert bot._mtf_carry.get(str(HTF_KEY)) == 368  # still waiting in the pool
+    assert _child_qtys(audit) == [100]  # nothing new was sent

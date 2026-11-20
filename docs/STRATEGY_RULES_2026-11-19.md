@@ -337,3 +337,29 @@ OCL #2 agg  : 24 carried + floor(1,00,000 x 0.0025 / (94-93)) = 24 + 250 = 274 s
 The 250 is correct arithmetic, not a bug: a ₹1 stop distance makes 0.25 % of equity a large
 share count. `max_order_quantity` / `max_order_notional` clamp it at the gate (11.9 item 26),
 which is why those caps must stay set before any paper run.
+## 11A. Owner risk tree (owner 2026-11-20, confirmed top-down)
+
+Supersedes the fixed 0.10 / 0.15 / 0.25 % ladder numbers and the 1 % per-cycle and 3 % portfolio ceilings in
+sections 11.3 and 11.10. The ceilings are replaced by the symbol allocation and the portfolio cap.
+
+- **Portfolio cap:** 5 % of equity across all symbols (settings.yaml cycle.portfolio_loss_ceiling = 0.05).
+- **Symbol allocation:** a percent of equity per symbol, from the portfolio engine. Reference 4 %
+  (settings.yaml cycle.symbol_allocation_pct). Every budget below scales from it: at 1 %, each value is a quarter.
+- **Split of every level:** 5 equal slots of 20 % each: 3 AGGRESSIVE, then WAIT for the conservative touch,
+  then 2 CONSERVATIVE. The aggressive share is settings.yaml cycle.aggressive_share, default 0.60, allowed
+  0.50 to 0.80 (refused outside). Dashboard Trade setup popup: "Aggressive share" field, 50 to 80 %.
+- **MTF level:** 5 HTF OCL slots of 0.8 % (symbol 4 %): 3 aggressive, wait for the MTF conservative key-level
+  touch, then 2 conservative. A slot fires when a new HTF OCL forms (a conservative touch arms the next one).
+- **HTF level (inside each HTF OCL):** 5 LTF OCL slots of 0.16 %: 3 aggressive, wait for the HTF conservative
+  key-level touch, then 2 conservative.
+- **LTF level (each LTF OCL):** its budget splits 60/40 between its own aggressive touch and its own
+  conservative touch of the same OCL (at the default: 0.096 % and 0.064 %). It uses the same aggressive share.
+- **Stop for every level:** HTF L (owner). Sizing: shares = floor(equity x budget / sizing stop) + carry, where the
+  sizing stop is section 14a-stop.
+- **Carry:** unfilled shares roll forward to the next OCL at the same level, including across HTF OCLs inside one
+  MTF setup. Carried shares add no new budget.
+- **Forfeit:** an unused slot budget does not move to another slot.
+- **Refusal:** a touch with no tree decision (its OCL slot was refused, or the level is waiting) sends nothing.
+
+Code: src/quant/strategies/risk_tree.py (budgets, SlotGate, plan), cycle.py run_cycles (tree events),
+strategy_bot.py _scan_cycle (tree branch, carry pool), setup_store.py (aggressive_share), dashboard popup.

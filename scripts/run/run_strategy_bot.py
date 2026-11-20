@@ -79,7 +79,9 @@ def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None,
         from quant.strategies.risk_ladder import load_cycle_settings
         cyc = load_cycle_settings(ROOT / "config" / "settings.yaml")
         return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"],
-                                equity=equity, loss_ceiling=loss_ceiling)
+                                equity=equity, loss_ceiling=loss_ceiling,
+                                symbol_allocation_pct=cyc["symbol_allocation_pct"],
+                                aggressive_share=cyc["aggressive_share"])
     raise BotRefused(f"strategy {name!r} is not wired into the bot runner")
 
 

@@ -36,6 +36,7 @@ import yaml
 from quant.core.config import RiskLimits
 from quant.core.limits_store import apply_limit_updates
 from quant.core import broker_costs
+from quant.strategies.risk_tree import validate_share
 
 HEADER = (
     "# Global settings. sizing, trade_setup and live are set through the dashboard API (owner sign-in).\n"
@@ -47,7 +48,7 @@ SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
 KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
         "live_max_capital_inr", "live_allowed_egress_ip", "brokerage",
         "htf_interval", "mtf_interval", "ltf_interval",
-        "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct")
+        "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct", "aggressive_share")
 # Loss budgets as a share of capital (owner 2026-11-19). Saved in settings.yaml risk_budget;
 # the rupee caps in risk_limits.yaml are derived from them on every save.
 BUDGET_KEYS = ("capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct")
@@ -93,6 +94,7 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
     limits_obj = RiskLimits.from_yaml(limits_path) if Path(limits_path).exists() else None
     return {
         "risk_per_trade": risk,
+        "aggressive_share": float((data.get("cycle") or {}).get("aggressive_share", 0.60)),
         "max_symbols_per_portfolio": symbols,
         "strategy": trade.get("strategy"),
         "strategies": strategy_names(strategies_dir),
@@ -166,6 +168,11 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                     or not 0 < value <= BUDGET_MAX_PCT:
                 raise ValueError(f"{key} must be a fraction in (0, {BUDGET_MAX_PCT}], e.g. 0.02 for 2 %")
             clean[key] = float(value)
+        elif key == "aggressive_share":
+            # Owner tree (2026-11-20): 50 % to 80 % only. Refused outside, never clamped.
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError("aggressive_share must be a fraction between 0.50 and 0.80, e.g. 0.60 for 60 %")
+            clean[key] = validate_share(value)
         elif key == "brokerage":
             clean[key] = broker_costs.validate_brokerage(value)
         elif key in TF_KEYS:  # null clears the timeframe
@@ -219,7 +226,7 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
         for k in BUDGET_KEYS:
             if k in clean:
                 old[k] = (current.get("risk_budget") or {}).get(k)
-    file_keys = {"risk_per_trade", "strategy", "brokerage", *LIVE_KEYS, *TF_KEYS}
+    file_keys = {"risk_per_trade", "strategy", "brokerage", "aggressive_share", *LIVE_KEYS, *TF_KEYS}
     if file_keys & set(clean) or plan is not None:
         sizing = dict(current.get("sizing") or {})
         trade = dict(current.get("trade_setup") or {})
@@ -241,6 +248,11 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
                     tf[yaml_key] = clean[api_key]
             check_timeframe_order(tf)  # refuse before anything is written
             trade["timeframes"] = tf
+        if "aggressive_share" in clean:
+            cycle_sec = dict(current.get("cycle") or {})
+            old["aggressive_share"] = cycle_sec.get("aggressive_share")
+            cycle_sec["aggressive_share"] = clean["aggressive_share"]
+            current["cycle"] = cycle_sec
         if "live_max_capital_inr" in clean:
             old["live_max_capital_inr"] = live.get("max_capital_inr")
             live["max_capital_inr"] = clean["live_max_capital_inr"]

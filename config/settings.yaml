@@ -13,8 +13,14 @@ cycle:
   # orders in one HTF cycle may not exceed this (rules doc 11.10, risk_ladder.py).
   loss_ceiling: 0.01
   # Owner 2026-11-19 (recommended, accepted): planned risk at the HTF stops across ALL open cycles (all symbols)
-  # may not exceed this fraction of equity. 0.03 = 3 %. Not set = no new ladder orders (fail closed).
-  portfolio_loss_ceiling: 0.03
+  # may not exceed this fraction of equity. Owner 2026-11-20: 5 % (was 3 %). Not set = no new orders (fail closed).
+  portfolio_loss_ceiling: 0.05
+  # Owner tree (2026-11-20, confirmed top-down). Per-symbol allocation as a percent of equity. 4 = reference.
+  # The portfolio engine will set this per symbol later; every tree budget scales from it.
+  symbol_allocation_pct: 4.0
+  # 60 % aggressive (3 OCL slots) / 40 % conservative (2 OCL slots). Allowed range 0.50 to 0.80 (refused outside).
+  aggressive_share: 0.60
+  # Note: with symbol_allocation_pct set, the tree replaces the old ladder budgets. loss_ceiling (1 %) is then unused.
 
 dashboard:
   # Show P&L when the page opens. AGENTS rule 8 says true. Owner decision D8 (docs/REPO_LAYOUT_PLAN.md) is still open.

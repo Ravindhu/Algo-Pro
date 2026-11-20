@@ -320,6 +320,9 @@ class _BotBook:
         return dict(self._bot._positions)
 
 
+_TREE_TOUCH = {"aggressive": "ltf_agg_touch", "conservative": "ltf_cons_touch"}
+
+
 def _cap_to_owner_order(qty: int, price: float) -> int:
     """Largest order the owner's per-order caps allow: max_order_quantity and max_order_notional / price.
     No cap set = no clamp here (the gate's own pre-trade check still refuses unset caps)."""
@@ -421,6 +424,8 @@ class StrategyBot:
         # Cycle keys already opened (one parent per HTF cycle). Kept across days and restarts,
         # so an old HTF cycle can never be opened again with a second full-size quantity.
         self._cycle_done: set = set()
+        # Owner tree (2026-11-20): unfilled shares of closed HTF OCLs, per MTF setup, carried into the next HTF OCL.
+        self._mtf_carry: Dict[str, int] = {}
         self.alerts = alerts                     # CRITICAL/WARNING go here; None = audit log only
         self._booked: Dict[str, float] = {}       # notional added to open exposure, per position key
         self._marks: Dict[str, float] = {}        # mark-to-market P&L each open position has added to daily P&L
@@ -736,16 +741,24 @@ class StrategyBot:
         if view is None or not view.results:
             return
         cur = view.results[-1]
-        for old in view.results[:-1]:  # earlier HTF cycles have ended: drop their unfilled quantity
+        tree_mode = any(r.tree_decisions for r in view.results)
+        mtf_id = self._mtf_id(view)
+        if tree_mode:  # the carry pool belongs to the newest MTF setup only
+            self._mtf_carry = {k: v for k, v in self._mtf_carry.items() if k == mtf_id}
+        for old in view.results[:-1]:  # earlier HTF cycles have ended
             old_key = self._cycle_key(strat, sym, old)
             if old_key is not None and old_key in self._parents:
-                self._close(old_key, "HTF cycle ended: unfilled quantity dropped")
+                self._close_htf(old_key, mtf_id if tree_mode else None,
+                                "HTF cycle ended: unfilled quantity carried to the next HTF OCL" if tree_mode
+                                else "HTF cycle ended: unfilled quantity dropped")
         key = self._cycle_key(strat, sym, cur)
         if key is None:
             return
         if cur.status == "htf_invalidated":
             if key in self._parents:
-                self._close(key, "HTF invalidated: unfilled quantity dropped")
+                self._close_htf(key, mtf_id if tree_mode else None,
+                                "HTF invalidated: unfilled quantity carried to the next HTF OCL" if tree_mode
+                                else "HTF invalidated: unfilled quantity dropped")
             return
         if cur.mode == "target_pending" and key not in self._parents:
             # Fail closed (rules doc 11.7): no exit rule means no trade. N is set in settings.yaml cycle.target_r.
@@ -759,14 +772,17 @@ class StrategyBot:
                 self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="no ATR for cycle")
             return
         ladder = parent.ladder if parent is not None else None
+        tree_idx = self._tree_index(cur)  # owner tree (2026-11-20): budgets come from risk_tree.plan
+        pool_in = int(self._mtf_carry.get(mtf_id, 0)) if (tree_idx is not None and parent is None and mtf_id) else 0
         if ladder is None:
-            if self._cycle_loss_ceiling is None:
+            if tree_idx is None and self._cycle_loss_ceiling is None:
                 if cur.events:  # fail closed: no loss ceiling set, no ladder order
                     self._log("parent_skipped", strategy=strat.name, symbol=sym,
                               reason="cycle loss ceiling not set")
                 return
             ladder = RiskLadder(equity=float(self._funds), htf_low=float(cur.htf_low),
                                 loss_ceiling=self._cycle_loss_ceiling)
+            ladder.carry = pool_in  # shares carried from the closed HTF OCLs of this MTF setup (not consumed yet)
         newest = view.newest_ltf_time
         done = parent.events_done if parent is not None else 0
         for idx in range(done, len(cur.events)):
@@ -783,10 +799,22 @@ class StrategyBot:
                 continue
             if kind not in ("aggressive", "conservative"):
                 continue
+            dec = None
+            fraction = None
+            if tree_idx is not None:
+                dec = tree_idx.get((_TREE_TOUCH[kind], ocl_id, str(t)))
+                if dec is None or dec.refused is not None or dec.fraction <= 0:
+                    self._log("tree_refused", key=key, trigger=kind, ocl=ocl_id,
+                              reason=(dec.refused if dec is not None else "no_decision"))
+                    continue
+                fraction = dec.fraction
             trial = copy.deepcopy(ladder)
             # Sizing stop (owner 2026-11-20): the ladder uses max(ATR floor, stop + 0.05 % of price); ATR is the view's.
-            trial_order = (trial.aggressive_touch(ocl_id, price, view.atr) if kind == "aggressive"
-                           else trial.conservative_touch(ocl_id, price, view.atr))
+            if tree_idx is not None:
+                trial_order = trial.tree_order(ocl_id, price, fraction, view.atr, dec.stage)
+            else:
+                trial_order = (trial.aggressive_touch(ocl_id, price, view.atr) if kind == "aggressive"
+                               else trial.conservative_touch(ocl_id, price, view.atr))
             if trial_order is None:
                 if trial.last_refused:  # audit: an order was wanted but the owner loss ceiling refused it
                     self._log("ladder_refused", key=key, trigger=kind, ocl=ocl_id, reason=trial.last_refused,
@@ -815,8 +843,13 @@ class StrategyBot:
                                       risk_fraction=risk_frac, equity=float(ladder.equity))
             if intent is None or intent.qty < 1:
                 continue
-            order = (ladder.aggressive_touch(ocl_id, price, view.atr) if kind == "aggressive"
-                     else ladder.conservative_touch(ocl_id, price, view.atr))
+            if tree_idx is not None:
+                order = ladder.tree_order(ocl_id, price, fraction, view.atr, dec.stage)
+                if order is not None and order.carry and parent is None and mtf_id:
+                    self._mtf_carry.pop(mtf_id, None)  # the pool is now inside an order, so it is consumed
+            else:
+                order = (ladder.aggressive_touch(ocl_id, price, view.atr) if kind == "aggressive"
+                         else ladder.conservative_touch(ocl_id, price, view.atr))
             if order is None:
                 continue  # cannot happen: the trial said yes on the same state
             planned_qty = order.qty
@@ -830,7 +863,7 @@ class StrategyBot:
                           placed=order.qty, carried=shortfall, price=float(price))
             fresh = max(0, order.qty - order.carry)
             if parent is None:
-                parent = _Parent(key=key, intent=intent, remaining=0, circuit_pct=circuit_pct,
+                parent = _Parent(key=key, intent=intent, remaining=int(order.carry), circuit_pct=circuit_pct,
                                  stop=float(cur.htf_low), target=cur.target, atr=view.atr,
                                  strategy=strat.name, adv_shares=stats["adv_shares"],
                                  prev_close=stats["prev_close"], cycle=True, trail=False, paused=False,
@@ -857,6 +890,19 @@ class StrategyBot:
             pos.target = cur.target
             pos.trail_from_start = parent.trail
         self._persist_positions()
+
+    @staticmethod
+    def _tree_index(cur) -> Optional[dict]:
+        """(event, ocl id, time text) -> risk_tree decision for the leaf touches. None when the cycle has no tree
+        decisions (tree not configured): the old ladder path runs then."""
+        if not getattr(cur, "tree_decisions", None):
+            return None
+        idx = {}
+        for d in cur.tree_decisions:
+            ev = d.event
+            if ev[0] in ("ltf_agg_touch", "ltf_cons_touch") and len(ev) >= 3:
+                idx[(ev[0], ev[1], str(ev[2]))] = d
+        return idx
 
     def _portfolio_ceiling_check(self, key: str, ladder, qty: int, price: float,
                                  stop: Optional[float] = None) -> Tuple[bool, float, float]:
@@ -1270,6 +1316,7 @@ class StrategyBot:
             "marks": {k: round(float(v), 2) for k, v in self._marks.items()},
             "done": sorted(self._done),
             "cycle_done": sorted(self._cycle_done),
+            "mtf_carry": {str(k): int(v) for k, v in self._mtf_carry.items()},
             "cycle_parents": [self._parent_doc(p) for p in self._parents.values() if p.cycle],
             "positions": positions,
         })
@@ -1296,6 +1343,7 @@ class StrategyBot:
         self.state.open_notional = float(doc.get("open_notional", 0.0))
         self._booked = {str(k): float(v) for k, v in doc.get("booked", {}).items()}
         self._cycle_done = set(str(k) for k in doc.get("cycle_done", []))  # all days, not only today
+        self._mtf_carry = {str(k): int(v) for k, v in (doc.get("mtf_carry") or {}).items()}
         for d in doc.get("cycle_parents", []):
             try:
                 parent = self._parent_from_doc(d)
@@ -1423,6 +1471,23 @@ class StrategyBot:
         self._parents.pop(key, None)
         self._log("parent_closed", key=key, reason=reason)
         self._persist_positions()
+
+    @staticmethod
+    def _mtf_id(view) -> Optional[str]:
+        """Identity of the newest MTF setup: the first HTF cycle of the replay (stable while the setup lives)."""
+        if not view.results:
+            return None
+        k = view.results[0].htf_key_time
+        return None if k is None else str(k)
+
+    def _close_htf(self, key: str, mtf_id: Optional[str], reason: str) -> None:
+        """Close an HTF cycle's parent. In tree mode its unfilled shares go to the MTF carry pool first."""
+        p = self._parents.get(key)
+        if mtf_id is not None and p is not None and p.remaining > 0:
+            self._mtf_carry[mtf_id] = int(self._mtf_carry.get(mtf_id, 0)) + int(p.remaining)
+            self._log("mtf_carry", key=key, mtf=mtf_id, carried=int(p.remaining),
+                      pool=int(self._mtf_carry[mtf_id]))
+        self._close(key, reason)
 
 
 def run_loop(bot: StrategyBot, *, clock: Callable[[], datetime], sleep: Callable[[float], None],

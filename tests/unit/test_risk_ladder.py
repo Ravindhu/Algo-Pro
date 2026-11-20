@@ -139,7 +139,8 @@ def test_unset_ceiling_fails_closed():
 
 def test_load_cycle_settings_missing_file_is_not_set(tmp_path):
     out = load_cycle_settings(tmp_path / "nope.yaml")
-    assert out == {"target_r": None, "loss_ceiling": None, "portfolio_loss_ceiling": None}
+    assert out == {"target_r": None, "loss_ceiling": None, "portfolio_loss_ceiling": None,
+                   "symbol_allocation_pct": None, "aggressive_share": 0.60}
 
 
 def test_load_cycle_settings_reads_owner_values(tmp_path):

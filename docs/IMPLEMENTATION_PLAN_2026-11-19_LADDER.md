@@ -196,3 +196,14 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   conservative touch (the detection code runs but has no dedicated test yet).
   NOT YET: bot sizes from tree_decisions; carry across HTF OCLs inside one MTF cycle; replace the 1 % / 3 %
   ceilings; dashboard ratio field.
+- 2026-11-20 STEP 1 DONE (wired): settings cycle.symbol_allocation_pct 4.0, aggressive_share 0.60,
+  portfolio_loss_ceiling 0.05. Replay attaches tree decisions; the bot sizes each LTF leaf touch from its
+  decision (RiskLadder.tree_order, sizing stop, carry); cross-HTF carry pool per MTF setup, persisted as
+  mtf_carry; touches with no decision are skipped and logged (tree_refused); popup field aggressive_share
+  (50 to 80 %, validated in setup_store). The old 1 % per-cycle ceiling is not used in tree mode.
+  Tests: test_strategy_bot_cycle.py 23 (tree sizing 468 sh, refusal, carry 368 -> 1282 sh, refused carry kept),
+  test_setup_store.py 36 (ratio refused outside 0.50-0.80, saved under cycle), test_risk_tree 35, test_cycle 17.
+  Full suite: 63 failing = the same pre-existing baseline.
+  OPEN: symbol_allocation_pct is a static 4.0 until the portfolio engine sets it per symbol. The tree
+  MTF / HTF conservative touch detection has no dedicated fixture test. The live approval hash needs
+  re-approval after the settings change (live stays OFF).

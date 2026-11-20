@@ -29,7 +29,7 @@ def test_strategy_names_come_from_yaml_files(paths):
 def test_read_setup_returns_current_values(paths):
     settings, strategies, limits = paths
     assert read_setup(settings, strategies, limits) == {
-        "risk_per_trade": 0.0025, "max_symbols_per_portfolio": None, "strategy": None,
+        "risk_per_trade": 0.0025, "aggressive_share": 0.6, "max_symbols_per_portfolio": None, "strategy": None,
         "strategies": ["alpha", "beta"], "live_max_capital_inr": None, "live_allowed_egress_ip": None,
         "brokerage": None, "brokerage_example": None,
         "htf_interval": None, "mtf_interval": None, "ltf_interval": None,
@@ -148,3 +148,23 @@ def test_symbol_cap_is_not_written_when_budget_is_refused(tmp_path):
 
 def test_budget_owned_rupee_caps_are_listed_for_the_api_guard():
     assert set(BUDGET_OWNED_LIMITS) == {"max_daily_loss", "max_strategy_loss"}
+
+
+# ---- owner tree (2026-11-20): aggressive share 50 % to 80 % -----------------------------------
+@pytest.mark.parametrize("bad", [0.49, 0.81, 0.0, 1.0, -0.6, True])
+def test_aggressive_share_outside_the_range_is_refused(paths, bad):
+    settings, strategies, limits = paths
+    before = settings.read_text(encoding="utf-8")
+    with pytest.raises(ValueError):
+        apply_setup_updates(settings, strategies, limits, {"aggressive_share": bad})
+    assert settings.read_text(encoding="utf-8") == before  # refused before anything is written
+
+
+def test_aggressive_share_is_saved_under_cycle(paths):
+    settings, strategies, limits = paths
+    result = apply_setup_updates(settings, strategies, limits, {"aggressive_share": 0.7})
+    assert result["new"] == {"aggressive_share": 0.7}
+    data = yaml.safe_load(settings.read_text(encoding="utf-8"))
+    assert data["cycle"]["aggressive_share"] == 0.7
+    assert data["sizing"]["risk_per_trade"] == 0.0025  # other sections kept
+    assert read_setup(settings, strategies, limits)["aggressive_share"] == 0.7
