@@ -374,7 +374,7 @@
     <div class="tile t-warn"><small>Total P&amp;L</small><b id="rk-pnl">—</b></div>
     <div class="tile t-pink"><small>Return %</small><b id="rk-pnlpct">—</b></div>
     <div class="tile"><small>MTM % (real)</small><b id="rk-mtm">—</b></div>
-    <div class="tile"><small>Cost of trading (est., % of invested)</small><b id="rk-cost">—</b></div>
+    <div class="tile"><small>Cost of trading incl. tax (est., % of invested)</small><b id="rk-cost">—</b></div>
   </div>
   <div class="home-row3">
     <section class="panel">
@@ -1257,7 +1257,8 @@
     // Cost of trading: statutory estimate on today's broker fills, % of invested. Labelled as an estimate.
     const tc = p.trade_cost || null;
     $("rk-cost").textContent = tc && tc.pct_of_invested != null ? Number(tc.pct_of_invested).toFixed(3) + "%" : "—";
-    $("rk-cost").title = tc ? "₹" + Number(tc.inr).toFixed(2) + " across " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
+    $("rk-cost").title = tc ? "Charges ₹" + Number(tc.inr).toFixed(2) + " + STCG ₹" + Number(tc.stcg_tax_inr || 0).toFixed(2)
+      + " + LTCG ₹" + Number(tc.ltcg_tax_inr || 0).toFixed(2) + " · " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
     $("rk-poscount").textContent = p.state === "broker_read" ? rows.length + " holdings" : (PF_STATE[p.state] ? PF_STATE[p.state][0] : "");
     renderTable($("rk-pos-rows"), rows.slice(0, 10).map(h => {
       const tr = document.createElement("tr");

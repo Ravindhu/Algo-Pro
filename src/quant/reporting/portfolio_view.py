@@ -137,11 +137,60 @@ def _trade_price(item: Dict) -> Optional[float]:
     return None
 
 
+def delivery_gains(trades, min_days: float = 365.0) -> Dict:
+    """Realised gains on delivery (CNC) sells, matched FIFO to earlier CNC buys in the same list.
+
+    Holding period is sell time minus buy time. Held more than ``min_days`` is long-term.
+    Intraday (MIS) fills are excluded (speculative income, not capital gains). A sell with
+    no matching buy in the list is counted as unmatched and not taxed: the tradebook may
+    not contain the buy, and the cost basis is then unknown.
+    """
+    lots: Dict[tuple, list] = {}
+    out = {"short_term": 0.0, "long_term": 0.0, "matched_qty": 0, "unmatched_qty": 0,
+           "intraday_excluded": 0}
+    rows = []
+    for item in trades if isinstance(trades, list) else []:
+        if not isinstance(item, dict):
+            continue
+        qty = _num(item.get("quantity"))
+        price = _trade_price(item)
+        when = _trade_seconds(item)
+        action = str(item.get("action", "")).upper()
+        if qty is None or price is None or when is None or action not in ("BUY", "SELL"):
+            continue
+        rows.append((when, action, abs(qty), price, str(item.get("product", "")).upper(),
+                     (item.get("symbol"), item.get("exchange"))))
+    for when, action, qty, price, product, key in sorted(rows, key=lambda r: r[0]):
+        if product != "CNC":
+            out["intraday_excluded"] += 1
+            continue
+        book = lots.setdefault(key, [])
+        if action == "BUY":
+            book.append([qty, price, when])
+            continue
+        remaining = qty
+        while remaining > 0 and book:
+            take = min(book[0][0], remaining)
+            gain = (price - book[0][1]) * take
+            held_days = (when - book[0][2]) / 86400.0
+            out["long_term" if held_days > min_days else "short_term"] += gain
+            out["matched_qty"] += int(take)
+            remaining -= take
+            book[0][0] -= take
+            if book[0][0] <= 0:
+                book.pop(0)
+        out["unmatched_qty"] += int(remaining)
+    out["short_term"] = round(out["short_term"], 2)
+    out["long_term"] = round(out["long_term"], 2)
+    return out
+
+
 def trade_costs(trades, model: Optional[CostModel] = None) -> Dict:
-    """Estimated statutory cost of the day's broker fills, using the research CostModel.
+    """Estimated cost of the day's broker fills: statutory charges plus capital-gains tax.
 
     CNC fills are priced as delivery, MIS as intraday. Rows without a usable quantity,
-    price or side are counted as skipped, never guessed.
+    price or side are counted as skipped, never guessed. Tax applies only to matched
+    delivery gains (see delivery_gains).
     """
     model = model or CostModel()
     inr, fills, skipped = 0.0, 0, 0
@@ -155,8 +204,13 @@ def trade_costs(trades, model: Optional[CostModel] = None) -> Dict:
         product = "intraday" if str(item.get("product", "")).upper() == "MIS" else "delivery"
         inr += model.trade_cost(abs(qty) * price, action, product)
         fills += 1
-    return {"inr": round(inr, 2), "fills": fills, "skipped": skipped,
-            "basis": "estimated: research CostModel on today's broker fills"}
+    gains = delivery_gains(trades, model.ltcg_min_days)
+    tax = model.capital_gains_tax(gains["short_term"], gains["long_term"])
+    total = round(inr + tax["tax_inr"], 2)
+    return {"inr": round(inr, 2), "tax_inr": tax["tax_inr"], "stcg_tax_inr": tax["stcg_inr"],
+            "ltcg_tax_inr": tax["ltcg_inr"], "total_inr": total, "fills": fills, "skipped": skipped,
+            "realized": gains,
+            "basis": "estimated: research CostModel on today's broker fills, plus STCG/LTCG tax on matched delivery gains"}
 
 
 def hold_days(start_seconds: Optional[float], now_seconds: float) -> Optional[int]:
@@ -219,5 +273,5 @@ class HoldingsReader:
             start = starts.get((row["symbol"], row["exchange"]))
             row["hold_days"] = hold_days(start, now)
         invested = (result.get("summary") or {}).get("invested")
-        costs["pct_of_invested"] = round(costs["inr"] / invested * 100, 4) if invested else None
+        costs["pct_of_invested"] = round(costs["total_inr"] / invested * 100, 4) if invested else None
         result["trade_cost"] = costs

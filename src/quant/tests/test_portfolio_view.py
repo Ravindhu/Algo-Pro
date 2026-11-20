@@ -185,5 +185,46 @@ def test_reader_reports_trade_cost_as_pct_of_invested():
 
     out = HoldingsReader(fetch, lambda: "k", lambda: 1_700_100_000.0, trades=trades_ok).read()
     tc = out["trade_cost"]
-    assert tc["fills"] == 1 and tc["inr"] > 0
-    assert abs(tc["pct_of_invested"] - tc["inr"] / 2000.0 * 100) < 0.001
+    assert tc["fills"] == 1 and tc["inr"] > 0 and tc["tax_inr"] == 0
+    assert abs(tc["pct_of_invested"] - tc["total_inr"] / 2000.0 * 100) < 0.001
+
+
+def test_capital_gains_tax_nets_losses_and_applies_ltcg_exemption():
+    from quant.research.costs import CostModel
+    m = CostModel()
+    # Short-term loss offsets short-term gain; long-term gain below exemption is untaxed.
+    out = m.capital_gains_tax(short_term_gain=10_000.0, long_term_gain=100_000.0)
+    assert out["ltcg_inr"] == 0.0
+    assert abs(out["stcg_inr"] - 10_000 * 0.20 * 1.04) < 0.01
+    # Net loss owes nothing.
+    assert m.capital_gains_tax(-5_000.0, -1.0)["tax_inr"] == 0.0
+    # LTCG above exemption is taxed at 12.5% plus cess.
+    lt = m.capital_gains_tax(0.0, 225_000.0)
+    assert abs(lt["ltcg_inr"] - 100_000 * 0.125 * 1.04) < 0.01
+
+
+def test_delivery_gains_fifo_splits_short_and_long_term_and_excludes_intraday():
+    from quant.reporting.portfolio_view import delivery_gains
+    day = 86400
+    trades = [
+        {"symbol": "A", "exchange": "NSE", "action": "BUY", "quantity": 10, "averageprice": 100,
+         "product": "CNC", "timestamp": 0},
+        {"symbol": "A", "exchange": "NSE", "action": "BUY", "quantity": 10, "averageprice": 200,
+         "product": "CNC", "timestamp": 400 * day},
+        # Sells 10 from the first lot (held 400 days -> long term) and 5 from the second (short term).
+        {"symbol": "A", "exchange": "NSE", "action": "SELL", "quantity": 15, "averageprice": 300,
+         "product": "CNC", "timestamp": 401 * day},
+        # Intraday round trip is excluded from capital gains.
+        {"symbol": "B", "exchange": "NSE", "action": "BUY", "quantity": 1, "averageprice": 10,
+         "product": "MIS", "timestamp": 401 * day},
+        {"symbol": "B", "exchange": "NSE", "action": "SELL", "quantity": 1, "averageprice": 50,
+         "product": "MIS", "timestamp": 401 * day + 60},
+        # Sell with no buy in the list: unmatched, not taxed.
+        {"symbol": "C", "exchange": "NSE", "action": "SELL", "quantity": 4, "averageprice": 80,
+         "product": "CNC", "timestamp": 401 * day},
+    ]
+    g = delivery_gains(trades)
+    assert g["long_term"] == (300 - 100) * 10          # 2000
+    assert g["short_term"] == (300 - 200) * 5          # 500
+    assert g["matched_qty"] == 15 and g["unmatched_qty"] == 4
+    assert g["intraday_excluded"] == 2

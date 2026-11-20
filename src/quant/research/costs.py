@@ -46,6 +46,13 @@ class CostModel:
     stamp_buy_intraday: float = 0.00003
     gst_pct: float = 0.18
     impact_bps: float = 5.0
+    # Capital-gains tax on listed equity (STT paid), base rates. Surcharge is not modelled:
+    # it depends on the investor's total income. Cess is 4% on top of the tax.
+    stcg_rate: float = 0.20                # held 12 months or less
+    ltcg_rate: float = 0.125               # held more than 12 months
+    ltcg_exemption: float = 125_000.0      # Rs per financial year, LTCG only
+    ltcg_min_days: float = 365.0           # held strictly more than this many days
+    cess_pct: float = 0.04
 
     def trade_cost(self, notional: float, side: str, product: str = "delivery") -> float:
         """Total statutory cost plus flat impact for one fill, in currency units."""
@@ -78,6 +85,24 @@ class CostModel:
         sebi = self.sebi_fee_pct * 1e4
         gst = (brokerage + txn + sebi) * self.gst_pct   # GST on brokerage + txn + SEBI
         return brokerage + stt + txn + sebi + gst + stamp + self.impact_bps
+
+
+    def capital_gains_tax(self, short_term_gain: float, long_term_gain: float) -> dict:
+        """Tax on realised delivery gains, in currency units.
+
+        Short-term losses offset short-term gains; long-term losses offset long-term gains
+        (both are netted before the tax). The LTCG exemption applies to the net long-term
+        gain. A net loss owes no tax and is not carried here. Intraday (speculative) gains
+        are not passed in: they are business income taxed at slab rates, not STCG.
+        """
+        stcg_base = max(0.0, float(short_term_gain))
+        ltcg_base = max(0.0, float(long_term_gain) - self.ltcg_exemption)
+        stcg = stcg_base * self.stcg_rate * (1 + self.cess_pct)
+        ltcg = ltcg_base * self.ltcg_rate * (1 + self.cess_pct)
+        return {"stcg_inr": round(stcg, 2), "ltcg_inr": round(ltcg, 2),
+                "tax_inr": round(stcg + ltcg, 2),
+                "ltcg_exemption_used": round(min(float(long_term_gain), self.ltcg_exemption), 2)
+                if float(long_term_gain) > 0 else 0.0}
 
 
 def blue_cost_model():
