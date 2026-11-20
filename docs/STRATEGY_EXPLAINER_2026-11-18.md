@@ -99,8 +99,8 @@ This runs every bot cycle, every 5 minutes. The replay reads the whole history e
 
 ## What is still open
 
+- Unfilled shares are dropped when the MTF setup fails (owner confirmed 2026-11-20).
 - Profit lock before a conservative touch: none yet. The only protection is HTF L. This needs an owner decision (rules doc 15.8, D).
-- Unfilled shares are dropped when their MTF setup ends. Please confirm this is the rule you want (rules doc 15.8, F).
 - The partial-fill handling is coded but not yet tested on the paper broker.
 
 The replay's exit mode and target now come from the tree's own sizes, so they no longer depend on the old 1 % loss ceiling.
