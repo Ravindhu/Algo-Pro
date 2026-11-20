@@ -93,3 +93,66 @@ def test_get_holdings_posts_read_only_to_holdings_path():
     client.get_holdings("KEY")
     assert sent == [("http://127.0.0.1:5000/api/v1/holdings", {"apikey": "KEY"})]
     assert "placeorder" not in sent[0][0]
+
+
+# ---- hold days (tradebook) ----
+from datetime import datetime  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+from quant.reporting.portfolio_view import hold_days, open_since  # noqa: E402
+
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def _ts(day, hour=10):
+    return datetime(2026, 11, day, hour, 0, tzinfo=_IST).timestamp()
+
+
+def test_open_since_uses_the_last_rebuy_after_a_full_exit():
+    trades = [
+        {"symbol": "ABC", "exchange": "NSE", "action": "BUY", "quantity": 10, "timestamp": _ts(2)},
+        {"symbol": "ABC", "exchange": "NSE", "action": "SELL", "quantity": 10, "timestamp": _ts(3)},
+        {"symbol": "ABC", "exchange": "NSE", "action": "BUY", "quantity": 5, "timestamp": _ts(10)},
+        {"symbol": "XYZ", "exchange": "NSE", "action": "BUY", "quantity": 4, "timestamp": _ts(5)},
+        {"symbol": "XYZ", "exchange": "NSE", "action": "SELL", "quantity": 1, "timestamp": _ts(6)},
+    ]
+    start = open_since(trades)
+    assert start[("ABC", "NSE")] == _ts(10)
+    assert start[("XYZ", "NSE")] == _ts(5)
+
+
+def test_open_since_skips_flat_positions_and_bad_rows():
+    trades = [
+        {"symbol": "ABC", "exchange": "NSE", "action": "BUY", "quantity": 2, "timestamp": _ts(2)},
+        {"symbol": "ABC", "exchange": "NSE", "action": "SELL", "quantity": 2, "timestamp": _ts(4)},
+        {"symbol": "ABC", "exchange": "NSE", "action": "HOLD", "quantity": 2, "timestamp": _ts(4)},
+        {"symbol": "ABC", "exchange": "NSE", "action": "BUY", "quantity": 2, "timestamp": "not a time"},
+    ]
+    assert open_since(trades) == {}
+    assert open_since("not a list") == {}
+
+
+def test_hold_days_counts_ist_calendar_days_and_handles_unknown():
+    assert hold_days(_ts(2), _ts(20)) == 18
+    assert hold_days(None, _ts(20)) is None
+    assert hold_days(_ts(20, 9), _ts(20, 15)) == 0
+
+
+def test_reader_fills_hold_days_and_survives_tradebook_failure():
+    def fetch(key):
+        return _reply(1)
+
+    def trades_ok(key):
+        return {"status": "success", "data": [
+            {"symbol": "SYM0", "exchange": "NSE", "action": "BUY", "quantity": 10, "timestamp": _ts(2)}]}
+
+    reader = HoldingsReader(fetch, lambda: "k", lambda: _ts(20), trades=trades_ok)
+    assert reader.read()["holdings"][0]["hold_days"] == 18
+
+    def trades_down(key):
+        raise OSError("down")
+
+    reader = HoldingsReader(fetch, lambda: "k", lambda: _ts(20), trades=trades_down)
+    result = reader.read()
+    assert result["state"] == "broker_read"
+    assert result["holdings"][0]["hold_days"] is None

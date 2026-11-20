@@ -1,6 +1,6 @@
 // Service worker for the Algo Pro dashboard (M2). Caches the page shell only.
 // /api/* and any non-GET request always go to the network, never the cache.
-const SHELL = "algo-pro-shell-v1";
+const SHELL = "algo-pro-shell-v2"; // v2: flow_svg.js regenerated; drops the stale cached copy
 const SHELL_URLS = ["/ui", "/assets/icon.svg", "/assets/flow_svg.js", "/assets/pwa.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

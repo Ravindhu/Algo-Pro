@@ -190,7 +190,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     # Read-only holdings. mode is not used: get_holdings sends no order.
     openalgo = OpenAlgoClient(os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"),
                               transport=http_transport, mode="analyze")
-    portfolio = HoldingsReader(openalgo.get_holdings, OpenAlgoClient.api_key_from_env, time.time)
+    portfolio = HoldingsReader(openalgo.get_holdings, OpenAlgoClient.api_key_from_env, time.time,
+                               trades=openalgo.get_tradebook)
 
     async def reason_from(request: Request):
         """(reason, None) when valid, else (None, 422 response)."""

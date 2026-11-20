@@ -43,6 +43,7 @@ def _row(item: Dict) -> Dict:
         "ltp": _num(item.get("ltp")),
         "pnl": _num(item.get("pnl")),
         "pnlpercent": _num(item.get("pnlpercent")),
+        "hold_days": None,
     }
 
 
@@ -71,12 +72,78 @@ def build_portfolio(reply, as_of: str) -> Dict:
     }
 
 
+def _trade_seconds(item: Dict) -> Optional[float]:
+    """Trade time as epoch seconds, or None when the tradebook row has no readable time."""
+    for key in ("timestamp", "tradetime", "trade_time", "time", "date"):
+        value = item.get(key)
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, (int, float)):
+            if math.isfinite(value):
+                return float(value) / 1000 if value > 1e12 else float(value)
+            continue
+        text = str(value).strip()
+        for parse in (lambda t: datetime.fromisoformat(t.replace("Z", "+00:00")),
+                      lambda t: datetime.strptime(t, "%d-%m-%Y %H:%M:%S"),
+                      lambda t: datetime.strptime(t, "%d-%m-%Y")):
+            try:
+                moment = parse(text)
+            except ValueError:
+                continue
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=IST)
+            return moment.timestamp()
+    return None
+
+
+def open_since(trades) -> Dict[tuple, float]:
+    """Start time of each (symbol, exchange) position that is open now.
+
+    Walks the trades in time order. The start is the last moment the net quantity
+    went from flat to held, so a position closed and bought again counts from the rebuy.
+    """
+    rows = []
+    for item in trades if isinstance(trades, list) else []:
+        if not isinstance(item, dict):
+            continue
+        qty = _num(item.get("quantity"))
+        when = _trade_seconds(item)
+        action = str(item.get("action", "")).upper()
+        if qty is None or when is None or action not in ("BUY", "SELL"):
+            continue
+        key = (str(item.get("symbol", "")), str(item.get("exchange", "")))
+        rows.append((when, key, qty if action == "BUY" else -qty))
+    rows.sort(key=lambda r: r[0])
+    net: Dict[tuple, float] = {}
+    start: Dict[tuple, float] = {}
+    for when, key, signed in rows:
+        before = net.get(key, 0.0)
+        after = before + signed
+        net[key] = after
+        if before <= 0 < after:
+            start[key] = when
+        elif after <= 0:
+            start.pop(key, None)
+    return start
+
+
+def hold_days(start_seconds: Optional[float], now_seconds: float) -> Optional[int]:
+    """Calendar days from the start date to today, both in IST. None when the start is unknown."""
+    if start_seconds is None:
+        return None
+    start_day = datetime.fromtimestamp(start_seconds, IST).date()
+    today = datetime.fromtimestamp(now_seconds, IST).date()
+    return max(0, (today - start_day).days)
+
+
 class HoldingsReader:
     """Reads holdings at most once per CACHE_TTL_S. Errors are cached too, so a dead OpenAlgo is not hammered."""
 
     def __init__(self, fetch: Callable[[str], Dict], key_source: Callable[[], str],
-                 clock: Callable[[], float], ttl_s: float = CACHE_TTL_S) -> None:
+                 clock: Callable[[], float], ttl_s: float = CACHE_TTL_S,
+                 trades: Optional[Callable[[str], Dict]] = None) -> None:
         self._fetch = fetch
+        self._trades = trades
         self._key_source = key_source
         self._clock = clock
         self._ttl = ttl_s
@@ -95,7 +162,22 @@ class HoldingsReader:
         else:
             try:
                 result = build_portfolio(self._fetch(key), as_of)
+                self._add_hold_days(key, result, now)
             except Exception as exc:  # name the error type only: never echo the payload or key
                 result = _state("error", as_of, f"OpenAlgo unreachable ({type(exc).__name__})")
         self._cache, self._at = result, now
         return result
+
+    def _add_hold_days(self, key: str, result: Dict, now: float) -> None:
+        """Fill hold_days from the tradebook. Any failure leaves the column blank, never an error."""
+        if self._trades is None or result.get("state") != "broker_read":
+            return
+        try:
+            reply = self._trades(key)
+            trades = reply.get("data") if isinstance(reply, dict) and reply.get("status") == "success" else None
+            starts = open_since(trades)
+        except Exception:  # name nothing: the tradebook is optional
+            return
+        for row in result["holdings"]:
+            start = starts.get((row["symbol"], row["exchange"]))
+            row["hold_days"] = hold_days(start, now)

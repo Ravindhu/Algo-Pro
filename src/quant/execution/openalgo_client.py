@@ -94,6 +94,7 @@ class OpenAlgoClient:
     ANALYZER_PATH = "/api/v1/analyzer"
     ORDERSTATUS_PATH = "/api/v1/orderstatus"
     HOLDINGS_PATH = "/api/v1/holdings"
+    TRADEBOOK_PATH = "/api/v1/tradebook"
 
     def __init__(
         self,
@@ -291,6 +292,12 @@ class OpenAlgoClient:
         if not api_key:
             raise ValueError("holdings needs an API key")
         return self._transport(self.base_url + self.HOLDINGS_PATH, {"apikey": api_key})
+
+    def get_tradebook(self, api_key: str) -> Dict:
+        """Read today's trade list (a read, not an order). Used only for holding days in the portfolio header."""
+        if not api_key:
+            raise ValueError("tradebook needs an API key")
+        return self._transport(self.base_url + self.TRADEBOOK_PATH, {"apikey": api_key})
 
 
 class AnalyzeBroker:

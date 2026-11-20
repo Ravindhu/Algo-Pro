@@ -390,32 +390,6 @@
       <button type="button" id="sbclose">CLOSE ×</button>
     </div>
     <div class="sheet-b">
-      <div class="zones">
-        <div class="zone"><div class="zh">Header bar</div>
-          <div class="zrow"><small>Mode</small><b id="z-mode">—</b></div>
-          <div class="zrow"><small>Paper loop</small><b id="z-loop">—</b></div>
-          <div class="zrow"><small>Feed</small><b id="z-feed">—</b></div>
-          <div class="zalert">Alert: feed not connected or mode not normal. <span id="z-alert-feed" class="d">—</span></div>
-        </div>
-        <div class="zone"><div class="zh">P&amp;L strip</div>
-          <div class="zrow"><small>Gross P&amp;L (realized + unrealized)</small><b id="z-gross">—</b></div>
-          <div class="zrow"><small>Net P&amp;L after est. costs</small><b id="z-net">—</b></div>
-          <div class="zrow"><small>Slippage drag</small><b class="d">not recorded</b></div>
-          <div class="zalert">Alert: gross profit with net loss. <span class="d">needs tax rates</span></div>
-        </div>
-        <div class="zone"><div class="zh">Execution quality</div>
-          <div class="zrow"><small>Avg latency</small><b class="d">no data yet</b></div>
-          <div class="zrow"><small>Fill rate</small><b class="d">no data yet</b></div>
-          <div class="zrow"><small>Avg spread</small><b class="d">no data yet</b></div>
-          <div class="zalert">Alert: slippage above 2 ticks. <span class="d">needs fill log</span></div>
-        </div>
-        <div class="zone"><div class="zh">Active positions</div>
-          <div class="zrow"><small>Open</small><b id="z-open">—</b></div>
-          <div class="zrow"><small>Unrealized P&amp;L</small><b id="z-unreal">—</b></div>
-          <div class="zrow"><small>Margin used</small><b class="d">not set</b></div>
-          <div class="zalert">Alert: margin above 85%. <span class="d">margin not tracked</span></div>
-        </div>
-      </div>
   <section class="panel">
     <div class="ph">PAPER TRADING <span>simulated fills · no broker orders · no live money · ₹</span></div>
     <div class="big" id="pnl">—</div>
@@ -472,6 +446,32 @@
     </table></div>
     <p class="d" id="sb-note">Paper trading stats come from the paper ledger. They are not live market results.</p>
   </section>
+      <div class="zones">
+        <div class="zone"><div class="zh">Header bar</div>
+          <div class="zrow"><small>Mode</small><b id="z-mode">—</b></div>
+          <div class="zrow"><small>Paper loop</small><b id="z-loop">—</b></div>
+          <div class="zrow"><small>Feed</small><b id="z-feed">—</b></div>
+          <div class="zalert">Alert: feed not connected or mode not normal. <span id="z-alert-feed" class="d">—</span></div>
+        </div>
+        <div class="zone"><div class="zh">P&amp;L strip</div>
+          <div class="zrow"><small>Gross P&amp;L (realized + unrealized)</small><b id="z-gross">—</b></div>
+          <div class="zrow"><small>Net P&amp;L after est. costs</small><b id="z-net">—</b></div>
+          <div class="zrow"><small>Slippage drag</small><b class="d">not recorded</b></div>
+          <div class="zalert">Alert: gross profit with net loss. <span class="d">needs tax rates</span></div>
+        </div>
+        <div class="zone"><div class="zh">Execution quality</div>
+          <div class="zrow"><small>Avg latency</small><b class="d">no data yet</b></div>
+          <div class="zrow"><small>Fill rate</small><b class="d">no data yet</b></div>
+          <div class="zrow"><small>Avg spread</small><b class="d">no data yet</b></div>
+          <div class="zalert">Alert: slippage above 2 ticks. <span class="d">needs fill log</span></div>
+        </div>
+        <div class="zone"><div class="zh">Active positions</div>
+          <div class="zrow"><small>Open</small><b id="z-open">—</b></div>
+          <div class="zrow"><small>Unrealized P&amp;L</small><b id="z-unreal">—</b></div>
+          <div class="zrow"><small>Margin used</small><b class="d">not set</b></div>
+          <div class="zalert">Alert: margin above 85%. <span class="d">margin not tracked</span></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -510,7 +510,7 @@
       <section class="panel">
         <div class="ph">Holdings <span id="pf-rowsnote"></span></div>
         <div class="scroll"><table>
-          <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Value ₹</th><th class="n">P&amp;L ₹</th><th class="n">P&amp;L %</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Value ₹</th><th class="n">Hold days</th><th class="n">P&amp;L ₹</th><th class="n">P&amp;L %</th></tr></thead>
           <tbody id="pf-rows"></tbody>
         </table></div>
       </section>
@@ -1077,10 +1077,10 @@
         mini.append(fill); pctCell.append(mini);
       }
       tr.append(cell(h.symbol), cell(h.exchange || "—"), cell(h.quantity == null ? "—" : String(h.quantity), "n"),
-        cell(inr(h.average_price), "n"), cell(inr(h.ltp), "n"), cell(money(val), "n"),
+        cell(inr(h.average_price), "n"), cell(inr(h.ltp), "n"), cell(money(val), "n"), cell(h.hold_days == null ? "—" : String(h.hold_days), "n"),
         cell(money(h.pnl), "n " + sign(h.pnl)), pctCell);
       return tr;
-    }), p.state === "broker_read" ? "No holdings in the broker account." : "No holdings to show.", 8);
+    }), p.state === "broker_read" ? "No holdings in the broker account." : "No holdings to show.", 9);
     $("pf-rowsnote").textContent = p.truncated ? "first " + holdings.length + " of " + s.count : (holdings.length ? holdings.length + " shown" : "");
   }
 
