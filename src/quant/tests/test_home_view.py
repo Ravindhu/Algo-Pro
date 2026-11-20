@@ -69,3 +69,16 @@ def test_analysis_with_nav_history_reports_twrr_and_sharpe():
     assert out["twrr_pct"] is not None and out["twrr_pct"] > 0
     assert out["sharpe"] is not None
     assert len(out["nav_path"]) == len(rows) and out["nav_path"][0]["date"] == rows[0]["date"][:10]
+
+
+def test_screener_rows_carry_price_from_metrics(tmp_path):
+    import json
+    from quant.reporting import home_view
+    path = tmp_path / "last_screen.json"
+    path.write_text(json.dumps({"as_of": "x", "source": "s", "results": [
+        {"symbol": "AAA", "name": "A", "selected": True, "reason": "r", "metrics": {"current_price": 123.456}},
+        {"symbol": "BBB", "name": "B", "selected": True, "reason": "r", "metrics": {}},
+    ]}), encoding="utf-8")
+    out = home_view.read_screener(path)
+    prices = {r["symbol"]: r["price"] for r in out["rows"]}
+    assert prices == {"AAA": 123.46, "BBB": None}

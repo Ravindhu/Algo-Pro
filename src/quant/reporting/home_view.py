@@ -16,6 +16,7 @@ Status: PHASE 3 IMPLEMENTED (read-only; no order path)
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -41,17 +42,27 @@ def read_screener(path: Path = SCREEN_PATH) -> Dict[str, Any]:
     results = payload.get("results") if isinstance(payload, dict) else None
     results = results if isinstance(results, list) else []
     selected = [r for r in results if isinstance(r, dict) and r.get("selected")]
-    rows: List[Dict[str, str]] = [{
+    rows: List[Dict[str, Any]] = [{
         "symbol": str(r.get("symbol") or "")[:20],
         "name": str(r.get("name") or "")[:40],
         "status": "selected",
         "reason": str(r.get("reason") or "")[:120],
+        "price": _price(r),
     } for r in selected[:MAX_ROWS]]
     return {"state": "ok" if rows else "empty",
             "as_of": payload.get("as_of") if isinstance(payload, dict) else None,
             "source": str(payload.get("source") or "")[:120] if isinstance(payload, dict) else None,
             "count": len(selected), "rows": rows,
             "note": "" if rows else "The last screener run selected no names."}
+
+
+def _price(row: Dict[str, Any]) -> Optional[float]:
+    """Current price from the screener's own metrics (CMP), rounded; None when absent."""
+    metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    value = metrics.get("current_price", row.get("current_price"))
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return round(float(value), 2)
 
 
 def _pct(value: Any) -> Optional[float]:

@@ -94,7 +94,7 @@
   }
 
   /* top-right account box (moved from Settings, owner request 2026-11-12) */
-  .topright { position: relative; display: flex; justify-content: flex-end; padding-top: 6px; }
+  .topright { position: fixed; top: 8px; right: 14px; z-index: 30; }
   .acctbox { position: absolute; top: 46px; right: 0; z-index: 25; width: min(380px, 92vw); max-height: 80vh; overflow: auto; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; padding: 10px; }
   .acctbox[hidden] { display: none; }
   .profbtn { width: 36px; height: 36px; border-radius: 50%; padding: 0; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: #0a1420; border: 1px solid var(--cyan); color: var(--cyan); font-size: 11px; cursor: pointer; }
@@ -273,7 +273,9 @@
   /* ===== home layout: KPIs, three-column row, two-column row ===== */
   .home { padding-bottom: 16px; }
   .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 10px; }
-  .home-row3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.2fr); gap: 10px; padding-top: 10px; }
+  .home-row3 { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.7fr) minmax(0, 1.2fr); gap: 10px; padding-top: 10px; }
+  .eqhead { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--dim); margin: 0 0 6px; }
+  .eqhead b { color: var(--txt); font-weight: 800; }
   .home-row4 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-top: 10px; }
   .home .panel { min-width: 0; }
   .home .scroll { max-height: 260px; }
@@ -287,6 +289,13 @@
     .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .home-row4 { grid-template-columns: minmax(0, 1fr); }
   }
+  header { padding-right: 52px; }
+  .setup .limgrid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .setup .one { padding-top: 6px; }
+  .setup .one .panel::before, .setup .one .panel::after { display: none; }
+  .setup .one .panel { background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 8px 0 0; box-shadow: none; }
+  .setup form .row { grid-template-columns: minmax(0, 1fr) minmax(0, 150px); }
+  .setup form .row input { width: 100%; min-width: 0; }
 </style>
 
 <div class="topright">
@@ -373,7 +382,6 @@
     <div class="tile t-ok"><small>Invested</small><b id="rk-invested">—</b></div>
     <div class="tile t-warn"><small>Total P&amp;L</small><b id="rk-pnl">—</b></div>
     <div class="tile t-pink"><small>Return %</small><b id="rk-pnlpct">—</b></div>
-    <div class="tile"><small>MTM (real, ₹)</small><b id="rk-mtm">—</b></div>
     <div class="tile"><small>MTF % (real)</small><b id="rk-mtf">—</b></div>
     <div class="tile"><small>Cost of trading incl. tax &amp; MTF (est., % of invested)</small><b id="rk-cost">—</b></div>
   </div>
@@ -381,16 +389,25 @@
     <section class="panel">
       <div class="ph">Screener stocks <span id="scr-note"></span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Symbol</th><th>Name</th><th>Status</th><th>Reason</th></tr></thead>
+        <thead><tr><th>Symbol</th><th class="n">Price ₹</th></tr></thead>
         <tbody id="scr-rows"></tbody>
       </table></div>
     </section>
     <section class="panel">
       <div class="ph">Neural link <span>model view · animation only</span></div>
-      <svg id="neural" viewBox="0 0 380 240" style="height:auto"></svg>
+      <svg id="neural" viewBox="0 0 380 240" style="height:auto;min-height:300px;width:100%"></svg>
     </section>
     <section class="panel">
       <div class="ph">Real equity curve <span id="navnote">broker NAV</span></div>
+      <div class="eqhead">
+        <span>Total P&amp;L <b id="eq-pnl">—</b></span>
+        <span>Return <b id="eq-ret">—</b></span>
+        <span>TWRR <b id="eq-twrr">—</b></span>
+        <span>Sharpe <b id="eq-sharpe">—</b></span>
+        <span>Max DD <b id="eq-dd">—</b></span>
+        <span>Cost of trading <b id="eq-cost">—</b></span>
+        <span>MTF % <b id="eq-mtf">—</b></span>
+      </div>
       <svg id="navsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:150px;margin-top:6px">
         <polyline id="navline" fill="none" stroke="#3fd0ff" stroke-width="2" points=""/>
       </svg>
@@ -398,7 +415,7 @@
   </div>
   <div class="home-row4">
     <section class="panel">
-      <div class="ph">Real holdings <span id="rk-poscount"></span></div>
+      <div class="ph">Open positions <span>MTM ₹ <b id="rk-mtm">—</b> · <span id="rk-poscount"></span></span></div>
       <div class="scroll"><table>
         <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th><th class="n">Hold days</th></tr></thead>
         <tbody id="rk-pos-rows"></tbody>
@@ -791,10 +808,23 @@
       : scr.state === "not_run" ? "not run yet" : scr.state === "empty" ? "none selected" : "unavailable";
     renderTable($("scr-rows"), rows.map(x => {
       const tr = document.createElement("tr");
-      tr.append(cell(x.symbol || "—"), cell(x.name || "—"), cell("selected", "g"), cell(x.reason || "—"));
+      tr.append(cell(x.symbol || "—"), cell(inr(x.price), "n"));
       return tr;
-    }), scr.note || "No screener output yet.", 4);
+    }), scr.note || "No screener output yet.", 2);
     renderAnalysisTiles(o);
+    syncEquityHead();
+  }
+
+  // Equity curve header repeats figures from the KPI and analysis tiles (copied, never recalculated).
+  function syncEquityHead() {
+    const pairs = [["eq-pnl", "rk-pnl"], ["eq-ret", "rk-pnlpct"], ["eq-twrr", "rk-twrr"], ["eq-sharpe", "rk-sharpe"],
+                   ["eq-dd", "rk-maxdd"], ["eq-cost", "rk-cost"], ["eq-mtf", "rk-mtf"]];
+    for (const [to, from] of pairs) {
+      const src = $(from), dst = $(to);
+      if (!src || !dst) continue;
+      dst.textContent = src.textContent;
+      dst.className = src.className.replace("big-kpi", "").trim();
+    }
   }
 
   // Analysis tiles: values from /api/overview (analysis = Blue Engine NAV store; cost = paper estimate).
@@ -1278,6 +1308,7 @@
       + " + LTCG ₹" + Number(tc.ltcg_tax_inr || 0).toFixed(2) + " + MTF interest ₹" + Number(tc.interest_inr || 0).toFixed(2)
       + " · " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
     $("rk-poscount").textContent = p.state === "broker_read" ? rows.length + " holdings" : (PF_STATE[p.state] ? PF_STATE[p.state][0] : "");
+    syncEquityHead();
     renderTable($("rk-pos-rows"), rows.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
