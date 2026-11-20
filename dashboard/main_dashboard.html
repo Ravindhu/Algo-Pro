@@ -1,5 +1,5 @@
 <!-- Flow stage: Dashboard. Status: MAIN DASHBOARD (decision 0027). Reads /api/* and writes only through owner-protected routes (owner sign-in, or the server token for scripts). -->
-<title>Algo Pro NSE BSE Dashboard</title>
+<title>Algo Pro Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#050a12">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -68,9 +68,9 @@
   svg { width: 100%; height: auto; display: block; }
   input[type=number], input[type=password], input[type=text], select { width: 100%; min-width: 0; background: #050b14; color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font: inherit; }
   header input { width: 200px; min-width: 0; }
-  .setup { margin: 8px 0 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; }
+  .setup { width: min(560px, 94vw); max-height: 86vh; overflow: auto; margin: 0; padding: 12px; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; }
   .setup[hidden] { display: none; }
-  .setup .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+  .setup .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
   .setup label, form label { display: block; color: var(--dim); margin-bottom: 3px; }
   form .row { display: grid; grid-template-columns: 1fr 160px; gap: 4px 8px; align-items: center; margin-bottom: 4px; }
   form .row label { margin: 0; }
@@ -93,8 +93,13 @@
   }
 
   /* top-right account box (moved from Settings, owner request 2026-11-12) */
-  .topright { display: flex; justify-content: flex-end; padding-top: 8px; }
-  .acctbox { width: min(380px, 100%); }
+  .topright { position: relative; display: flex; justify-content: flex-end; padding-top: 6px; }
+  .acctbox { position: absolute; top: 46px; right: 0; z-index: 25; width: min(380px, 92vw); max-height: 80vh; overflow: auto; background: var(--panel); border: 1px solid var(--cyan); border-radius: 4px; padding: 10px; }
+  .acctbox[hidden] { display: none; }
+  .profbtn { width: 36px; height: 36px; border-radius: 50%; padding: 0; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: #0a1420; border: 1px solid var(--cyan); color: var(--cyan); font-size: 11px; cursor: pointer; }
+  .profbtn img { width: 100%; height: 100%; object-fit: cover; }
+  .profbtn [hidden] { display: none; }
+  a.brand { color: inherit; text-decoration: none; cursor: pointer; }
   .acctbox .sechead { font-size: 13px; margin: 0 0 4px; color: var(--cyan); }
   .acctbox input[type=password], .acctbox input[type=text], .acctbox input, .acctbox select { margin-bottom: 4px; }
   .acctbox button { margin: 2px 4px 2px 0; }
@@ -190,7 +195,8 @@
 </style>
 
 <div class="topright">
-  <section class="panel acctbox" id="acctbox">
+  <button type="button" class="profbtn" id="profbtn" aria-label="Account" aria-expanded="false" aria-controls="acctbox" title="Account"><img id="prof-img" alt="" hidden><span id="prof-init">AC</span></button>
+  <section class="panel acctbox" id="acctbox" hidden>
       <h2 class="sechead">Account</h2>
       <p id="acct-who" class="d"></p>
       <!-- signed-in panel: avatar + TOTP enrollment -->
@@ -243,7 +249,7 @@
 </div>
 
 <header>
-  <span class="brand">ALGO PRO // NSE·BSE</span>
+  <a class="brand" id="home" href="#" title="Main dashboard">ALGO PRO</a>
   <span class="chip" id="mode">mode —</span>
   <span class="chip" id="feed">feed —</span>
   <span class="chip" id="market">market —</span>
@@ -266,10 +272,13 @@
   <button class="go" id="killreset" type="button" title="Kill switch OFF. Owner sign-in needed; written to the override log">RESET</button>
   <span id="killmsg" class="d"></span>
 </header>
-<div class="clock" id="clock"></div>
 
-<div class="setup" id="setup" hidden>
-  <h2 style="margin:0 0 8px;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">saved to config/settings.yaml · owner sign-in needed</span></h2>
+<div class="modal" id="setupmodal" hidden role="dialog" aria-modal="true" aria-labelledby="setuptitle">
+<div class="setup" id="setup">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h2 id="setuptitle" style="margin:0;font-size:11px;color:var(--cyan);text-transform:uppercase;letter-spacing:.05em">Trade setup <span class="d">owner sign-in needed</span></h2>
+    <button type="button" id="setupclose" aria-label="Close trade setup">X</button>
+  </div>
   <form id="setupform" autocomplete="off">
     <div class="fields">
       <div><label for="su-risk">Risk per trade (% of equity)</label>
@@ -320,37 +329,12 @@
     <p class="d">Loss caps are a percent of the capital base. Saving them also sets the rupee caps the Risk gate reads (max daily loss, max strategy loss). Risk per trade is read by the sizing code. Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
   </form>
 </div>
-
-<div class="two">
-  <section class="panel">
-    <div class="ph">Risk <span>caps &amp; guards</span></div>
-    <div class="guard"><span>Mode</span><b id="r-mode">—</b></div>
-    <div class="guard"><span>Open exposure used</span><b id="r-risk">—</b></div>
-    <div class="bar"><i id="riskbar"></i></div>
-    <div class="guard"><span>Limits not set</span><b id="r-unset">—</b></div>
-    <div class="guard"><span>Feed</span><b id="r-feed">—</b></div>
-  </section>
-
-  <section class="panel">
-    <div class="ph">Safety events <span id="evcount"></span></div>
-    <div class="scroll"><table>
-      <thead><tr><th>Severity</th><th>Kind</th><th>Message</th></tr></thead>
-      <tbody id="events"></tbody>
-    </table></div>
-  </section>
 </div>
 
 <div class="one">
   <section class="panel">
     <div class="ph">Limits <span>current values · set new values below (owner sign-in needed) · <span id="unset"></span></span></div>
     <div class="limgrid">
-      <div>
-        <div class="d" style="margin-bottom:4px">Current (saved to config)</div>
-        <div class="scroll"><table>
-          <thead><tr><th>Limit</th><th class="n">Value</th></tr></thead>
-          <tbody id="limits"></tbody>
-        </table></div>
-      </div>
       <form id="limitform" autocomplete="off">
         <div class="d" style="margin-bottom:4px">Set new values</div>
         <div class="row"><label for="lim-blocked">blocked (stop all entries)</label>
@@ -361,10 +345,6 @@
           <input type="number" id="lim-max_order_notional" data-limit="max_order_notional" min="0" step="any"></div>
         <div class="row"><label for="lim-max_open_exposure">max open exposure (₹)</label>
           <input type="number" id="lim-max_open_exposure" data-limit="max_open_exposure" min="0" step="any"></div>
-        <div class="row"><label for="lim-max_daily_loss">max daily loss (₹, set as % in Trade setup)</label>
-          <input type="number" id="lim-max_daily_loss" data-limit="max_daily_loss" min="0" step="any" readonly></div>
-        <div class="row"><label for="lim-max_strategy_loss">max strategy loss (₹, set as % in Trade setup)</label>
-          <input type="number" id="lim-max_strategy_loss" data-limit="max_strategy_loss" min="0" step="any" readonly></div>
         <div class="row"><label for="lim-max_adv_pct">max share of ADV (0–1)</label>
           <input type="number" id="lim-max_adv_pct" data-limit="max_adv_pct" min="0" max="1" step="0.001"></div>
         <div class="row"><label for="lim-max_symbols_per_portfolio">max symbols per portfolio</label>
@@ -577,7 +557,7 @@
 <script>
   const $ = id => document.getElementById(id);
   const LIMIT_FIELDS = ["max_order_quantity", "max_order_notional", "max_open_exposure",
-                        "max_daily_loss", "max_strategy_loss", "max_adv_pct", "max_symbols_per_portfolio",
+                        "max_adv_pct", "max_symbols_per_portfolio",
                         "max_sector_pct", "max_beta", "max_cvar", "max_drawdown"];
   const BUDGET_OWNED = ["max_daily_loss", "max_strategy_loss"]; // set as % of capital in Trade setup
   const POLL_MS = 2000;   // never below 500 ms
@@ -650,7 +630,8 @@
     last = o;
     if (o.trading_mode) renderMode(o.trading_mode);
     if (o.market) {
-      setChip("market", o.market.open ? "NSE OPEN · closes 15:30 IST" : "NSE CLOSED · " + o.market.reason, o.market.open ? "ok" : "d");
+      setChip("market", o.market.open ? "MARKET OPEN · closes 15:30" : "MARKET CLOSED · " + o.market.reason, o.market.open ? "ok" : "d");
+      $("market").style.display = (!o.market.open && istMinutes() >= 930) ? "none" : "";
       $("market").title = o.market.verified ? o.market.holidays_loaded + " holidays loaded (NSE CM circular)" : "holiday calendar not verified";
     }
     loopRunning = !!(o.loop && o.loop.status === "running");
@@ -715,28 +696,11 @@
       ? "Only " + p.trades + " closed trades. EV is not statistically reliable below 30 trades. Paper data only."
       : "Paper trading stats come from the paper ledger. They are not live market results.";
 
-    $("r-mode").textContent = o.mode;
-    $("r-risk").textContent = pct(p.risk_utilisation);
-    $("riskbar").style.width = Math.min(100, (p.risk_utilisation || 0) * 100) + "%";
-    $("r-unset").textContent = o.unset_limits.length ? o.unset_limits.join(", ") : "none";
-    $("r-unset").className = o.unset_limits.length ? "a" : "g";
-    $("r-feed").textContent = o.feed.status;
     $("unset").textContent = o.unset_limits.length ? "not set: " + o.unset_limits.join(", ") : "all set";
 
 
-    renderTable($("events"), o.events.map(e => {
-      const tr = document.createElement("tr");
-      tr.append(cell(e.severity, e.severity === "CRITICAL" ? "r" : e.severity === "WARNING" ? "a" : "d"), cell(e.kind), cell(e.message));
-      return tr;
-    }), "No safety events.", 3);
-    $("evcount").textContent = o.events.length ? o.events.length + " shown" : "";
 
 
-    renderTable($("limits"), Object.entries(o.limits).filter(([k]) => k !== "blocked").map(([k, v]) => {
-      const tr = document.createElement("tr");
-      tr.append(cell(k), v == null ? cell("not set", "r n") : cell(String(v), "n"));
-      return tr;
-    }), "No limits.", 2);
 
     if (o.equity) drawEquity(o.equity);
     if (!formLoaded) fillForm(o.limits);
@@ -950,12 +914,12 @@
     }
   }
 
-  $("setupbtn").onclick = () => {
-    const panel = $("setup"), open = panel.hidden;
-    panel.hidden = !open;
-    $("setupbtn").setAttribute("aria-expanded", String(open));
-    if (open) loadSetup();
-  };
+  function openSetup() { $("setupmodal").hidden = false; $("setupbtn").setAttribute("aria-expanded", "true"); loadSetup(); $("setupclose").focus(); }
+  function closeSetup() { $("setupmodal").hidden = true; $("setupbtn").setAttribute("aria-expanded", "false"); $("setupbtn").focus(); }
+  $("setupbtn").onclick = () => $("setupmodal").hidden ? openSetup() : closeSetup();
+  $("setupclose").onclick = closeSetup;
+  $("setupmodal").addEventListener("click", e => { if (e.target === $("setupmodal")) closeSetup(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setupmodal").hidden) closeSetup(); });
   $("setupform").addEventListener("submit", saveSetup);
   for (const id of ["su-capital", "su-daily", "su-strat-loss"]) $(id).addEventListener("input", updateBudgetHint);
   $("limitform").addEventListener("submit", saveLimits);
@@ -1148,11 +1112,35 @@
   $("sbmodal").addEventListener("click", e => { if (e.target === $("sbmodal")) sbClose(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("sbmodal").hidden) sbClose(); });
 
-  // ---- Clock (IST) ----
-  const clock = $("clock");
-  function tick() { clock.textContent = new Date().toLocaleTimeString("en-GB", {hour12: false, timeZone: "Asia/Kolkata"}) + " IST"; }
-  tick(); setInterval(tick, 1000);
+  // IST minutes since midnight (used to hide the market chip after 15:30).
+  function istMinutes() { const p = new Date().toLocaleTimeString("en-GB", {hour12: false, timeZone: "Asia/Kolkata"}).split(":"); return Number(p[0]) * 60 + Number(p[1]); }
 
+  // Profile picture (top right) toggles the account box; ALGO PRO returns to the main dashboard.
+  function setAcct(open) { $("acctbox").hidden = !open; $("profbtn").setAttribute("aria-expanded", String(open)); }
+  $("profbtn").onclick = e => { e.stopPropagation(); setAcct($("acctbox").hidden); };
+  document.addEventListener("click", e => { if (!$("acctbox").hidden && !$("acctbox").contains(e.target)) setAcct(false); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") setAcct(false); });
+  function goHome() {
+    setAcct(false);
+    if (!$("setupmodal").hidden) closeSetup();
+    if (!$("flowmodal").hidden) closeFlow();
+    if (!$("pfmodal").hidden) closePortfolio();
+    if (!$("sbmodal").hidden) sbClose();
+    if (!$("setmodal").hidden) closeSettings();
+    window.scrollTo({top: 0, behavior: "smooth"});
+  }
+  $("home").onclick = e => { e.preventDefault(); goHome(); };
+  // Messages pop up only when they have text, then clear after 5 seconds.
+  (function autoClear() {
+    const timers = new WeakMap();
+    for (const id of ["modemsg", "loopmsg", "msg", "setupmsg", "killmsg", "engmsg", "acct-msg"]) {
+      const el = document.getElementById(id); if (!el) continue;
+      new MutationObserver(() => {
+        clearTimeout(timers.get(el));
+        if (el.textContent) timers.set(el, setTimeout(() => { el.textContent = ""; }, 5000));
+      }).observe(el, {childList: true, characterData: true, subtree: true});
+    }
+  })();
   loadSetup();
   loadAccount();
   refresh();
@@ -1261,6 +1249,9 @@
     const img = $("acct-avatar");
     if (who && res.j.avatar) { img.src = res.j.avatar; img.style.display = "inline"; }
     else img.style.display = "none";
+    const pimg = $("prof-img"), pinit = $("prof-init");
+    if (who && res.j.avatar) { pimg.src = res.j.avatar; pimg.hidden = false; pinit.hidden = true; }
+    else { pimg.hidden = true; pinit.hidden = false; }
     $("totp-remove").hidden = !res.j.totp_enabled;
     $("totp-key").textContent = "";
     if (res.j.login_enabled === false) sMsg("acct-msg", "Account login is off: set DASHBOARD_SESSION_SECRET on the server.", "r");
@@ -1361,7 +1352,7 @@
     $("pfbtn").classList.toggle("active", open("pfmodal"));
     $("sbbtn").classList.toggle("active", open("sbmodal"));
     $("setbtn").classList.toggle("active", open("setmodal"));
-    $("setupbtn").classList.toggle("active", !$("setup").hidden);
+    $("setupbtn").classList.toggle("active", !$("setupmodal").hidden);
   }
   document.querySelectorAll("header button").forEach(b => b.addEventListener("click", () => popMode(b)));
   setInterval(syncActive, 500);
