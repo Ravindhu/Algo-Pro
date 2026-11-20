@@ -38,6 +38,7 @@ from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.reporting.flow_status import node_statuses  # noqa: E402
 from quant.core.setup_store import apply_setup_updates, load_mtf_borrowed, read_setup  # noqa: E402
 from quant.reporting.portfolio_view import apply_margin  # noqa: E402
+from quant.execution.mstock_funds import read_mtf  # noqa: E402
 from quant.core.setup_store import BUDGET_OWNED_LIMITS, SETUP_LIMIT_KEYS  # noqa: E402
 from quant.core import recommendations as recs  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
@@ -726,7 +727,16 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             borrowed = load_mtf_borrowed(paths["settings"])
         except Exception:  # a bad settings file must not take the holdings page down
             borrowed = 0.0
-        return JSONResponse(apply_margin(payload, borrowed))
+        source, note = "manual", None
+        try:
+            live = read_mtf()  # Mstock fundsummary, read-only, cached 60 s; never raises
+        except Exception as exc:
+            live = {"state": "unavailable", "error": str(exc), "mtf": None}
+        if live.get("state") == "ok" and live["mtf"].get("mtf_utilize") is not None:
+            borrowed, source = live["mtf"]["mtf_utilize"], "mstock"
+        elif live.get("state") != "not_configured":
+            note = "Mstock MTF unavailable: " + str(live.get("error") or "unknown") + " (using Trade setup value)"
+        return JSONResponse(apply_margin(payload, borrowed, source=source, source_note=note))
 
     # ---------------- agent recommendations (apply-to-backend) ----------------
     # A recommendation is the agent's ADVICE for one parameter, stored by the

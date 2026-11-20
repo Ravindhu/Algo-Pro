@@ -1268,7 +1268,9 @@
     const mtf = p.mtf || {};
     $("rk-mtf").textContent = mtf.mtf_pct == null ? "—" : pctText(mtf.mtf_pct);
     $("rk-mtf").title = mtf.borrowed_inr != null ? "Borrowed ₹" + Number(mtf.borrowed_inr).toFixed(2)
-      + " · interest ₹" + Number(mtf.daily_interest_inr || 0).toFixed(2) + " a day at " + (mtf.annual_rate_pct || 12) + "% a year" : "";
+      + " · interest ₹" + Number(mtf.daily_interest_inr || 0).toFixed(2) + " a day at " + (mtf.annual_rate_pct || 12) + "% a year"
+      + " · source: " + (mtf.source === "mstock" ? "Mstock (live)" : "Trade setup (manual)")
+      + (mtf.source_note ? " · " + mtf.source_note : "") : "";
     // Cost of trading: statutory estimate on today's broker fills, % of invested. Labelled as an estimate.
     const tc = p.trade_cost || null;
     $("rk-cost").textContent = tc && tc.pct_of_invested != null ? Number(tc.pct_of_invested).toFixed(3) + "%" : "—";

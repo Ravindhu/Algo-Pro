@@ -185,7 +185,8 @@ def delivery_gains(trades, min_days: float = 365.0) -> Dict:
     return out
 
 
-def apply_margin(payload: Dict, borrowed_inr: float, model: Optional[CostModel] = None) -> Dict:
+def apply_margin(payload: Dict, borrowed_inr: float, model: Optional[CostModel] = None,
+                 source: str = "manual", source_note: Optional[str] = None) -> Dict:
     """Add MTF % and today's MTF interest to a portfolio payload (real money only).
 
     MTF % = borrowed / holdings value x 100. The day's interest (12 % a year, daily base) is
@@ -202,6 +203,8 @@ def apply_margin(payload: Dict, borrowed_inr: float, model: Optional[CostModel] 
         "mtf_pct": round(borrowed / value * 100, 4) if value else None,
         "annual_rate_pct": model.mtf_annual_rate * 100,
         "daily_interest_inr": interest,
+        "source": source,            # "mstock" (live) or "manual" (Trade setup)
+        "source_note": source_note,
     }
     cost = payload.get("trade_cost")
     if cost is None and borrowed > 0:

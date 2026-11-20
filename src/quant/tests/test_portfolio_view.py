@@ -270,3 +270,64 @@ def test_setup_store_saves_and_validates_mtf_borrowed(tmp_path):
     with pytest.raises(ValueError):
         apply_setup_updates(settings, strategies, limits, {"mtf_borrowed_inr": -1})
     assert load_mtf_borrowed(tmp_path / "missing.yaml") == 0.0
+
+
+def test_mstock_fund_summary_parses_mtf_fields_and_prefers_eq_row():
+    from quant.execution.mstock_funds import parse_fund_summary
+    body = {"status": "success", "data": [
+        {"SEG": "CO", "MTF_UTILIZE": "1"},
+        {"SEG": "EQ", "MTF_UTILIZE": "250,000.50", "MTF_COLLATERAL": 300000, "MTF_AVAILABLE_BALANCE": "10",
+         "AVAILABLE_BALANCE": 5000},
+    ]}
+    out = parse_fund_summary(body)
+    assert out["mtf_utilize"] == 250000.5 and out["mtf_collateral"] == 300000.0
+    assert out["available_balance"] == 5000.0
+
+
+def test_mstock_fetch_is_get_with_documented_headers_and_never_raises():
+    from quant.execution.mstock_funds import fetch_fund_summary
+
+    class Resp:
+        status_code = 200
+        def json(self):
+            return {"status": "success", "data": [{"SEG": "EQ", "MTF_UTILIZE": 100}]}
+
+    seen = {}
+    def fake_get(url, headers=None, timeout=None):
+        seen.update(url=url, headers=headers)
+        return Resp()
+    out = fetch_fund_summary("KEY", "JWT", get=fake_get)
+    assert out["state"] == "ok" and out["mtf"]["mtf_utilize"] == 100.0
+    assert seen["url"].endswith("/openapi/typeb/user/fundsummary")
+    assert seen["headers"]["Authorization"] == "token KEY:JWT"
+    assert seen["headers"]["X-Mirae-Version"] == "1"
+
+    def boom(*a, **k):
+        raise OSError("no route")
+    assert fetch_fund_summary("K", "T", get=boom)["state"] == "unavailable"
+
+
+def test_read_mtf_reports_not_configured_without_env_and_caches():
+    import quant.execution.mstock_funds as mf
+    mf._cache.update(at=None, value=None)
+    assert mf.read_mtf(environ={})["state"] == "not_configured"
+    calls = []
+    class Resp:
+        status_code = 200
+        def json(self):
+            return {"status": "success", "data": [{"SEG": "EQ", "MTF_UTILIZE": 7}]}
+    def get(*a, **k):
+        calls.append(1)
+        return Resp()
+    env = {"MSTOCK_API_KEY": "K", "MSTOCK_ACCESS_TOKEN": "T"}
+    first = mf.read_mtf(get=get, clock=lambda: 1000.0, environ=env)
+    second = mf.read_mtf(get=get, clock=lambda: 1010.0, environ=env)
+    assert first["state"] == "ok" and second is first and len(calls) == 1
+    mf._cache.update(at=None, value=None)
+
+
+def test_apply_margin_records_source_for_the_page():
+    from quant.reporting.portfolio_view import apply_margin
+    out = apply_margin({"summary": {"value": 100.0, "invested": 100.0}, "trade_cost": None},
+                       500.0, source="mstock")
+    assert out["mtf"]["source"] == "mstock" and out["mtf"]["mtf_pct"] == 500.0
