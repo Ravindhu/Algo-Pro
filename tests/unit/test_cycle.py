@@ -179,3 +179,26 @@ def test_no_atr_on_the_touch_bar_means_no_replayed_order():
     res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH),
                           target_r=3.0, equity=EQUITY, loss_ceiling=0.01, atr_by_time={})
     assert res is not None and res.entries == []
+
+
+def test_tree_decisions_are_empty_without_an_allocation():
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH),
+                          target_r=3.0, equity=EQUITY, loss_ceiling=0.01, atr_by_time=FLAT_ATR)
+    assert res.tree_decisions == []
+
+
+def test_tree_decisions_budget_the_full_cycle_at_the_owner_numbers():
+    """4 % allocation: the HTF OCL gets 0.8 %, its LTF OCL 0.16 %, and the leaf splits 0.096 % / 0.064 %."""
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH),
+                          target_r=3.0, equity=EQUITY, loss_ceiling=0.01, atr_by_time=FLAT_ATR,
+                          symbol_allocation_pct=4.0)
+    d = res.tree_decisions
+    htf_ocl = [x for x in d if x.event[0] == "htf_ocl"]
+    ltf_ocl = [x for x in d if x.event[0] == "ltf_ocl"]
+    agg = [x for x in d if x.event[0] == "ltf_agg_touch"]
+    cons = [x for x in d if x.event[0] == "ltf_cons_touch"]
+    assert htf_ocl and htf_ocl[0].fraction == pytest.approx(0.008)
+    assert ltf_ocl and ltf_ocl[0].fraction == pytest.approx(0.0016)
+    assert agg and agg[0].fraction == pytest.approx(0.00096)
+    assert cons and cons[0].fraction == pytest.approx(0.00064)
+    assert agg[0].refused is None and cons[0].refused is None

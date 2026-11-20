@@ -20,9 +20,10 @@ import copy
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _newest_setup, _ocl_start,
-                                            find_ocl_rrg, first_sweep_after, setup_low)
+from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _mtf_conservative, _newest_setup,
+                                            _ocl_start, find_ocl_rrg, first_sweep_after, setup_low)
 from quant.strategies.risk_ladder import RiskLadder
+from quant.strategies.risk_tree import plan as tree_plan
 
 
 @dataclass
@@ -47,6 +48,9 @@ class CycleResult:
     # Ordered LTF events for the risk ladder (rules doc 11 and plan P3):
     # (event, ocl_id, price, time) with event in aggressive | conservative | invalidated.
     events: List[Tuple[str, str, float, object]] = field(default_factory=list)
+    # Three-level risk tree decisions (risk_tree.plan) for the whole MTF setup, same list on every result.
+    # Each entry is a risk_tree.Decision: its event tuple ends with the event time. Empty = tree not set.
+    tree_decisions: list = field(default_factory=list)
 
 
 def _mtf_touch(kind: str, mtf) -> Optional[Tuple[object, Optional[object], float]]:
@@ -102,13 +106,13 @@ def _htf_invalid_time(htf, after_index: int, htf_low: float):
     return None
 
 
-def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
+def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time, tree=None):
     """Run the LTF OCL loop after after_time.
-    Returns (entries, any_conservative, status, end_time, paused). paused: waiting for a new LTF OCL."""
+    Returns (entries, any_conservative, status, end_time, paused). paused: waiting for a new LTF OCL.
+    tree (optional list): receives the timed LTF events for the risk tree (ocl formed, touches, invalidated)."""
     _, lh, ll, lc = _arrays(ltf)
     n_l = len(ltf) - 1
     entries: List[Entry] = []
-    events: List[Tuple[str, str, float, object]] = []
     events: List[Tuple[str, str, float, object]] = []
     cur = None
     prev_low = None
@@ -130,15 +134,21 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
             if lc[k] < cur["low"]:
                 prev_low = cur["low"]  # stop-out level closed: arm the wait for a new LTF OCL below it
                 events.append(("invalidated", cur["id"], cur["low"], t))
+                if tree is not None:
+                    tree.append(("ltf_invalidated", cur["id"], t))
                 cur = None
             else:
                 if not cur["agg_touched"] and ll[k] <= cur["agg"] <= lh[k]:
                     entries.append(Entry(t, cur["agg"], "aggressive", cur["id"]))
                     events.append(("aggressive", cur["id"], cur["agg"], t))
+                    if tree is not None:
+                        tree.append(("ltf_agg_touch", cur["id"], t))
                     cur["agg_touched"] = True
                 elif cur["agg_touched"] and not cur["cons_touched"] and ll[k] <= cur["cons"] <= lh[k]:
                     entries.append(Entry(t, cur["cons"], "conservative", cur["id"]))
                     events.append(("conservative", cur["id"], cur["cons"], t))
+                    if tree is not None:
+                        tree.append(("ltf_cons_touch", cur["id"], t))
                     cur["cons_touched"] = True
                     any_cons = True
                 continue
@@ -152,6 +162,8 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
             cur = {"id": str(ltf.index[k]), "end": k, "agg": o["key_level"], "cons": o["conservative"],
                    "low": float(min(ll[s: s + 3])), "agg_touched": False, "cons_touched": False}
             prev_low = None
+            if tree is not None:
+                tree.append(("ltf_ocl", cur["id"], t))
     paused = prev_low is not None and status == "waiting"
     return entries, any_cons, status, end_time, paused, events
 
@@ -209,12 +221,52 @@ def _finish(kind, status, htf_low, entries, any_cons, events, target_r, equity, 
                        htf_key_time=htf_key_time, ltf_paused=paused, events=events)
 
 
+def _htf_cons_touch_time(htf, hp: int, ocl: dict, inval_time):
+    """First HTF bar after the key touch whose range covers the HTF OCL's conservative level (before invalidation)."""
+    _, hh, hl, _ = _arrays(htf)
+    level = ocl["conservative"]
+    for q in range(hp + 1, len(htf)):
+        t = htf.index[q]
+        if inval_time is not None and t >= inval_time:
+            break
+        if hl[q] <= level <= hh[q]:
+            return t
+    return None
+
+
+def _mtf_cons_touch_time(kind: str, mtf, touch_time, mtf_inval_time):
+    """First MTF bar after the MTF touch whose range covers the setup's conservative level (before MTF invalidation)."""
+    setup = _newest_setup(mtf, kind)
+    if setup is None:
+        return None
+    end, _ = setup
+    cons = _mtf_conservative(mtf, kind, end)
+    if cons is None:
+        return None
+    _, mh, ml, _ = _arrays(mtf)
+    for k in range(mtf.index.get_loc(touch_time) + 1, len(mtf)):
+        t = mtf.index[k]
+        if mtf_inval_time is not None and t >= mtf_inval_time:
+            break
+        if ml[k] <= cons <= mh[k]:
+            return t
+    return None
+
+
+# Event kinds that belong to the MTF or HTF level: at the same time they come before LTF events.
+_HIGHER_LEVEL_EVENTS = ("htf_ocl", "htf_cons_touch", "htf_invalidated", "mtf_cons_touch")
+
+
 def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
                equity: Optional[float], loss_ceiling: Optional[float],
-               atr_by_time: Optional[dict] = None) -> List[CycleResult]:
+               atr_by_time: Optional[dict] = None,
+               symbol_allocation_pct: Optional[float] = None,
+               aggressive_share: float = 0.60) -> List[CycleResult]:
     """All HTF cycles in the history, in order. Empty list when no MTF setup has been touched.
     equity and loss_ceiling are the same values the bot uses (owner settings). loss_ceiling None = no
-    orders (fail closed)."""
+    orders (fail closed).
+    symbol_allocation_pct (owner tree, 2026-11-20): when given, every result gets tree_decisions from
+    risk_tree.plan over the whole MTF setup (MTF, HTF and LTF events in time order). None = no tree decisions."""
     if len(mtf) < 3 or len(htf) < 4 or len(ltf) < 4:
         return []
     got = _mtf_touch(kind, mtf)
@@ -229,6 +281,10 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
             return []
         start = htf.index[sweep[1]]
     results: List[CycleResult] = []
+    tree_events: list = []  # timed MTF / HTF / LTF events for risk_tree.plan (see _HIGHER_LEVEL_EVENTS)
+    mtf_cons_t = _mtf_cons_touch_time(kind, mtf, touch_time, mtf_inval_time)
+    if mtf_cons_t is not None:
+        tree_events.append(("mtf_cons_touch", mtf_cons_t))
     floor = None
     while True:
         h = _htf_stage(htf, start, floor)
@@ -238,24 +294,39 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
         htf_low = _htf_low(htf, m, ocl)
         key_time = htf.index[hp]
         inval_time = _htf_invalid_time(htf, hp, htf_low)
+        tree_events.append(("htf_ocl", str(key_time), key_time))
+        cons_t = _htf_cons_touch_time(htf, hp, ocl, inval_time)
+        if cons_t is not None:
+            tree_events.append(("htf_cons_touch", cons_t))
+        ltf_tree: list = []
         entries, any_cons, status, _, paused, events = _ltf_loop(ltf, key_time, htf_low, inval_time,
-                                                                 mtf_inval_time)
+                                                                 mtf_inval_time, tree=ltf_tree)
+        tree_events.extend(ltf_tree)
         results.append(_finish(kind, status, htf_low, entries, any_cons, events, target_r,
                                equity, loss_ceiling, htf_key_time=key_time, paused=paused,
                                atr_by_time=atr_by_time))
         if status != "htf_invalidated":
             break  # open, waiting or MTF invalidated: this is the end of the replay
+        tree_events.append(("htf_invalidated", inval_time))
         floor = htf_low
         start = inval_time  # the next HTF OCL must form after the invalidation
+    if symbol_allocation_pct is not None and results:
+        timed = [e for e in tree_events if mtf_inval_time is None or e[-1] < mtf_inval_time]
+        timed.sort(key=lambda e: (e[-1], 0 if e[0] in _HIGHER_LEVEL_EVENTS else 1))
+        decisions = tree_plan(timed, float(symbol_allocation_pct), aggressive_share)
+        for r in results:
+            r.tree_decisions = decisions
     return results
 
 
 def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
               equity: Optional[float], loss_ceiling: Optional[float],
-              atr_by_time: Optional[dict] = None) -> Optional[CycleResult]:
+              atr_by_time: Optional[dict] = None, symbol_allocation_pct: Optional[float] = None,
+              aggressive_share: float = 0.60) -> Optional[CycleResult]:
     """The last cycle in the history (the current one), or None when no cycle exists."""
     results = run_cycles(kind, mtf, htf, ltf, target_r, equity=equity, loss_ceiling=loss_ceiling,
-                         atr_by_time=atr_by_time)
+                         atr_by_time=atr_by_time, symbol_allocation_pct=symbol_allocation_pct,
+                         aggressive_share=aggressive_share)
     return results[-1] if results else None
 
 

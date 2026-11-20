@@ -188,3 +188,11 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   Tests: tests/unit/test_risk_tree.py (35 pass). Not yet wired into replay (cycle.py) or bot (strategy_bot.py).
   Remaining for step 1: replay emits the events and budgets; bot sizes from them; carry across HTF OCLs inside
   one MTF cycle; replace the 1 % / 3 % ceilings with symbol and portfolio caps.
+- 2026-11-20 STEP 1a DONE (replay only, additive): cycle.py run_cycles(symbol_allocation_pct=, aggressive_share=)
+  emits timed MTF (mtf_cons_touch), HTF (htf_ocl, htf_cons_touch, htf_invalidated) and LTF (ltf_ocl, ltf_agg_touch,
+  ltf_cons_touch, ltf_invalidated) events, merged in time order, and attaches risk_tree.plan decisions to each
+  CycleResult.tree_decisions. Without an allocation the list is empty, so existing behaviour is unchanged.
+  Tests: tests/unit/test_cycle.py (17 pass, incl. 4 % owner numbers). Not tested on a fixture with an MTF or HTF
+  conservative touch (the detection code runs but has no dedicated test yet).
+  NOT YET: bot sizes from tree_decisions; carry across HTF OCLs inside one MTF cycle; replace the 1 % / 3 %
+  ceilings; dashboard ratio field.
