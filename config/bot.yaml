@@ -32,10 +32,7 @@ data_sources_path: config/data_sources.yaml
 #     - ocl_seq
 #     - ocl_sell_fail_top_seq
 #     - ocl_sell_fail_bottom_seq
-#     - name: ocl             # legacy OCL class (polls the client), not the sequence above
-#       params: {...}
-#     - name: ocl
-#       params: {symbol: RELIANCE, htf_interval: 5m, ltf_interval: 1m, one_shot: true}
+# (The legacy OCL classes ocl, ocl_sell_fail_top and ocl_sell_fail_bottom were retired 2026-11-20.)
 strategies:
   - engulfing
   - engulfing_fail

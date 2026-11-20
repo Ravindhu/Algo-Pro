@@ -41,7 +41,6 @@ from quant.risk.controls import HaltHandler  # noqa: E402
 from quant.risk.gate import RiskState  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.strategies.engulfing.engulfing import Engulfing  # noqa: E402
-from quant.strategies.ocl.adapter import OCL_STRATEGIES, OclStrategyAdapter  # noqa: E402
 
 STOP_FLAG = "stop.flag"
 
@@ -81,15 +80,6 @@ def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None,
         cyc = load_cycle_settings(ROOT / "config" / "settings.yaml")
         return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"],
                                 equity=equity, loss_ceiling=loss_ceiling)
-    # OCL strategies (ocl, ocl_sell_fail_top, ocl_sell_fail_bottom) go through the bar adapter:
-    # they poll a client, so the adapter serves them the bot's own closed bars. Per-symbol
-    # settings come from config/bot.yaml strategies.<name>.params (pattern, HTF/LTF intervals,
-    # trigger level, exec mode...). Keys are passed straight through to the OCL class.
-    ocl = OCL_STRATEGIES()
-    if name in ocl:
-        params = dict((strategy_params or {}).get(name, {}))
-        params.setdefault("symbol", PAPER_SYMBOL_LABEL)
-        return OclStrategyAdapter(name, ocl[name], params)
     raise BotRefused(f"strategy {name!r} is not wired into the bot runner")
 
 

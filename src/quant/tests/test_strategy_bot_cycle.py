@@ -401,3 +401,10 @@ def test_portfolio_ceiling_allows_a_probe_within_three_percent(tmp_path):
     bot, audit = _bot(tmp_path, strat, portfolio_ceiling=0.03)
     bot.cycle(NOW)
     assert _child_qtys(audit) == [500]
+
+
+def test_adv_cap_is_one_percent_of_average_daily_volume_and_fails_safe():
+    from quant.execution.strategy_bot import _adv_cap_qty
+    assert _adv_cap_qty(0.01, 250_000) == 2500         # 1 % of 2.5 lakh shares
+    assert _adv_cap_qty(0.01, 99) == 0                 # tiny volume: nothing allowed
+    assert _adv_cap_qty(None, 250_000) > 10**9         # not set: this helper does not cap (gate still refuses)

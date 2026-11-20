@@ -1,8 +1,8 @@
 """Flow stage: Signal and conviction (engulfing candle logic).
 Status: TESTS WRITTEN; run result is in the commit message.
 
-Checks the engulfing candle rules, parity between the DataFrame and single-candle forms, and that the
-sell-failure strategies use the engulfing check while the plain OCL file does not.
+Checks the engulfing candle rules and parity between the DataFrame and single-candle forms.
+(The old OCL classes were retired 2026-11-20.)
 """
 import numpy as np
 import pandas as pd
@@ -15,8 +15,6 @@ from quant.indicators.engulfing import (
     engulfing_bull_pair,
     fib_entry_level,
 )
-from quant.strategies.ocl.ocl import OclSignal
-from quant.strategies.ocl.ocl_sell_fail_top import OclSellFailTopSignal
 
 
 def _c(o, h, l, c):
@@ -75,29 +73,3 @@ def test_dataframe_and_pair_forms_agree_on_random_bars():
             bear = engulfing_bear_pair(prev, cur, min_body)
             expected = 1 if bull else (-1 if bear else 0)
             assert series[i] == expected, (i, min_body)
-
-
-class _FailingClient:
-    def history(self, **kwargs):
-        return {"status": "error", "message": "test"}
-
-
-def _cfg():
-    return {"symbol": "INFY", "exchange": "NSE", "poll_seconds": 0, "setup_mode": "SELL_FAILURE_TOP",
-            "htf_interval": "15m", "ltf_interval": "5m", "quantity": 1}
-
-
-def test_sell_failure_top_uses_engulfing_check():
-    s = OclSellFailTopSignal(_FailingClient(), _cfg())
-    prev = _c(9.0, 10.1, 8.9, 10.0)       # green C2
-    engulf = _c(10.2, 10.3, 8.8, 8.9)     # red C3 engulfs C2
-    not_engulf = _c(9.5, 9.6, 9.0, 9.1)   # red C3 that does not engulf
-    assert s._is_sell_engulfing(prev, engulf) is True
-    assert s._is_sell_engulfing(prev, not_engulf) is False
-
-
-def test_plain_ocl_file_keeps_original_logic():
-    s = OclSignal(_FailingClient(), {"symbol": "INFY", "exchange": "NSE", "poll_seconds": 0,
-                                     "htf_interval": "15m", "ltf_interval": "5m", "quantity": 1})
-    assert not hasattr(s, "_is_sell_engulfing")
-    assert hasattr(s, "_is_sell_sequence")

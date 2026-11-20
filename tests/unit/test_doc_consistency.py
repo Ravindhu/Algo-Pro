@@ -71,19 +71,16 @@ def test_screener_writer_claim_is_accurate():
 
 
 def test_ocl_strategies_claim_is_accurate():
-    """The doc used to say OCL strategies were not in the bot."""
-    adapter = SRC / "strategies" / "ocl" / "adapter.py"
-    assert adapter.is_file()
+    """The legacy OCL classes were retired 2026-11-20. The sequence strategies replace them in the bot."""
+    assert not (SRC / "strategies" / "ocl" / "adapter.py").exists()
     assert "ocl strategies are not in the bot" not in _doc_live().lower()
 
 
 def test_dv_atr_claim_is_accurate():
-    """The doc used to say DV-ATR was not implemented; it is, in the strategies."""
-    strategy = SRC / "strategies" / "ocl" / "ocl_sell_fail_top.py"
-    text = strategy.read_text(encoding="utf-8")
-    assert "DV-ATR" in text or "_dvs_" in text
+    """DV-ATR lived only in the retired ocl_sell_fail_top class (2026-11-20). The doc must not claim it is live,
+    and exit_manager must not apply it."""
+    assert not (SRC / "strategies" / "ocl" / "ocl_sell_fail_top.py").exists()
     assert "DV-ATR is not implemented" not in _doc_live()
-    # But exit_manager must NOT apply it: DV-ATR is the strategy's own management.
     exit_mgr = (SRC / "execution" / "exit_manager.py").read_text(encoding="utf-8")
     assert "_dvs_stop" not in exit_mgr
 

@@ -180,6 +180,24 @@ def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
     raise ValueError(f"unknown setup kind {kind!r}")
 
 
+def _sell_fail_confirmation(mtf: pd.DataFrame, end: int, level: float) -> Optional[int]:
+    """Sell-fail confirmation (owner 2026-11-20, rules 3.3): the first MTF close above `level` after the
+    pattern must be a green candle with a body over 50 %. That candle is the trigger and confirms the pattern.
+    Any other first close above the level voids the pattern (returns None). Index of the trigger, or None."""
+    o, _, _, c = _arrays(mtf)
+    h = mtf["high"].to_numpy(dtype=float)
+    for k in range(end + 1, len(mtf)):
+        if c[k] > level:
+            return k if (c[k] > o[k] and _body_over_half(o, h, mtf["low"].to_numpy(dtype=float), c, k)) else None
+    return None
+
+
+def _sell_fail_level(mtf: pd.DataFrame, end: int) -> float:
+    """Level the trigger must close above: the highest HIGH of the two engulfing candles (rules 3.3)."""
+    h = mtf["high"].to_numpy(dtype=float)
+    return float(max(h[end - 1], h[end]))
+
+
 def _mtf_conservative(mtf: pd.DataFrame, kind: str, end: int) -> Optional[float]:
     """Conservative level of the MTF setup that ends at candle `end` (see rules section 4.1)."""
     mo, _, _, mc = _arrays(mtf)
@@ -212,7 +230,14 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     conservative_level = _mtf_conservative(mtf, kind, end)
     _, mh, ml, _ = _arrays(mtf)
     n_m = len(mtf) - 1
-    touch = next((k for k in range(end + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
+    first_touch_bar = end + 1
+    if kind == "egpattern_body":
+        # Sell-fail confirmation first (owner 2026-11-20): the pattern counts only after its trigger candle.
+        trig = _sell_fail_confirmation(mtf, end, _sell_fail_level(mtf, end))
+        if trig is None:
+            return None
+        first_touch_bar = trig + 1
+    touch = next((k for k in range(first_touch_bar, n_m + 1) if ml[k] <= level <= mh[k]), None)
     if touch is None:
         return None
     touch_time = mtf.index[touch]

@@ -186,11 +186,12 @@ def test_engulf_sequence_short_history_is_safe():
 MTF_OCL_TOUCH = (11.3, 11.8, 10.9, 11.5)    # touches OCL key 11.0 and OCL top 11.6
 MTF_OCL_BOTTOM_TOUCH = (9.5, 9.6, 8.9, 9.2)  # touches OCL bottom 9.0
 MTF_EG_HIGH_TOUCH = (10.8, 11.2, 10.5, 10.9)  # body-top level is 10.8 (green body top); this bar touches it
+SELL_FAIL_TRIGGER = (10.9, 11.6, 10.8, 11.4)  # green, body 0.5 of range 0.8 (>50 %), closes above the pattern high 11.0
 
 
 @pytest.mark.parametrize("kind, mtf_rows", [
     ("egpattern_open", [RED, GREEN_ENGULF, ENG_M_TOUCH]),
-    ("egpattern_body", [RED, GREEN_ENGULF, MTF_EG_HIGH_TOUCH]),
+    ("egpattern_body", [RED, GREEN_ENGULF, SELL_FAIL_TRIGGER, MTF_EG_HIGH_TOUCH]),
     ("ocl_key", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
     ("ocl_top", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
     ("ocl_bottom", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]),
@@ -291,3 +292,25 @@ def test_ocl_top_level_uses_pattern_c1_to_c3_not_the_four_candle_trigger():
     _, level = op._newest_setup(mtf, "ocl_top")
     assert level == 10.0            # highest body top of C1..C3 only
     assert op._mtf_conservative(mtf, "ocl_top", 3) == 9.0   # open of C3 (candle before the 4-candle trigger)
+
+
+# ---- sell-fail confirmation for engulfing_fail (owner 2026-11-20) ----
+def _eg_fail_seq(trigger, touch=MTF_EG_HIGH_TOUCH):
+    mtf = _frame([RED, GREEN_ENGULF, trigger, touch])
+    return op.sequence(mtf, _frame(HTF_BARS), _ltf_with_ocl(), kind="egpattern_body")
+
+
+def test_engulfing_fail_needs_the_sell_fail_trigger_candle():
+    assert _eg_fail_seq((10.9, 10.95, 10.6, 10.7)) is None          # no close above the high 11.0
+
+
+def test_sell_fail_trigger_must_be_green_with_body_over_half():
+    red_trigger = (11.4, 11.6, 10.8, 10.9)                           # closes above 11.0 but is red
+    small_body = (10.9, 11.6, 10.8, 11.05)                           # green but body 0.15 of range 0.8
+    assert _eg_fail_seq(red_trigger) is None
+    assert _eg_fail_seq(small_body) is None
+
+
+def test_an_earlier_close_above_the_level_voids_the_sell_fail_pattern():
+    early = (10.9, 11.5, 10.8, 11.2)                                  # first close above 11.0, not a trigger
+    assert _eg_fail_seq(early) is None

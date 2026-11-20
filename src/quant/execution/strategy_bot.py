@@ -335,6 +335,14 @@ def _cap_to_owner_order(qty: int, price: float) -> int:
     return max(0, limit)
 
 
+def _adv_cap_qty(max_adv_pct: Optional[float], adv_shares: Optional[float]) -> int:
+    """Shares allowed by the liquidity cap: floor(max_adv_pct x average daily volume). No cap or no
+    volume figure gives a very large number (the gate's own liquidity check still refuses unset caps)."""
+    if max_adv_pct is None or adv_shares is None or not math.isfinite(float(adv_shares)):
+        return 10**12
+    return max(0, int(math.floor(float(max_adv_pct) * float(adv_shares))))
+
+
 class StrategyBot:
     def __init__(
         self,
@@ -799,6 +807,8 @@ class StrategyBot:
             # Owner 2026-11-19 (rule 26): per-order caps CLAMP the child; the rest is carried below.
             # The gate is asked for the capped size, so it approves that size instead of refusing.
             sized = _cap_to_owner_order(total, float(price))
+            # Liquidity (owner 2026-11-20): at most max_adv_pct of the average daily volume, clamped the same way.
+            sized = min(sized, _adv_cap_qty(self._limits.max_adv_pct, stats.get("adv_shares")))
             risk_frac = sized * sl_dist / float(ladder.equity) * (1.0 + 1e-9)
             intent = self._gate_entry(key, sig, strat, sym, circuit_pct, stats, now, ref_price=float(price),
                                       risk_fraction=risk_frac, equity=float(ladder.equity))
