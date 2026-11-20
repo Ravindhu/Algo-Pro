@@ -308,6 +308,7 @@ class _Parent:
     paused: bool = False             # LTF stop-out closed: no slicing until the next LTF OCL touch
     ladder: Any = None               # RiskLadder state of this HTF cycle (plan P3); saved with the parent
     events_done: int = 0             # how many replay events of this cycle were handled
+    allocation_pct: Optional[float] = None  # owner tree: symbol allocation (percent) locked when the cycle opened
 
 
 class _BotBook:
@@ -321,6 +322,19 @@ class _BotBook:
 
 
 _TREE_TOUCH = {"aggressive": "ltf_agg_touch", "conservative": "ltf_cons_touch"}
+
+
+def symbol_allocations(symbols, portfolio_pct: float, symbol_cap_pct: float) -> Dict[str, float]:
+    """Per-symbol allocation in percent of equity. Equal scores, each symbol capped at symbol_cap_pct, total
+    at most portfolio_pct; unused share is redistributed by the allocator (portfolio/allocator.py).
+    One symbol = the cap (4); two = 2.5 each; five = 1 each (owner tree 2026-11-20)."""
+    from quant.portfolio.allocator import allocate_report
+    syms = list(dict.fromkeys(str(s) for s in symbols))
+    if not syms:
+        return {}
+    rep = allocate_report(float(portfolio_pct), {s: 1.0 for s in syms},
+                          {s: float(symbol_cap_pct) for s in syms})
+    return {s: float(v) for s, v in rep["allocated"].items() if v > 0}
 
 
 def _cap_to_owner_order(qty: int, price: float) -> int:
@@ -376,6 +390,7 @@ class StrategyBot:
         depth_provider: Optional[Callable[[str], Any]] = None,
         cycle_loss_ceiling: Optional[float] = None,
         cycle_portfolio_loss_ceiling: Optional[float] = None,
+        cycle_symbol_allocation_pct: Optional[float] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -450,6 +465,10 @@ class StrategyBot:
         # Owner 2026-11-19: planned risk at the HTF stops across ALL open cycles (all symbols) may not exceed this
         # fraction of equity. None = not set = no new ladder order (fail closed).
         self._cycle_portfolio_loss_ceiling = cycle_portfolio_loss_ceiling
+        # Owner tree (2026-11-20): symbol cap in percent (4). Set = tree mode: each symbol's allocation comes from
+        # the portfolio allocator over the screen's symbols (5 % portfolio, 4 % per symbol). None = old ladder path.
+        self._cycle_symbol_cap_pct = cycle_symbol_allocation_pct
+        self._alloc_map: Dict[str, float] = {}
         self._pre_gate = pre_gate if pre_gate is not None else PreGate(
             PreGateConfig(
                 max_sector_pct=getattr(limits, "max_sector_pct", None),
@@ -571,6 +590,7 @@ class StrategyBot:
         self._funds = self._safe_funds()
         symbols = read_screen(self.cfg.screen_path, now, self.cfg.max_screen_age_minutes)
         self._log("screen", count=len(symbols), symbols=[s["symbol"] for s in symbols])
+        self._alloc_map = self._compute_alloc_map([s["symbol"] for s in symbols]) if self._tree_mode() else {}
 
         bars_cache: Dict[str, Any] = {}
         guard_ok = self._run_entry_guard()
@@ -733,8 +753,10 @@ class StrategyBot:
         at its own price against the HTF OCL low, and the full risk gate must approve it. The gate sees the
         whole order (fresh shares plus carried shares). Only events on the newest closed LTF bar can act
         (freshness); older events are skipped. The HTF OCL low is the stop for every order."""
+        cfg_tree = self._tree_mode()  # bot configured with a symbol cap (owner tree)
+        alloc = self._alloc_map.get(sym) if cfg_tree else None
         try:
-            view = strat.cycle_for(sym, now)
+            view = strat.cycle_for(sym, now, allocation_pct=alloc) if cfg_tree else strat.cycle_for(sym, now)
         except Exception as exc:
             self._log("strategy_error", strategy=strat.name, symbol=sym, error=repr(exc))
             return
@@ -765,6 +787,14 @@ class StrategyBot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason="target N not set")
             return
         parent = self._parents.get(key)
+        if tree_mode and parent is not None and parent.allocation_pct is not None \
+                and alloc != parent.allocation_pct:  # tree_mode here = this cycle carries tree decisions
+            # Lock (owner tree): an open cycle keeps the allocation it opened with, even if the screen changed.
+            view = strat.cycle_for(sym, now, allocation_pct=parent.allocation_pct)
+            if view is None or not view.results:
+                return
+            cur = view.results[-1]
+            alloc = parent.allocation_pct
         if parent is None and (key in self._cycle_done or key in self._positions):
             return  # never a second parent for the same HTF cycle
         if parent is None and view.atr is None:
@@ -773,6 +803,12 @@ class StrategyBot:
             return
         ladder = parent.ladder if parent is not None else None
         tree_idx = self._tree_index(cur)  # owner tree (2026-11-20): budgets come from risk_tree.plan
+        if tree_mode and cur.events and (alloc is None or alloc <= 0):
+            self._log("tree_no_allocation", strategy=strat.name, symbol=sym)  # fail closed
+            return
+        if tree_mode and tree_idx is None and cur.events:
+            self._log("tree_missing", strategy=strat.name, symbol=sym)  # fail closed: no old-ladder fallback
+            return
         pool_in = int(self._mtf_carry.get(mtf_id, 0)) if (tree_idx is not None and parent is None and mtf_id) else 0
         if ladder is None:
             if tree_idx is None and self._cycle_loss_ceiling is None:
@@ -864,6 +900,7 @@ class StrategyBot:
             fresh = max(0, order.qty - order.carry)
             if parent is None:
                 parent = _Parent(key=key, intent=intent, remaining=int(order.carry), circuit_pct=circuit_pct,
+                                 allocation_pct=alloc,
                                  stop=float(cur.htf_low), target=cur.target, atr=view.atr,
                                  strategy=strat.name, adv_shares=stats["adv_shares"],
                                  prev_close=stats["prev_close"], cycle=True, trail=False, paused=False,
@@ -890,6 +927,16 @@ class StrategyBot:
             pos.target = cur.target
             pos.trail_from_start = parent.trail
         self._persist_positions()
+
+    def _tree_mode(self) -> bool:
+        return self._cycle_symbol_cap_pct is not None
+
+    def _compute_alloc_map(self, symbols: List[str]) -> Dict[str, float]:
+        """Per-symbol allocation (percent of equity) for this cycle, from the portfolio allocator."""
+        if not symbols or self._cycle_portfolio_loss_ceiling is None:
+            return {}  # portfolio cap not set: no allocation, so no tree order (fail closed)
+        return symbol_allocations(symbols, float(self._cycle_portfolio_loss_ceiling) * 100.0,
+                                  float(self._cycle_symbol_cap_pct))
 
     @staticmethod
     def _tree_index(cur) -> Optional[dict]:

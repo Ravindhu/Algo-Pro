@@ -46,7 +46,8 @@ class SequenceStrategy:
     def signal(self, df) -> Optional[dict]:
         return None  # needs the three timeframes, so the bot calls signal_for instead
 
-    def cycle_for(self, symbol: str, now: datetime) -> Optional[CycleView]:
+    def cycle_for(self, symbol: str, now: datetime, allocation_pct: Optional[float] = None) -> Optional[CycleView]:
+        """allocation_pct (percent of equity) overrides the configured symbol allocation for this symbol."""
         frames = self._feed.closed_frames(symbol, now)
         if frames is None:
             return None
@@ -66,7 +67,8 @@ class SequenceStrategy:
             atr_val = series[-1]
         results = run_cycles(self.kind, mtf, htf, ltf, target_r=self.target_r,
                              equity=self.equity, loss_ceiling=self.loss_ceiling, atr_by_time=atr_map,
-                             symbol_allocation_pct=self.symbol_allocation_pct,
+                             symbol_allocation_pct=(allocation_pct if allocation_pct is not None
+                                                    else self.symbol_allocation_pct),
                              aggressive_share=self.aggressive_share)
         if not results or len(ltf) == 0:
             return None

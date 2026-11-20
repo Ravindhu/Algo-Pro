@@ -207,3 +207,19 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   OPEN: symbol_allocation_pct is a static 4.0 until the portfolio engine sets it per symbol. The tree
   MTF / HTF conservative touch detection has no dedicated fixture test. The live approval hash needs
   re-approval after the settings change (live stays OFF).
+- 2026-11-20 STEP 2 DONE (static allocation gap closed): symbol allocation now comes from the portfolio
+  engine. strategy_bot.symbol_allocations(symbols, 5 %, 4 % cap) calls portfolio/allocator.allocate_report
+  (equal scores): 1 symbol 4.0, 2 symbols 2.5 each, 5 symbols 1.0 each. cycle() computes the map from the
+  screen each run; cycle_for(sym, now, allocation_pct=...) passes it to the replay. An open cycle locks its
+  allocation on the parent (allocation_pct) and keeps it if the screen changes. Fail closed: no allocation
+  for a symbol with tree events -> tree_no_allocation, no order (no old-ladder fallback). Config cap:
+  cycle.symbol_allocation_pct (4.0) and portfolio_loss_ceiling (5 %).
+  Tests: test_strategy_bot_cycle.py 26 (allocator values, fail-closed, tree sizing via real allocator path).
+- 2026-11-20 STEP 3 DONE (conservative-touch detection tests): tests/unit/test_cons_touch.py (9 tests).
+  HTF: first covering bar after the key bar; key bar itself ignored; none after invalidation; never traded = none.
+  MTF (setup lookup stubbed): first covering bar after the MTF touch; the touch bar itself does not count;
+  none at or after MTF invalidation; none when no setup. Wiring: an htf_cons_touch event reaches the planner.
+  Full suite: 63 failing + 1 collection error = the same pre-existing baseline (pov_executor and
+  openalgo import); 5414 passed.
+  STILL OPEN: owner confirmation of the 1x ATR stop multiplier; live approval hash re-approval (live OFF);
+  paper run not executed (OpenAlgo unreachable, market closed).

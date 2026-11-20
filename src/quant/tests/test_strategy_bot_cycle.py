@@ -84,7 +84,7 @@ class ScriptedCycle:
         self.name = name
         self.views = list(views)
 
-    def cycle_for(self, symbol, now):
+    def cycle_for(self, symbol, now, allocation_pct=None):
         return self.views.pop(0) if self.views else None
 
 
@@ -107,7 +107,8 @@ def _limits():
                       max_strategy_loss=25_000.0, max_adv_pct=0.01, max_symbols_per_portfolio=20)
 
 
-def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceiling=0.01, portfolio_ceiling=0.03):
+def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceiling=0.01, portfolio_ceiling=0.03,
+         symbol_allocation=None):
     screen = tmp_path / "latest.json"
     as_of = restore_at or NOW  # a restarted bot reads a fresh screen (the live screen is refreshed each cycle)
     screen.write_text(json.dumps({"as_of": as_of.isoformat(), "results": [
@@ -121,7 +122,9 @@ def _bot(tmp_path, strategy, store=None, restore_at=None, bars=None, loss_ceilin
                       kill=KillSwitch(tmp_path / "kill.json"), safe=SafeMode(), halt=HaltHandler(),
                       state=RiskState(), position_store=store,
                       cycle_loss_ceiling=loss_ceiling,  # owner value 1 % of equity (tests may lower it)
-                      cycle_portfolio_loss_ceiling=portfolio_ceiling)  # owner value 3 % of equity
+                      cycle_portfolio_loss_ceiling=(0.05 if symbol_allocation is not None else portfolio_ceiling),
+                      # owner tree: 5 % portfolio, symbol cap 4 %; the allocator derives INFY's 4 % from the screen
+                      cycle_symbol_allocation_pct=symbol_allocation)
     if restore_at is not None:
         bot.restore_positions(restore_at)  # before startup recon, as in the live runner
     bot.run_startup_recon(None)
@@ -427,7 +430,7 @@ def test_tree_leaf_touch_is_sized_from_its_budget(tmp_path):
         [("aggressive", "A", 100.0, T_NEW)],
         [("htf_ocl", "H", T_NEW), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW)])
     strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
-    bot, audit = _bot(tmp_path, strat)
+    bot, audit = _bot(tmp_path, strat, symbol_allocation=4.0)
     bot.cycle(NOW)
     assert _child_qtys(audit) == [468]  # floor(960 / 2.05)
     assert _parent(bot).ladder.orders[0].reason == "leaf_aggressive"  # the stage name from the tree decision
@@ -436,7 +439,7 @@ def test_tree_leaf_touch_is_sized_from_its_budget(tmp_path):
 def test_tree_touch_without_a_decision_is_skipped_and_logged(tmp_path):
     r = _tree_result([("aggressive", "A", 100.0, T_NEW)], [("htf_ocl", "H", T_NEW)])  # no ltf_ocl / touch
     strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
-    bot, audit = _bot(tmp_path, strat)
+    bot, audit = _bot(tmp_path, strat, symbol_allocation=4.0)
     bot.cycle(NOW)
     assert _child_qtys(audit) == []
     assert any(k == "tree_refused" and p.get("reason") == "no_decision" for k, p in audit.records)
@@ -447,7 +450,7 @@ def test_tree_refused_leaf_sends_nothing(tmp_path):
     r = _tree_result([("aggressive", "A", 100.0, T_NEW)],
                      [("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW)])  # no htf_ocl: refused
     strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
-    bot, audit = _bot(tmp_path, strat)
+    bot, audit = _bot(tmp_path, strat, symbol_allocation=4.0)
     bot.cycle(NOW)
     assert _child_qtys(audit) == []
     assert any(k == "tree_refused" for k, _ in audit.records)
@@ -473,7 +476,7 @@ def test_unfilled_shares_carry_from_a_closed_htf_ocl_into_the_next_one(tmp_path)
 
     r1_open = res(HTF_KEY, "open", [("aggressive", "A", 100.0, T_NEW)])
     strat = ScriptedCycle("scripted", [CycleView(results=[r1_open], newest_ltf_time=T_NEW, atr=1.0)])
-    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars(), symbol_allocation=4.0)
     bot.cycle(NOW)
     assert _child_qtys(audit) == [100]
     assert _parent(bot).ladder.orders[0].qty == 468
@@ -508,7 +511,7 @@ def test_carry_is_not_consumed_when_the_new_touch_is_refused(tmp_path):
 
     strat = ScriptedCycle("scripted", [CycleView(results=[res(HTF_KEY, "open", [("aggressive", "A", 100.0, T_NEW)])],
                                                  newest_ltf_time=T_NEW, atr=1.0)])
-    bot, audit = _bot(tmp_path, strat, bars=SmallBars())
+    bot, audit = _bot(tmp_path, strat, bars=SmallBars(), symbol_allocation=4.0)
     bot.cycle(NOW)
     strat.views = [CycleView(results=[res(HTF_KEY, "htf_invalidated", [("aggressive", "A", 100.0, T_NEW)]),
                                       res(K2, "open", [("aggressive", "B", 99.0, T_NEXT)])],
@@ -516,3 +519,26 @@ def test_carry_is_not_consumed_when_the_new_touch_is_refused(tmp_path):
     bot.cycle(NOW + timedelta(minutes=10))
     assert bot._mtf_carry.get(str(HTF_KEY)) == 368  # still waiting in the pool
     assert _child_qtys(audit) == [100]  # nothing new was sent
+
+
+def test_symbol_allocation_comes_from_the_portfolio_allocator():
+    """Owner tree: 5 % portfolio, 4 % symbol cap. One symbol gets the cap; more symbols share the 5 %."""
+    from quant.execution.strategy_bot import symbol_allocations
+    assert symbol_allocations(["A"], 5.0, 4.0) == pytest.approx({"A": 4.0})
+    two = symbol_allocations(["A", "B"], 5.0, 4.0)
+    assert two == pytest.approx({"A": 2.5, "B": 2.5})
+    five = symbol_allocations(["A", "B", "C", "D", "E"], 5.0, 4.0)
+    assert sum(five.values()) == pytest.approx(5.0) and all(v == pytest.approx(1.0) for v in five.values())
+    assert symbol_allocations([], 5.0, 4.0) == {}
+
+
+def test_tree_cycle_without_a_screen_allocation_fails_closed(tmp_path):
+    """No allocation for the symbol (not on the screen): the tree touch sends nothing and is logged."""
+    r = _tree_result(
+        [("aggressive", "A", 100.0, T_NEW)],
+        [("htf_ocl", "H", T_NEW), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW)])
+    strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
+    bot, audit = _bot(tmp_path, strat)  # no symbol cap configured -> the allocator gives no allocation
+    bot.cycle(NOW)
+    assert _child_qtys(audit) == []
+    assert any(kind == "tree_no_allocation" for kind, _ in audit.records)
