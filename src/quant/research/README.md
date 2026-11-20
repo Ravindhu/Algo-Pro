@@ -9,4 +9,4 @@ Research validation: prove an idea is real before it is used.
 - `lineage.py`: experiment lineage. PARTIAL.
 - `capacity.py`: max capital per strategy. PENDING.
 
-See `docs/IMPLEMENTATION_PLAN.md` (Phase 1, X-5, X-10, X-12).
+See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)` (Phase 1, X-5, X-10, X-12).

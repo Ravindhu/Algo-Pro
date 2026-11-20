@@ -1,7 +1,7 @@
 """Manual engine start for the dashboard button.
 
 Status: PHASE 3 IMPLEMENTED (start refusal checks; the supervisor's gates decide the rest)
-Plan: docs/SCHEDULER_PLAN.md (Engine section).
+Plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history) (Engine section).
 
 The button starts scripts/run/run_supervised.py, which runs its own six gates
 (kill switch, OpenAlgo reachable, positionbook verifiable, and so on) before the

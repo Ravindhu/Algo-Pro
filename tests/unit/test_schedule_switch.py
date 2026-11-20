@@ -1,6 +1,6 @@
 """Pre-open settings, installer plan, missed-run runner and run-time engine toggle.
 
-Pure logic only. No cron, Task Scheduler or systemd is touched (plan: docs/SCHEDULER_PLAN.md).
+Pure logic only. No cron, Task Scheduler or systemd is touched (plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history)).
 """
 import datetime as dt
 import importlib.util

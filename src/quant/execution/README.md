@@ -11,4 +11,4 @@ Orders. Phase 3 only. Nothing here reaches OpenAlgo in paper mode.
 - `router.py`, `protection.py`: algo router, stop at fill. PENDING.
 
 Rule: `scripts/run_live.py` is NOT created until Phase 3 exit checks pass.
-See `docs/IMPLEMENTATION_WORKFLOW.md` Step 7.
+See `IMPLEMENTATION_WORKFLOW.md (deleted 2026-11-20, in git history)` Step 7.

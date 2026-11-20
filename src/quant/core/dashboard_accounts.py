@@ -1,7 +1,7 @@
 """Named dashboard accounts and signed session cookies.
 
 Status: PHASE 3 IMPLEMENTED (accounts and signed cookies; tests in tests/unit/test_dashboard_accounts.py)
-Plan: docs/SCHEDULER_PLAN.md (Accounts section).
+Plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history) (Accounts section).
 
 * Passwords are never stored. Only a PBKDF2-SHA256 hash with a per-user salt.
 * After 5 wrong passwords an account is locked for 15 minutes.

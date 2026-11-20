@@ -1,7 +1,7 @@
 """Pre-open settings: scheduler details and the auto engine start toggle.
 
 Status: PHASE 3 IMPLEMENTED (settings file with fail-closed defaults; tests in tests/unit/test_schedule_switch.py)
-Plan: docs/SCHEDULER_PLAN.md (updated 2026-11-10).
+Plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history) (updated 2026-11-10).
 
 There is no on/off switch. Once the scheduler is installed on a machine, the
 broker login runs at the start time every weekday. The only runtime toggle is

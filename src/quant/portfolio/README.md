@@ -10,4 +10,4 @@ Sizing and allocation. Conviction can never override a hard cap.
 - `portfolio_risk.py`: sector, beta, stress, CVaR. PARTIAL.
 
 Rule: final size = min(Kelly, vol target, drawdown, tier, exposure caps).
-See `docs/IMPLEMENTATION_PLAN.md` (Phase 2, P2-1 to P2-3).
+See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)` (Phase 2, P2-1 to P2-3).

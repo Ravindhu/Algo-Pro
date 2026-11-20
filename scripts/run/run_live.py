@@ -33,7 +33,7 @@ without an approved GateDecision whose intent_id matches (decision 0017), and
 refuses to run at all if risk_limits.yaml changes mid-session. Nothing here
 relaxes that.
 
-Exit checks still open (docs/IMPLEMENTATION_PLAN.md Phase 3): the no-orders
+Exit checks still open (IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history) Phase 3): the no-orders
 kill-switch drill (check 4). Running
 this script does not claim either is satisfied.
 """

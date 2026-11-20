@@ -7,4 +7,4 @@ Shared basics used by every other folder.
 - `blue_bridge.py`: the place where `src/quant` loads code from `Blue_engine/`.
 
 Status: calendar DONE for holidays; expiry and lot size PENDING.
-See `docs/IMPLEMENTATION_PLAN.md` (P1-1, X-1).
+See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)` (P1-1, X-1).

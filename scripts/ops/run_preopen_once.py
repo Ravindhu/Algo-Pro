@@ -1,6 +1,6 @@
 """Run the pre-open job once per trading day, even if the machine was off at the start time.
 
-Plan: docs/SCHEDULER_PLAN.md (Missed runs, 2026-11-10).
+Plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history) (Missed runs, 2026-11-10).
 
 Both triggers call this file: the daily start-time trigger and the power-on or
 logon trigger. Whichever comes first does the work. The other one finds today's

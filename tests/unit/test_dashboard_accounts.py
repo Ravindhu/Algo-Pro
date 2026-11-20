@@ -1,6 +1,6 @@
 """Dashboard accounts, session cookies and the manual engine start decision.
 
-Pure logic only (plan: docs/SCHEDULER_PLAN.md). No FastAPI, no engine process.
+Pure logic only (plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history)). No FastAPI, no engine process.
 """
 import json
 from pathlib import Path

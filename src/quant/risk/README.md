@@ -10,4 +10,4 @@ Safety gate. Every order intent passes here first.
 - `exits.py`, `squareoff.py`: stop, trailing, time exit, rollover. PARTIAL (expiry, X-1).
 
 Rule: entries blocked on halt and blackout; exits and protection orders are never blocked.
-See `docs/IMPLEMENTATION_PLAN.md` (Phase 1 exit check 1).
+See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)` (Phase 1 exit check 1).

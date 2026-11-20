@@ -1,7 +1,7 @@
 # OCL keylevel strategy - starter config for PAPER trading only.
 # Values are the defaults from Blue_engine/alpha/Statergy/ocl_keylevel.py (params_space).
 # Sizing overrides for paper: qty_per_fire=1, exec_mode=ONE_SHOT, max_fires=1.
-# live_enabled must stay false until a human signs off (see docs/IMPLEMENTATION_PLAN.md).
+# live_enabled must stay false until a human signs off (see IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)).
 strategy: ocl_keylevel
 mode: paper
 live_enabled: false   # paper only

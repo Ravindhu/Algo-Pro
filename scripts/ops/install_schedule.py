@@ -1,6 +1,6 @@
 """Install or remove the pre-open schedule on THIS machine only.
 
-Plan: docs/SCHEDULER_PLAN.md (updated 2026-11-10, missed runs).
+Plan: SCHEDULER_PLAN.md (deleted 2026-11-20, in git history) (updated 2026-11-10, missed runs).
 
 Both OSes run scripts/ops/run_preopen_once.py, which decides day and time.
 * Windows -> one Task Scheduler job (BlueEngine\\PreOpen): weekday trigger at the

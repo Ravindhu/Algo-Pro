@@ -9,4 +9,4 @@ Post-trade: what really happened, and whether the system is still healthy.
 - `parity.py`: live paper fills vs replayed backtest. PENDING (P3-7).
 - `drift.py`, `throttle.py`, `session.py`: PENDING.
 
-See `docs/IMPLEMENTATION_PLAN.md` (Phase 3, P3-4, P3-7).
+See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)` (Phase 3, P3-4, P3-7).

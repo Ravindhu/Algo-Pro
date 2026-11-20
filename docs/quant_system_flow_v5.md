@@ -224,7 +224,7 @@ flowchart LR
 The layout follows the project layout in `AGENTS.md`. Each module is a scaffold until it has logic and tests.
 One module can implement several blocks. Its `Flow stage:` line lists them.
 `tests/unit/test_layout.py` checks that every SVG block title is mapped. Known gaps are listed there (currently none).
-Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are in `docs/IMPLEMENTATION_PLAN.md`.
+Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are in `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)`.
 
 | Flow lane | Package |
 |---|---|
@@ -379,7 +379,7 @@ Drawn as the bottom "Strategy stage" row in `quant_system_flow_v5.svg`. Rules: `
 
 ## 6. Open items
 
-- Confirm each reuse target in `src/quant/blue_engine/` before wrapping it. See `docs/IMPLEMENTATION_PLAN.md`.
+- Confirm each reuse target in `src/quant/blue_engine/` before wrapping it. See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)`.
 - **Live data source not chosen.** `config/data_sources.yaml` has `live_allowed: false`. The owner must pick a licensed source and set it to true. Until then the bot runs no cycles. Live funds, positions and orders are read through the read-only OpenAlgo client.
 - **Exits are in, with limits.** Each open position is checked on its last closed bar: stop (gap fills at open), target, breakeven at 1R, and a 2×ATR trail (`execution/exit_manager.py`). A bar that touches both stop and target counts as a stop. ATR is the entry-time value read by `exit_manager.py`. An exit with an unclear reply is halted, never resent, and raises a CRITICAL alert. Exit orders go through the same gate as entries.
 - **DV-ATR (corrected 2026-11-14).** Earlier text here said DV-ATR was not implemented. It IS: the OCL strategies (`strategies/ocl/ocl_sell_fail_top.py`, `ocl_sell_fail_bottom.py`) implement Dynamic Volatility Smoothing ATR — a self-scaling trail that widens in high volatility, ratchets up only, and sits ABOVE a frozen traditional stop that acts as the hard floor. `dvs_enabled`, `dvs_atr_sizing_factor` and `stop_fallback_atr_mult` are strategy parameters. `exit_manager.py` does NOT apply it; it is the strategy's own post-entry management, which is why the two must not be conflated.

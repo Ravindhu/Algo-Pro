@@ -9,4 +9,4 @@ Market data in: validation, features and market inputs.
 - `ingest.py`: broker live feed. PENDING until Phase 3.
 
 Rule: NSE data is used for event blackout only. It is not a signal.
-See `docs/IMPLEMENTATION_PLAN.md` (P1-7, P2-8, P3-1).
+See `IMPLEMENTATION_PLAN.md (deleted 2026-11-20, in git history)` (P1-7, P2-8, P3-1).
