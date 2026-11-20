@@ -181,3 +181,10 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   NOT YET WIRED (next steps): replace the LTF-only ladder in cycle.py replay and strategy_bot.py with the three
   levels; replace the 1 % cycle and 3 % portfolio ceilings with symbol allocation and 5 % portfolio cap;
   dashboard Trade setup ratio field (50 to 80, default 60, locked per cycle); rules doc section 11 update.
+- 2026-11-20 (owner answers): LTF OCL is the leaf and splits 60/40 between its own aggressive touch and its own
+  conservative touch. MTF and HTF levels each use 3 aggressive OCL slots, a wait, then 2 conservative OCL slots.
+  Code change: risk_tree.py SlotGate (a conservative touch ARMS the next slot; the next OCL to form takes it).
+  plan() is a stateless planner: events in, budget per event out (MTF, HTF, LTF OCL and leaf touches).
+  Tests: tests/unit/test_risk_tree.py (35 pass). Not yet wired into replay (cycle.py) or bot (strategy_bot.py).
+  Remaining for step 1: replay emits the events and budgets; bot sizes from them; carry across HTF OCLs inside
+  one MTF cycle; replace the 1 % / 3 % ceilings with symbol and portfolio caps.
