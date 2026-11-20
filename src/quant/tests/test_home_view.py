@@ -68,3 +68,4 @@ def test_analysis_with_nav_history_reports_twrr_and_sharpe():
     assert out["state"] == "ok"
     assert out["twrr_pct"] is not None and out["twrr_pct"] > 0
     assert out["sharpe"] is not None
+    assert len(out["nav_path"]) == len(rows) and out["nav_path"][0]["date"] == rows[0]["date"][:10]

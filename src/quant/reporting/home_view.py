@@ -4,7 +4,7 @@ Read-only. Nothing here sends orders or writes files.
 
 * Screener list: the Blue Engine screener's last saved run
   (``blue_engine/screener/last_screen.json``, written by its CLI with ``--save``).
-* Portfolio analysis: the Blue Engine NAV store read through
+* Portfolio analysis (REAL money): the Blue Engine NAV store, built from the broker's view of the live book, read through
   ``blue_engine.portfolio.risk_report.report``, the same code the desk uses.
 
 A missing file, too few NAV rows, or a Blue Engine import error gives an empty
@@ -96,8 +96,10 @@ def _compute_analysis(rows_fn: Callable[[], List[Dict[str, Any]]]) -> Dict[str, 
         rows = rows_fn()
     except Exception as exc:
         return {"state": "unavailable", "note": f"NAV store not readable ({type(exc).__name__})"}
+    path = [{"date": str(r.get("date"))[:10], "nav": float(r["nav"])} for r in rows
+            if isinstance(r.get("nav"), (int, float)) and not isinstance(r.get("nav"), bool)][-260:]
     if len(rows) < 2:
-        return {"state": "needs_nav", "nav_rows": len(rows),
+        return {"state": "needs_nav", "nav_rows": len(rows), "nav_path": path,
                 "note": "Needs at least two daily NAV rows from the Blue Engine portfolio."}
     try:
         rep = report(rows)
@@ -112,5 +114,6 @@ def _compute_analysis(rows_fn: Callable[[], List[Dict[str, Any]]]) -> Dict[str, 
         "annual_return_pct": _pct(summary.get("annual_return")),
         "sharpe": summary.get("sharpe") if isinstance(summary.get("sharpe"), (int, float)) else None,
         "max_drawdown_pct": _pct(summary.get("max_drawdown")),
+        "nav_path": path,
         "note": "",
     }

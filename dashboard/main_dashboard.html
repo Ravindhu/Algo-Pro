@@ -369,10 +369,10 @@
 </header>
 <main class="home">
   <div class="kpis">
-    <div class="tile"><small>Paper equity</small><b id="k-equity">—</b></div>
-    <div class="tile t-ok"><small>Return %</small><b id="k-ret">—</b></div>
-    <div class="tile t-warn"><small>P&amp;L %</small><b id="k-pnlpct">—</b></div>
-    <div class="tile t-pink"><small>MTM %</small><b id="k-mtm">—</b></div>
+    <div class="tile"><small>Real holdings value</small><b id="rk-value">—</b></div>
+    <div class="tile t-ok"><small>Invested</small><b id="rk-invested">—</b></div>
+    <div class="tile t-warn"><small>Total P&amp;L</small><b id="rk-pnl">—</b></div>
+    <div class="tile t-pink"><small>Return %</small><b id="rk-pnlpct">—</b></div>
   </div>
   <div class="home-row3">
     <section class="panel">
@@ -387,28 +387,29 @@
       <svg id="neural" viewBox="0 0 380 240" style="height:auto"></svg>
     </section>
     <section class="panel">
-      <div class="ph">Equity curve <span>realized, closed trades</span></div>
-    <svg id="eqsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:150px;margin-top:6px">
-      <line id="eqzero" x1="0" x2="800" y1="60" y2="60" stroke="#14283a" stroke-dasharray="4 4"/>
-      <polyline id="eqline" fill="none" stroke="#2ee6a6" stroke-width="2" points=""/>
-    </svg>
-    <p class="d" id="eqnote">Equity curve: waiting for data…</p>
+      <div class="ph">Real equity curve <span id="navnote">broker NAV</span></div>
+      <svg id="navsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:150px;margin-top:6px">
+        <polyline id="navline" fill="none" stroke="#3fd0ff" stroke-width="2" points=""/>
+      </svg>
     </section>
   </div>
   <div class="home-row4">
     <section class="panel">
-    <div class="ph" style="margin-top:10px">Open positions <span id="sb-poscount"></span></div>
-    <div class="scroll"><table>
-      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Unrealized ₹</th></tr></thead>
-      <tbody id="sb-pos-rows"></tbody>
-    </table></div>
+      <div class="ph">Real holdings <span id="rk-poscount"></span></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th><th class="n">Hold days</th></tr></thead>
+        <tbody id="rk-pos-rows"></tbody>
+      </table></div>
     </section>
     <section class="panel">
-      <div class="ph">Execution log <span>last 20 fills, newest first</span></div>
-    <div class="scroll"><table>
-      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th></tr></thead>
-      <tbody id="sb-fills-rows"></tbody>
-    </table></div>
+      <div class="ph">Real account analysis <span>Blue Engine NAV store · broker read</span></div>
+      <div class="pfkpi">
+        <div class="tile t-ok"><small>TWRR (cumulative)</small><b id="rk-twrr">—</b></div>
+        <div class="tile"><small>Time-weighted return (annualised)</small><b id="rk-annual">—</b></div>
+        <div class="tile t-warn"><small>Sharpe ratio</small><b id="rk-sharpe">—</b></div>
+        <div class="tile t-bad"><small>Max drawdown</small><b id="rk-maxdd">—</b></div>
+      </div>
+      <p class="d" id="rk-note"></p>
     </section>
   </div>
 </main>
@@ -547,6 +548,9 @@
       <div><small>Realized P&amp;L</small><b id="sb-realized">—</b></div>
       <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
       <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
+      <div><small>P&amp;L % (paper)</small><b id="sb-pnlpct">—</b></div>
+      <div><small>MTM % (paper)</small><b id="sb-mtm">—</b></div>
+      <div><small>Cost of trading (est., % of capital)</small><b id="sb-cost">—</b></div>
     </div>
     <div class="kv">
       <div><small>Closed trades</small><b id="sb-trades">—</b></div>
@@ -569,6 +573,22 @@
       <tbody id="sb-trades-rows"></tbody>
     </table></div>
 
+    <div class="ph" style="margin-top:10px">Equity curve <span>paper, closed trades</span></div>
+    <svg id="eqsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:120px;margin-top:6px">
+      <line id="eqzero" x1="0" x2="800" y1="60" y2="60" stroke="#14283a" stroke-dasharray="4 4"/>
+      <polyline id="eqline" fill="none" stroke="#2ee6a6" stroke-width="2" points=""/>
+    </svg>
+    <p class="d" id="eqnote">Equity curve: waiting for data…</p>
+    <div class="ph" style="margin-top:10px">Open positions (paper) <span id="sb-poscount"></span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Unrealized ₹</th></tr></thead>
+      <tbody id="sb-pos-rows"></tbody>
+    </table></div>
+    <div class="ph" style="margin-top:10px">Execution log (paper fills) <span>last 20 fills, newest first</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th></tr></thead>
+      <tbody id="sb-fills-rows"></tbody>
+    </table></div>
     <p class="d" id="sb-note">Paper trading stats come from the paper ledger. They are not live market results.</p>
   </section>
       <div class="zones">
@@ -629,13 +649,12 @@
         </section>
       </div>
       <section class="panel">
-        <div class="ph">Analysis <span>Blue Engine NAV store · cost is an estimate</span></div>
+        <div class="ph">Analysis <span>Blue Engine NAV store · broker read</span></div>
         <div class="pfkpi">
           <div class="tile t-ok"><small>TWRR (cumulative)</small><b id="an-twrr" class="d" style="font-size:12px">needs daily equity history</b></div>
           <div class="tile"><small>Time-weighted return (annualised)</small><b id="an-twr" class="d" style="font-size:12px">needs cash-flow history</b></div>
           <div class="tile t-bad"><small>Max drawdown</small><b id="an-maxdd">—</b></div>
           <div class="tile t-warn"><small>Sharpe ratio</small><b id="an-sharpe" class="d" style="font-size:12px">needs daily equity history</b></div>
-          <div class="tile t-pink"><small>Cost of trading (% of capital)</small><b id="an-cost">—</b></div>
         </div>
       </section>
       <section class="panel">
@@ -762,10 +781,8 @@
   function renderHome(o) {
     const cap = o.sandbox ? o.sandbox.capital_inr : null, p = o.performance || {};
     const eq = o.sandbox ? o.sandbox.equity : null;
-    $("k-equity").textContent = eq == null ? "not set" : money(eq);
-    $("k-ret").textContent = o.sandbox && o.sandbox.return_pct != null ? o.sandbox.return_pct.toFixed(2) + "%" : "—";
-    $("k-pnlpct").textContent = cap ? pctText(((p.realized_pnl || 0) + (p.unrealized_pnl || 0)) / cap * 100) : "—";
-    $("k-mtm").textContent = cap && p.unrealized_pnl != null ? pctText(p.unrealized_pnl / cap * 100) : "—";
+    $("sb-pnlpct").textContent = cap ? pctText(((p.realized_pnl || 0) + (p.unrealized_pnl || 0)) / cap * 100) : "—";
+    $("sb-mtm").textContent = cap && p.unrealized_pnl != null ? pctText(p.unrealized_pnl / cap * 100) : "—";
     const scr = o.screener || {}, rows = scr.rows || [];
     $("scr-note").textContent = scr.state === "ok" ? rows.length + " of " + scr.count + " selected"
       : scr.state === "not_run" ? "not run yet" : scr.state === "empty" ? "none selected" : "unavailable";
@@ -786,12 +803,34 @@
   }
   function renderAnalysisTiles(o) {
     const an = o.analysis || {}, ok = an.state === "ok", cap = o.sandbox ? o.sandbox.capital_inr : null;
-    const empty = an.state === "needs_nav" ? "needs NAV history" : an.state === "unavailable" ? "unavailable" : "needs NAV history";
-    setTile("an-twrr", ok && an.twrr_pct != null ? an.twrr_pct.toFixed(2) + "%" : null, empty);
-    setTile("an-twr", ok && an.annual_return_pct != null ? an.annual_return_pct.toFixed(2) + "% a year" : null, empty);
-    setTile("an-sharpe", ok && an.sharpe != null ? Number(an.sharpe).toFixed(2) : null, empty);
-    setTile("an-maxdd", ok && an.max_drawdown_pct != null ? an.max_drawdown_pct.toFixed(2) + "%" : null, empty);
-    setTile("an-cost", o.costs && o.costs.statutory_inr != null && cap ? pctText(o.costs.statutory_inr / cap * 100) : null, "—");
+    const empty = an.state === "unavailable" ? "unavailable" : "needs NAV history";
+    const twrr = ok && an.twrr_pct != null ? an.twrr_pct.toFixed(2) + "%" : null;
+    const annual = ok && an.annual_return_pct != null ? an.annual_return_pct.toFixed(2) + "%" : null;
+    const sharpe = ok && an.sharpe != null ? Number(an.sharpe).toFixed(2) : null;
+    const maxdd = ok && an.max_drawdown_pct != null ? an.max_drawdown_pct.toFixed(2) + "%" : null;
+    setTile("an-twrr", twrr, empty); setTile("rk-twrr", twrr, empty);
+    setTile("an-twr", annual, empty); setTile("rk-annual", annual, empty);
+    setTile("an-sharpe", sharpe, empty); setTile("rk-sharpe", sharpe, empty);
+    setTile("an-maxdd", maxdd, empty); setTile("rk-maxdd", maxdd, empty);
+    $("rk-note").textContent = an.note || "";
+    drawNav(an.nav_path || []);
+    // Cost of trading is an estimate on PAPER fills: shown in the sandbox, not on the real page.
+    setTile("sb-cost", o.costs && o.costs.statutory_inr != null && cap ? pctText(o.costs.statutory_inr / cap * 100) : null, "—");
+  }
+
+  // Real equity curve from the Blue Engine NAV store (broker-read).
+  function drawNav(path) {
+    const pts = path.map(p => p.nav), note = $("navnote");
+    if (pts.length < 2) {
+      $("navline").setAttribute("points", "");
+      note.textContent = "needs NAV history";
+      return;
+    }
+    const w = 800, hgt = 120, pad = 6, min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+    const x = i => pad + i * (w - 2 * pad) / (pts.length - 1);
+    const y = v => hgt - pad - (v - min) * (hgt - 2 * pad) / span;
+    $("navline").setAttribute("points", pts.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" "));
+    note.textContent = path[0].date + " to " + path[path.length - 1].date + " · " + pts.length + " days";
   }
 
   function render(o) {
@@ -1205,8 +1244,26 @@
     }
   }
 
+  // Real money: broker holdings (read-only through OpenAlgo). Feeds the main dashboard.
+  function renderRealHome(p) {
+    const s = p.summary || {}, rows = p.holdings || [];
+    $("rk-value").textContent = money(s.value);
+    $("rk-invested").textContent = money(s.invested);
+    $("rk-pnl").textContent = money(s.pnl);
+    $("rk-pnl").className = "big-kpi " + sign(s.pnl);
+    $("rk-pnlpct").textContent = s.pnl_pct == null ? "—" : Number(s.pnl_pct).toFixed(2) + "%";
+    $("rk-poscount").textContent = p.state === "broker_read" ? rows.length + " holdings" : (PF_STATE[p.state] ? PF_STATE[p.state][0] : "");
+    renderTable($("rk-pos-rows"), rows.slice(0, 10).map(h => {
+      const tr = document.createElement("tr");
+      tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
+        cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)), cell(h.hold_days == null ? "—" : String(h.hold_days), "n"));
+      return tr;
+    }), p.error || "No holdings to show.", 6);
+  }
+
   function renderPortfolio(p) {
     pfLast = p;
+    renderRealHome(p);
     const st = PF_STATE[p.state] || ["UNKNOWN", "bad"];
     $("pf-state").textContent = st[0]; $("pf-state").className = "chip pfstate " + st[1];
     $("pf-meta").textContent = (p.source || "") + (p.as_of ? " · as of " + p.as_of : "");
@@ -1560,5 +1617,7 @@
     }));
   })();
 
+  loadPortfolio();
+  setInterval(loadPortfolio, 30000);
   setInterval(refresh, POLL_MS);
 </script>
