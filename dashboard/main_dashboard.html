@@ -296,6 +296,7 @@
   .setup .one .panel { background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 8px 0 0; box-shadow: none; }
   .setup form .row { grid-template-columns: minmax(0, 1fr) minmax(0, 150px); }
   .setup form .row input { width: 100%; min-width: 0; }
+  .home-row4 { grid-template-columns: minmax(0, 1fr); }
 </style>
 
 <div class="topright">
@@ -377,14 +378,6 @@
   <span id="killmsg" class="d"></span>
 </header>
 <main class="home">
-  <div class="kpis">
-    <div class="tile"><small>Real holdings value</small><b id="rk-value">—</b></div>
-    <div class="tile t-ok"><small>Invested</small><b id="rk-invested">—</b></div>
-    <div class="tile t-warn"><small>Total P&amp;L</small><b id="rk-pnl">—</b></div>
-    <div class="tile t-pink"><small>Return %</small><b id="rk-pnlpct">—</b></div>
-    <div class="tile"><small>MTF % (real)</small><b id="rk-mtf">—</b></div>
-    <div class="tile"><small>Cost of trading incl. tax &amp; MTF (est., % of invested)</small><b id="rk-cost">—</b></div>
-  </div>
   <div class="home-row3">
     <section class="panel">
       <div class="ph">Screener stocks <span id="scr-note"></span></div>
@@ -420,16 +413,6 @@
         <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th><th class="n">Hold days</th></tr></thead>
         <tbody id="rk-pos-rows"></tbody>
       </table></div>
-    </section>
-    <section class="panel">
-      <div class="ph">Real account analysis <span>Blue Engine NAV store · broker read</span></div>
-      <div class="pfkpi">
-        <div class="tile t-ok"><small>TWRR (cumulative)</small><b id="rk-twrr">—</b></div>
-        <div class="tile"><small>Time-weighted return (annualised)</small><b id="rk-annual">—</b></div>
-        <div class="tile t-warn"><small>Sharpe ratio</small><b id="rk-sharpe">—</b></div>
-        <div class="tile t-bad"><small>Max drawdown</small><b id="rk-maxdd">—</b></div>
-      </div>
-      <p class="d" id="rk-note"></p>
     </section>
   </div>
 </main>
@@ -812,19 +795,14 @@
       return tr;
     }), scr.note || "No screener output yet.", 2);
     renderAnalysisTiles(o);
-    syncEquityHead();
   }
 
-  // Equity curve header repeats figures from the KPI and analysis tiles (copied, never recalculated).
-  function syncEquityHead() {
-    const pairs = [["eq-pnl", "rk-pnl"], ["eq-ret", "rk-pnlpct"], ["eq-twrr", "rk-twrr"], ["eq-sharpe", "rk-sharpe"],
-                   ["eq-dd", "rk-maxdd"], ["eq-cost", "rk-cost"], ["eq-mtf", "rk-mtf"]];
-    for (const [to, from] of pairs) {
-      const src = $(from), dst = $(to);
-      if (!src || !dst) continue;
-      dst.textContent = src.textContent;
-      dst.className = src.className.replace("big-kpi", "").trim();
-    }
+  // Equity curve header: writes its own figures (the KPI strip it used to copy from is gone).
+  function putEq(id, text, cls) {
+    const el = $(id);
+    if (!el) return;
+    el.textContent = text == null ? "—" : text;
+    el.className = cls || "";
   }
 
   // Analysis tiles: values from /api/overview (analysis = Blue Engine NAV store; cost = paper estimate).
@@ -841,11 +819,10 @@
     const annual = ok && an.annual_return_pct != null ? an.annual_return_pct.toFixed(2) + "%" : null;
     const sharpe = ok && an.sharpe != null ? Number(an.sharpe).toFixed(2) : null;
     const maxdd = ok && an.max_drawdown_pct != null ? an.max_drawdown_pct.toFixed(2) + "%" : null;
-    setTile("an-twrr", twrr, empty); setTile("rk-twrr", twrr, empty);
-    setTile("an-twr", annual, empty); setTile("rk-annual", annual, empty);
-    setTile("an-sharpe", sharpe, empty); setTile("rk-sharpe", sharpe, empty);
-    setTile("an-maxdd", maxdd, empty); setTile("rk-maxdd", maxdd, empty);
-    $("rk-note").textContent = an.note || "";
+    setTile("an-twrr", twrr, empty); putEq("eq-twrr", twrr || "—", "");
+    setTile("an-twr", annual, empty);
+    setTile("an-sharpe", sharpe, empty); putEq("eq-sharpe", sharpe || "—", "");
+    setTile("an-maxdd", maxdd, empty); putEq("eq-dd", maxdd || "—", "");
     drawNav(an.nav_path || []);
     // Cost of trading is an estimate on PAPER fills: shown in the sandbox, not on the real page.
     setTile("sb-cost", o.costs && o.costs.statutory_inr != null && cap ? pctText(o.costs.statutory_inr / cap * 100) : null, "—");
@@ -1284,37 +1261,36 @@
     }
   }
 
-  // Real money: broker holdings (read-only through OpenAlgo). Feeds the main dashboard.
+  // Real money: broker holdings (read-only through OpenAlgo). Feeds the main page.
   function renderRealHome(p) {
-    const s = p.summary || {}, rows = p.holdings || [];
-    $("rk-value").textContent = money(s.value);
-    $("rk-invested").textContent = money(s.invested);
-    $("rk-pnl").textContent = money(s.pnl);
-    $("rk-pnl").className = "big-kpi " + sign(s.pnl);
-    $("rk-pnlpct").textContent = s.pnl_pct == null ? "—" : Number(s.pnl_pct).toFixed(2) + "%";
-    // MTM % = broker unrealized P&L / invested cost. Real money only.
-    $("rk-mtm").textContent = money(s.pnl);
-    $("rk-mtm").className = sign(s.pnl);
-    const mtf = p.mtf || {};
-    $("rk-mtf").textContent = mtf.mtf_pct == null ? "—" : pctText(mtf.mtf_pct);
-    $("rk-mtf").title = mtf.borrowed_inr != null ? "Borrowed ₹" + Number(mtf.borrowed_inr).toFixed(2)
+    const s = p.summary || {}, all = p.holdings || [];
+    const mtf = p.mtf || {}, tc = p.trade_cost || null;
+    // Equity header: whole real book.
+    putEq("eq-pnl", money(s.pnl), sign(s.pnl));
+    putEq("eq-ret", s.pnl_pct == null ? "—" : Number(s.pnl_pct).toFixed(2) + "%", "");
+    putEq("eq-mtf", mtf.mtf_pct == null ? "—" : pctText(mtf.mtf_pct), "");
+    putEq("eq-cost", tc && tc.pct_of_invested != null ? Number(tc.pct_of_invested).toFixed(3) + "%" : "—", "");
+    if ($("eq-mtf")) $("eq-mtf").title = mtf.borrowed_inr != null ? "Borrowed ₹" + Number(mtf.borrowed_inr).toFixed(2)
       + " · interest ₹" + Number(mtf.daily_interest_inr || 0).toFixed(2) + " a day at " + (mtf.annual_rate_pct || 12) + "% a year"
       + " · source: " + (mtf.source === "mstock" ? "Mstock (live)" : "Trade setup (manual)")
       + (mtf.source_note ? " · " + mtf.source_note : "") : "";
-    // Cost of trading: statutory estimate on today's broker fills, % of invested. Labelled as an estimate.
-    const tc = p.trade_cost || null;
-    $("rk-cost").textContent = tc && tc.pct_of_invested != null ? Number(tc.pct_of_invested).toFixed(3) + "%" : "—";
-    $("rk-cost").title = tc ? "Charges ₹" + Number(tc.inr).toFixed(2) + " + STCG ₹" + Number(tc.stcg_tax_inr || 0).toFixed(2)
+    if ($("eq-cost")) $("eq-cost").title = tc ? "Charges ₹" + Number(tc.inr).toFixed(2) + " + STCG ₹" + Number(tc.stcg_tax_inr || 0).toFixed(2)
       + " + LTCG ₹" + Number(tc.ltcg_tax_inr || 0).toFixed(2) + " + MTF interest ₹" + Number(tc.interest_inr || 0).toFixed(2)
       + " · " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
-    $("rk-poscount").textContent = p.state === "broker_read" ? rows.length + " holdings" : (PF_STATE[p.state] ? PF_STATE[p.state][0] : "");
-    syncEquityHead();
-    renderTable($("rk-pos-rows"), rows.slice(0, 10).map(h => {
+    // Open positions: only holdings opened today (hold days = 0, from the tradebook).
+    const known = all.some(h => h.hold_days != null);
+    const today = all.filter(h => h.hold_days === 0);
+    const mtm = today.reduce((acc, h) => acc + (h.pnl == null ? 0 : Number(h.pnl)), 0);
+    $("rk-mtm").textContent = p.state === "broker_read" && today.length ? money(mtm) : "—";
+    $("rk-mtm").className = today.length ? sign(mtm) : "";
+    $("rk-poscount").textContent = p.state !== "broker_read" ? (PF_STATE[p.state] ? PF_STATE[p.state][0] : "")
+      : known ? today.length + " opened today" : "trade history unavailable";
+    renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
         cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)), cell(h.hold_days == null ? "—" : String(h.hold_days), "n"));
       return tr;
-    }), p.error || "No holdings to show.", 6);
+    }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 6);
   }
 
   function renderPortfolio(p) {
