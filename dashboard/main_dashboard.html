@@ -100,6 +100,7 @@
   .profbtn { width: 36px; height: 36px; border-radius: 50%; padding: 0; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: #0a1420; border: 1px solid var(--cyan); color: var(--cyan); font-size: 11px; cursor: pointer; }
   .profbtn img { width: 100%; height: 100%; object-fit: cover; }
   .profbtn [hidden] { display: none; }
+  #prof-init { display: inline-flex; align-items: center; justify-content: center; }
   a.brand { color: inherit; text-decoration: none; cursor: pointer; }
   #popup { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 40; max-width: min(460px, 92vw); padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.5); cursor: pointer; }
   #popup[hidden] { display: none; }
@@ -300,7 +301,7 @@
 </style>
 
 <div class="topright">
-  <button type="button" class="profbtn" id="profbtn" aria-label="Account" aria-expanded="false" aria-controls="acctbox" title="Account"><img id="prof-img" alt="" hidden><span id="prof-init">AC</span></button>
+  <button type="button" class="profbtn" id="profbtn" aria-label="Account" aria-expanded="false" aria-controls="acctbox" title="Account"><img id="prof-img" alt="" hidden><span id="prof-init" title="NSE bull"><svg viewBox="0 0 48 48" width="26" height="26" aria-hidden="true"><g fill="none" stroke="#3fd0ff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M10 14 C5 10 2 16 6 20 L14 23 C16 28 19 31 24 32 C29 31 32 28 34 23 L42 20 C46 16 43 10 38 14 L33 17 C29 15 19 15 15 17 Z"/><path d="M19 33 Q24 38 29 33"/><path d="M19 27 L21 28 M29 27 L27 28"/></g><circle cx="19" cy="23" r="1.4" fill="#3fd0ff"/><circle cx="29" cy="23" r="1.4" fill="#3fd0ff"/></svg></span></button>
   <section class="panel acctbox" id="acctbox" hidden>
       <h2 class="sechead">Account</h2>
       <p id="acct-who" class="d"></p>
@@ -329,15 +330,7 @@
         <input id="acct-pass" type="password" placeholder="Password" autocomplete="current-password">
         <input id="acct-totp" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" hidden>
         <button type="submit">Sign in</button>
-        <button type="button" id="acct-tab-signup">Sign up</button>
         <button type="button" id="acct-tab-forgot">Forgot password?</button>
-      </form>
-      <form id="signupform" autocomplete="off" hidden>
-        <p class="d">Self-signup creates a viewer account. The owner account is created only on the server machine.</p>
-        <input id="su-name" placeholder="Account name" autocomplete="username">
-        <input id="su-pass" type="password" placeholder="Password (12+ chars)" autocomplete="new-password">
-        <button type="submit">Create account</button>
-        <button type="button" id="su-back">Back to sign in</button>
       </form>
       <form id="forgotform" autocomplete="off" hidden>
         <p class="d">A one-use reset token is printed on the server console (15 min validity).</p>
@@ -1510,7 +1503,6 @@
     const who = res.j.signed_in;
     $("acct-who").textContent = who ? ("Signed in as " + who + " (" + (res.j.role || "viewer") + ")") : "Not signed in.";
     $("acctform").hidden = !!who;
-    $("signupform").hidden = true;
     $("forgotform").hidden = true;
     $("acct-in").hidden = !who;
     $("acctout").hidden = !who;
@@ -1542,19 +1534,10 @@
   // --- sign up / forgot password tabs ---------------------------------------
   const showTab = (tab) => {
     $("acctform").hidden = tab !== "in";
-    $("signupform").hidden = tab !== "up";
     $("forgotform").hidden = tab !== "fp";
   };
-  $("acct-tab-signup").onclick = () => showTab("up");
   $("acct-tab-forgot").onclick = () => showTab("fp");
-  $("su-back").onclick = () => showTab("in");
   $("fp-back").onclick = () => showTab("in");
-  $("signupform").onsubmit = async (e) => {
-    e.preventDefault();
-    const res = await jpost("/api/account/signup", {name: $("su-name").value.trim(), password: $("su-pass").value});
-    if (res.ok) { sMsg("acct-msg", "Account created (viewer). Sign in.", "g"); showTab("in"); $("acct-name").value = $("su-name").value.trim(); }
-    else sMsg("acct-msg", res.j.error || ("Failed (HTTP " + res.status + ")."), "r");
-  };
   $("fp-request").onclick = async () => {
     const res = await jpost("/api/account/forgot-password", {name: $("fp-name").value.trim()});
     if (res.ok) {

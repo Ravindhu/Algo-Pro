@@ -472,7 +472,9 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.post("/api/account/signup")
     async def account_signup(request: Request):
-        """Self-signup always creates a VIEWER: no route can raise privilege."""
+        """Sign-up is off: the owner account is the only account on this dashboard."""
+        return JSONResponse({"error": "sign-up is off: the owner account is the only account"},
+                            status_code=403)
         if not session_secret():
             return JSONResponse({"error": "signup is off: DASHBOARD_SESSION_SECRET is not set"},
                                 status_code=503)
