@@ -37,14 +37,33 @@ PROBE_CONSERVATIVE = 0.0015  # same OCL, conservative touch (OCL total 0.25 %, w
 OCL_TOTAL = PROBE_AGGRESSIVE + PROBE_CONSERVATIVE  # 0.25 % fresh risk per LTF OCL (owner 2026-11-19)
 CONVICTION = 0.0050         # escalation pair only, one-shot, re-earned
 LADDER_OCL_LIMIT = 3        # after this many OCL entries, only the pair can open trades
+# Sizing stop (owner 2026-11-20): stop = max(ATR floor, current stop + buffer), whichever is higher.
+#   ATR floor = ATR_FLOOR_MULT x ATR(14) on the LTF bar of the touch (multiplier 1.0 is an ASSUMPTION, see docs).
+#   Buffer = STOP_BUFFER x price (0.05 %).
+ATR_FLOOR_MULT = 1.0
+STOP_BUFFER = 0.0005
 _EPS = 1e-9
 
 
-def shares_for(equity: float, risk: float, price: float, htf_low: float, carry: int = 0) -> int:
-    """floor(equity * risk / (price - htf_low)) + carry. Zero when price is not above htf_low."""
+def sizing_stop(price: float, htf_low: float, atr: Optional[float]) -> Optional[float]:
+    """Stop distance used for SIZING (owner 2026-11-20): max(ATR floor, (price - HTF L) + 0.05 % of price).
+    None when ATR is unknown: the caller must refuse (fail closed)."""
+    if atr is None or not math.isfinite(float(atr)) or float(atr) <= 0:
+        return None
+    current = float(price) - float(htf_low)
+    return max(ATR_FLOOR_MULT * float(atr), current + STOP_BUFFER * float(price))
+
+
+def shares_for(equity: float, risk: float, price: float, htf_low: float, carry: int = 0,
+               stop: Optional[float] = None) -> int:
+    """floor(equity * risk / stop) + carry, where stop = (price - htf_low) unless a sizing stop is given.
+    Zero when price is not above htf_low."""
     if equity <= 0 or risk <= 0 or price <= htf_low:
         return 0
-    fresh = math.floor(equity * risk / (price - htf_low) + _EPS)
+    dist = (price - htf_low) if stop is None else float(stop)
+    if dist <= 0:
+        return 0
+    fresh = math.floor(equity * risk / dist + _EPS)
     return max(0, int(fresh) + int(carry))
 
 
@@ -83,6 +102,7 @@ class Order:
     filled: int = 0
     carry: int = 0  # carried shares included in qty (already counted in the parent's remaining)
     closed: bool = False  # its OCL was invalidated: the unfilled part now travels with the next order
+    stop: Optional[float] = None  # sizing stop distance (price per share) this order was sized on
 
     @property
     def unfilled(self) -> int:
@@ -91,13 +111,14 @@ class Order:
     def to_doc(self) -> Dict:
         return {"ocl_id": self.ocl_id, "price": self.price, "qty": self.qty, "risk": self.risk,
                 "reason": self.reason, "filled": self.filled, "carry": self.carry,
-                "closed": self.closed}
+                "closed": self.closed, "stop": self.stop}
 
     @staticmethod
     def from_doc(d: Dict) -> "Order":
         return Order(ocl_id=str(d["ocl_id"]), price=float(d["price"]), qty=int(d["qty"]),
                      risk=float(d["risk"]), reason=str(d["reason"]), filled=int(d["filled"]),
-                     carry=int(d.get("carry", 0)), closed=bool(d.get("closed", False)))
+                     carry=int(d.get("carry", 0)), closed=bool(d.get("closed", False)),
+                     stop=(None if d.get("stop") is None else float(d["stop"])))
 
 
 @dataclass
@@ -118,35 +139,50 @@ class RiskLadder:
 
     # ---- helpers -------------------------------------------------------------------------
     def planned_risk_inr(self) -> float:
-        return sum(o.qty * (o.price - self.htf_low) for o in self.orders)
+        return sum(o.qty * self._dist(o.price, o.stop) for o in self.orders)
 
-    def _ceiling_allows(self, qty: int, price: float) -> bool:
+    def _dist(self, price: float, stop: Optional[float]) -> float:
+        """Per-share stop distance: the sizing stop when the order has one, else price - HTF L."""
+        return (price - self.htf_low) if stop is None else float(stop)
+
+    def _ceiling_allows(self, qty: int, price: float, stop: Optional[float] = None) -> bool:
         if self.loss_ceiling is None:
             return False  # not set: fail closed
-        extra = qty * (price - self.htf_low)
+        extra = qty * self._dist(price, stop)
         return self.planned_risk_inr() + extra <= self.loss_ceiling * self.equity + _EPS
 
-    def _add(self, ocl_id: str, price: float, qty: int, risk: float, reason: str) -> Optional[Order]:
+    def _sizing_stop(self, price: float, atr: Optional[float]) -> Optional[float]:
+        stop = sizing_stop(price, self.htf_low, atr)
+        if stop is None:
+            self.last_refused = "no_atr"  # fail closed: no ATR, no order
+        return stop
+
+    def _add(self, ocl_id: str, price: float, qty: int, risk: float, reason: str,
+             stop: Optional[float] = None) -> Optional[Order]:
         if qty < 1:
             return None
-        if not self._ceiling_allows(qty, price):
+        if not self._ceiling_allows(qty, price, stop):
             self.last_refused = "loss_ceiling"
             return None
-        order = Order(ocl_id=ocl_id, price=price, qty=qty, risk=risk, reason=reason)
+        order = Order(ocl_id=ocl_id, price=price, qty=qty, risk=risk, reason=reason, stop=stop)
         self.orders.append(order)
         return order
 
     # ---- events --------------------------------------------------------------------------
-    def aggressive_touch(self, ocl_id: str, price: float) -> Optional[Order]:
-        """An OCL's aggressive level was touched. Returns the planned order, or None."""
+    def aggressive_touch(self, ocl_id: str, price: float, atr: Optional[float] = None) -> Optional[Order]:
+        """An OCL's aggressive level was touched. Returns the planned order, or None.
+        atr = ATR(14) on the LTF bar of this touch (needed for the sizing stop)."""
         self.last_refused = None
         if price <= self.htf_low:
+            return None
+        stop = self._sizing_stop(price, atr)
+        if stop is None:
             return None
         if self.stage == "waiting_pair":
             if self.armed_ocl is None or ocl_id == self.armed_ocl:
                 return None  # the pair needs a NEW OCL formed after the conservative touch
-            qty = shares_for(self.equity, CONVICTION, price, self.htf_low, self.carry)
-            order = self._add(ocl_id, price, qty, CONVICTION, "conviction")
+            qty = shares_for(self.equity, CONVICTION, price, self.htf_low, self.carry, stop=stop)
+            order = self._add(ocl_id, price, qty, CONVICTION, "conviction", stop)
             if order is not None:
                 order.carry = self.carry
                 self.carry = 0  # carried shares are now in the 0.50 % entry
@@ -158,8 +194,8 @@ class RiskLadder:
             risk, carry, reason = PROBE_AGGRESSIVE, 0, "probe_aggressive"
         else:
             risk, carry, reason = PROBE_AGGRESSIVE, self.carry, "ladder"  # carried shares join the 0.10 % entry
-        qty = shares_for(self.equity, risk, price, self.htf_low, carry)
-        order = self._add(ocl_id, price, qty, risk, reason)
+        qty = shares_for(self.equity, risk, price, self.htf_low, carry, stop=stop)
+        order = self._add(ocl_id, price, qty, risk, reason, stop)
         if order is None:
             return None
         order.carry = carry
@@ -170,7 +206,7 @@ class RiskLadder:
             self.stage = "waiting_pair"  # after the third OCL entry, probe rate stops
         return order
 
-    def conservative_touch(self, ocl_id: str, price: float) -> Optional[Order]:
+    def conservative_touch(self, ocl_id: str, price: float, atr: Optional[float] = None) -> Optional[Order]:
         """A conservative level was touched.
         On the OCL that already has an entry (any stage, including the third OCL) it adds +0.15 %,
         so that OCL totals 0.25 % (owner 2026-11-19). On any other OCL it only arms the escalation pair."""
@@ -178,10 +214,13 @@ class RiskLadder:
         if price <= self.htf_low:
             return None
         if self._current_ocl == ocl_id and not self._current_cons:
+            stop = self._sizing_stop(price, atr)
+            if stop is None:
+                return None
             self._current_cons = True
             self.armed_ocl = ocl_id
-            qty = shares_for(self.equity, PROBE_CONSERVATIVE, price, self.htf_low)
-            return self._add(ocl_id, price, qty, PROBE_CONSERVATIVE, "probe_conservative")
+            qty = shares_for(self.equity, PROBE_CONSERVATIVE, price, self.htf_low, stop=stop)
+            return self._add(ocl_id, price, qty, PROBE_CONSERVATIVE, "probe_conservative", stop)
         if self.stage == "waiting_pair":
             self.armed_ocl = ocl_id
         return None

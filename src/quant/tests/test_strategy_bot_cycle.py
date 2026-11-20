@@ -154,7 +154,8 @@ def test_first_fresh_trigger_opens_one_cycle_parent_with_hard_htf_stop(tmp_path)
     assert pos.breakeven_enabled is False
     assert pos.trail_from_start is False
     assert pos.target == pytest.approx(104.2)  # target = avg + N x R, N = 2.1 (owner)
-    assert _child_qtys(audit) == [500]  # probe 0.10 % of 1,000,000 over 2 INR = 500 shares
+    # probe 0.10 % of 1,000,000 = 1,000 INR over the sizing stop: max(ATR 1.0, 2.00 + 0.05 % x 100 = 2.05) = 2.05
+    assert _child_qtys(audit) == [487]  # floor(1000 / 2.05) = 487
     assert _parent(bot).ladder.orders[0].reason == "probe_aggressive"
 
 
@@ -197,20 +198,21 @@ def test_invalidation_then_next_ocl_adds_fresh_quantity_and_resumes(tmp_path):
     ])
     bot, audit = _bot(tmp_path, strat)
     bot.cycle(NOW)
-    assert _child_qtys(audit) == [500]
+    assert _child_qtys(audit) == [487]
     bot.cycle(NOW + timedelta(minutes=5))
     assert _parent(bot).paused is True
-    assert _child_qtys(audit) == [500]
+    assert _child_qtys(audit) == [487]
     bot.cycle(NOW + timedelta(minutes=10))
     assert _parent(bot).paused is False
     b = _parent(bot).ladder.orders[1]
-    assert b.reason == "ladder" and b.carry == 0 and b.qty == 1000  # 0.10 % of 1,000,000 over 1 INR
-    assert _child_qtys(audit) == [500, 500]
+    # B at 99: stop = max(1.0, 1.00 + 0.0495) = 1.0495 -> 1,000 / 1.0495 = 952 shares
+    assert b.reason == "ladder" and b.carry == 0 and b.qty == 952
+    assert _child_qtys(audit) == [487, 500]  # the child is capped by the bar's volume (POV), not by the ladder
 
 
 def test_partial_fill_is_carried_into_the_next_ocl(tmp_path):
     """Probe 500 shares, only 100 fill (thin bar). The stop-out carries the 400 unfilled into OCL B:
-    the next order is 400 carried + 1000 fresh (0.10 %) = 1400 shares."""
+    the next order is 387 carried + 952 fresh (0.10 %) = 1339 shares."""
     strat = ScriptedCycle("scripted", [
         _view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW),
         _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_NEXT),
@@ -220,13 +222,13 @@ def test_partial_fill_is_carried_into_the_next_ocl(tmp_path):
     bot, audit = _bot(tmp_path, strat, bars=SmallBars())
     bot.cycle(NOW)
     assert _child_qtys(audit) == [100]
-    assert _parent(bot).remaining == 400
+    assert _parent(bot).remaining == 387  # probe 487 - 100 filled
     bot.cycle(NOW + timedelta(minutes=5))
     assert _parent(bot).paused is True
     bot.cycle(NOW + timedelta(minutes=10))
     b = _parent(bot).ladder.orders[1]
-    assert b.carry == 400 and b.qty == 1400
-    assert _parent(bot).remaining == 400 + 1000 - 100  # carried + fresh, counted once, minus the child sent now
+    assert b.carry == 387 and b.qty == 387 + 952
+    assert _parent(bot).remaining == 387 + 952 - 100  # carried + fresh, counted once, minus the child sent now
     assert _child_qtys(audit) == [100, 100]
 
 
@@ -249,16 +251,16 @@ def test_restart_mid_cycle_keeps_the_remaining_quantity_and_ladder(tmp_path):
     bot1, audit1 = _bot(tmp_path, day1, store=store, bars=SmallBars())
     bot1.cycle(NOW)
     assert _child_qtys(audit1) == [100]
-    assert _parent(bot1).remaining == 400
+    assert _parent(bot1).remaining == 387
 
     day2 = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_DAY2)])
     bot2, audit2 = _bot(tmp_path, day2, store=store, restore_at=NEXT_DAY, bars=SmallBars())
     assert _key() in bot2._positions  # the open position came back
-    assert _parent(bot2).remaining == 400
+    assert _parent(bot2).remaining == 387
     assert len(_parent(bot2).ladder.orders) == 1  # ladder state came back, no second order
     bot2.cycle(NEXT_DAY)
     assert _child_qtys(audit2) == [100]
-    assert _parent(bot2).remaining == 300
+    assert _parent(bot2).remaining == 287  # 387 restored, minus the 100 sent after the restart
 
 
 def test_restart_after_stop_out_keeps_the_parent_paused_then_resumes(tmp_path):
@@ -272,7 +274,7 @@ def test_restart_after_stop_out_keeps_the_parent_paused_then_resumes(tmp_path):
     bot1._finish_exit(_key(), bot1._positions[_key()], 98.0, "stop", 98.0)  # the stop closed the position
     bot1.cycle(NOW + timedelta(minutes=5))  # invalidation processed and saved
     assert _parent(bot1).paused is True
-    assert _parent(bot1).remaining == 400
+    assert _parent(bot1).remaining == 387
 
     day2 = ScriptedCycle("scripted", [
         _view(_result([("aggressive", "A", 100.0, T_NEW), ("invalidated", "A", 98.5, T_NEXT)]), T_DAY2),
@@ -318,7 +320,7 @@ def test_restart_after_a_cycle_ended_never_reopens_it(tmp_path):
 
 
 def test_loss_ceiling_refusal_sends_nothing_and_is_audited(tmp_path):
-    """Probe 500 sh x 2 INR = 1000 INR planned risk. A ceiling of 0.05 % (500 INR) refuses it."""
+    """Probe 487 sh x 2.05 stop = ~998 INR planned risk. A ceiling of 0.05 % (500 INR) refuses it."""
     strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
     bot, audit = _bot(tmp_path, strat, loss_ceiling=0.0005)
     bot.cycle(NOW)
@@ -349,20 +351,20 @@ def test_shares_blocked_by_a_cap_are_carried_not_dropped(tmp_path, monkeypatch):
     bot, audit = _bot(tmp_path, strat, bars=SmallBars())
     bot.cycle(NOW)
     assert _child_qtys(audit) == [100]
-    assert _parent(bot).ladder.carry == 0 and _parent(bot).remaining == 400
+    assert _parent(bot).ladder.carry == 0 and _parent(bot).remaining == 387
     bot.cycle(NOW + timedelta(minutes=5))
-    assert _parent(bot).ladder.carry == 400  # the 400 unfilled shares of A are released
+    assert _parent(bot).ladder.carry == 387  # the 387 unfilled shares of A are released
     bot.cycle(NOW + timedelta(minutes=10))
     b = _parent(bot).ladder.orders[1]
-    assert b.carry == 400 and b.qty == 500   # planned 1400, placed 500 (the cap)
-    assert _parent(bot).ladder.carry == 900  # the blocked 900 are carried again
+    assert b.carry == 387 and b.qty == 500   # planned 387 + 952 = 1339, placed 500 (the cap)
+    assert _parent(bot).ladder.carry == 839  # the blocked 839 are carried again
     clamps = [p for k, p in audit.records if k == "ladder_clamp"]
-    assert [c["carried"] for c in clamps] == [900]
+    assert [c["carried"] for c in clamps] == [839]
     ols.reset()
 
 
 def test_a_small_cap_clamps_the_first_probe_and_keeps_the_rest(tmp_path, monkeypatch):
-    """Cap 50 shares: the 500-share probe is clamped to 50 (not refused), and 450 are carried."""
+    """Cap 50 shares: the 487-share probe is clamped to 50 (not refused), and 437 are carried."""
     from quant.core import owner_limits_store as ols
     capped = tmp_path / "owner_caps_50.yaml"
     capped.write_text("max_order_quantity: 50\nmax_order_notional: 100000000\n"
@@ -373,14 +375,14 @@ def test_a_small_cap_clamps_the_first_probe_and_keeps_the_rest(tmp_path, monkeyp
     bot, audit = _bot(tmp_path, strat)
     bot.cycle(NOW)
     assert _child_qtys(audit) == [50]
-    assert _parent(bot).ladder.carry == 450
+    assert _parent(bot).ladder.carry == 437
     assert _parent(bot).ladder.orders[0].qty == 50
-    assert [p["carried"] for k, p in audit.records if k == "ladder_clamp"] == [450]
+    assert [p["carried"] for k, p in audit.records if k == "ladder_clamp"] == [437]
     ols.reset()
 
 
 def test_portfolio_ceiling_refuses_a_probe_that_would_exceed_it(tmp_path):
-    """Probe = 500 sh x (100 - 98) = 1000 INR planned. A 0.05 % portfolio cap is 500 INR, so it is refused."""
+    """Probe = 487 sh x 2.05 stop = ~998 INR planned. A 0.05 % portfolio cap is 500 INR, so it is refused."""
     strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
     bot, audit = _bot(tmp_path, strat, portfolio_ceiling=0.0005)
     bot.cycle(NOW)
@@ -400,7 +402,7 @@ def test_portfolio_ceiling_allows_a_probe_within_three_percent(tmp_path):
     strat = ScriptedCycle("scripted", [_view(_result([("aggressive", "A", 100.0, T_NEW)]), T_NEW)])
     bot, audit = _bot(tmp_path, strat, portfolio_ceiling=0.03)
     bot.cycle(NOW)
-    assert _child_qtys(audit) == [500]
+    assert _child_qtys(audit) == [487]  # ~998 INR planned, inside the 3 % (3,000 INR) cap
 
 
 def test_adv_cap_is_one_percent_of_average_daily_volume_and_fails_safe():

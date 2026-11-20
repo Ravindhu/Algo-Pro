@@ -146,9 +146,9 @@ def test_exits_are_not_blocked_by_an_owner_quantity_cap(tmp_path, kill, safe, st
 
 
 def test_gate_enforces_owner_caps_without_an_explicit_argument(kill, safe, state):
-    """The default path reads the repo's own config/risk_limits.yaml (cap 10)."""
+    """The default path reads the repo's own config/risk_limits.yaml (cap 1,00,000 shares, owner 2026-11-20)."""
     owner_limits_store.reset()
-    d = check_intent(intent(qty=999), state, LOOSE, kill, safe)
+    d = check_intent(intent(qty=100_001), state, LOOSE, kill, safe)
     assert d.approved is False
     assert any("owner limit: max_order_quantity" in r for r in d.reasons)
 

@@ -152,7 +152,12 @@ Pattern rules
 14. Swing search looks back 20 HTF bars. The newest sweep is used.
 
 Risk ladder (owner 2026-11-19)
-14a. Each OCL entry is sized against the HTF OCL low at **its own price**: `shares = floor(equity x risk / (entry - HTF L))`.
+14a. Each OCL entry is sized against the HTF OCL low at **its own price**: `shares = floor(equity x risk / sizing stop)`. The sizing stop is defined in 14a-stop below (owner 2026-11-20).
+14a-stop. **Sizing stop (owner 2026-11-20):** `sizing stop = max(ATR floor, (entry - HTF L) + 0.05 % x entry)`, whichever is higher.
+   - ATR floor = 1 x ATR(14) on the LTF bar of the touch. **The multiplier 1 is an assumption the owner has not yet confirmed.**
+   - The 0.05 % buffer is owner-approved.
+   - If ATR is unknown on that bar, no order is placed (fail closed).
+   - The 1 % cycle ceiling and the 3 % portfolio ceiling measure planned risk at this same sizing stop.
 14b. Probe 0.10 % aggressive, +0.15 % conservative (0.25 % per OCL).
 14c. On invalidation the unfilled quantity is carried, and the next OCL below gets **remainder + a fresh 0.25 %**.
 14d. 0.50 % requires the escalation pair: conservative touch FIRST, then a new OCL. One entry only, no split.
@@ -199,10 +204,11 @@ Applies to all five strategies. Each strategy starts from its own MTF setup.
 
 ### 11.3 The four risk numbers
 
-All sizing uses the same hard stop (HTF L), and each entry is sized at its OWN price:
+All sizing uses the same hard stop (HTF L), and each entry is sized at its OWN price. From 2026-11-20 the distance used is the sizing stop (section 14a-stop), not the plain distance to HTF L:
 
 ```
-shares(entry) = floor(equity * risk / (entry_price - HTF L))
+shares(entry) = floor(equity * risk / sizing_stop(entry))
+sizing_stop(entry) = max(1 x ATR(14), (entry_price - HTF L) + 0.0005 x entry_price)
 ```
 
 | Stage | Event | Risk |
@@ -318,7 +324,8 @@ step-by-step table so the implementation can be checked against it line by line.
 | 8 | HTF close below HTF OCL low | cycle ends |
 | — | remainder | rolls forward to every new OCL until HTF invalidation |
 
-Worked numbers (equity ₹1,00,000, HTF L ₹93, OCL #1 agg ₹100 / cons ₹95, OCL #2 agg ₹94):
+Worked numbers (equity ₹1,00,000, HTF L ₹93, OCL #1 agg ₹100 / cons ₹95, OCL #2 agg ₹94).
+**Note (2026-11-20):** these numbers use the plain distance (entry − HTF L), the form before the sizing stop. With the sizing stop, the share counts change; the formula is the rule, not these numbers.
 
 ```
 OCL #1 agg  : floor(1,00,000 x 0.0010 / (100-93)) = 14 sh

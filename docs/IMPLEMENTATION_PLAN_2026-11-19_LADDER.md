@@ -161,3 +161,13 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   Full suite: no new failures vs untouched baseline.
   Still open: replay does not model clamps or partial-fill carry (documented). Rules doc section 11 text must be
   updated by the owner to match (0.25 % per OCL, option A, clamp carry).
+- 2026-11-20: Sizing stop implemented (owner: "set at ATR floor and current SL + buffer, whichever is higher; buffer 0.05 % of price").
+  sizing stop = max(1 x ATR(14) on the touch's LTF bar, (entry - HTF L) + 0.05 % x entry). The 1 x multiplier is an
+  ASSUMPTION the owner has not confirmed (flagged in STRATEGY_RULES section 14a-stop). No ATR = no order (fail closed).
+  Code: risk_ladder.py sizing_stop(), shares_for(stop=), Order.stop (stored and used by the 1 % and 3 % ceilings);
+  strategy_bot.py _scan_cycle passes view.atr and uses the order's stop as sl_dist; portfolio check uses the same stop;
+  cycle.py ladder_plan / _finish / run_cycles / run_cycle take atr_by_time (bar time -> ATR), built in
+  engulf_sequence_strategy.cycle_for. Owner cap max_order_quantity set to 1,00,000 shares in config/risk_limits.yaml.
+  Tests updated to the new sizing (ATR 1.0 in fixtures). New tests: no ATR = no order; ceiling uses the sizing stop;
+  stop round-trips through saved state. Full suite: no new failures vs clean HEAD baseline (63 failing, all pre-existing).
+  Open: confirm ATR multiplier (1 x); replay still assumes full fills (no carry, no caps).

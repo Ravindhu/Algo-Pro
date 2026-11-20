@@ -37,14 +37,22 @@ def _ltf(*extra):
     return _frame([LTF_FILL] * 8 + [RRG_C1, RRG_C2, C3_BREAK] + list(extra))
 
 
+class _FlatAtr(dict):
+    """Test helper: ATR(14) = 1.0 on every LTF bar (owner 2026-11-20 sizing stop)."""
+    def get(self, key, default=None):
+        return 1.0
+
+
+FLAT_ATR = _FlatAtr()
+
 def test_result_carries_htf_cycle_id():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH), target_r=3.0, equity=EQUITY, loss_ceiling=0.01, atr_by_time=FLAT_ATR)
     assert res.htf_key_time == 7  # the HTF bar that touched the key (index 7)
     assert res.ltf_paused is False
 
 
 def test_stop_out_without_new_ocl_is_paused():
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT), equity=EQUITY, loss_ceiling=0.01)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT), equity=EQUITY, loss_ceiling=0.01, atr_by_time=FLAT_ATR)
     assert [e.kind for e in res.entries] == ["aggressive"]
     assert res.ltf_paused is True
     assert res.status == "open"
@@ -55,7 +63,7 @@ def test_new_ltf_ocl_after_stop_out_clears_pause_only_after_it_forms():
     NEW_C1 = (8.8, 8.9, 8.0, 8.1)     # red
     NEW_C2 = (8.9, 8.95, 8.1, 8.2)    # red, open 8.9 = new key level (below 9.0)
     NEW_C3 = (8.4, 9.6, 8.3, 9.5)     # green, closes above C2 open
-    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT, NEW_C1, NEW_C2, NEW_C3), equity=EQUITY, loss_ceiling=0.01)
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, STOP_OUT, NEW_C1, NEW_C2, NEW_C3), equity=EQUITY, loss_ceiling=0.01, atr_by_time=FLAT_ATR)
     assert res.ltf_paused is False
 
 

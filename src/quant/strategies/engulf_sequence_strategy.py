@@ -48,16 +48,23 @@ class SequenceStrategy:
         if frames is None:
             return None
         mtf, htf, ltf = frames["mtf"], frames["htf"], frames["ltf"]
-        results = run_cycles(self.kind, mtf, htf, ltf, target_r=self.target_r,
-                             equity=self.equity, loss_ceiling=self.loss_ceiling)
-        if not results or len(ltf) == 0:
-            return None
+        # ATR(14) per LTF bar, keyed by bar time: the ladder sizes each touch on the ATR of its own bar
+        # (owner 2026-11-20 sizing stop). Bars before ATR warm-up have no entry, so no order there.
+        atr_map = {}
         atr_val = None
         if len(ltf) >= 15:
             highs = ltf["high"].to_numpy(dtype=float).tolist()
             lows = ltf["low"].to_numpy(dtype=float).tolist()
             closes = ltf["close"].to_numpy(dtype=float).tolist()
-            atr_val = atr_series(highs, lows, closes, period=14)[-1]
+            series = atr_series(highs, lows, closes, period=14)
+            for bar_time, v in zip(ltf.index, series):
+                if v is not None and v == v and v > 0:  # skip None / NaN warm-up
+                    atr_map[bar_time] = float(v)
+            atr_val = series[-1]
+        results = run_cycles(self.kind, mtf, htf, ltf, target_r=self.target_r,
+                             equity=self.equity, loss_ceiling=self.loss_ceiling, atr_by_time=atr_map)
+        if not results or len(ltf) == 0:
+            return None
         return CycleView(results=results, newest_ltf_time=ltf.index[-1],
                          atr=float(atr_val) if atr_val is not None and atr_val > 0 else None)
 

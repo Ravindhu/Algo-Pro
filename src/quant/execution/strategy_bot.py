@@ -784,8 +784,9 @@ class StrategyBot:
             if kind not in ("aggressive", "conservative"):
                 continue
             trial = copy.deepcopy(ladder)
-            trial_order = (trial.aggressive_touch(ocl_id, price) if kind == "aggressive"
-                           else trial.conservative_touch(ocl_id, price))
+            # Sizing stop (owner 2026-11-20): the ladder uses max(ATR floor, stop + 0.05 % of price); ATR is the view's.
+            trial_order = (trial.aggressive_touch(ocl_id, price, view.atr) if kind == "aggressive"
+                           else trial.conservative_touch(ocl_id, price, view.atr))
             if trial_order is None:
                 if trial.last_refused:  # audit: an order was wanted but the owner loss ceiling refused it
                     self._log("ladder_refused", key=key, trigger=kind, ocl=ocl_id, reason=trial.last_refused,
@@ -793,13 +794,13 @@ class StrategyBot:
                               ceiling_inr=round(float(trial.loss_ceiling or 0.0) * float(trial.equity), 2))
                 continue  # nothing to size: wrong stage, same OCL, pair not armed, or ceiling
             ok_port, port_used, port_cap = self._portfolio_ceiling_check(
-                key, ladder, trial_order.qty, float(price))
+                key, ladder, trial_order.qty, float(price), trial_order.stop)
             if not ok_port:
                 self._log("ladder_refused", key=key, trigger=kind, ocl=ocl_id, reason="portfolio_loss_ceiling",
                           planned_risk_inr=round(port_used, 2), ceiling_inr=round(port_cap, 2))
                 continue
             total = int(trial_order.qty)
-            sl_dist = float(price) - float(cur.htf_low)
+            sl_dist = float(trial_order.stop)  # sizing stop = max(ATR floor, (price - HTF L) + 0.05 % of price)
             sig = {"side": "BUY", "entry": float(price), "sl_dist": sl_dist, "tp_dist": 3.0 * sl_dist,
                    "atr": view.atr, "time": str(t), "strategy": strat.name}
             # The gate sizes floor(equity * risk / sl_dist). Passing the whole order as the risk
@@ -814,8 +815,8 @@ class StrategyBot:
                                       risk_fraction=risk_frac, equity=float(ladder.equity))
             if intent is None or intent.qty < 1:
                 continue
-            order = (ladder.aggressive_touch(ocl_id, price) if kind == "aggressive"
-                     else ladder.conservative_touch(ocl_id, price))
+            order = (ladder.aggressive_touch(ocl_id, price, view.atr) if kind == "aggressive"
+                     else ladder.conservative_touch(ocl_id, price, view.atr))
             if order is None:
                 continue  # cannot happen: the trial said yes on the same state
             planned_qty = order.qty
@@ -857,14 +858,17 @@ class StrategyBot:
             pos.trail_from_start = parent.trail
         self._persist_positions()
 
-    def _portfolio_ceiling_check(self, key: str, ladder, qty: int, price: float) -> Tuple[bool, float, float]:
-        """(allowed, planned risk in use across all open cycles, cap in INR). Fail closed when the cap is unset."""
+    def _portfolio_ceiling_check(self, key: str, ladder, qty: int, price: float,
+                                 stop: Optional[float] = None) -> Tuple[bool, float, float]:
+        """(allowed, planned risk in use across all open cycles, cap in INR). Fail closed when the cap is unset.
+        stop = the order's sizing stop distance (per share); None falls back to price - HTF L."""
         cap = self._cycle_portfolio_loss_ceiling
         used = sum(p.ladder.planned_risk_inr() for p in self._parents.values() if p.ladder is not None)
         if cap is None:
             return False, used, 0.0
         cap_inr = float(cap) * float(ladder.equity)
-        added = int(qty) * (float(price) - float(ladder.htf_low))
+        dist = (float(price) - float(ladder.htf_low)) if stop is None else float(stop)
+        added = int(qty) * dist
         return used + added <= cap_inr + 1e-9, used, cap_inr
 
     def _pov_for(self, symbol: str, df, side: str) -> Tuple[float, str]:

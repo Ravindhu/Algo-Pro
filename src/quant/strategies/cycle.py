@@ -156,26 +156,29 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time):
     return entries, any_cons, status, end_time, paused, events
 
 
-def ladder_plan(events, htf_low, equity, loss_ceiling):
+def ladder_plan(events, htf_low, equity, loss_ceiling, atr_by_time=None):
     """The bot's risk ladder run on the replay events (plan P4). Returns the planned orders.
 
+    atr_by_time maps an LTF bar time to ATR(14) on that bar (owner 2026-11-20 sizing stop). A touch on a
+    bar with no ATR gets no order (fail closed), the same as the bot.
     Full fill is assumed for every order (the replay has no fills), so nothing is carried here.
     Live fills (POV) can differ, so the live average can differ from this one."""
     if equity is None or loss_ceiling is None:
         return []  # fail closed: no sizing without the capital and the owner ceiling
     ladder = RiskLadder(equity=float(equity), htf_low=float(htf_low), loss_ceiling=loss_ceiling)
     orders = []
-    for kind, ocl_id, price, _t in events:
+    for kind, ocl_id, price, t in events:
         if kind == "invalidated":
             ladder.invalidate(ocl_id)
             continue
         if kind not in ("aggressive", "conservative"):
             continue
+        atr = atr_by_time.get(t) if atr_by_time is not None else None  # None = no ATR = no order
         touch_name = "aggressive_touch" if kind == "aggressive" else "conservative_touch"
         trial = copy.deepcopy(ladder)  # same check as the bot: only commit when the trial plans an order
-        if getattr(trial, touch_name)(ocl_id, price) is None:
+        if getattr(trial, touch_name)(ocl_id, price, atr) is None:
             continue
-        order = getattr(ladder, touch_name)(ocl_id, price)
+        order = getattr(ladder, touch_name)(ocl_id, price, atr)
         if order is None:
             continue
         ladder.record_fill(order, order.qty)  # full fill assumed
@@ -184,10 +187,10 @@ def ladder_plan(events, htf_low, equity, loss_ceiling):
 
 
 def _finish(kind, status, htf_low, entries, any_cons, events, target_r, equity, loss_ceiling,
-            htf_key_time=None, paused=False):
+            htf_key_time=None, paused=False, atr_by_time=None):
     """Cycle result. Average = quantity-weighted mean of the ladder orders (plan P4), not a price mean."""
     events = list(events or [])
-    orders = ladder_plan(events, htf_low, equity, loss_ceiling)
+    orders = ladder_plan(events, htf_low, equity, loss_ceiling, atr_by_time)
     if not orders:
         return CycleResult(kind=kind, status=status, htf_low=htf_low, htf_key_time=htf_key_time,
                            ltf_paused=paused, events=events)
@@ -207,7 +210,8 @@ def _finish(kind, status, htf_low, entries, any_cons, events, target_r, equity, 
 
 
 def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
-               equity: Optional[float], loss_ceiling: Optional[float]) -> List[CycleResult]:
+               equity: Optional[float], loss_ceiling: Optional[float],
+               atr_by_time: Optional[dict] = None) -> List[CycleResult]:
     """All HTF cycles in the history, in order. Empty list when no MTF setup has been touched.
     equity and loss_ceiling are the same values the bot uses (owner settings). loss_ceiling None = no
     orders (fail closed)."""
@@ -237,7 +241,8 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
         entries, any_cons, status, _, paused, events = _ltf_loop(ltf, key_time, htf_low, inval_time,
                                                                  mtf_inval_time)
         results.append(_finish(kind, status, htf_low, entries, any_cons, events, target_r,
-                               equity, loss_ceiling, htf_key_time=key_time, paused=paused))
+                               equity, loss_ceiling, htf_key_time=key_time, paused=paused,
+                               atr_by_time=atr_by_time))
         if status != "htf_invalidated":
             break  # open, waiting or MTF invalidated: this is the end of the replay
         floor = htf_low
@@ -246,9 +251,11 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
 
 
 def run_cycle(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
-              equity: Optional[float], loss_ceiling: Optional[float]) -> Optional[CycleResult]:
+              equity: Optional[float], loss_ceiling: Optional[float],
+              atr_by_time: Optional[dict] = None) -> Optional[CycleResult]:
     """The last cycle in the history (the current one), or None when no cycle exists."""
-    results = run_cycles(kind, mtf, htf, ltf, target_r, equity=equity, loss_ceiling=loss_ceiling)
+    results = run_cycles(kind, mtf, htf, ltf, target_r, equity=equity, loss_ceiling=loss_ceiling,
+                         atr_by_time=atr_by_time)
     return results[-1] if results else None
 
 
