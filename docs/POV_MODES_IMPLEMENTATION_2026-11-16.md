@@ -3,7 +3,7 @@
 Plain-English guide to how the bot sizes and prices child orders. Live trading stays OFF.
 `config/bot.yaml` keeps `mode: paper` and `live_enabled: false`.
 
-Design background: `docs/PEG_AND_BUYER_VOLUME_DESIGN.md`. Plan and status: `docs/AUDIT_FIX_PLAN_2026-11-15.md`.
+Design background: `docs/PEG_AND_BUYER_VOLUME_DESIGN.md`.
 
 ## 1. The big picture
 
