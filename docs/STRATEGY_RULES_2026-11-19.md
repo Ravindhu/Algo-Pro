@@ -1,8 +1,8 @@
 # Strategy rules and logic (2026-11-19)
 
 Flow stage: Strategy (sequence strategies), Closed bars MTF/HTF/LTF, Engulf sequence, Strategy bot cycle
-Status: all five sequence strategies are BUILT for the replay. **The owner risk ladder (section 11) is NOT yet implemented in the bot** — see section 13.
-Source: owner rules in `docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md` (rounds 3 to 10) plus owner confirmations 2026-11-19. Replaces `STRATEGY_EXPLAINER_2026-11-18.md`, which is out of date.
+Status (updated 2026-11-20): all five sequence strategies are BUILT and enabled in config/bot.yaml. The owner risk tree (section 11A) is wired into the bot (tree mode). Section 13 is the current code status; section 15 is the step-by-step flow from MTF to the POV slicer.
+Source: owner rules in `docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md` (rounds 3 to 10) plus owner confirmations 2026-11-19 and 2026-11-20. `docs/STRATEGY_EXPLAINER_2026-11-18.md` explains the same flow in plain English (updated 2026-11-20).
 
 All rules use closed bars only. Oldest bar first. The bar in progress is never used.
 
@@ -204,6 +204,8 @@ Applies to all five strategies. Each strategy starts from its own MTF setup.
 
 ### 11.3 The four risk numbers
 
+> **Superseded for sizing by section 11A (owner 2026-11-20).** The numbers below are the old 0.10 / 0.15 / 0.25 % ladder, kept for history.
+
 All sizing uses the same hard stop (HTF L), and each entry is sized at its OWN price. From 2026-11-20 the distance used is the sizing stop (section 14a-stop), not the plain distance to HTF L:
 
 ```
@@ -267,41 +269,23 @@ sizing_stop(entry) = max(1 x ATR(14), (entry_price - HTF L) + 0.0005 x entry_pri
 ### 11.10 Open items on this flow
 
 - **N (the backtested target multiple) is not set.** Until it is, an aggressive-only cycle has no exit. The bot must refuse those trades, not run them.
-- **Loss ceilings are set (owner 2026-11-19 and 2026-11-20):** 1 % of equity planned risk per HTF cycle, and 3 % of equity planned risk across all open cycles (all symbols). Each ceiling refuses the order that would exceed it, and is fail closed when unset.
+- **Superseded by 11A (the symbol allocation and the 5 % portfolio cap replace these).** Loss ceilings were set (owner 2026-11-19 and 2026-11-20): 1 % of equity planned risk per HTF cycle, and 3 % of equity planned risk across all open cycles (all symbols). Each ceiling refuses the order that would exceed it, and is fail closed when unset.
 
-## 13. What the code does NOT yet do (audited 2026-11-19)
+## 13. Code status (updated 2026-11-20)
 
-Read this before trusting any backtest number. The replay (`cycle.py`) and the bot
-(`strategy_bot._cycle_step`) implemented an EARLIER rule set and do not match
-section 11. Each line is a real divergence:
+This replaces the 2026-11-19 audit. Status of each gap found then:
 
-1. **The risk ladder is not implemented.** The bot sizes once, with one global
-   `risk_per_trade`. It has no 0.10 / 0.15 split, no carried remainder, and no
-   0.50 % conviction stage.
-2. **A conservative touch never becomes an order.** `_cycle_step` buys only
-   `fresh[0]` (the aggressive entry) and then only unpauses the parent. But
-   `cycle._ltf_loop` DOES record the conservative entry and averages it into
-   `avg_entry`. So the replay reports fills the bot would never place.
-3. **A new-below-OCL entry never becomes an order** either, for the same reason.
-4. **Target N is unset.** `cycle._finish` returns `mode="target_pending"` with
-   `target=None`. A position that touched only an aggressive level then has NO
-   target and NO trail — only the HTF stop would close it. This is fail-OPEN and
-   must be fixed before any paper run.
-5. **The per-cycle loss ceiling does not exist.** Nothing caps realised losses
-   inside one cycle except the daily-loss kill switch.
-6. **Section 5 (trigger freshness) is correct only for `fresh_entries`**. The
-   older `sequence_signal` / `signal_for` path still exists and is still tested;
-   the bot does not use it, so its tests give no assurance about the live path.
-7. **Only `engulfing` is enabled** in `config/bot.yaml`. The other four strategies
-   exist and can be named, but the bot does not run them.
+| # | 2026-11-19 gap | Status 2026-11-20 |
+|---|---|---|
+| 1 | Risk ladder not in the bot | **Done for the owner tree (11A).** The bot sizes each touch from `risk_tree.plan`. The old 0.10 / 0.15 ladder still runs when no symbol allocation is set (not the live config). |
+| 2 | A conservative touch never became an order | **Done.** Conservative leaf touches are orders in tree mode. |
+| 3 | A new-below-OCL entry never became an order | **Done.** Carried shares plus the new OCL's touch become an order (`RiskLadder` carry, `tree_order`). |
+| 4 | Target N unset (fail open) | **N = 2.1** in `settings.yaml` (`cycle.target_r`). With N unset the trade still refuses (`target_pending`). But see issue A in 15.8: the target and trail depend on the old 1 % ladder. |
+| 5 | No per-cycle loss ceiling | **Replaced by 11A:** symbol allocation (4 %) and portfolio cap (5 %). The 1 % `cycle.loss_ceiling` is still set and still used by the replay (issue A). |
+| 6 | Trigger freshness | Still true: only a touch on the newest closed LTF bar becomes an order (`fresh_entries`, `_scan_cycle` skips stale touches). |
+| 7 | Only engulfing enabled | **Done.** All five strategies are listed in `config/bot.yaml`. |
 
-Fixing order, if the owner wants it:
-1. Make `target_pending` refuse the trade (closes the only fail-open hole).
-2. Implement the ladder in `_cycle_step` (0.10/0.15, remainder carry, 0.25 re-add,
-   the escalation pair, 0.50 re-earned) and size per entry against HTF L.
-3. Make `cycle.avg_entry` quantity-weighted with the same sizes, so replay and bot
-   agree.
-4. Set the per-cycle loss ceiling, then enable the remaining four strategies.
+Open issues found while writing section 15 are in 15.8.
 
 ## 14. Worked example of the ladder (owner 2026-11-19)
 
@@ -363,3 +347,91 @@ sections 11.3 and 11.10. The ceilings are replaced by the symbol allocation and 
 
 Code: src/quant/strategies/risk_tree.py (budgets, SlotGate, plan), cycle.py run_cycles (tree events),
 strategy_bot.py _scan_cycle (tree branch, carry pool), setup_store.py (aggressive_share), dashboard popup.
+
+---
+
+## 15. Step-by-step flow, MTF to POV slicer (as coded, 2026-11-20)
+
+Each step names the function that does it. The plain-English version is `docs/STRATEGY_EXPLAINER_2026-11-18.md`.
+
+### 15.1 Once per bot cycle (every `interval_minutes`, 5 in bot.yaml)
+
+1. `StrategyBot.cycle` (`strategy_bot.py`): check broker stops and resync them. If the data source is not approved, stop here and flag open positions as unmanaged.
+2. Read the screen: only symbols from a screen at most 10 minutes old, with no ASM/GSM flag (`read_screen`).
+3. Tree mode only: compute each symbol's allocation with `symbol_allocations` (portfolio allocator: 5 % portfolio, 4 % symbol cap, equal scores). One symbol = 4 %, two = 2.5 % each, five = 1 % each.
+4. Run the entry guard and check startup reconciliation. If entries are blocked, the symbol list is emptied: no new setups, but exits and slicing still run.
+5. For each symbol: read closed MTF, HTF and LTF bars (`MultiTimeframeBars`). A missing feed skips the symbol and is counted by the feed-health check. Read daily stats.
+6. For each enabled strategy, call `_scan` then `_scan_cycle`.
+
+### 15.2 Setup detection (`cycle.run_cycles`, a stateless replay of the whole history)
+
+7. **MTF setup** (`_newest_setup`, `owner_patterns.py`): the newest confirmed MTF pattern for the strategy (egpattern for Engulfing, sell-fail egpattern for `engulfing_fail`, OCL for the three OCL strategies). It gives the MTF level.
+8. **MTF touch** (`_mtf_touch`): the first later MTF bar whose range covers that level.
+9. **MTF invalidation**: the first later MTF close below the pattern low (`setup_low`). The whole replay ends there.
+10. **MTF conservative touch** (`_mtf_cons_touch_time`): the first bar after the MTF touch, before MTF invalidation, whose range covers the setup's conservative level. Emits `mtf_cons_touch`.
+11. **HTF sweep** (`first_sweep_after`): an HTF swing low swept after the MTF touch. The replay starts from the sweep bar. `ocl_sell_fail_bottom_seq` (`NO_SWEEP_KINDS`) skips this and starts at the MTF touch.
+12. **HTF OCL** (`_htf_stage` with `find_ocl_rrg`): the first HTF OCL that forms at or after the start. A later HTF bar must then touch its key level. After an HTF invalidation, the key must be below the invalidated low (no new sweep). Emits `htf_ocl` at the key time.
+13. **HTF conservative touch** (`_htf_cons_touch_time`): the first HTF bar after the key bar, before HTF invalidation, whose range covers the HTF OCL's conservative level. Emits `htf_cons_touch`.
+14. **HTF L** (`_htf_low`): the lowest low of the HTF OCL's bars. This is the hard stop for every entry in the cycle.
+15. **HTF invalidation** (`_htf_invalid_time`): the first later HTF close below HTF L. The HTF cycle ends.
+
+### 15.3 LTF loop (`_ltf_loop`, from the key touch until the cycle ends)
+
+16. **LTF OCL forms** (`find_ocl_rrg` on LTF bars): a new OCL. After a stop-out it must form with its key below the previous stop-out low. Emits `ltf_ocl`.
+17. **LTF aggressive touch**: the first bar whose range covers the OCL's aggressive key level. Emits `ltf_agg_touch`.
+18. **LTF conservative touch**: only after that OCL's aggressive touch, the first bar whose range covers its conservative level. Emits `ltf_cons_touch`. From then on the cycle exits in trail mode.
+19. **LTF invalidation**: a later LTF close below the OCL's low (C1 to C3). Emits `ltf_invalidated`. The position is paused, not closed, and step 16 must then form a lower OCL.
+20. **HTF invalidated**: the loop stops and a new HTF cycle starts (step 12, below the invalidated price). **MTF invalidated**: the loop stops and the whole replay ends.
+
+### 15.4 Risk tree decisions (`risk_tree.plan`, run inside `run_cycles`)
+
+21. All MTF, HTF and LTF events are sorted by time. At equal times, higher-level events (`mtf_cons_touch`, `htf_ocl`, `htf_cons_touch`, `htf_invalidated`) come first.
+22. The planner gives each touch a decision: a stage, a budget fraction, or a refusal. Budgets at the 4 % reference and 60 % aggressive share:
+    - MTF level, one slot per new HTF OCL: 0.8 %. Five slots: three aggressive, then wait for the MTF conservative touch, then two conservative.
+    - HTF level, one slot per new LTF OCL inside an HTF OCL: 0.16 %. Five slots: three aggressive, then wait for the HTF conservative touch, then two conservative.
+    - LTF leaf (the 0.16 % of each LTF OCL): 60 % to its aggressive touch (0.096 %), 40 % to its conservative touch (0.064 %).
+23. A conservative touch arms the next slot at its level (`SlotGate`). The next OCL to form takes the armed slot. Aggressive slots need no arming. Unused slot budget is forfeited.
+24. Every decision is stored on each result (`tree_decisions`). A touch with no decision is refused.
+
+### 15.5 Bot order building (`_scan_cycle`)
+
+25. Only touches on the newest closed LTF bar are used. Older touches are logged as `cycle_event_stale` and skipped.
+26. Look up the touch's decision by event, OCL id and time. No decision, or a refusal: logged as `tree_refused`, nothing sent.
+27. Size on a trial copy of the ladder (`RiskLadder.tree_order`): shares = floor(equity x fraction / sizing stop) + carried shares. Sizing stop = max(1 x ATR(14) from the cycle view, (price − HTF L) + 0.05 % of price). Carried shares add no budget.
+28. Checks, in order: portfolio cap (planned risk at the HTF stops across all open cycles, `_portfolio_ceiling_check`), per-order share and notional caps, the ADV cap (`_adv_cap_qty`), then the risk gate (`_gate_entry`). A clamped shortfall is carried and logged as `ladder_clamp`.
+29. A parent is created once per HTF cycle (keyed by symbol, strategy, side and HTF key time), with `remaining` = carried shares + new shares. Its stop = HTF L, its target comes from the replay, and its allocation is locked (`allocation_pct`).
+30. A conservative touch sets `parent.trail = True`. From then on the exit is the ATR trail, with no fixed target.
+31. The MTF carry pool is keyed by the MTF setup (`_mtf_id`). When an HTF cycle closes with unfilled shares (`_close_htf`), they go into the pool. The pool is used only when the next order is placed in the same MTF setup. If the setup ends first, the pool is dropped.
+
+### 15.6 POV slicer (`_slice_parents`, runs each cycle after the exit check)
+
+32. Skip a parent if a fault is open, the parent is paused (after an LTF invalidation), or it has no remaining shares. A cycle parent waits for its next ladder order and never expires by cycle count (`max_cycles` applies only to non-cycle parents).
+33. Take the oldest ladder order with unfilled shares (FIFO). Its price is the reference price for the slice.
+34. POV rate (`_pov_for`, entries only). The buyer-initiated VWAP comes from `BuyerVwapBook`, which polls quotes every 15 seconds and counts volume only when LTP ≥ ask.
+    - Above the ceiling (VWAP + 0.5 %): **halt**, no child this cycle.
+    - Below the floor (VWAP − 3 %): **passthrough** at the base 10 %.
+    - In between: the rate moves linearly from 5 % (at the ceiling) to 25 % (at the floor).
+    - No VWAP yet: fixed 10 %, logged as `pov_band_fallback`.
+35. Volume: the last closed LTF bar's volume x today's buyer share (`_slice_volume`). No share yet: full bar volume (`pov_buyer_fallback`).
+36. Child quantity (`child_qty`): POV x volume, capped at the parent's remaining shares and the active order's unfilled shares. In peg mode also capped at a fraction of the best-bid size. Less than 1 share: nothing is sent.
+37. Entry execution, default `peg_band_buyer`: a LIMIT at best bid plus one tick, capped at the reference price. It waits 5 seconds and is placed at most 3 times. An unfilled LIMIT is cancelled cleanly and the parent stays open. If no peg price is available: fixed 10 % of full bar volume, at the entry price.
+38. Exits are never banded, buyer-sized or halted. They always use the fixed POV.
+39. Reply handling: success → `remaining -= qty`, the ladder records the fill, open exposure is booked. A partial fill → CRITICAL alert, the parent is halted and entries are blocked until reconciled. Any other non-success → the parent is closed.
+40. The average entry (`pos.entry`) is the fill-weighted mean of the child fills, as the bot books them.
+
+### 15.7 Exits (`_manage_exits`, on each position's last closed bar)
+
+41. Stop first: if the bar's low reaches the stop, the exit is at min(stop, open). At the start the stop is HTF L.
+42. Target: if a target is set (no conservative touch yet), exit at the target when the bar's high reaches it.
+43. Breakeven is off for cycle positions (`breakeven_enabled = not p.cycle`).
+44. Trail (after a conservative touch, `trail_from_start`): stop = max(stop, best high − trail_mult x ATR). Defaults: `trail_mult` 2.0, `breakeven_r` 1.0 (unused for cycles). The stop only moves up.
+45. A moved stop is logged as `stop_moved`, and the broker SL-M stop is re-placed to match (`_sync_broker_stop`).
+
+### 15.8 Known issues (found 2026-11-20, not yet fixed)
+
+- **A. The replay still runs the old 1 % ladder (high priority).** `_finish` calls `ladder_plan` with `loss_ceiling`. If `cycle.loss_ceiling` is unset, the replay returns no orders, so no `mode` or `target` is set. The bot then gets no target, and no trail unless a tree conservative touch sets it. An aggressive-only cycle would then have only the HTF stop. Today `loss_ceiling` = 1 %, so it works. The owner's 11A replaces that ceiling, so removing it would open this hole. Fix: derive the mode and target average from the tree's sizes, not the old ladder.
+- **B. The target average uses the old ladder weights.** `avg` in `_finish` uses the old 0.10 / 0.15 / 0.25 weighting, not the tree's sizes. In tree mode the target price (avg + N x R) is therefore computed from the wrong average. Fixed by the same change as A.
+- **C. A partial peg fill halts the parent.** The reply is treated as a CRITICAL fault, and the parent stays halted until reconciled. Not yet tested on the paper broker.
+- **D. No profit lock on aggressive-only leaves.** Before a conservative touch, the only protection is HTF L. Breakeven is off for cycle positions (owner rule 11.9). Any profit lock needs an owner decision and out-of-sample evidence first.
+- **E. The entry signal carries a 3R `tp_dist`.** The bot sets `tp_dist = 3 x sl_dist` on the entry signal. The exit code does not read it. It is still passed to the risk gate, which should be checked.
+- **F. Carry is dropped with the MTF setup.** Unfilled shares from an HTF cycle are lost if the MTF setup ends before the carry is used. This follows the forfeit rule, but the owner should confirm it.

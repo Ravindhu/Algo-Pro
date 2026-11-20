@@ -1,77 +1,104 @@
-# The four strategies, in plain English (2026-11-18)
+# The five strategies and the full trade flow, in plain English (updated 2026-11-20)
 
-Use this to explain how each strategy differs. The four are:
-1. Engulfing
-2. OCL
-3. Sell-fail OCL, top
-4. Sell-fail OCL, bottom
+This replaces the 2026-11-18 version, which described the old stops and targets. The bot now works as described here.
+The step-by-step code map is in `docs/STRATEGY_RULES_2026-11-19.md`, section 15. Known open problems are in section 15.8.
 
-All four are long-only (BUY). A SELL signal is refused by the bot (owner rule, 2026-11-09).
+All five are long only (BUY). The bot refuses SELL signals.
 
-## Words used below
+## Words used
 
-- **MTF, HTF, LTF**: the three timeframes from the Trade setup panel. MTF is the setup timeframe, HTF is the trend/bias timeframe, LTF is the entry timeframe.
-- **SL**: stop loss. The price where the trade is closed to limit a loss.
-- **TP**: take profit. The price where the trade is closed to lock a gain.
-- **Breakeven**: the stop is moved up to the entry price, so a winning trade cannot turn into a loss.
-- **Trailing**: the stop follows the price up, so profit is protected as the price rises.
-- **R**: the risk on the trade, meaning the distance from entry to the first stop. 1R is one unit of risk.
-- **ATR**: a measure of how much the price usually moves in one bar.
+- **MTF, HTF, LTF**: the three timeframes from the Trade setup panel. Order must be LTF < HTF < MTF. Example: Daily, 1-hour, 5-minute.
+- **Candle body**: the part between open and close. A "50 % body" means the body is more than half of the candle's full range.
+- **OCL**: three candles, red, red, green (C1, C2, C3). A break is either C3 closing above C2's open (3-candle break) or C4 closing above C2's open after C3 did not (4-candle break). The first break wins.
+- **Aggressive level**: the first price level the bot may buy at.
+- **Conservative level**: a second, deeper level, touched later. It is the lowest candle body, not the lowest wick.
+- **Sweep**: a later bar's low goes below an earlier swing low.
+- **HTF L**: the lowest low of the HTF OCL. This is the one hard stop for the whole cycle.
+- **ATR**: how far price usually moves in one bar (14-bar average).
+- **POV**: the share of the traded volume the bot is allowed to take in each slice.
 
-## Side-by-side
+## The five strategies
 
-| | Engulfing | OCL | Sell-fail OCL, top | Sell-fail OCL, bottom |
+| Bot name | MTF setup | Aggressive level | Conservative level | HTF sweep first? |
 |---|---|---|---|---|
-| Idea | Bullish engulfing candle, then price retraces to a Fibonacci level inside it | Red-Red-Green pattern on the higher timeframe, then a touch of a key level on the lower timeframe | A short setup that fails, so price comes back up through the level and we buy the retest | Same failed-short idea, but only after the top level has already failed. Uses the lowest swing candle |
-| Timeframes used | MTF only (its signal bar) | HTF for the pattern, LTF for the entry touch | HTF for the pattern, LTF for the entry touch | HTF for the pattern, LTF for the entry touch |
-| Aggressive (touch) level | open of candle 1 | OCL aggressive key level (C2 open for a 3-candle break, C3 close for a 4-candle break) | Highest candle body top of the OCL pattern | Lowest candle body bottom of the OCL pattern (one level only) |
-| Conservative level | **lowest body bottom of the two engulfing candles** (owner 2026-11-19) — min(open C1, close C1, open C2, close C2). A wick below the body does not count | LTF OCL conservative level (lowest body bottom of C1..C3), used for the re-entry | open of the candle before the trigger (C2 for a 3-candle break, C3 for a 4-candle break) | None (single level) |
-| Stop loss | 1.5 × ATR below entry | HTF stop: the low of the HTF pattern. LTF stop: the entry's own stop | Same two-tier stop as OCL | Stop is the low of the lowest swing candle |
-| Take profit | 3 × ATR above entry (fixed) | 3R by default (target_rr = 3.0), in FIXED exit mode only | Same as OCL: 3R in FIXED mode, none in DYNAMIC mode | Same as OCL |
-| Exit mode | Fixed TP and SL | AUTO: FIXED if entry is at the aggressive level, DYNAMIC if at the conservative level | Same as OCL | Same as OCL |
-| Breakeven (inside the strategy) | Not set in the strategy | At 1.5R, stop moves to entry plus costs | Same as OCL | Same as OCL |
-| Trailing (inside the strategy) | Not set in the strategy | 2 × ATR, measured from the highest close, only moves up | Same as OCL | Same as OCL |
-| Retries | Setup is voided if touched early | Up to 3 LTF stop-outs per pattern, each re-entry lower | Same, and can fall through to the bottom strategy | Up to 3 LTF stop-outs |
+| `engulfing` | Bullish engulfing (two candles) | Open of the first candle | Lowest body of the two candles | Yes |
+| `engulfing_fail` | Sell-fail engulfing | Highest body top of the two candles | Lowest body of the two candles | Yes |
+| `ocl_seq` | OCL | The OCL's key level (C2 open, or C3 close for a 4-candle break) | The lowest body of C1 to C3 | Yes |
+| `ocl_sell_fail_top_seq` | OCL | Highest body top of the OCL | Open of the candle before the trigger | Yes |
+| `ocl_sell_fail_bottom_seq` | OCL | Lowest body bottom of the OCL | None (one level only) | No |
 
-## The OCL break: the first one wins (2026-11-19)
+The bot runs all five. Each one is separate and does not depend on the others.
 
-The OCL pattern is C1 red, C2 red, C3 green. Two breaks are possible and the FIRST one counts:
+## The flow, from MTF to the POV slicer
 
-1. **3-candle break** — C3 closes above C2's open. The key level is C2's open.
-2. **4-candle break** — C3 did **not** close above C2's open, but C4 does. The key level is C3's close.
+This runs every bot cycle, every 5 minutes. The replay reads the whole history each time, so nothing is carried between cycles except the open positions and the carry pool.
 
-If C3 already broke the level, the 4-candle break is never considered. One pattern gives one break.
+**Stage 1: check the inputs**
+1. Read the screen. Use only symbols from a screen at most 10 minutes old, with no ASM or GSM flag.
+2. Work out each symbol's allocation from the portfolio engine. The total is 5 % of equity across all symbols, with at most 4 % for one symbol. One symbol gets 4 %, two get 2.5 % each, five get 1 % each.
+3. Read closed MTF, HTF and LTF bars. If a feed is missing, skip that symbol.
+4. If entries are blocked (for example, startup checks not passed), no new setups are looked at. Exits and open positions are still handled.
 
-## The sequence strategies' conservative level for Engulfing (2026-11-19)
+**Stage 2: find the setup**
+5. Find the newest confirmed MTF pattern for the strategy. This gives the MTF level.
+6. Wait for a later MTF bar to touch that level. That is the MTF touch.
+7. If a later MTF bar closes below the pattern low, the whole setup is over.
+8. If a later MTF bar touches the deeper (conservative) level, that counts as the MTF conservative touch. It is recorded for the budget.
+9. For all strategies except `ocl_sell_fail_bottom_seq`: after the MTF touch, wait for an HTF swing low to be swept. The HTF replay starts from that sweep.
+10. After the start, find the first HTF OCL. Wait for a later HTF bar to touch its key level. That is the HTF key touch. The HTF OCL's low becomes HTF L.
+11. A later HTF bar may touch the HTF conservative level. That is the HTF conservative touch.
+12. If an HTF candle closes below HTF L, the HTF cycle ends. The next HTF OCL must form below that price. No new sweep is needed.
 
-Engulfing used to have one level only. It now has two, like the OCL strategies:
+**Stage 3: the LTF loop, inside each HTF cycle**
+13. After the HTF key touch, find the first LTF OCL. Its aggressive level is the entry level.
+14. An LTF bar touches the aggressive level: an aggressive touch.
+15. Only after that, a later LTF bar may touch the same OCL's conservative level: a conservative touch. From then on, the trade exits by trail, not by a fixed target.
+16. If an LTF candle closes below the OCL's low, the OCL is invalidated. Its unfilled shares are paused, not closed. The next LTF OCL must form below that low.
+17. If the HTF cycle is invalidated, the whole HTF cycle ends and the loop starts again on the next HTF OCL (step 12).
 
-- **Aggressive** = open of candle 1 (the touch level that was always there).
-- **Conservative** = the **lowest body of the two engulfing candles**, that is the lowest of the four body prices: open and close of candle 1, open and close of candle 2.
+**Stage 4: decide the budget (the risk tree)**
+18. Every touch gets a budget from the tree. The numbers below assume 4 % for one symbol and 60 % aggressive:
+    - **MTF level:** each new HTF OCL uses a 0.8 % slot. There are five slots: three aggressive, then wait for the MTF conservative touch, then two conservative.
+    - **HTF level:** each new LTF OCL inside an HTF OCL uses a 0.16 % slot. Five slots: three aggressive, then wait for the HTF conservative touch, then two conservative.
+    - **LTF level:** each LTF OCL's 0.16 % is split 60/40. The aggressive touch gets 0.096 %, the conservative touch gets 0.064 %.
+19. A conservative touch unlocks the next slot. The next OCL to form uses it. Aggressive slots need no unlock.
+20. Unused slot budget is lost. Shares that were not filled move on to the next OCL, but carried shares add no new budget.
+21. A touch with no budget (its slot is not open) is refused. Nothing is sent.
 
-It is the lowest **body**, not the lowest **low**. A long lower wick does not count. That keeps it consistent with how the OCL top and bottom strategies already measure their levels.
+**Stage 5: size the order**
+22. Shares = equity × budget ÷ sizing stop, rounded down, plus any carried shares.
+23. Sizing stop = the larger of 1 × ATR(14) and (entry price − HTF L + 0.05 % of entry price). So a very tight stop can never give a huge position.
+24. Checks run in this order, and any failure cuts the order down or refuses it:
+    - the portfolio cap (5 % of equity of planned risk across all open cycles),
+    - the per-order share and value caps,
+    - the liquidity cap (share of average daily volume),
+    - the risk gate.
+    A cut-down amount is carried to the next OCL and logged.
+25. The order goes to a parent for this HTF cycle. The parent's stop is HTF L. Its allocation is locked when the cycle opens, so a later screen change does not change it.
+26. If the HTF cycle closes with unfilled shares, they go into a pool for the same MTF setup. The pool is used only by the next order in that setup. If the setup ends first, the pool is dropped.
 
-## How the bot actually exits (important)
+**Stage 6: slice the order (POV slicer)**
+27. Each cycle, the slicer works the oldest order that still has unfilled shares. A parent that is paused (after an LTF invalidation) is not sliced.
+28. The slice rate depends on the buyer-initiated VWAP for the day, built from live quote polls:
+    - Price above VWAP + 0.5 %: **halt**. No slice this cycle.
+    - Price below VWAP − 3 %: **passthrough** at 10 %.
+    - In between: the rate moves in a straight line from 5 % (near the top) to 25 % (near the bottom).
+    - No VWAP yet: fixed 10 %. The log says so.
+29. The slice is based on the last closed bar's volume times today's buyer share of volume. If the buyer share is not known yet, the full bar volume is used.
+30. The child quantity is the rate × volume, capped at the parent's remaining shares and the order's unfilled shares. Less than 1 share: nothing is sent.
+31. In the default mode, the entry is a LIMIT at the best bid plus one tick, capped at the reference price. It waits 5 seconds and is tried at most 3 times. An unfilled LIMIT is cancelled and the parent stays open.
+32. Exits are never sliced by VWAP. They use the fixed 10 %.
+33. If the broker returns a partial fill, the bot raises a CRITICAL alert, halts the parent, and blocks entries until someone reconciles the position.
 
-The bot does not use the strategy's own breakeven and trailing rules as the final word. It uses its exit manager, with these defaults from `config/bot.yaml`:
+**Stage 7: manage the open position (each cycle, on the last closed bar)**
+34. The stop is checked first. If the bar's low reaches the stop, the position exits at the stop (or the open, if the open is lower).
+35. Before any conservative touch, the position may exit at its target (average + 2.1 × R, where R = average − HTF L). After a conservative touch there is no fixed target.
+36. Breakeven is off for these positions.
+37. After a conservative touch, the stop trails: best high since entry minus 2 × ATR. It only moves up.
+38. Every stop move is sent to the broker as a stop order.
 
-- **Stop and target**: the values the strategy hands over (SL and TP) are used.
-- **Breakeven**: at 1R, the stop moves to entry. The OCL classes say 1.5R, but the bot uses 1R unless the strategy has an override under `exits:` in `bot.yaml`.
-- **Trailing**: 2 × ATR, from the best price seen since entry. Only moves the stop up.
-- **Tie rule**: if one bar touches both the stop and the target, the stop wins.
+## What the bot does not do yet
 
-So for all four strategies today, breakeven and trailing are the bot's 1R and 2 × ATR, unless `bot.yaml` is changed. The per-strategy breakeven and trailing inside the OCL code are not used by the bot yet. Confirm this with the code before you rely on it in a live decision.
-
-## The timeframe reality right now
-
-The bot reads one set of 5-minute bars for every strategy.
-
-- Engulfing runs on 5-minute bars, so its MTF value only counts once the bot can load bars at that interval.
-- OCL and both sell-fail strategies would read 5-minute bars as HTF and LTF, which is wrong. Until the multi-timeframe bar feed is built, the bot must refuse any setup that needs a different interval.
-
-## One-line summary for each
-
-- **Engulfing**: one candle pattern on one timeframe, with fixed stop and target based on ATR.
-- **OCL**: a higher-timeframe pattern, then a lower-timeframe entry, with a 3R target and a two-tier stop.
-- **Sell-fail top**: a failed short, then buy the retest. Two entry levels; if the first fails, use the second.
-- **Sell-fail bottom**: the same failed short, used only after the top level has failed. One level at the lowest swing candle.
+- The replay still runs the old 1 % ladder to decide the exit mode and target average. If that setting is removed, aggressive-only cycles get no target and no trail. This is the most important open item (rules doc 15.8, A and B).
+- There is no profit lock before a conservative touch. The only protection is HTF L. This needs an owner decision.
+- A partial fill on a LIMIT entry halts the parent. This has not been tested on the paper broker.
