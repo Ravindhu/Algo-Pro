@@ -378,7 +378,7 @@
     <section class="panel">
       <div class="ph">Screener stocks <span id="scr-note"></span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Symbol</th><th class="n">Score</th><th class="n">Chg %</th><th>Signal</th></tr></thead>
+        <thead><tr><th>Symbol</th><th>Name</th><th>Status</th><th>Reason</th></tr></thead>
         <tbody id="scr-rows"></tbody>
       </table></div>
     </section>
@@ -629,10 +629,10 @@
         </section>
       </div>
       <section class="panel">
-        <div class="ph">Analysis <span>paper ledger · estimates where stated</span></div>
+        <div class="ph">Analysis <span>Blue Engine NAV store · cost is an estimate</span></div>
         <div class="pfkpi">
-          <div class="tile t-ok"><small>TWRR (annualised)</small><b id="an-twrr" class="d" style="font-size:12px">needs daily equity history</b></div>
-          <div class="tile"><small>Time-weighted return</small><b id="an-twr" class="d" style="font-size:12px">needs cash-flow history</b></div>
+          <div class="tile t-ok"><small>TWRR (cumulative)</small><b id="an-twrr" class="d" style="font-size:12px">needs daily equity history</b></div>
+          <div class="tile"><small>Time-weighted return (annualised)</small><b id="an-twr" class="d" style="font-size:12px">needs cash-flow history</b></div>
           <div class="tile t-bad"><small>Max drawdown</small><b id="an-maxdd">—</b></div>
           <div class="tile t-warn"><small>Sharpe ratio</small><b id="an-sharpe" class="d" style="font-size:12px">needs daily equity history</b></div>
           <div class="tile t-pink"><small>Cost of trading (% of capital)</small><b id="an-cost">—</b></div>
@@ -766,17 +766,32 @@
     $("k-ret").textContent = o.sandbox && o.sandbox.return_pct != null ? o.sandbox.return_pct.toFixed(2) + "%" : "—";
     $("k-pnlpct").textContent = cap ? pctText(((p.realized_pnl || 0) + (p.unrealized_pnl || 0)) / cap * 100) : "—";
     $("k-mtm").textContent = cap && p.unrealized_pnl != null ? pctText(p.unrealized_pnl / cap * 100) : "—";
-    const rows = Array.isArray(o.screener) ? o.screener : [];
-    $("scr-note").textContent = rows.length ? rows.length + " shown" : "not connected";
+    const scr = o.screener || {}, rows = scr.rows || [];
+    $("scr-note").textContent = scr.state === "ok" ? rows.length + " of " + scr.count + " selected"
+      : scr.state === "not_run" ? "not run yet" : scr.state === "empty" ? "none selected" : "unavailable";
     renderTable($("scr-rows"), rows.map(x => {
       const tr = document.createElement("tr");
-      tr.append(cell(String(x.symbol || "—")), cell(x.score == null ? "—" : String(x.score), "n"),
-        cell(x.chg_pct == null ? "—" : Number(x.chg_pct).toFixed(2) + "%", "n " + sign(x.chg_pct)), cell(String(x.signal || "—")));
+      tr.append(cell(x.symbol || "—"), cell(x.name || "—"), cell("selected", "g"), cell(x.reason || "—"));
       return tr;
-    }), "No screener output yet. The list fills once a screener run is connected.", 4);
-    const dd = o.equity ? o.equity.max_drawdown : null;
-    $("an-maxdd").textContent = dd == null ? "—" : money(dd) + (cap ? " (" + pctText(dd / cap * 100) + ")" : "");
-    $("an-cost").textContent = o.costs && o.costs.statutory_inr != null && cap ? pctText(o.costs.statutory_inr / cap * 100) : "—";
+    }), scr.note || "No screener output yet.", 4);
+    renderAnalysisTiles(o);
+  }
+
+  // Analysis tiles: values from /api/overview (analysis = Blue Engine NAV store; cost = paper estimate).
+  function setTile(id, value, empty) {
+    const el = $(id), has = value != null;
+    el.textContent = has ? value : empty;
+    el.className = has ? "" : "d";
+    el.style.fontSize = has ? "" : "12px";
+  }
+  function renderAnalysisTiles(o) {
+    const an = o.analysis || {}, ok = an.state === "ok", cap = o.sandbox ? o.sandbox.capital_inr : null;
+    const empty = an.state === "needs_nav" ? "needs NAV history" : an.state === "unavailable" ? "unavailable" : "needs NAV history";
+    setTile("an-twrr", ok && an.twrr_pct != null ? an.twrr_pct.toFixed(2) + "%" : null, empty);
+    setTile("an-twr", ok && an.annual_return_pct != null ? an.annual_return_pct.toFixed(2) + "% a year" : null, empty);
+    setTile("an-sharpe", ok && an.sharpe != null ? Number(an.sharpe).toFixed(2) : null, empty);
+    setTile("an-maxdd", ok && an.max_drawdown_pct != null ? an.max_drawdown_pct.toFixed(2) + "%" : null, empty);
+    setTile("an-cost", o.costs && o.costs.statutory_inr != null && cap ? pctText(o.costs.statutory_inr / cap * 100) : null, "—");
   }
 
   function render(o) {

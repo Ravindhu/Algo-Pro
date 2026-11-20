@@ -48,6 +48,7 @@ from quant.core import engine_control  # noqa: E402
 from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
+from quant.reporting import home_view  # noqa: E402
 
 REASON_MAX = 200
 ACTOR = "dashboard-api"
@@ -176,6 +177,9 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     # DEFAULT_PATHS, and this one raised KeyError when 'recs' was absent.
     overview["flow"] = node_statuses(
         overview, recs.live(paths.get("recs", DEFAULT_PATHS["recs"])))  # popup nodes + agent recommendations
+    # Home page: screener list (last saved run) and portfolio analysis (Blue Engine NAV store). Read-only.
+    overview["screener"] = home_view.read_screener()
+    overview["analysis"] = home_view.portfolio_analysis()
     return overview
 
 
