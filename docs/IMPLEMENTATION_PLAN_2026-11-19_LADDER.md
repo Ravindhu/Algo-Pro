@@ -171,3 +171,13 @@ only adds shares; it never raises the stop. This matches section 11.7 item 17.
   Tests updated to the new sizing (ATR 1.0 in fixtures). New tests: no ATR = no order; ceiling uses the sizing stop;
   stop round-trips through saved state. Full suite: no new failures vs clean HEAD baseline (63 failing, all pre-existing).
   Open: confirm ATR multiplier (1 x); replay still assumes full fills (no carry, no caps).
+- 2026-11-20 (owner confirmed top-down tree; ratio range 50 % to 80 % confirmed):
+  STEP 1 DONE: src/quant/strategies/risk_tree.py. Three levels (symbol -> HTF OCL -> LTF OCL), each split
+  into 3 aggressive slots, a wait for the conservative touch, then 2 conservative slots. Share default 60/40,
+  refused outside 0.50 to 0.80 (not clamped). Budgets derived from the symbol allocation, so they scale with
+  the portfolio engine. At 4 %: HTF OCL 0.80 %, LTF OCL 0.16 %, entry 0.032 %. At 1 %: a quarter of those.
+  Tests: tests/unit/test_risk_tree.py (25 pass): owner numbers, 1 % = 1/4, five-slot sums at every level and
+  ratio, bounds, gate sequence (brute force over all 8-touch orders).
+  NOT YET WIRED (next steps): replace the LTF-only ladder in cycle.py replay and strategy_bot.py with the three
+  levels; replace the 1 % cycle and 3 % portfolio ceilings with symbol allocation and 5 % portfolio cap;
+  dashboard Trade setup ratio field (50 to 80, default 60, locked per cycle); rules doc section 11 update.
