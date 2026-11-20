@@ -373,6 +373,8 @@
     <div class="tile t-ok"><small>Invested</small><b id="rk-invested">—</b></div>
     <div class="tile t-warn"><small>Total P&amp;L</small><b id="rk-pnl">—</b></div>
     <div class="tile t-pink"><small>Return %</small><b id="rk-pnlpct">—</b></div>
+    <div class="tile"><small>MTM % (real)</small><b id="rk-mtm">—</b></div>
+    <div class="tile"><small>Cost of trading (est., % of invested)</small><b id="rk-cost">—</b></div>
   </div>
   <div class="home-row3">
     <section class="panel">
@@ -549,7 +551,6 @@
       <div><small>Unrealized P&amp;L</small><b id="sb-unrealized">—</b></div>
       <div><small>Max drawdown</small><b id="sb-dd">—</b></div>
       <div><small>P&amp;L % (paper)</small><b id="sb-pnlpct">—</b></div>
-      <div><small>MTM % (paper)</small><b id="sb-mtm">—</b></div>
       <div><small>Cost of trading (est., % of capital)</small><b id="sb-cost">—</b></div>
     </div>
     <div class="kv">
@@ -782,7 +783,6 @@
     const cap = o.sandbox ? o.sandbox.capital_inr : null, p = o.performance || {};
     const eq = o.sandbox ? o.sandbox.equity : null;
     $("sb-pnlpct").textContent = cap ? pctText(((p.realized_pnl || 0) + (p.unrealized_pnl || 0)) / cap * 100) : "—";
-    $("sb-mtm").textContent = cap && p.unrealized_pnl != null ? pctText(p.unrealized_pnl / cap * 100) : "—";
     const scr = o.screener || {}, rows = scr.rows || [];
     $("scr-note").textContent = scr.state === "ok" ? rows.length + " of " + scr.count + " selected"
       : scr.state === "not_run" ? "not run yet" : scr.state === "empty" ? "none selected" : "unavailable";
@@ -1252,6 +1252,12 @@
     $("rk-pnl").textContent = money(s.pnl);
     $("rk-pnl").className = "big-kpi " + sign(s.pnl);
     $("rk-pnlpct").textContent = s.pnl_pct == null ? "—" : Number(s.pnl_pct).toFixed(2) + "%";
+    // MTM % = broker unrealized P&L / invested cost. Real money only.
+    $("rk-mtm").textContent = s.pnl == null || !s.invested ? "—" : pctText(s.pnl / s.invested * 100);
+    // Cost of trading: statutory estimate on today's broker fills, % of invested. Labelled as an estimate.
+    const tc = p.trade_cost || null;
+    $("rk-cost").textContent = tc && tc.pct_of_invested != null ? Number(tc.pct_of_invested).toFixed(3) + "%" : "—";
+    $("rk-cost").title = tc ? "₹" + Number(tc.inr).toFixed(2) + " across " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
     $("rk-poscount").textContent = p.state === "broker_read" ? rows.length + " holdings" : (PF_STATE[p.state] ? PF_STATE[p.state][0] : "");
     renderTable($("rk-pos-rows"), rows.slice(0, 10).map(h => {
       const tr = document.createElement("tr");

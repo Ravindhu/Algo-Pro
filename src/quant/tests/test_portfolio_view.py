@@ -156,3 +156,34 @@ def test_reader_fills_hold_days_and_survives_tradebook_failure():
     result = reader.read()
     assert result["state"] == "broker_read"
     assert result["holdings"][0]["hold_days"] is None
+
+
+def test_trade_costs_price_cnc_as_delivery_and_mis_as_intraday():
+    from quant.research.costs import CostModel
+    from quant.reporting.portfolio_view import trade_costs
+    model = CostModel()
+    trades = [
+        {"symbol": "ABC", "action": "BUY", "quantity": 10, "averageprice": 100.0, "product": "CNC"},
+        {"symbol": "ABC", "action": "SELL", "quantity": 10, "averageprice": 110.0, "product": "MIS"},
+        {"symbol": "BAD", "action": "BUY", "quantity": None, "averageprice": 5.0},
+    ]
+    out = trade_costs(trades, model)
+    expected = (model.trade_cost(1000.0, "BUY", "delivery") + model.trade_cost(1100.0, "SELL", "intraday"))
+    assert out["fills"] == 2 and out["skipped"] == 1
+    assert abs(out["inr"] - round(expected, 2)) < 0.01
+    assert trade_costs(None)["fills"] == 0
+
+
+def test_reader_reports_trade_cost_as_pct_of_invested():
+    def fetch(key):
+        return _reply(1)
+
+    def trades_ok(key):
+        return {"status": "success", "data": [
+            {"symbol": "SYM0", "exchange": "NSE", "action": "BUY", "quantity": 10,
+             "averageprice": 100.0, "product": "CNC", "timestamp": 1_700_000_000}]}
+
+    out = HoldingsReader(fetch, lambda: "k", lambda: 1_700_100_000.0, trades=trades_ok).read()
+    tc = out["trade_cost"]
+    assert tc["fills"] == 1 and tc["inr"] > 0
+    assert abs(tc["pct_of_invested"] - tc["inr"] / 2000.0 * 100) < 0.001

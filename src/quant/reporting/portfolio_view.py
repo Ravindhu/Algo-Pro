@@ -14,6 +14,8 @@ from datetime import datetime
 from typing import Callable, Dict, Optional
 from zoneinfo import ZoneInfo
 
+from quant.research.costs import CostModel  # owner-confirmed statutory rate table (same as the paper estimate)
+
 MAX_ROWS = 50          # memory cap for the table (AGENTS.md token rules)
 CACHE_TTL_S = 30.0     # broker read at most every 30 s
 IST = ZoneInfo("Asia/Kolkata")
@@ -127,6 +129,36 @@ def open_since(trades) -> Dict[tuple, float]:
     return start
 
 
+def _trade_price(item: Dict) -> Optional[float]:
+    for key in ("average_price", "averageprice", "price", "tradeprice"):
+        value = _num(item.get(key))
+        if value is not None and value > 0:
+            return value
+    return None
+
+
+def trade_costs(trades, model: Optional[CostModel] = None) -> Dict:
+    """Estimated statutory cost of the day's broker fills, using the research CostModel.
+
+    CNC fills are priced as delivery, MIS as intraday. Rows without a usable quantity,
+    price or side are counted as skipped, never guessed.
+    """
+    model = model or CostModel()
+    inr, fills, skipped = 0.0, 0, 0
+    for item in trades if isinstance(trades, list) else []:
+        qty = _num(item.get("quantity")) if isinstance(item, dict) else None
+        price = _trade_price(item) if isinstance(item, dict) else None
+        action = str(item.get("action", "")).upper() if isinstance(item, dict) else ""
+        if qty is None or price is None or action not in ("BUY", "SELL"):
+            skipped += 1
+            continue
+        product = "intraday" if str(item.get("product", "")).upper() == "MIS" else "delivery"
+        inr += model.trade_cost(abs(qty) * price, action, product)
+        fills += 1
+    return {"inr": round(inr, 2), "fills": fills, "skipped": skipped,
+            "basis": "estimated: research CostModel on today's broker fills"}
+
+
 def hold_days(start_seconds: Optional[float], now_seconds: float) -> Optional[int]:
     """Calendar days from the start date to today, both in IST. None when the start is unknown."""
     if start_seconds is None:
@@ -169,15 +201,23 @@ class HoldingsReader:
         return result
 
     def _add_hold_days(self, key: str, result: Dict, now: float) -> None:
-        """Fill hold_days from the tradebook. Any failure leaves the column blank, never an error."""
+        """Fill hold_days and today's estimated trade cost from the tradebook. Any failure leaves them blank."""
         if self._trades is None or result.get("state") != "broker_read":
             return
         try:
             reply = self._trades(key)
             trades = reply.get("data") if isinstance(reply, dict) and reply.get("status") == "success" else None
+            if trades is None:
+                result["trade_cost"] = None
+                return
             starts = open_since(trades)
+            costs = trade_costs(trades)
         except Exception:  # name nothing: the tradebook is optional
+            result["trade_cost"] = None
             return
         for row in result["holdings"]:
             start = starts.get((row["symbol"], row["exchange"]))
             row["hold_days"] = hold_days(start, now)
+        invested = (result.get("summary") or {}).get("invested")
+        costs["pct_of_invested"] = round(costs["inr"] / invested * 100, 4) if invested else None
+        result["trade_cost"] = costs
