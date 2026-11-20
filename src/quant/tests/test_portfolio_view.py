@@ -228,3 +228,45 @@ def test_delivery_gains_fifo_splits_short_and_long_term_and_excludes_intraday():
     assert g["short_term"] == (300 - 200) * 5          # 500
     assert g["matched_qty"] == 15 and g["unmatched_qty"] == 4
     assert g["intraday_excluded"] == 2
+
+
+def test_mtf_interest_is_12_percent_a_year_on_a_daily_base():
+    from quant.research.costs import CostModel
+    m = CostModel()
+    assert abs(m.mtf_daily_interest(365_000.0) - 120.0) < 1e-9  # 365,000 x 12% / 365
+
+
+def test_apply_margin_adds_mtf_pct_and_interest_to_cost_of_trading():
+    from quant.reporting.portfolio_view import apply_margin
+    payload = {"summary": {"value": 200_000.0, "invested": 100_000.0},
+               "trade_cost": {"inr": 100.0, "tax_inr": 0.0, "total_inr": 100.0, "pct_of_invested": 0.1}}
+    out = apply_margin(payload, 50_000.0)
+    assert out["mtf"]["mtf_pct"] == 25.0
+    assert out["mtf"]["daily_interest_inr"] == round(50_000 * 0.12 / 365, 2)
+    tc = out["trade_cost"]
+    assert tc["total_inr"] == round(100.0 + tc["interest_inr"], 2)
+    assert abs(tc["pct_of_invested"] - tc["total_inr"] / 100_000 * 100) < 1e-3
+
+
+def test_apply_margin_without_tradebook_still_charges_interest():
+    from quant.reporting.portfolio_view import apply_margin
+    out = apply_margin({"summary": {"value": 10.0, "invested": 10.0}, "trade_cost": None}, 1_000.0)
+    assert out["trade_cost"]["fills"] == 0 and out["trade_cost"]["total_inr"] > 0
+    none = apply_margin({"summary": {"value": 10.0, "invested": 10.0}, "trade_cost": None}, 0.0)
+    assert none["trade_cost"] is None and none["mtf"]["mtf_pct"] == 0.0
+
+
+def test_setup_store_saves_and_validates_mtf_borrowed(tmp_path):
+    from quant.core.setup_store import apply_setup_updates, load_mtf_borrowed, read_setup
+    settings = tmp_path / "settings.yaml"
+    limits = tmp_path / "risk_limits.yaml"
+    strategies = tmp_path / "strategies"
+    strategies.mkdir()
+    limits.write_text("max_symbols_per_portfolio: 5\n", encoding="utf-8")
+    apply_setup_updates(settings, strategies, limits, {"mtf_borrowed_inr": 250000})
+    assert load_mtf_borrowed(settings) == 250000.0
+    assert read_setup(settings, strategies, limits)["mtf_borrowed_inr"] == 250000.0
+    import pytest
+    with pytest.raises(ValueError):
+        apply_setup_updates(settings, strategies, limits, {"mtf_borrowed_inr": -1})
+    assert load_mtf_borrowed(tmp_path / "missing.yaml") == 0.0

@@ -185,6 +185,37 @@ def delivery_gains(trades, min_days: float = 365.0) -> Dict:
     return out
 
 
+def apply_margin(payload: Dict, borrowed_inr: float, model: Optional[CostModel] = None) -> Dict:
+    """Add MTF % and today's MTF interest to a portfolio payload (real money only).
+
+    MTF % = borrowed / holdings value x 100. The day's interest (12 % a year, daily base) is
+    added to the cost of trading, which is then re-expressed as % of invested. With no
+    tradebook the cost block is created with zero fills, because interest still accrues.
+    """
+    model = model or CostModel()
+    summary = payload.get("summary") or {}
+    value, invested = _num(summary.get("value")), _num(summary.get("invested"))
+    borrowed = max(0.0, float(borrowed_inr or 0.0))
+    interest = round(model.mtf_daily_interest(borrowed), 2)
+    payload["mtf"] = {
+        "borrowed_inr": round(borrowed, 2),
+        "mtf_pct": round(borrowed / value * 100, 4) if value else None,
+        "annual_rate_pct": model.mtf_annual_rate * 100,
+        "daily_interest_inr": interest,
+    }
+    cost = payload.get("trade_cost")
+    if cost is None and borrowed > 0:
+        cost = {"inr": 0.0, "tax_inr": 0.0, "stcg_tax_inr": 0.0, "ltcg_tax_inr": 0.0,
+                "total_inr": 0.0, "fills": 0, "skipped": 0, "realized": None,
+                "basis": "no tradebook: interest only"}
+    if cost is not None:
+        cost["interest_inr"] = interest
+        cost["total_inr"] = round(float(cost.get("total_inr") or 0.0) + interest, 2)
+        cost["pct_of_invested"] = round(cost["total_inr"] / invested * 100, 4) if invested else None
+        payload["trade_cost"] = cost
+    return payload
+
+
 def trade_costs(trades, model: Optional[CostModel] = None) -> Dict:
     """Estimated cost of the day's broker fills: statutory charges plus capital-gains tax.
 

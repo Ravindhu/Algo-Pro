@@ -36,7 +36,8 @@ from quant.core.limits_store import apply_limit_updates, validate_limit_updates 
 from quant.monitor.ledger import Ledger  # noqa: E402
 from quant.reporting.dashboard_data import build_overview  # noqa: E402
 from quant.reporting.flow_status import node_statuses  # noqa: E402
-from quant.core.setup_store import apply_setup_updates, read_setup  # noqa: E402
+from quant.core.setup_store import apply_setup_updates, load_mtf_borrowed, read_setup  # noqa: E402
+from quant.reporting.portfolio_view import apply_margin  # noqa: E402
 from quant.core.setup_store import BUDGET_OWNED_LIMITS, SETUP_LIMIT_KEYS  # noqa: E402
 from quant.core import recommendations as recs  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
@@ -720,7 +721,12 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.get("/api/portfolio")
     def portfolio_header():
         """Broker holdings for the portfolio popup. Read-only; the reader caches for 30 s."""
-        return JSONResponse(portfolio.read())
+        payload = portfolio.read()
+        try:
+            borrowed = load_mtf_borrowed(paths["settings"])
+        except Exception:  # a bad settings file must not take the holdings page down
+            borrowed = 0.0
+        return JSONResponse(apply_margin(payload, borrowed))
 
     # ---------------- agent recommendations (apply-to-backend) ----------------
     # A recommendation is the agent's ADVICE for one parameter, stored by the

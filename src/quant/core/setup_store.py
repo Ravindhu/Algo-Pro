@@ -48,7 +48,8 @@ SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
 KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
         "live_max_capital_inr", "live_allowed_egress_ip", "brokerage",
         "htf_interval", "mtf_interval", "ltf_interval",
-        "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct", "aggressive_share")
+        "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct", "aggressive_share",
+        "mtf_borrowed_inr")
 # Loss budgets as a share of capital (owner 2026-11-19). Saved in settings.yaml risk_budget;
 # the rupee caps in risk_limits.yaml are derived from them on every save.
 BUDGET_KEYS = ("capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct")
@@ -111,7 +112,16 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
         "max_strategy_loss_pct": budget.get("max_strategy_loss_pct"),
         "max_daily_loss": limits_obj.max_daily_loss if limits_obj else None,
         "max_strategy_loss": limits_obj.max_strategy_loss if limits_obj else None,
+        "mtf_borrowed_inr": (data.get("margin") or {}).get("mtf_borrowed_inr"),
     }
+
+
+def load_mtf_borrowed(settings_path) -> float:
+    """Saved MTF (margin trading facility) borrowed amount in rupees. Missing or bad values give 0."""
+    value = (_load(Path(settings_path)).get("margin") or {}).get("mtf_borrowed_inr")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        return 0.0
+    return float(value)
 
 
 def load_timeframes(settings_path) -> Dict[str, Any]:
@@ -168,6 +178,14 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                     or not 0 < value <= BUDGET_MAX_PCT:
                 raise ValueError(f"{key} must be a fraction in (0, {BUDGET_MAX_PCT}], e.g. 0.02 for 2 %")
             clean[key] = float(value)
+        elif key == "mtf_borrowed_inr":
+            if value is None:
+                clean[key] = 0.0
+            elif isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
+                    or value < 0:
+                raise ValueError("mtf_borrowed_inr must be zero or a positive number of rupees")
+            else:
+                clean[key] = float(value)
         elif key == "aggressive_share":
             # Owner tree (2026-11-20): 50 % to 80 % only. Refused outside, never clamped.
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
@@ -226,7 +244,8 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
         for k in BUDGET_KEYS:
             if k in clean:
                 old[k] = (current.get("risk_budget") or {}).get(k)
-    file_keys = {"risk_per_trade", "strategy", "brokerage", "aggressive_share", *LIVE_KEYS, *TF_KEYS}
+    file_keys = {"risk_per_trade", "strategy", "brokerage", "aggressive_share", "mtf_borrowed_inr",
+                 *LIVE_KEYS, *TF_KEYS}
     if file_keys & set(clean) or plan is not None:
         sizing = dict(current.get("sizing") or {})
         trade = dict(current.get("trade_setup") or {})
@@ -253,6 +272,11 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
             old["aggressive_share"] = cycle_sec.get("aggressive_share")
             cycle_sec["aggressive_share"] = clean["aggressive_share"]
             current["cycle"] = cycle_sec
+        if "mtf_borrowed_inr" in clean:
+            margin = dict(current.get("margin") or {})
+            old["mtf_borrowed_inr"] = margin.get("mtf_borrowed_inr")
+            margin["mtf_borrowed_inr"] = clean["mtf_borrowed_inr"]
+            current["margin"] = margin
         if "live_max_capital_inr" in clean:
             old["live_max_capital_inr"] = live.get("max_capital_inr")
             live["max_capital_inr"] = clean["live_max_capital_inr"]

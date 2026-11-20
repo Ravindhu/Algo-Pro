@@ -373,8 +373,9 @@
     <div class="tile t-ok"><small>Invested</small><b id="rk-invested">—</b></div>
     <div class="tile t-warn"><small>Total P&amp;L</small><b id="rk-pnl">—</b></div>
     <div class="tile t-pink"><small>Return %</small><b id="rk-pnlpct">—</b></div>
-    <div class="tile"><small>MTM % (real)</small><b id="rk-mtm">—</b></div>
-    <div class="tile"><small>Cost of trading incl. tax (est., % of invested)</small><b id="rk-cost">—</b></div>
+    <div class="tile"><small>MTM (real, ₹)</small><b id="rk-mtm">—</b></div>
+    <div class="tile"><small>MTF % (real)</small><b id="rk-mtf">—</b></div>
+    <div class="tile"><small>Cost of trading incl. tax &amp; MTF (est., % of invested)</small><b id="rk-cost">—</b></div>
   </div>
   <div class="home-row3">
     <section class="panel">
@@ -454,6 +455,8 @@
         <select id="su-ltf"></select></div>
       <div><label for="su-capital">Capital base (₹)</label>
         <input type="number" id="su-capital" min="1" step="any" placeholder="e.g. 1000000"></div>
+      <div><label for="su-mtf-borrowed">MTF borrowed (₹, 0 if none)</label>
+        <input type="number" id="su-mtf-borrowed" min="0" step="any" placeholder="e.g. 0"></div>
       <div><label for="su-daily">Max daily loss (% of capital)</label>
         <input type="number" id="su-daily" min="0.01" max="10" step="0.01" placeholder="e.g. 2"><span class="d" id="su-daily-inr"></span></div>
       <div><label for="su-strat-loss">Max strategy loss (% of capital)</label>
@@ -1006,6 +1009,7 @@
 
   function fillSetup(s) {
     $("su-capital").value = s.capital_inr == null ? "" : String(s.capital_inr);
+    $("su-mtf-borrowed").value = s.mtf_borrowed_inr == null ? "" : String(s.mtf_borrowed_inr);
     $("su-daily").value = s.max_daily_loss_pct == null ? "" : String(+(s.max_daily_loss_pct * 100).toFixed(4));
     $("su-strat-loss").value = s.max_strategy_loss_pct == null ? "" : String(+(s.max_strategy_loss_pct * 100).toFixed(4));
     $("su-aggr").value = s.aggressive_share == null ? "" : String(+(s.aggressive_share * 100).toFixed(2));
@@ -1082,6 +1086,12 @@
       const v = Number(capBase);
       if (!Number.isFinite(v) || v <= 0) return setSetupMsg("Capital base must be a positive number of rupees.", "r");
       payload.capital_inr = v;
+    }
+    const mtfRaw = $("su-mtf-borrowed").value.trim();
+    if (mtfRaw) {
+      const v = Number(mtfRaw);
+      if (!Number.isFinite(v) || v < 0) return setSetupMsg("MTF borrowed must be zero or a positive number of rupees.", "r");
+      payload.mtf_borrowed_inr = v;
     }
     for (const [id, key, label] of [["su-daily", "max_daily_loss_pct", "Max daily loss"],
                                     ["su-strat-loss", "max_strategy_loss_pct", "Max strategy loss"]]) {
@@ -1253,12 +1263,18 @@
     $("rk-pnl").className = "big-kpi " + sign(s.pnl);
     $("rk-pnlpct").textContent = s.pnl_pct == null ? "—" : Number(s.pnl_pct).toFixed(2) + "%";
     // MTM % = broker unrealized P&L / invested cost. Real money only.
-    $("rk-mtm").textContent = s.pnl == null || !s.invested ? "—" : pctText(s.pnl / s.invested * 100);
+    $("rk-mtm").textContent = money(s.pnl);
+    $("rk-mtm").className = sign(s.pnl);
+    const mtf = p.mtf || {};
+    $("rk-mtf").textContent = mtf.mtf_pct == null ? "—" : pctText(mtf.mtf_pct);
+    $("rk-mtf").title = mtf.borrowed_inr != null ? "Borrowed ₹" + Number(mtf.borrowed_inr).toFixed(2)
+      + " · interest ₹" + Number(mtf.daily_interest_inr || 0).toFixed(2) + " a day at " + (mtf.annual_rate_pct || 12) + "% a year" : "";
     // Cost of trading: statutory estimate on today's broker fills, % of invested. Labelled as an estimate.
     const tc = p.trade_cost || null;
     $("rk-cost").textContent = tc && tc.pct_of_invested != null ? Number(tc.pct_of_invested).toFixed(3) + "%" : "—";
     $("rk-cost").title = tc ? "Charges ₹" + Number(tc.inr).toFixed(2) + " + STCG ₹" + Number(tc.stcg_tax_inr || 0).toFixed(2)
-      + " + LTCG ₹" + Number(tc.ltcg_tax_inr || 0).toFixed(2) + " · " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
+      + " + LTCG ₹" + Number(tc.ltcg_tax_inr || 0).toFixed(2) + " + MTF interest ₹" + Number(tc.interest_inr || 0).toFixed(2)
+      + " · " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
     $("rk-poscount").textContent = p.state === "broker_read" ? rows.length + " holdings" : (PF_STATE[p.state] ? PF_STATE[p.state][0] : "");
     renderTable($("rk-pos-rows"), rows.slice(0, 10).map(h => {
       const tr = document.createElement("tr");

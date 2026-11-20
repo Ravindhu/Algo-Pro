@@ -53,6 +53,9 @@ class CostModel:
     ltcg_exemption: float = 125_000.0      # Rs per financial year, LTCG only
     ltcg_min_days: float = 365.0           # held strictly more than this many days
     cess_pct: float = 0.04
+    # MTF (margin trading facility) interest: annual rate charged on a daily base.
+    mtf_annual_rate: float = 0.12
+    days_per_year: float = 365.0
 
     def trade_cost(self, notional: float, side: str, product: str = "delivery") -> float:
         """Total statutory cost plus flat impact for one fill, in currency units."""
@@ -103,6 +106,13 @@ class CostModel:
                 "tax_inr": round(stcg + ltcg, 2),
                 "ltcg_exemption_used": round(min(float(long_term_gain), self.ltcg_exemption), 2)
                 if float(long_term_gain) > 0 else 0.0}
+
+
+    def mtf_daily_interest(self, borrowed: float) -> float:
+        """One day of MTF interest on a borrowed amount, in rupees (annual rate / 365)."""
+        if borrowed < 0:
+            raise ValueError("borrowed must be >= 0")
+        return float(borrowed) * self.mtf_annual_rate / self.days_per_year
 
 
 def blue_cost_model():
