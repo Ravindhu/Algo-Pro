@@ -416,7 +416,7 @@ Each step names the function that does it. The plain-English version is `docs/ST
 36. Child quantity (`child_qty`): POV x volume, capped at the parent's remaining shares and the active order's unfilled shares. In peg mode also capped at a fraction of the best-bid size. Less than 1 share: nothing is sent.
 37. Entry execution, default `peg_band_buyer`: a LIMIT at best bid plus one tick, capped at the reference price. It waits 5 seconds and is placed at most 3 times. An unfilled LIMIT is cancelled cleanly and the parent stays open. If no peg price is available: fixed 10 % of full bar volume, at the entry price.
 38. Exits are never banded, buyer-sized or halted. They always use the fixed POV.
-39. Reply handling: success → `remaining -= qty`, the ladder records the fill, open exposure is booked. A partial fill → CRITICAL alert, the parent is halted and entries are blocked until reconciled. Any other non-success → the parent is closed.
+39. Reply handling: success → `_book_child`: `remaining -= qty`, the ladder records the fill, open exposure is booked. A partial fill (2026-11-20 fix) → the filled shares are booked from the reply's `filled_qty` and `avg_price`, and the parent stays open for the rest. If the cancel of the rest failed → a CRITICAL alert and a fault that blocks entries until checked. Any other non-success → the parent is closed.
 40. The average entry (`pos.entry`) is the fill-weighted mean of the child fills, as the bot books them.
 
 ### 15.7 Exits (`_manage_exits`, on each position's last closed bar)
@@ -427,11 +427,11 @@ Each step names the function that does it. The plain-English version is `docs/ST
 44. Trail (after a conservative touch, `trail_from_start`): stop = max(stop, best high − trail_mult x ATR). Defaults: `trail_mult` 2.0, `breakeven_r` 1.0 (unused for cycles). The stop only moves up.
 45. A moved stop is logged as `stop_moved`, and the broker SL-M stop is re-placed to match (`_sync_broker_stop`).
 
-### 15.8 Known issues (found 2026-11-20, not yet fixed)
+### 15.8 Known issues and status (updated 2026-11-20)
 
-- **A. The replay still runs the old 1 % ladder (high priority).** `_finish` calls `ladder_plan` with `loss_ceiling`. If `cycle.loss_ceiling` is unset, the replay returns no orders, so no `mode` or `target` is set. The bot then gets no target, and no trail unless a tree conservative touch sets it. An aggressive-only cycle would then have only the HTF stop. Today `loss_ceiling` = 1 %, so it works. The owner's 11A replaces that ceiling, so removing it would open this hole. Fix: derive the mode and target average from the tree's sizes, not the old ladder.
-- **B. The target average uses the old ladder weights.** `avg` in `_finish` uses the old 0.10 / 0.15 / 0.25 weighting, not the tree's sizes. In tree mode the target price (avg + N x R) is therefore computed from the wrong average. Fixed by the same change as A.
-- **C. A partial peg fill halts the parent.** The reply is treated as a CRITICAL fault, and the parent stays halted until reconciled. Not yet tested on the paper broker.
-- **D. No profit lock on aggressive-only leaves.** Before a conservative touch, the only protection is HTF L. Breakeven is off for cycle positions (owner rule 11.9). Any profit lock needs an owner decision and out-of-sample evidence first.
-- **E. The entry signal carries a 3R `tp_dist`.** The bot sets `tp_dist = 3 x sl_dist` on the entry signal. The exit code does not read it. It is still passed to the risk gate, which should be checked.
-- **F. Carry is dropped with the MTF setup.** Unfilled shares from an HTF cycle are lost if the MTF setup ends before the carry is used. This follows the forfeit rule, but the owner should confirm it.
+- **A. Fixed.** With the tree on, the exit mode and target no longer depend on the old 1 % ladder. `_tree_finish` in `cycle.py` sets them from the tree's sizes. Test: `test_tree_exit_mode_does_not_depend_on_the_old_loss_ceiling`.
+- **B. Fixed.** The average entry and target use the tree's sizes (same `_tree_finish`). Test: `test_tree_average_is_weighted_by_the_tree_sizes`.
+- **C. Fixed in code, not yet tested on the paper broker.** A partial LIMIT fill now reports `filled_qty` (OpenAlgo `filled_quantity`) and `avg_price`. The bot books those shares (`_book_child`) and keeps the rest of the parent open. If the cancel failed, a fault blocks entries until checked. Tests: `test_partial_entry_fill_is_booked_and_the_rest_stays_open`, `test_partial_fill_with_failed_cancel_raises_a_fault`.
+- **D. Open, owner decision.** No profit lock before a conservative touch. The only protection is HTF L. Any lock needs your decision and out-of-sample evidence first.
+- **E. Fixed.** The entry signal's `tp_dist` is now 1R. It is a placeholder that only the gate copies, so it looks like no target. Exits never read it.
+- **F. Open, owner decision.** Unfilled shares are dropped when their MTF setup ends (forfeit rule). Please confirm this is the rule you want.

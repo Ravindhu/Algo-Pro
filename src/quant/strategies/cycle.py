@@ -17,12 +17,13 @@ Freshness: fresh_entries() returns only the entries on the newest closed LTF bar
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _mtf_conservative, _newest_setup,
                                             _ocl_start, find_ocl_rrg, first_sweep_after, setup_low)
-from quant.strategies.risk_ladder import RiskLadder
+from quant.strategies.risk_ladder import RiskLadder, sizing_stop
 from quant.strategies.risk_tree import plan as tree_plan
 
 
@@ -221,6 +222,46 @@ def _finish(kind, status, htf_low, entries, any_cons, events, target_r, equity, 
                        htf_key_time=htf_key_time, ltf_paused=paused, events=events)
 
 
+def _tree_finish(r: CycleResult, decisions, htf_low, equity, target_r, atr_by_time):
+    """Owner tree (fix 2026-11-20, issues A and B): average, exit mode and target come from the TREE's sizes,
+    not the old 1 % ladder. Each touch of this cycle is sized the way the bot sizes it:
+    shares = floor(equity x fraction / sizing stop), full fill assumed. A touch with no ATR or no decision
+    has no order (fail closed). This works without loss_ceiling."""
+    by_key = {(d.event[0], d.event[1], d.event[-1]): d for d in decisions}
+    fills = []
+    any_cons = False
+    for kind, ocl_id, price, t in r.events:
+        if kind not in ("aggressive", "conservative"):
+            continue
+        d = by_key.get(("ltf_agg_touch" if kind == "aggressive" else "ltf_cons_touch", ocl_id, t))
+        if d is None or d.refused is not None or d.fraction <= 0 or equity is None:
+            continue
+        atr = atr_by_time.get(t) if atr_by_time is not None else None
+        stop = sizing_stop(float(price), float(htf_low), atr)
+        if stop is None:
+            continue
+        qty = math.floor(float(equity) * d.fraction / stop)
+        if qty < 1:
+            continue
+        fills.append((qty, float(price)))
+        any_cons = any_cons or kind == "conservative"
+    if not fills:
+        r.avg_entry, r.mode, r.target = None, None, None
+        return r
+    if r.status == "waiting":
+        r.status = "open"
+    total = sum(q for q, _ in fills)
+    avg = sum(q * px for q, px in fills) / total
+    r.avg_entry = avg
+    if any_cons:
+        r.mode, r.target = "trail", None
+    elif target_r is None:
+        r.mode, r.target = "target_pending", None
+    else:
+        r.mode, r.target = "target", avg + target_r * (avg - htf_low)
+    return r
+
+
 def _htf_cons_touch_time(htf, hp: int, ocl: dict, inval_time):
     """First HTF bar after the key touch whose range covers the HTF OCL's conservative level (before invalidation)."""
     _, hh, hl, _ = _arrays(htf)
@@ -316,6 +357,7 @@ def run_cycles(kind: str, mtf, htf, ltf, target_r: Optional[float] = None, *,
         decisions = tree_plan(timed, float(symbol_allocation_pct), aggressive_share)
         for r in results:
             r.tree_decisions = decisions
+            _tree_finish(r, decisions, r.htf_low, equity, target_r, atr_by_time)
     return results
 
 

@@ -202,3 +202,36 @@ def test_tree_decisions_budget_the_full_cycle_at_the_owner_numbers():
     assert agg and agg[0].fraction == pytest.approx(0.00096)
     assert cons and cons[0].fraction == pytest.approx(0.00064)
     assert agg[0].refused is None and cons[0].refused is None
+
+
+def test_tree_exit_mode_does_not_depend_on_the_old_loss_ceiling():
+    """Fix 2026-11-20 (rules doc 15.8 A): with the tree on, the exit mode and target must not change when the
+    old 1 % loss ceiling is removed."""
+    args = dict(target_r=2.1, equity=EQUITY, atr_by_time=FLAT_ATR, symbol_allocation_pct=4.0)
+    with_ceiling = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH),
+                                   loss_ceiling=0.01, **args)
+    without = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH),
+                              loss_ceiling=None, **args)
+    assert without.mode == with_ceiling.mode == "target"
+    assert without.target == pytest.approx(with_ceiling.target)
+    assert without.avg_entry == pytest.approx(with_ceiling.avg_entry)
+
+
+def test_tree_average_is_weighted_by_the_tree_sizes():
+    """Fix 2026-11-20 (rules doc 15.8 B): the average entry is weighted by the shares the tree sizes,
+    not by the old ladder's 0.10 / 0.15 weights."""
+    from quant.strategies.risk_ladder import sizing_stop
+    res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH),
+                          target_r=2.1, equity=EQUITY, loss_ceiling=None, atr_by_time=FLAT_ATR,
+                          symbol_allocation_pct=4.0)
+    fills = []
+    for d in res.tree_decisions:
+        if d.event[0] not in ("ltf_agg_touch", "ltf_cons_touch") or d.refused is not None:
+            continue
+        price = next(p for k, o, p, t in res.events if t == d.event[-1] and k in ("aggressive", "conservative"))
+        stop = sizing_stop(price, res.htf_low, 1.0)  # FLAT_ATR is 1.0 on every bar
+        fills.append((int(EQUITY * d.fraction // stop), price))
+    expected = sum(q * p for q, p in fills) / sum(q for q, _ in fills)
+    assert res.avg_entry == pytest.approx(expected)
+    assert res.mode == "trail"  # a conservative touch happened: no fixed target
+    assert res.target is None

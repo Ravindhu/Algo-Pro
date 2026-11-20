@@ -119,8 +119,13 @@ class AnalyzeSender:
             cancel = {"status": "error", "message": repr(exc)}
         cancelled = str(cancel.get("status", "")).lower() == "success"
         if partial:
+            # Fix 2026-11-20: report what filled, so the bot books it (the broker holds these shares).
+            filled = int(data.get("filled_quantity") or 0)
+            fill_px = float(avg) if isinstance(avg, (int, float)) and avg > 0 else None
             return {"status": "error", "orderid": order_id, "partial": True, "cancel_failed": not cancelled,
-                    "reason": f"partial entry fill ({state}); position not booked"}
+                    "filled_qty": filled, "avg_price": fill_px,
+                    "reason": f"partial entry fill ({state}); {filled} booked, rest cancelled"
+                    if cancelled else f"partial entry fill ({state}); cancel failed, check the broker"}
         outcome = "cancelled" if cancelled else "cancel failed"
         return {"status": "error", "orderid": order_id, "cancel_failed": not cancelled,
                 "reason": f"limit not filled ({state or 'no status'}); {outcome}"}
@@ -865,7 +870,9 @@ class StrategyBot:
                 continue
             total = int(trial_order.qty)
             sl_dist = float(trial_order.stop)  # sizing stop = max(ATR floor, (price - HTF L) + 0.05 % of price)
-            sig = {"side": "BUY", "entry": float(price), "sl_dist": sl_dist, "tp_dist": 3.0 * sl_dist,
+            # tp_dist is a placeholder that only the gate copies (fix 2026-11-20). Exits come from the parent's
+            # stop, target and trail, so a fixed 3R here would look like a real target. 1R keeps it > 0.
+            sig = {"side": "BUY", "entry": float(price), "sl_dist": sl_dist, "tp_dist": 1.0 * sl_dist,
                    "atr": view.atr, "time": str(t), "strategy": strat.name}
             # The gate sizes floor(equity * risk / sl_dist). Passing the whole order as the risk
             # fraction makes the gate size exactly `total` shares (tiny margin for float rounding).
@@ -1137,22 +1144,40 @@ class StrategyBot:
                 self._log("peg_unfilled", key=key)  # cancelled cleanly; parent stays open for the next cycle
                 continue
             if status != "success":
+                filled = int(resp.get("filled_qty") or 0) if resp.get("partial") else 0
+                if resp.get("partial") and filled > 0 and resp.get("avg_price"):
+                    # Fix 2026-11-20: book the shares that filled; the rest is cancelled (or flagged below).
+                    filled = min(filled, qty)
+                    self._book_child(p, key, active, filled, ref_px,
+                                     {"avg_price": resp.get("avg_price")}, report)
+                    if resp.get("cancel_failed"):
+                        self._faults.add(("partial", key))
+                        self._alert("CRITICAL", f"{p.intent.symbol}: {filled} booked; the unfilled rest could not be "
+                                                "cancelled. Entries blocked until checked with the broker")
+                    else:
+                        self._log("partial_fill_booked", key=key, filled=filled, unfilled=qty - filled)
+                    continue
                 if resp.get("partial"):
                     self._faults.add(("partial", key))
-                    self._alert("CRITICAL", f"{p.intent.symbol}: partial entry fill; position not booked; "
+                    self._alert("CRITICAL", f"{p.intent.symbol}: partial entry fill with no fill quantity; "
                                             "entries blocked until reconciled with the broker")
                 if resp.get("cancel_failed"):
                     self._alert("CRITICAL", f"{p.intent.symbol}: unfilled entry could not be cancelled; check the broker")
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
-            p.remaining -= qty
-            if active is not None:
-                p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
-            added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
-            self.state.open_notional += added
-            self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit
-            self._record_fill(p, qty, outcome.response or {})
-            report["children_sent"] += 1
+            self._book_child(p, key, active, qty, ref_px, outcome.response or {}, report)
+
+    def _book_child(self, p: _Parent, key: str, active, qty: int, ref_px: float,
+                    response: Dict[str, Any], report: Dict[str, Any]) -> None:
+        """Book shares that filled on one child: parent remaining, ladder order, exposure and position."""
+        p.remaining -= qty
+        if active is not None:
+            p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
+        added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
+        self.state.open_notional += added
+        self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit
+        self._record_fill(p, qty, response)
+        report["children_sent"] += 1
 
     def _record_fill(self, p: _Parent, qty: int, response: Dict[str, Any]) -> None:
         """First accepted child opens the position. Later children add quantity.

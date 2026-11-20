@@ -542,3 +542,40 @@ def test_tree_cycle_without_a_screen_allocation_fails_closed(tmp_path):
     bot.cycle(NOW)
     assert _child_qtys(audit) == []
     assert any(kind == "tree_no_allocation" for kind, _ in audit.records)
+
+
+class _Partial:
+    """Stub for one child reply from the executor: a partial LIMIT fill."""
+    sent = True
+    reasons: list = []
+
+    def __init__(self, filled, cancel_failed):
+        self.response = {"status": "error", "partial": True, "filled_qty": filled, "avg_price": 100.0,
+                         "cancel_failed": cancel_failed, "reason": "partial entry fill"}
+
+
+def _partial_bot(tmp_path, filled, cancel_failed):
+    r = _tree_result(
+        [("aggressive", "A", 100.0, T_NEW)],
+        [("htf_ocl", "H", T_NEW), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW)])
+    strat = ScriptedCycle("scripted", [_view(r, T_NEW)])
+    bot, audit = _bot(tmp_path, strat, symbol_allocation=4.0)
+    bot._executor.submit_child = lambda child, price_type, limit_px: _Partial(filled, cancel_failed)
+    bot.cycle(NOW)
+    return bot
+
+
+def test_partial_entry_fill_is_booked_and_the_rest_stays_open(tmp_path):
+    """Fix 2026-11-20 (rules doc 15.8 C): shares that filled are booked; the parent keeps the rest."""
+    bot = _partial_bot(tmp_path, filled=40, cancel_failed=False)
+    p = _parent(bot)
+    assert bot._positions[p.key].qty == 40
+    assert p.remaining == 468 - 40
+    assert not bot._faults
+
+
+def test_partial_fill_with_failed_cancel_raises_a_fault(tmp_path):
+    bot = _partial_bot(tmp_path, filled=40, cancel_failed=True)
+    p = _parent(bot)
+    assert bot._positions[p.key].qty == 40  # still booked
+    assert ("partial", p.key) in bot._faults  # entries and slicing blocked until checked

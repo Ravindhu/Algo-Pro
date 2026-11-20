@@ -88,7 +88,7 @@ This runs every bot cycle, every 5 minutes. The replay reads the whole history e
 30. The child quantity is the rate × volume, capped at the parent's remaining shares and the order's unfilled shares. Less than 1 share: nothing is sent.
 31. In the default mode, the entry is a LIMIT at the best bid plus one tick, capped at the reference price. It waits 5 seconds and is tried at most 3 times. An unfilled LIMIT is cancelled and the parent stays open.
 32. Exits are never sliced by VWAP. They use the fixed 10 %.
-33. If the broker returns a partial fill, the bot raises a CRITICAL alert, halts the parent, and blocks entries until someone reconciles the position.
+33. If the broker returns a partial fill, the bot books the shares that filled and keeps the rest of the order open. If the rest could not be cancelled, the bot raises a CRITICAL alert and blocks entries until someone checks the broker.
 
 **Stage 7: manage the open position (each cycle, on the last closed bar)**
 34. The stop is checked first. If the bar's low reaches the stop, the position exits at the stop (or the open, if the open is lower).
@@ -97,8 +97,10 @@ This runs every bot cycle, every 5 minutes. The replay reads the whole history e
 37. After a conservative touch, the stop trails: best high since entry minus 2 × ATR. It only moves up.
 38. Every stop move is sent to the broker as a stop order.
 
-## What the bot does not do yet
+## What is still open
 
-- The replay still runs the old 1 % ladder to decide the exit mode and target average. If that setting is removed, aggressive-only cycles get no target and no trail. This is the most important open item (rules doc 15.8, A and B).
-- There is no profit lock before a conservative touch. The only protection is HTF L. This needs an owner decision.
-- A partial fill on a LIMIT entry halts the parent. This has not been tested on the paper broker.
+- Profit lock before a conservative touch: none yet. The only protection is HTF L. This needs an owner decision (rules doc 15.8, D).
+- Unfilled shares are dropped when their MTF setup ends. Please confirm this is the rule you want (rules doc 15.8, F).
+- The partial-fill handling is coded but not yet tested on the paper broker.
+
+The replay's exit mode and target now come from the tree's own sizes, so they no longer depend on the old 1 % loss ceiling.
