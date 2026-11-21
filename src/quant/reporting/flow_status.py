@@ -8,7 +8,7 @@ Rules use CURRENT state only (kill switch, mode, loop, feed, calendar, limits). 
 used, so a kill switch reset clears the red at once. Labels must match data-label values from
 quant_system_flow_v5.svg (tests/unit/test_flow_status.py checks this).
 
-Flow stage: Dashboard
+Flow stage: Dashboard. Nodes also owned here: Strategy, Trading bot, Blue Engine screener, Blue Engine NAV.
 Status: PHASE 3 IMPLEMENTED (paper data only)
 """
 from __future__ import annotations
