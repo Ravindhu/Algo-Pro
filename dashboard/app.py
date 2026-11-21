@@ -236,6 +236,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     def flow_asset():
         return FileResponse(paths["flow"], media_type="application/javascript")
 
+    @app.get("/assets/miro_map.js")
+    def miro_asset():
+        return FileResponse(ROOT / "dashboard" / "assets" / "miro_map.js", media_type="application/javascript")
+
     # Phone install files (M2). The service worker must be served from the root to cover /ui.
     PWA = ROOT / "dashboard" / "assets"
 
