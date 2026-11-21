@@ -68,7 +68,7 @@ def available_cash(reader: Any, api_key: str) -> float:
     """Sizing equity = available cash from OpenAlgo funds. Any doubt gives 0 (no entries).
 
     The reply key 'availablecash' matches the vendored OpenAlgo SDK funds response
-    (src/quant/vendor/openalgo/account.py, checked 2026-11-15). A missing key gives 0, so no
+    (Temp/openalgo/account.py, checked 2026-11-15). A missing key gives 0, so no
     entries. Still confirm it on the live account before the first session.
     """
     try:

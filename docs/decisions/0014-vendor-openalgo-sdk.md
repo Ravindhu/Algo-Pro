@@ -13,6 +13,9 @@ The platform copy (decision 0013) does not provide that package. The SDK is a se
 - `blue_bridge.py` adds `src/quant/vendor` to the END of sys.path. A pip-installed SDK still takes priority.
 - Added runtime deps the SDK needs to `requirements.txt`: `httpx>=0.27.0,<1.0`, `websocket-client>=1.8.0,<2.0`. These are third-party packages and are installed by pip, not copied.
 
+## Update 2026-11-21
+The SDK folder moved from `src/quant/vendor/openalgo/` to `Temp/openalgo/`. `Temp/` is the scratch area; `.gitignore` now un-ignores `Temp/openalgo/` so it stays tracked. `blue_bridge.py` adds `Temp` to the END of sys.path (the folder containing `openalgo/`) and only when `Temp/openalgo` exists. `src/quant/vendor/` is removed. The rule exceptions above still hold: the SDK folder is outside `src/quant`, so the layout guards do not scan it.
+
 ## Licence
 - SDK: MIT. Permissive. Keep LICENSE with the copy.
 - Platform (decision 0013): AGPL-3.0. Separate folder, separate licence. The SDK does not pull AGPL code in.

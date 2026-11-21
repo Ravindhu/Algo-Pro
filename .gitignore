@@ -160,6 +160,7 @@ move_log.txt
 # Temp/Staging Workspace/archive_temp.py, which writes an index.txt recording
 # every former path - so the root stays readable and nothing must be deleted.
 Temp/*
+!Temp/openalgo/
 # Exception: the OpenAlgo Python SDK is tracked as a submodule (pinned to v2.0.3)
 # so the test suite can import it. Everything else in Temp/ stays ignored.
 !Temp/openalgo-python-library/

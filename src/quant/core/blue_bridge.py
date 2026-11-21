@@ -37,13 +37,15 @@ class BlueEngineUnavailable(ImportError):
     """Blue_engine (or its OpenAlgo SDK dependency) cannot be imported here."""
 
 
-#: Vendored OpenAlgo SDK (src/quant/vendor/openalgo, MIT; decision 0014).
-_VENDOR_DIR = Path(__file__).resolve().parents[1] / "vendor"
+#: Vendored OpenAlgo SDK (Temp/openalgo, MIT; decision 0014). The SDK package is
+#: ``Temp/openalgo``, so the sys.path entry is its parent, ``Temp``.
+#: src/quant/core/blue_bridge.py -> repo root is three levels up from ``core``.
+_VENDOR_DIR = Path(__file__).resolve().parents[3] / "Temp"
 
 
 def _ensure_sdk_on_path() -> None:
     """Add the vendored SDK as a FALLBACK. Appended, so a pip-installed SDK still wins."""
-    if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
+    if (_VENDOR_DIR / "openalgo").is_dir() and str(_VENDOR_DIR) not in sys.path:
         sys.path.append(str(_VENDOR_DIR))
 
 
