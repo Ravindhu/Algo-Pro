@@ -203,7 +203,7 @@
   /* ===== home layout: KPIs, three-column row, two-column row ===== */
   .home { padding-bottom: 16px; }
   .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 10px; }
-  .home-row3 { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.7fr) minmax(0, 1.2fr); gap: 10px; padding-top: 10px; }
+  .home-row3 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr) minmax(0, 0.9fr); gap: 10px; padding-top: 10px; }
   .eqhead { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--dim); margin: 0 0 6px; }
   .eqhead b { color: var(--txt); font-weight: 800; }
   .home-row4 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-top: 10px; }
@@ -306,19 +306,9 @@
 <main class="home">
   <div class="home-row3">
     <section class="panel">
-      <div class="ph">Screener stocks <span id="scr-note"></span></div>
-      <div class="scroll"><table>
-        <thead><tr><th>Symbol</th><th class="n">Price ₹</th></tr></thead>
-        <tbody id="scr-rows"></tbody>
-      </table></div>
-    </section>
-    <section class="panel">
-      <div class="ph">Neural link <span>model view · animation only</span></div>
-      <svg id="neural" viewBox="0 0 380 240" style="height:auto;min-height:300px;width:100%"></svg>
-    </section>
-    <section class="panel">
-      <div class="ph">Real equity curve <span id="navnote">broker NAV</span></div>
+      <div class="ph">Real equity curve <span id="navnote">–</span></div>
       <div class="eqhead">
+        <span>Invested <b id="eq-invested">—</b></span>
         <span>Total P&amp;L <b id="eq-pnl">—</b></span>
         <span>Return <b id="eq-ret">—</b></span>
         <span>TWRR <b id="eq-twrr">—</b></span>
@@ -330,6 +320,17 @@
       <svg id="navsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:150px;margin-top:6px">
         <polyline id="navline" fill="none" stroke="#3fd0ff" stroke-width="2" points=""/>
       </svg>
+    </section>
+    <section class="panel">
+      <div class="ph">Screener stocks <span id="scr-note"></span></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Symbol</th><th class="n">Price ₹</th></tr></thead>
+        <tbody id="scr-rows"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <div class="ph">Neural link <span>model view · animation only</span></div>
+      <svg id="neural" viewBox="0 0 380 240" style="height:auto;min-height:300px;width:100%"></svg>
     </section>
   </div>
   <div class="home-row4">
@@ -810,7 +811,7 @@
     const pts = path.map(p => p.nav), note = $("navnote");
     if (pts.length < 2) {
       $("navline").setAttribute("points", "");
-      note.textContent = "needs NAV history";
+      note.textContent = "–";
       return;
     }
     const w = 800, hgt = 120, pad = 6, min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
@@ -1243,6 +1244,7 @@
     const s = p.summary || {}, all = p.holdings || [];
     const mtf = p.mtf || {}, tc = p.trade_cost || null;
     // Equity header: whole real book.
+    putEq("eq-invested", money(s.invested), "");
     putEq("eq-pnl", money(s.pnl), sign(s.pnl));
     putEq("eq-ret", s.pnl_pct == null ? "—" : Number(s.pnl_pct).toFixed(2) + "%", "");
     putEq("eq-mtf", mtf.mtf_pct == null ? "—" : pctText(mtf.mtf_pct), "");
