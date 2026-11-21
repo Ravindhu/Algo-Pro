@@ -47,7 +47,7 @@ from quant.core.types import TradeIntent
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.execution.pov_band import BandConfig, compute_target_pov_rate
-from quant.execution.peg import peg_candidates
+from quant.execution.peg_slicer import PegAllotment, PegSlicer
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
@@ -335,6 +335,7 @@ class _Parent:
     ladder: Any = None               # RiskLadder state of this HTF cycle (plan P3); saved with the parent
     events_done: int = 0             # how many replay events of this cycle were handled
     allocation_pct: Optional[float] = None  # owner tree: symbol allocation (percent) locked when the cycle opened
+    peg: Optional[PegAllotment] = None  # 15 s PegSlicer state for this 5 min cycle (see peg_slicer.py)
 
 
 class _BotBook:
@@ -447,9 +448,7 @@ class StrategyBot:
         self.vwap_tick = vwap_tick           # called by the runner between cycles to poll quotes
         self._buyer_share_provider = buyer_share_provider  # buyer share of volume per symbol (buyer mode)
         self._depth_provider = depth_provider              # depth reply per symbol (peg mode)
-        self._peg_verifier = peg_verifier                  # BidVerifier: checks a bid level before a peg (peg mode)
-        self._peg_status = ""                              # "ok" | "unverified" | "nodepth" after the last peg pick
-        self._cycle_ts: Optional[float] = None             # cycle time, for the verifier's freshness check
+        self._entries_ok_last: bool = False                # entries were open at the last cycle
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit
@@ -511,6 +510,12 @@ class StrategyBot:
         self.feed_health = feed_health if feed_health is not None else FeedHealthBook()
         self._executor = PovExecutor(
             gate=self._child_gate, sender=sender, api_key=api_key, audit=audit, pov=cfg.pov,
+        )
+        # 15 s peg model, separate from the 5 min POV sizing. Owns the verifier and the peg allotments.
+        self._peg = PegSlicer(
+            cfg=cfg, executor=self._executor, verifier=peg_verifier, depth_provider=depth_provider,
+            make_child=PovExecutor.make_child, log=self._log, alert=self._alert, close=self._close,
+            book=self._book_child, add_fault=self._faults.add,
         )
 
     # --- gate used by the POV executor for every child ---
@@ -604,7 +609,7 @@ class StrategyBot:
         report: Dict[str, Any] = {"time": now.isoformat(), "parents_opened": 0, "children_sent": 0,
                                   "skipped": []}
         self._cycle_no += 1
-        self._cycle_ts = now.timestamp()
+        self._peg.start_cycle(now.timestamp())
         self._roll_day(now)
         self._check_broker_stops()
         self._resync_stops()
@@ -626,6 +631,7 @@ class StrategyBot:
         bars_cache: Dict[str, Any] = {}
         guard_ok = self._run_entry_guard()
         entries_ok = self._entries_allowed() and guard_ok and not self._faults
+        self._entries_ok_last = entries_ok  # the peg tick places nothing unless entries are open
         if not entries_ok:
             if not self._entries_allowed():
                 reason = "startup recon not allowed entries"
@@ -659,6 +665,7 @@ class StrategyBot:
         self._manage_exits(bars_cache, now, report)
         if entries_ok:
             self._slice_parents(bars_cache, now, report)
+        report["peg_15s"] = self._peg.drain_report()  # what the 15 s pegs did since the last cycle
         self._mark_positions_to_market(bars_cache, now, report)
         return report
 
@@ -1038,69 +1045,12 @@ class StrategyBot:
         """Peg applies to BUY entries only. Exits stay MARKET so they always try to fill."""
         return self.cfg.pov_mode == "peg_band_buyer" and p.intent.kind == "entry" and p.intent.side == "BUY"
 
-    def _peg_price_now(self, symbol: str, cap: Optional[float]) -> Optional[Tuple[float, int]]:
-        """(order price, bid qty at the level), the first high-volume level that verifies, never above cap.
-
-        Sets self._peg_status: "nodepth" when there is no usable depth (caller uses the fixed path),
-        "unverified" when no candidate passes the verifier (caller waits), "ok" otherwise.
-        """
-        self._peg_status = "nodepth"
-        if self._depth_provider is None:
-            return None
-        try:
-            depth = self._depth_provider(symbol)
-        except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
-            self._log("peg_depth_error", symbol=symbol, error=repr(exc))
-            return None
-        cands = peg_candidates("BUY", depth, cap, self.cfg.peg_tick_size,
-                               depth_levels=self.cfg.peg_depth_levels,
-                               offset_ticks=self.cfg.peg_offset_ticks)
-        if not cands:
-            return None
-        if self._peg_verifier is None:
-            self._peg_status = "unverified"
-            self._log("peg_no_verifier", symbol=symbol)
-            return None
-        now_ts = self._cycle_ts if self._cycle_ts is not None else time.time()
-        for px, qty, lvl in cands[: self.cfg.peg_max_levels]:
-            v = self._peg_verifier.verdict(symbol, lvl, now_ts)
-            if v.ok:
-                self._peg_status = "ok"
-                self._log("peg_level_verified", symbol=symbol, level=lvl, price=px, qty=qty, metrics=v.metrics)
-                return px, qty
-            self._log("peg_level_unverified", symbol=symbol, level=lvl, reasons=list(v.reasons), metrics=v.metrics)
-        self._peg_status = "unverified"
-        return None
-
-    def _submit_peg(self, p: "_Parent", qty: int, px: float, cap: Optional[float]):
-        """One child as a LIMIT at the best bid. If it is not filled and was cancelled cleanly, reprice
-        from the current bid, up to peg_max_attempts. A partial fill or a failed cancel stops at once."""
-        outcome = None
-        child = None
-        qty_cap = qty
-        for attempt in range(self.cfg.peg_max_attempts):
-            if attempt > 0:
-                level = self._peg_price_now(p.intent.symbol, cap)
-                if level is None:
-                    break
-                px, bid_qty = level
-                qty = min(qty_cap, int(bid_qty * self.cfg.peg_bid_fraction))
-                if qty < 1:
-                    break
-                p.seq += 1
-                self._log("peg_reprice", key=p.key, attempt=attempt + 1, px=px)
-            child = PovExecutor.make_child(p.intent, qty, p.seq)
-            outcome = self._executor.submit_child(child, "LIMIT", px)
-            if not outcome.sent:
-                break
-            resp = outcome.response or {}
-            if str(resp.get("status", "")).lower() == "success":
-                break
-            if resp.get("partial") or resp.get("cancel_failed"):
-                break
-            if "limit not filled" not in str(resp.get("reason", "")):
-                break
-        return outcome, child
+    def peg_slicer_tick(self, now: datetime) -> None:
+        """15 s tick between cycles (runner). The PegSlicer places pegs only when entries are open, nothing is
+        faulted and the mode is peg; it spends only each parent's allotment for this cycle."""
+        if self.cfg.pov_mode != "peg_band_buyer" or not self._entries_ok_last or self._faults:
+            return
+        self._peg.tick(self._parents, now)
 
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         for key, p in list(self._parents.items()):
@@ -1152,12 +1102,13 @@ class StrategyBot:
             cap = None
             if self._peg_on(p):
                 cap = self._entry_price(p, df)[1]
-                level = self._peg_price_now(p.intent.symbol, cap)
+                level = self._peg.price_now(p.intent.symbol, cap)
                 peg_px = level[0] if level is not None else None
                 peg_bid_qty = level[1] if level is not None else 0
-                if level is None and self._peg_status == "unverified":
-                    # No high-volume level verified this cycle: the parent waits for the next cycle.
+                if level is None and self._peg.status == "unverified":
+                    # No high-volume level verified yet: the parent waits, and the 15 s tick checks again.
                     self._log("peg_wait_verify", key=key)
+                    self._peg.arm(p, cap, self._executor.child_qty(p.remaining, bar_volume, pov))
                     continue
                 if why == "fallback" or _vol_why == "fallback" or peg_px is None:
                     # Single fallback for peg mode: fixed POV on full bar volume, old entry price.
@@ -1166,6 +1117,8 @@ class StrategyBot:
                     bar_volume = raw_volume
                     peg_px = None
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
+            if self._peg_on(p):
+                self._peg.arm(p, cap, qty)  # this cycle's allotment; the 15 s tick spends what is left of it
             if active is not None:
                 qty = min(qty, active.unfilled)  # one child belongs to one ladder order
             if qty < 1:
@@ -1179,7 +1132,7 @@ class StrategyBot:
             p.seq += 1
             try:
                 if peg_px is not None:
-                    outcome, child = self._submit_peg(p, qty, peg_px, cap)
+                    outcome, child = self._peg.submit(p, qty, peg_px, cap)
                 else:
                     child = PovExecutor.make_child(slice_intent, qty, p.seq)
                     price_type, limit_px = self._entry_price(p, df)
@@ -1224,6 +1177,8 @@ class StrategyBot:
                     response: Dict[str, Any], report: Dict[str, Any]) -> None:
         """Book shares that filled on one child: parent remaining, ladder order, exposure and position."""
         p.remaining -= qty
+        if p.peg is not None:
+            p.peg.spent += qty  # shares filled from this cycle's peg allotment
         if active is not None:
             p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
         added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
@@ -1408,7 +1363,8 @@ class StrategyBot:
         intent = {f.name: getattr(p.intent, f.name) for f in _fields(p.intent)}
         if intent.get("trade_day") is not None:
             intent["trade_day"] = intent["trade_day"].isoformat()
-        d = {f.name: getattr(p, f.name) for f in _fields(p) if f.name not in ("intent", "ladder")}
+        # peg is transient: it is re-armed by the next cycle, so it is not saved (and not JSON)
+        d = {f.name: getattr(p, f.name) for f in _fields(p) if f.name not in ("intent", "ladder", "peg")}
         d["intent"] = intent
         d["ladder"] = p.ladder.to_doc() if p.ladder is not None else None
         return d

@@ -7,6 +7,7 @@ import pytest
 
 from quant.execution import strategy_bot as sb
 from quant.execution.peg import peg_level, peg_price
+from quant.execution.peg_slicer import PegSlicer
 from quant.execution.strategy_bot import AnalyzeSender, BotConfig, StrategyBot
 
 
@@ -49,8 +50,12 @@ def _fake_bot(replies, bids, max_attempts=3):
             return _Outcome(sent=True, response=replies[len(calls) - 1])
 
     bid_iter = iter(bids)
-    fake = SimpleNamespace(cfg=cfg, _executor=_Exec(), _log=lambda *a, **k: None,
-                           _peg_price_now=lambda sym, cap: _lvl(next(bid_iter, None)))
+    slicer = PegSlicer(cfg=cfg, executor=_Exec(), verifier=None, depth_provider=None,
+                       make_child=lambda intent, qty, seq: sb.PovExecutor.make_child(intent, qty, seq),
+                       log=lambda *a, **k: None, alert=lambda *a, **k: None, close=lambda *a: None,
+                       book=lambda *a, **k: None, add_fault=lambda k: None)
+    slicer.price_now = lambda sym, cap: _lvl(next(bid_iter, None))
+    fake = SimpleNamespace(cfg=cfg, _peg=slicer)
     p = SimpleNamespace(intent=SimpleNamespace(symbol="A"), key="K", seq=0)
     return fake, p, calls
 
@@ -62,7 +67,7 @@ def _fake_child(monkeypatch):
 
 def test_fill_on_first_attempt_is_one_submit():
     fake, p, calls = _fake_bot([{"status": "success", "avg_price": 100.0}], bids=[])
-    out, child = StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+    out, child = fake._peg.submit(p, 10, 100.0, 101.0)
     assert len(calls) == 1 and calls[0][1:] == ("LIMIT", 100.0)
     assert out.response["status"] == "success"
 
@@ -71,7 +76,7 @@ def test_clean_cancel_reprices_from_current_bid():
     unfilled = {"status": "error", "reason": "limit not filled (open); cancelled"}
     fake, p, calls = _fake_bot([unfilled, {"status": "success", "avg_price": 100.2}],
                                bids=[100.2])
-    out, _ = StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+    out, _ = fake._peg.submit(p, 10, 100.0, 101.0)
     assert [c[2] for c in calls] == [100.0, 100.2]
     assert out.response["status"] == "success"
 
@@ -79,7 +84,7 @@ def test_clean_cancel_reprices_from_current_bid():
 def test_reprices_stop_at_max_attempts():
     unfilled = {"status": "error", "reason": "limit not filled (open); cancelled"}
     fake, p, calls = _fake_bot([unfilled] * 5, bids=[100.1, 100.2, 100.3], max_attempts=2)
-    StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+    fake._peg.submit(p, 10, 100.0, 101.0)
     assert len(calls) == 2
 
 
@@ -87,14 +92,14 @@ def test_partial_or_failed_cancel_never_reprices():
     for resp in ({"status": "error", "partial": True, "reason": "limit not filled (partial)"},
                  {"status": "error", "cancel_failed": True, "reason": "limit not filled (open); cancel failed"}):
         fake, p, calls = _fake_bot([resp], bids=[100.1])
-        StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+        fake._peg.submit(p, 10, 100.0, 101.0)
         assert len(calls) == 1
 
 
 def test_bid_above_cap_stops_reprice():
     unfilled = {"status": "error", "reason": "limit not filled (open); cancelled"}
     fake, p, calls = _fake_bot([unfilled, unfilled], bids=[None])
-    StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+    fake._peg.submit(p, 10, 100.0, 101.0)
     assert len(calls) == 1
 
 
@@ -138,16 +143,16 @@ def test_reprice_caps_child_to_size_at_new_best_bid():
     unfilled = {"status": "error", "reason": "limit not filled (open); cancelled"}
     fake, p, calls = _fake_bot([unfilled, {"status": "success", "avg_price": 100.2}], bids=[100.2])
     # the reprice sees only 4 shares at the bid; with fraction 0.5 the child may take 2
-    fake._peg_price_now = lambda sym, cap: (100.2, 4)
-    StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+    fake._peg.price_now = lambda sym, cap: (100.2, 4)
+    fake._peg.submit(p, 10, 100.0, 101.0)
     assert calls[0][0][1] == 10 and calls[1][0][1] == 2
 
 
 def test_thin_reprice_bid_stops_the_chain():
     unfilled = {"status": "error", "reason": "limit not filled (open); cancelled"}
     fake, p, calls = _fake_bot([unfilled, unfilled], bids=[100.2])
-    fake._peg_price_now = lambda sym, cap: (100.2, 1)   # 1 share at bid x 0.5 -> 0 shares: stop
-    StrategyBot._submit_peg(fake, p, 10, 100.0, 101.0)
+    fake._peg.price_now = lambda sym, cap: (100.2, 1)   # 1 share at bid x 0.5 -> 0 shares: stop
+    fake._peg.submit(p, 10, 100.0, 101.0)
     assert len(calls) == 1
 
 
