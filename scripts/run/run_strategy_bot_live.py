@@ -132,6 +132,7 @@ def make_egress_guard(allowed_ip: str, egress_fn=None):
 
 
 from quant.execution.buyer_vwap import BuyerVwapBook  # noqa: E402
+from quant.execution.peg_verify import BidVerifier, VerifyConfig  # noqa: E402
 
 
 def _live_sender(client, cfg):
@@ -187,10 +188,22 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
 
     # Buyer-initiated VWAP per screened symbol, from quote polls. Only used in band mode.
     vwap_book = BuyerVwapBook(readonly, api_key, exchange="NSE")
+    # Bid-level history for the peg verifier (absorption, pulls, dwell). Sampled on the same tick.
+    peg_verifier = BidVerifier(VerifyConfig(
+        window_seconds=cfg.peg_verify_window_seconds, dwell_seconds=cfg.peg_dwell_seconds,
+        absorb_ratio=cfg.peg_absorb_ratio, max_pull_ratio=cfg.peg_max_pull_ratio))
     def vwap_tick(now):
         symbols = [r["symbol"] for r in _read_screen(cfg.screen_path, now, cfg.max_screen_age_minutes)]
         if symbols:
             vwap_book.poll(symbols, now)
+            if cfg.pov_mode == "peg_band_buyer":
+                for sym in symbols:
+                    try:
+                        peg_verifier.observe(sym, now.timestamp(),
+                                             readonly.depth(api_key, sym, "NSE"),
+                                             readonly.quotes(api_key, sym, "NSE"))
+                    except Exception as exc:  # noqa: BLE001 - one symbol must not stop the others
+                        audit.append("peg_sample_error", {"symbol": sym, "error": repr(exc)})
 
     tf = _paper.load_timeframes(settings_path or _live_checks.SETTINGS_FILE)
     feed = _paper.MultiTimeframeBars(readonly, api_key, tf) if all(tf.values()) else None
@@ -199,6 +212,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         vwap_provider=vwap_book.vwap,
         buyer_share_provider=vwap_book.buyer_share,
         depth_provider=lambda sym: readonly.depth(api_key, sym, "NSE"),
+        peg_verifier=peg_verifier,
         vwap_tick=vwap_tick if cfg.pov_mode == "peg_band_buyer" else None,
         strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path), feed) for n in cfg.strategies],
         bars=LiveBars(readonly, api_key),

@@ -47,7 +47,7 @@ from quant.core.types import TradeIntent
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.execution.pov_band import BandConfig, compute_target_pov_rate
-from quant.execution.peg import peg_level
+from quant.execution.peg import peg_candidates
 from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
@@ -177,6 +177,13 @@ class BotConfig:
     peg_tick_size: float = 0.05       # peg: BUY goes this far above the best bid (0 turns it off); never to the ask
     peg_bid_fraction: float = 0.5     # peg: a child may take at most this share of the shares at the best bid
     peg_max_attempts: int = 3         # peg_band_buyer: max LIMIT placements per child (bounded reprice)
+    peg_depth_levels: int = 20        # peg: bid levels scanned for the highest-quantity level (broker may return fewer)
+    peg_offset_ticks: int = 2         # peg: order goes this many ticks above the chosen level, never to the ask
+    peg_absorb_ratio: float = 0.5     # peg verify: absorbed sell qty / initial bid qty must reach this
+    peg_max_pull_ratio: float = 0.3   # peg verify: pulled qty / (initial + absorbed) must stay at or below this
+    peg_dwell_seconds: float = 10.0   # peg verify: price must stay above the level this long after a bounce
+    peg_verify_window_seconds: float = 60.0  # peg verify: depth history used for the checks
+    peg_max_levels: int = 3           # peg: high-volume levels tried, in order, before the parent waits
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
@@ -207,6 +214,20 @@ class BotConfig:
             raise ValueError("peg_bid_fraction must be in (0, 1]")
         if not 1 <= self.peg_max_attempts <= 5:
             raise ValueError("peg_max_attempts must be in [1, 5]")
+        if not 1 <= self.peg_depth_levels <= 50:
+            raise ValueError("peg_depth_levels must be in [1, 50]")
+        if not 0 <= self.peg_offset_ticks <= 10:
+            raise ValueError("peg_offset_ticks must be in [0, 10]")
+        if not 0 < self.peg_absorb_ratio <= 1:
+            raise ValueError("peg_absorb_ratio must be in (0, 1]")
+        if not 0 <= self.peg_max_pull_ratio < 1:
+            raise ValueError("peg_max_pull_ratio must be in [0, 1)")
+        if not 1 <= self.peg_dwell_seconds <= 300:
+            raise ValueError("peg_dwell_seconds must be in [1, 300]")
+        if not 10 <= self.peg_verify_window_seconds <= 600:
+            raise ValueError("peg_verify_window_seconds must be in [10, 600]")
+        if not 1 <= self.peg_max_levels <= 10:
+            raise ValueError("peg_max_levels must be in [1, 10]")
         if not 5 <= self.vwap_poll_seconds <= 300:
             raise ValueError("vwap_poll_seconds must be in [5, 300]")
         if self.pov_mode not in ("peg_band_buyer", "fixed"):
@@ -393,6 +414,7 @@ class StrategyBot:
         vwap_tick: Optional[Callable[[datetime], None]] = None,
         buyer_share_provider: Optional[Callable[[str], Optional[float]]] = None,
         depth_provider: Optional[Callable[[str], Any]] = None,
+        peg_verifier: Optional[Any] = None,
         cycle_loss_ceiling: Optional[float] = None,
         cycle_portfolio_loss_ceiling: Optional[float] = None,
         cycle_symbol_allocation_pct: Optional[float] = None,
@@ -425,6 +447,9 @@ class StrategyBot:
         self.vwap_tick = vwap_tick           # called by the runner between cycles to poll quotes
         self._buyer_share_provider = buyer_share_provider  # buyer share of volume per symbol (buyer mode)
         self._depth_provider = depth_provider              # depth reply per symbol (peg mode)
+        self._peg_verifier = peg_verifier                  # BidVerifier: checks a bid level before a peg (peg mode)
+        self._peg_status = ""                              # "ok" | "unverified" | "nodepth" after the last peg pick
+        self._cycle_ts: Optional[float] = None             # cycle time, for the verifier's freshness check
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit
@@ -579,6 +604,7 @@ class StrategyBot:
         report: Dict[str, Any] = {"time": now.isoformat(), "parents_opened": 0, "children_sent": 0,
                                   "skipped": []}
         self._cycle_no += 1
+        self._cycle_ts = now.timestamp()
         self._roll_day(now)
         self._check_broker_stops()
         self._resync_stops()
@@ -1013,7 +1039,12 @@ class StrategyBot:
         return self.cfg.pov_mode == "peg_band_buyer" and p.intent.kind == "entry" and p.intent.side == "BUY"
 
     def _peg_price_now(self, symbol: str, cap: Optional[float]) -> Optional[Tuple[float, int]]:
-        """(best bid price, shares at that bid), never above cap. None if unavailable (caller uses the fixed path)."""
+        """(order price, bid qty at the level), the first high-volume level that verifies, never above cap.
+
+        Sets self._peg_status: "nodepth" when there is no usable depth (caller uses the fixed path),
+        "unverified" when no candidate passes the verifier (caller waits), "ok" otherwise.
+        """
+        self._peg_status = "nodepth"
         if self._depth_provider is None:
             return None
         try:
@@ -1021,7 +1052,25 @@ class StrategyBot:
         except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
             self._log("peg_depth_error", symbol=symbol, error=repr(exc))
             return None
-        return peg_level("BUY", depth, cap, self.cfg.peg_tick_size)
+        cands = peg_candidates("BUY", depth, cap, self.cfg.peg_tick_size,
+                               depth_levels=self.cfg.peg_depth_levels,
+                               offset_ticks=self.cfg.peg_offset_ticks)
+        if not cands:
+            return None
+        if self._peg_verifier is None:
+            self._peg_status = "unverified"
+            self._log("peg_no_verifier", symbol=symbol)
+            return None
+        now_ts = self._cycle_ts if self._cycle_ts is not None else time.time()
+        for px, qty, lvl in cands[: self.cfg.peg_max_levels]:
+            v = self._peg_verifier.verdict(symbol, lvl, now_ts)
+            if v.ok:
+                self._peg_status = "ok"
+                self._log("peg_level_verified", symbol=symbol, level=lvl, price=px, qty=qty, metrics=v.metrics)
+                return px, qty
+            self._log("peg_level_unverified", symbol=symbol, level=lvl, reasons=list(v.reasons), metrics=v.metrics)
+        self._peg_status = "unverified"
+        return None
 
     def _submit_peg(self, p: "_Parent", qty: int, px: float, cap: Optional[float]):
         """One child as a LIMIT at the best bid. If it is not filled and was cancelled cleanly, reprice
@@ -1106,6 +1155,10 @@ class StrategyBot:
                 level = self._peg_price_now(p.intent.symbol, cap)
                 peg_px = level[0] if level is not None else None
                 peg_bid_qty = level[1] if level is not None else 0
+                if level is None and self._peg_status == "unverified":
+                    # No high-volume level verified this cycle: the parent waits for the next cycle.
+                    self._log("peg_wait_verify", key=key)
+                    continue
                 if why == "fallback" or _vol_why == "fallback" or peg_px is None:
                     # Single fallback for peg mode: fixed POV on full bar volume, old entry price.
                     self._log("peg_fallback_fixed", key=key, band=why, volume=_vol_why, peg=peg_px is not None)
