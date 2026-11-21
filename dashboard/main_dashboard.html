@@ -157,7 +157,9 @@
   #flowbox g.stg.st-err text { fill: #ffffff; }
   #flowbox g.stg.st-err { animation: flowblink 1s steps(2, start) infinite; }
   @keyframes flowblink { to { opacity: .25; } }
-  #flowbox g.stg { cursor: default; }
+  #flowbox g.stg { cursor: pointer; }
+  #flownode { margin-top: 10px; }
+  #flownode[hidden] { display: none; }
   .limgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .one { padding-top: 8px; }
   .zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 12px; }
@@ -454,13 +456,14 @@
 <div class="modal" id="flowmodal" hidden role="dialog" aria-modal="true" aria-labelledby="flowtitle">
   <div class="sheet">
     <div class="sheet-h">
-      <div><b id="flowtitle">QUANT SYSTEM FLOW · v5</b> <span>live node status · red blinks = error · amber = warning</span></div>
+      <div><b id="flowtitle">QUANT SYSTEM FLOW · v5</b> <span>live node status · red blinks = error · amber = warning · click a node for its recommendation</span></div>
       <button type="button" id="flowclose">CLOSE ×</button>
     </div>
     <div class="sheet-b">
       <h3>Algo trading system: full flow, v5</h3>
       <p>Source: quant_system_flow_v5.svg. Colours come from /api/overview (flow). Nodes not named below are ok.</p>
       <div id="flowbox" style="background:#f7f6f1;padding:8px;border-radius:4px;overflow:auto"></div>
+      <div id="flownode" class="panel" hidden></div>
       <div class="ph" style="margin-top:10px">Node status <span id="flowsum"></span></div>
       <ul id="flowissues"></ul>
     </div>
@@ -1147,17 +1150,62 @@
     for (const g of document.querySelectorAll("#flowbox g.stg"))
       if (g.getAttribute("data-label") === label) paintNode(g, status, message);
   }
+  // Agent recommendation for one node (owner-only apply). The browser sends ONLY the id; the server
+  // decides the value, checks staleness, asks for a typed phrase on a loosening, and writes the backend.
+  let flowNodes = {};
+  function nodeRec(n) {
+    return n && n.can_apply ? {id: n.recommendation, current: n.current_value, recommended: n.recommended_value, reason: n.reason} : null;
+  }
+  function recBlock(rec) {
+    const wrap = document.createElement("div");
+    const det = document.createElement("div");
+    det.className = "d";
+    det.textContent = "  agent: " + rec.current + " -> " + rec.recommended + (rec.reason ? " (" + rec.reason + ")" : "");
+    wrap.appendChild(det);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Take recommended value";
+    btn.onclick = async () => {
+      const phrase = rec.phrase_needed ? prompt("Type " + rec.phrase_needed + " to confirm:") : undefined;
+      const res = await jpost("/api/flow/apply", {id: rec.id, phrase: phrase});
+      if (res.ok) { btn.textContent = "Applied"; btn.disabled = true; }
+      else { btn.textContent = "Apply failed"; btn.title = res.j.error || "Apply failed."; }
+    };
+    wrap.appendChild(btn);
+    return wrap;
+  }
+  // Click any node: its status, message and recommendation (if the agent has one).
+  function showNode(label) {
+    const n = flowNodes[label], box = $("flownode");
+    box.replaceChildren();
+    const h = document.createElement("div");
+    h.className = "ph";
+    h.textContent = label;
+    box.appendChild(h);
+    const st = n ? n.status : "ok";
+    const line = document.createElement("div");
+    line.className = st === "err" ? "r" : st === "warn" ? "a" : "g";
+    line.textContent = st === "ok" ? "OK, no action needed" : (st === "err" ? "ERROR" : "WARNING") + ": " + n.message;
+    box.appendChild(line);
+    const rec = nodeRec(n);
+    if (rec) box.appendChild(recBlock(rec));
+    box.hidden = false;
+  }
+  $("flowbox").addEventListener("click", e => {
+    const g = e.target.closest && e.target.closest("g.stg");
+    if (g) showNode(g.getAttribute("data-label"));
+  });
+
   function paintFlow(flow) {
     const nodes = flow || {}, issues = [];
+    flowNodes = nodes;
     let errs = 0, warns = 0;
     for (const g of document.querySelectorAll("#flowbox g.stg")) {
       const label = g.getAttribute("data-label"), n = nodes[label];
       paintNode(g, n ? n.status : "ok", n ? n.message : "");
       if (!n) continue;
       if (n.status === "err") errs++; else warns++;
-      issues.push([label, n.status, n.message,
-                   n.can_apply ? {id: n.recommendation, current: n.current_value,
-                                  recommended: n.recommended_value, reason: n.reason} : null]);
+      issues.push([label, n.status, n.message, nodeRec(n)]);
     }
     issues.sort((a, b) => (a[1] === "err" ? 0 : 1) - (b[1] === "err" ? 0 : 1));
     $("flowsum").textContent = errs || warns ? errs + " error · " + warns + " warning" : "all nodes ok";
@@ -1166,26 +1214,7 @@
       const li = document.createElement("li");
       li.className = st === "err" ? "r" : "a";
       li.textContent = label + " — " + (st === "err" ? "ERROR" : "WARNING") + ": " + msg;
-      // Agent recommendation for this node (owner-only apply). The browser
-      // sends ONLY the id; the server decides the value, checks staleness,
-      // asks for a typed phrase on a loosening, and writes the backend.
-      if (rec) {
-        const det = document.createElement("div");
-        det.className = "d";
-        det.textContent = "  agent: " + rec.current + " -> " + rec.recommended
-          + (rec.reason ? " (" + rec.reason + ")" : "");
-        li.appendChild(det);
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = "Take recommended value";
-        btn.onclick = async () => {
-          const phrase = rec.phrase_needed ? prompt("Type " + rec.phrase_needed + " to confirm:") : undefined;
-          const res = await jpost("/api/flow/apply", {id: rec.id, phrase: phrase});
-          if (res.ok) { btn.textContent = "Applied"; btn.disabled = true; }
-          else { btn.textContent = "Apply failed"; btn.title = res.j.error || "Apply failed."; }
-        };
-        li.appendChild(btn);
-      }
+      if (rec) li.appendChild(recBlock(rec));
       return li;
     }));
   }

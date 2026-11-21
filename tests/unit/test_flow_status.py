@@ -19,7 +19,8 @@ SVG_NS = "{http://www.w3.org/2000/svg}"
 def clean(**over):
     o = {"kill_switch": {"active": False, "reason": ""}, "mode": "normal", "unset_limits": [],
          "events": [], "loop": {"status": "stopped", "last_error": None},
-         "market": {"verified": True}, "feed": {"status": "connected", "note": ""}}
+         "market": {"verified": True}, "feed": {"status": "connected", "note": ""},
+         "trade_strategy": "s1", "screener": {"state": "ok"}, "analysis": {"state": "ok"}}
     o.update(over)
     return o
 
@@ -96,3 +97,18 @@ def test_overview_api_carries_flow_map(tmp_path):
     # the feed is never connected yet, so these two are always amber
     assert body["flow"]["Broker feeds"]["status"] == "warn"
     assert body["flow"]["Feed health monitor"]["status"] == "warn"
+
+
+def test_strategy_screener_nav_and_bot_nodes_flag_only_when_not_set_up():
+    out = node_statuses(clean(trade_strategy=None, screener={"state": "not_run", "note": "No screener run yet."},
+                              analysis={"state": "needs_nav", "note": "no NAV history"}))
+    assert out["Strategy"]["status"] == "warn"
+    assert out["Blue Engine screener"]["status"] == "warn"
+    assert "No screener run" in out["Blue Engine screener"]["message"]
+    assert out["Blue Engine NAV"]["status"] == "warn"
+    assert "Trading bot" not in out  # a stopped bot is normal
+
+
+def test_bot_loop_error_is_red_on_the_bot_node():
+    out = node_statuses(clean(loop={"status": "stopped", "last_error": "broker timeout"}))
+    assert out["Trading bot"] == {"status": "err", "message": "bot error: broker timeout"}

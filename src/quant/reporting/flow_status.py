@@ -101,6 +101,18 @@ def node_statuses(overview: Mapping[str, object],
             _add(board, "Relative strength", WARN,
                  str(sectors.get("detail") or status))
 
+    # Strategy, bot, screener and Blue Engine nodes: amber when not set up or not running, red on a loop error.
+    if not overview.get("trade_strategy"):
+        _add(board, "Strategy", WARN, "no strategy chosen in Trade setup")
+    if loop.get("last_error"):  # a stopped bot is normal (started by hand), so only an error is flagged
+        _add(board, "Trading bot", ERR, "bot error: " + str(loop["last_error"]))
+    screener = overview.get("screener") or {}
+    if screener.get("state") in ("not_run", "error", "unavailable"):
+        _add(board, "Blue Engine screener", WARN, str(screener.get("note") or screener.get("state")))
+    analysis = overview.get("analysis") or {}
+    if analysis.get("state") in ("needs_nav", "unavailable"):
+        _add(board, "Blue Engine NAV", WARN, str(analysis.get("note") or analysis.get("state")))
+
     for name in overview.get("unset_limits") or []:
         label = LIMIT_NODES.get(name)
         if label:

@@ -174,6 +174,10 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     overview["market"] = {"open": is_open, "reason": reason, "verified": cal.verified,
                           "holidays_loaded": len(cal.holidays)}
     overview["loop"] = loop_status(Path(paths.get("loop", DEFAULT_PATHS["loop"])), time.time(), LOOP_INTERVAL_S)
+    try:  # saved strategy, for the flow's Strategy node
+        overview["trade_strategy"] = read_setup(paths["settings"], paths["strategies"], paths["limits"]).get("strategy")
+    except Exception:
+        overview["trade_strategy"] = None
     # ``paths`` may be a PARTIAL dict: a caller (a test, or a future route) should
     # not have to know every key. Every other source here already resolves through
     # DEFAULT_PATHS, and this one raised KeyError when 'recs' was absent.
