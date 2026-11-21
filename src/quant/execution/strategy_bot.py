@@ -335,6 +335,12 @@ class _Parent:
     ladder: Any = None               # RiskLadder state of this HTF cycle (plan P3); saved with the parent
     events_done: int = 0             # how many replay events of this cycle were handled
     allocation_pct: Optional[float] = None  # owner tree: symbol allocation (percent) locked when the cycle opened
+    # Peg 15 s work (2026-11-21): the shares allotted to this 5 min cycle, and how many were filled from it.
+    # Between cycles the parent places pegs only while cycle_spent < cycle_budget. No budget is added in between.
+    peg_waiting: bool = False        # a peg parent that may place child orders between cycles
+    peg_cap: Optional[float] = None  # entry price cap for pegs (from the cycle's bars)
+    cycle_budget: int = 0            # shares allotted for this cycle (POV sizing, before peg caps)
+    cycle_spent: int = 0             # shares filled from cycle_budget so far this cycle
 
 
 class _BotBook:
@@ -450,6 +456,8 @@ class StrategyBot:
         self._peg_verifier = peg_verifier                  # BidVerifier: checks a bid level before a peg (peg mode)
         self._peg_status = ""                              # "ok" | "unverified" | "nodepth" after the last peg pick
         self._cycle_ts: Optional[float] = None             # cycle time, for the verifier's freshness check
+        self._entries_ok_last: bool = False                # entries were open at the last cycle
+        self._peg_15s: Dict[str, int] = {"placed": 0, "filled_shares": 0, "unfilled": 0}
         self._strategies = list(strategies)
         self._bars = bars
         self._audit = audit
@@ -626,6 +634,7 @@ class StrategyBot:
         bars_cache: Dict[str, Any] = {}
         guard_ok = self._run_entry_guard()
         entries_ok = self._entries_allowed() and guard_ok and not self._faults
+        self._entries_ok_last = entries_ok  # peg_tick (between cycles) places nothing unless entries are open
         if not entries_ok:
             if not self._entries_allowed():
                 reason = "startup recon not allowed entries"
@@ -659,6 +668,7 @@ class StrategyBot:
         self._manage_exits(bars_cache, now, report)
         if entries_ok:
             self._slice_parents(bars_cache, now, report)
+        report["peg_15s"] = self._drain_peg_report()  # what the 15 s pegs did since the last cycle
         self._mark_positions_to_market(bars_cache, now, report)
         return report
 
@@ -1072,6 +1082,81 @@ class StrategyBot:
         self._peg_status = "unverified"
         return None
 
+    def _arm_peg(self, p: "_Parent", cap: Optional[float], budget: int) -> None:
+        """Set this cycle's peg allotment. A new cycle replaces the old budget; nothing carries over."""
+        p.peg_waiting = not p.cycle and budget >= 1
+        p.peg_cap = cap
+        p.cycle_budget = max(0, int(budget))
+        p.cycle_spent = 0
+
+    def peg_tick(self, now: datetime) -> None:
+        """Every vwap_poll_seconds between cycles: place pegs for waiting parents, within this cycle's allotment.
+
+        A level is placed only when the verifier passes it. Fills and unfilled pegs are counted into the
+        next cycle's report. The 5 min cycle still owns sizing, risk and the next allotment.
+        """
+        if self.cfg.pov_mode != "peg_band_buyer" or not self._entries_ok_last or self._faults:
+            return
+        self._cycle_ts = now.timestamp()  # verifier freshness is measured from this tick
+        for key, p in list(self._parents.items()):
+            if not p.peg_waiting or p.paused or p.remaining <= 0:
+                continue
+            budget_left = min(p.cycle_budget - p.cycle_spent, p.remaining)
+            if budget_left < 1:
+                continue
+            level = self._peg_price_now(p.intent.symbol, p.peg_cap)
+            if level is None:
+                continue  # still unverified: try again on the next tick
+            px, bid_qty = level
+            qty = min(budget_left, int(bid_qty * self.cfg.peg_bid_fraction))
+            if qty < 1:
+                continue
+            p.seq += 1
+            outcome, _child = self._submit_peg(p, qty, px, p.peg_cap)
+            self._settle_peg(p, key, qty, outcome)
+
+    def _settle_peg(self, p: "_Parent", key: str, qty: int, outcome) -> None:
+        """Book one 15 s peg child. Same rules as the cycle path: fills booked, unfilled cancelled, faults raised."""
+        if outcome is None or not outcome.sent:
+            self._log("peg_not_sent", key=key)
+            return
+        self._peg_15s["placed"] += 1
+        resp = outcome.response or {}
+        status = str(resp.get("status", "")).lower()
+        ref_px = float(p.intent.ref_price)
+        if status == "success":
+            self._book_child(p, key, None, qty, ref_px, resp, {"children_sent": 0})
+            self._peg_15s["filled_shares"] += qty
+            return
+        if "limit not filled" in str(resp.get("reason", "")) and not resp.get("partial") \
+                and not resp.get("cancel_failed"):
+            self._peg_15s["unfilled"] += 1
+            self._log("peg_unfilled", key=key, qty=qty)
+            return
+        filled = int(resp.get("filled_qty") or 0) if resp.get("partial") else 0
+        if resp.get("partial") and filled > 0 and resp.get("avg_price"):
+            filled = min(filled, qty)
+            self._book_child(p, key, None, filled, ref_px, {"avg_price": resp.get("avg_price")}, {"children_sent": 0})
+            self._peg_15s["filled_shares"] += filled
+            if resp.get("cancel_failed"):
+                self._faults.add(("partial", key))
+                self._alert("CRITICAL", f"{p.intent.symbol}: {filled} booked; the unfilled rest could not be "
+                                        "cancelled. Entries blocked until checked with the broker")
+            return
+        if resp.get("partial"):
+            self._faults.add(("partial", key))
+            self._alert("CRITICAL", f"{p.intent.symbol}: partial peg fill with no fill quantity; "
+                                    "entries blocked until reconciled with the broker")
+        if resp.get("cancel_failed"):
+            self._alert("CRITICAL", f"{p.intent.symbol}: unfilled peg could not be cancelled; check the broker")
+        self._close(key, f"peg reply not success: {status or 'missing'}; parent halted")
+
+    def _drain_peg_report(self) -> Dict[str, int]:
+        """15 s peg activity since the last cycle, for the next cycle's report. Resets the counters."""
+        out = dict(self._peg_15s)
+        self._peg_15s = {"placed": 0, "filled_shares": 0, "unfilled": 0}
+        return out
+
     def _submit_peg(self, p: "_Parent", qty: int, px: float, cap: Optional[float]):
         """One child as a LIMIT at the best bid. If it is not filled and was cancelled cleanly, reprice
         from the current bid, up to peg_max_attempts. A partial fill or a failed cancel stops at once."""
@@ -1156,8 +1241,9 @@ class StrategyBot:
                 peg_px = level[0] if level is not None else None
                 peg_bid_qty = level[1] if level is not None else 0
                 if level is None and self._peg_status == "unverified":
-                    # No high-volume level verified this cycle: the parent waits for the next cycle.
+                    # No high-volume level verified yet: the parent waits, and the 15 s tick checks again.
                     self._log("peg_wait_verify", key=key)
+                    self._arm_peg(p, cap, self._executor.child_qty(p.remaining, bar_volume, pov))
                     continue
                 if why == "fallback" or _vol_why == "fallback" or peg_px is None:
                     # Single fallback for peg mode: fixed POV on full bar volume, old entry price.
@@ -1166,6 +1252,8 @@ class StrategyBot:
                     bar_volume = raw_volume
                     peg_px = None
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
+            if self._peg_on(p):
+                self._arm_peg(p, cap, qty)  # this cycle's allotment; the 15 s tick spends what is left of it
             if active is not None:
                 qty = min(qty, active.unfilled)  # one child belongs to one ladder order
             if qty < 1:
@@ -1224,6 +1312,7 @@ class StrategyBot:
                     response: Dict[str, Any], report: Dict[str, Any]) -> None:
         """Book shares that filled on one child: parent remaining, ladder order, exposure and position."""
         p.remaining -= qty
+        p.cycle_spent += qty
         if active is not None:
             p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
         added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
