@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _mtf_conservative, _newest_setup,
-                                            _ocl_start, find_ocl_rrg, first_sweep_after, setup_low)
+                                            _ocl_start, find_ltf_patterns, find_ocl_rrg, first_sweep_after,
+                                            setup_low, setup_touch_from)
 from quant.strategies.risk_ladder import RiskLadder, sizing_stop
 from quant.strategies.risk_tree import plan as tree_plan
 
@@ -66,7 +67,10 @@ def _mtf_touch(kind: str, mtf) -> Optional[Tuple[object, Optional[object], float
     _, mh, ml, _ = _arrays(mtf)
     mc = mtf["close"].to_numpy(dtype=float)
     n_m = len(mtf) - 1
-    touch = next((k for k in range(end + 1, n_m + 1) if ml[k] <= level <= mh[k]), None)
+    first = setup_touch_from(mtf, kind, end, level)  # fail kinds: after the confirm candle (owner 2026-11-22)
+    if first is None:
+        return None
+    touch = next((k for k in range(first, n_m + 1) if ml[k] <= level <= mh[k]), None)
     if touch is None:
         return None
     inval = next((k for k in range(touch + 1, n_m + 1) if mc[k] < pattern_low), None)
@@ -115,7 +119,8 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time, t
     n_l = len(ltf) - 1
     entries: List[Entry] = []
     events: List[Tuple[str, str, float, object]] = []
-    cur = None
+    cur = None       # the pattern whose aggressive level was touched: its conservative touch and stop-out follow
+    pending: list = []  # LTF patterns formed but not yet touched (owner 2026-11-22: first key touch wins)
     prev_low = None
     any_cons = False
     status = "waiting"
@@ -139,13 +144,7 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time, t
                     tree.append(("ltf_invalidated", cur["id"], t))
                 cur = None
             else:
-                if not cur["agg_touched"] and ll[k] <= cur["agg"] <= lh[k]:
-                    entries.append(Entry(t, cur["agg"], "aggressive", cur["id"]))
-                    events.append(("aggressive", cur["id"], cur["agg"], t))
-                    if tree is not None:
-                        tree.append(("ltf_agg_touch", cur["id"], t))
-                    cur["agg_touched"] = True
-                elif cur["agg_touched"] and not cur["cons_touched"] and ll[k] <= cur["cons"] <= lh[k]:
+                if cur["agg_touched"] and not cur["cons_touched"] and ll[k] <= cur["cons"] <= lh[k]:
                     entries.append(Entry(t, cur["cons"], "conservative", cur["id"]))
                     events.append(("conservative", cur["id"], cur["cons"], t))
                     if tree is not None:
@@ -154,17 +153,32 @@ def _ltf_loop(ltf, after_time, htf_low: float, htf_inval_time, mtf_inval_time, t
                     any_cons = True
                 continue
         if cur is None:
-            o = find_ocl_rrg(ltf, k)
-            if o is None:
+            # Candidates that were still waiting: a close below their low cancels them (no stop-out is armed).
+            pending = [p for p in pending if not (k > p["end"] and lc[k] < p["low"])]
+            # First key touch wins: the first pending candidate whose aggressive level is touched on this bar.
+            chosen = next((p for p in pending
+                           if k > p["end"] and k >= p["touch_from"] and ll[k] <= p["agg"] <= lh[k]), None)
+            if chosen is not None:
+                cur = chosen
+                cur["agg_touched"] = True
+                pending = []
+                entries.append(Entry(t, cur["agg"], "aggressive", cur["id"]))
+                events.append(("aggressive", cur["id"], cur["agg"], t))
+                if tree is not None:
+                    tree.append(("ltf_agg_touch", cur["id"], t))
                 continue
-            if prev_low is not None and not (o["key_level"] < prev_low):
-                continue  # must form below the previous stop-out level
-            s = _ocl_start(k, o)
-            cur = {"id": str(ltf.index[k]), "end": k, "agg": o["key_level"], "cons": o["conservative"],
-                   "low": float(min(ll[s: s + 3])), "agg_touched": False, "cons_touched": False}
-            prev_low = None
-            if tree is not None:
-                tree.append(("ltf_ocl", cur["id"], t))
+            formed = [o for o in find_ltf_patterns(ltf, k)
+                      if prev_low is None or o["key_level"] < prev_low]  # must form below the stop-out level
+            for o in formed:
+                s = o["start"]
+                cand = {"id": f"{ltf.index[k]}|{o['break']}", "end": k, "agg": o["key_level"],
+                        "cons": o["conservative"], "low": float(min(ll[s: s + o["pattern_len"]])),
+                        "touch_from": o["touch_from"], "agg_touched": False, "cons_touched": False}
+                pending.append(cand)
+                if tree is not None:
+                    tree.append(("ltf_ocl", cand["id"], t))
+            if formed:
+                prev_low = None
     paused = prev_low is not None and status == "waiting"
     return entries, any_cons, status, end_time, paused, events
 

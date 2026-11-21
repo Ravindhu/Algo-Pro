@@ -346,6 +346,7 @@ Drawn as the bottom "Strategy stage" row in `quant_system_flow_v5.svg`. Rules: `
 - Output goes to the Risk gate like every other bot trade. The Risk gate stays the only path to orders.
 - Built, paper only: Engulfing fail, OCL (RRG), OCL sell-fail top and bottom, all on the same sequence (`SEQUENCE_KINDS` in `owner_patterns.py`). Trigger must be on the newest closed LTF bar.
 - Open: level rules for the sell-fail strategies are assumptions, see the rules doc, section 8.
+- 2026-11-22 update: LTF entry patterns are OCL (3, 4 and 5-candle breaks), engulfing and sell-fail top, with the first key touch winning. Every fail pattern needs >50% body candles and a confirm candle. See the rules doc, section 0.
 - The bot runners refuse to start for Engulfing without all three timeframes set.
 
 ## 5. Small items (checklist, not drawn as blocks)

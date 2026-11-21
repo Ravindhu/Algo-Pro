@@ -148,6 +148,10 @@ def test_sweep_short_history_is_safe():
 # ---- Engulfing strategy sequence: MTF pattern -> touch -> HTF sweep -> LTF OCL -> touch ----
 ENG_M_TOUCH = (10.8, 10.9, 9.5, 10.2)  # low 9.5 <= level 10.0 <= high 10.9
 HTF_BARS = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.6, 8.7, 9.1)]
+# A fail pattern with a confirm candle touches one bar later, so the HTF sweep needs one more bar.
+# swing low 9.0 at index 1, first sweep (low 8.5) at index 5: the sweep comes after an MTF touch at index 4
+HTF_SWEEP_LATE = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.6, 9.9, 9.3, 9.6),
+                  (9.5, 9.8, 9.2, 9.6), (9.5, 9.6, 8.5, 9.0)]
 LTF_FILL = (9.0, 9.5, 8.8, 9.2)
 LTF_TOUCH = (11.3, 11.8, 10.9, 11.5)   # low 10.9 <= OCL key level 11.0 <= high 11.8
 
@@ -184,6 +188,10 @@ def test_engulf_sequence_short_history_is_safe():
 
 # ---- Sequence kinds (five strategies), freshness, stop ----
 MTF_OCL_TOUCH = (11.3, 11.8, 10.9, 11.5)    # touches OCL key 11.0 and OCL top 11.6
+# Fail kinds need >50 % bodies and a confirm candle (owner 2026-11-22). RRG_C2 has a body of exactly 50 %,
+# so the fail-pattern tests use this C2: same open 11.0 (key level), body 1.0 of range 1.2 (83 %).
+RRG_C2_STRONG = (11.0, 11.0, 9.8, 10.0)
+FAIL_CONFIRM = (11.0, 12.0, 10.9, 11.9)     # green, body 82 %, closes above the pattern high 11.6
 MTF_OCL_BOTTOM_TOUCH = (9.5, 9.6, 8.9, 9.2)  # touches OCL bottom 9.0
 MTF_EG_HIGH_TOUCH = (10.8, 11.2, 10.5, 10.9)  # body-top level is 10.8 (green body top); this bar touches it
 SELL_FAIL_TRIGGER = (10.9, 11.6, 10.8, 11.4)  # green, body 0.5 of range 0.8 (>50 %), closes above the pattern high 11.0
@@ -193,11 +201,12 @@ SELL_FAIL_TRIGGER = (10.9, 11.6, 10.8, 11.4)  # green, body 0.5 of range 0.8 (>5
     ("egpattern_open", [RED, GREEN_ENGULF, ENG_M_TOUCH]),
     ("egpattern_body", [RED, GREEN_ENGULF, SELL_FAIL_TRIGGER, MTF_EG_HIGH_TOUCH]),
     ("ocl_key", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
-    ("ocl_top", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]),
-    ("ocl_bottom", [RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]),
+    ("ocl_top", [RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, MTF_OCL_TOUCH]),
+    ("ocl_bottom", [RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, MTF_OCL_BOTTOM_TOUCH]),
 ])
 def test_each_sequence_kind_triggers_on_its_own_setup(kind, mtf_rows):
-    res = op.sequence(_frame(mtf_rows), _frame(HTF_BARS), _ltf_with_ocl(), kind)
+    htf = HTF_SWEEP_LATE if kind.startswith("ocl_") and len(mtf_rows) == 5 else HTF_BARS
+    res = op.sequence(_frame(mtf_rows), _frame(htf), _ltf_with_ocl(), kind)
     assert res is not None
     assert res["trigger_time"] == 6
 
@@ -205,7 +214,7 @@ def test_each_sequence_kind_triggers_on_its_own_setup(kind, mtf_rows):
 def test_ocl_top_level_is_highest_body_top_so_a_bar_below_it_does_not_touch():
     # top level = highest body top of C1..C3 = C3 close 11.2; this bar tops out at 10.9, so no touch
     no_top_touch = (10.3, 10.9, 10.3, 10.7)
-    assert op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, no_top_touch]), _frame(HTF_BARS),
+    assert op.sequence(_frame([RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, no_top_touch]), _frame(HTF_BARS),
                        _ltf_with_ocl(), "ocl_top") is None
 
 
@@ -248,27 +257,29 @@ def test_sequence_signal_stop_is_low_of_ocl_c1_to_c3():
 def test_ocl_bottom_needs_no_htf_sweep():
     # HTF with no swing low, so no sweep exists. The bottom strategy still triggers; the key strategy does not.
     no_sweep_htf = _frame([(10, 10.5, 9.5, 10.0), (9.8, 10, 9.6, 9.9), (9.9, 10.2, 9.7, 10.1), (10, 10.3, 9.9, 10.2)])
-    mtf = _frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH])
+    mtf = _frame([RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, MTF_OCL_BOTTOM_TOUCH])
     assert op.sequence(mtf, no_sweep_htf, _ltf_with_ocl(), "ocl_bottom") is not None
     assert op.sequence(mtf, no_sweep_htf, _ltf_with_ocl(), "ocl_key") is None
 
 
 def test_ocl_bottom_level_is_lowest_body_bottom_not_wick():
     # body bottoms: C1 9.2, C2 10.5, C3 10.4 -> level 9.2 (C1 wick low 9.0 is not used)
-    mtf = _frame([RRG_C1, RRG_C2, C3_BREAK, (9.1, 9.3, 9.0, 9.15)])  # low 9.0 <= 9.2 <= high 9.3: touches
+    mtf = _frame([RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, (9.1, 9.3, 9.0, 9.15)])  # low 9.0 <= 9.2 <= high 9.3
     assert op.sequence(mtf, _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom") is not None
-    no_touch_body = _frame([RRG_C1, RRG_C2, C3_BREAK, (9.4, 9.8, 9.3, 9.5)])  # low 9.3 > 9.2: no touch
+    no_touch_body = _frame([RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, (9.4, 9.8, 9.3, 9.5)])  # low 9.3 > 9.2
     assert op.sequence(no_touch_body, _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom") is None
 
 
 def test_ocl_top_records_conservative_level_c2_open():
     # top has two key levels: aggressive (body top, touched) and conservative (C2 open 11.0, recorded)
-    res = op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "ocl_top")
+    res = op.sequence(_frame([RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, MTF_OCL_TOUCH]), _frame(HTF_SWEEP_LATE),
+                      _ltf_with_ocl(), "ocl_top")
     assert res["conservative_level"] == 11.0
 
 
 def test_bottom_has_no_second_level():
-    res = op.sequence(_frame([RRG_C1, RRG_C2, C3_BREAK, MTF_OCL_BOTTOM_TOUCH]), _frame(HTF_BARS), _ltf_with_ocl(), "ocl_bottom")
+    res = op.sequence(_frame([RRG_C1, RRG_C2_STRONG, C3_BREAK, FAIL_CONFIRM, MTF_OCL_BOTTOM_TOUCH]), _frame(HTF_BARS),
+                      _ltf_with_ocl(), "ocl_bottom")
     assert res["conservative_level"] is None
 
 
@@ -283,7 +294,7 @@ def test_ocl_top_level_uses_pattern_c1_to_c3_not_the_four_candle_trigger():
     # C1 red, C2 red, C3 green (does not break C2 open), C4 green closes above C2 open: 4-candle break.
     c1 = (10.0, 10.2, 9.0, 9.1)     # body top 10.0
     c2 = (9.6, 9.7, 8.9, 9.0)       # body top 9.6, body bottom 9.0
-    c3 = (9.0, 9.4, 8.8, 9.2)       # green, closes 9.2 below C2 open 9.6: no 3-candle break
+    c3 = (9.0, 9.6, 8.9, 9.5)       # green body 71 %, closes 9.5 below C2 open 9.6: no 3-candle break
     c4 = (9.1, 10.5, 9.0, 9.9)      # trigger: closes 9.9 above C2 open 9.6; body top 9.9 (must NOT count)
     c5 = (9.9, 10.0, 9.8, 9.95)     # a later bar, so the completed setup is found
     mtf = _frame([c1, c2, c3, c4, c5])

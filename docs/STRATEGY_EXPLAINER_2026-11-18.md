@@ -97,6 +97,15 @@ This runs every bot cycle, every 5 minutes. The replay reads the whole history e
 37. After a conservative touch, the stop trails: best high since entry minus 2 × ATR. It only moves up.
 38. Every stop move is sent to the broker as a stop order.
 
+## Update 2026-11-22: LTF patterns and fail-pattern rules
+
+In plain English (full rules in `STRATEGY_RULES_2026-11-19.md`, section 0):
+
+- **Breaks.** The higher timeframes (HTF, MTF) use the 3-candle and 4-candle breaks only. The lower timeframe (LTF) also has a 5-candle break: the 5th candle closes above the open of the 2nd candle, and the 3rd and 4th candles did not. Its key level is the close of the 4th candle. Its conservative level is the lowest body bottom of the first four candles.
+- **Three ways to enter on the LTF.** The OCL (the break above), the engulfing (a red candle followed by a green one that covers it), and the sell-fail top (an OCL whose key is the top of its bodies). All three are watched at the same time. The first one whose key level is touched gives the entry; the others are dropped.
+- **Fail patterns need solid candles.** Every candle in a fail pattern has a body over half its range. After the pattern, the first close above its highest high must be a green candle with a solid body. That candle confirms the pattern. If the first close above the high is anything else, the pattern is cancelled. The level can only be touched after the confirm.
+- **Still to confirm** (rules doc, section 10, items 26 to 31): the sell-fail bottom confirm high, the exact 5-candle condition, and the first-touch rule.
+
 ## What is still open
 
 - Unfilled shares are dropped when the MTF setup fails (owner confirmed 2026-11-20).

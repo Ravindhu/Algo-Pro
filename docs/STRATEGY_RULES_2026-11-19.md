@@ -6,6 +6,46 @@ Source: owner rules in `docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md` (r
 
 All rules use closed bars only. Oldest bar first. The bar in progress is never used.
 
+## 0. Update 2026-11-22 (owner rules, implemented)
+
+Owner answers 2026-11-22. This section changes sections 2, 3.2, 3.3, 4.1 and 10. Where it differs from an older section, this section wins. Assumptions still to confirm are listed in section 10 (items 26 to 31).
+
+### 0.1 OCL breaks
+- **HTF and MTF:** the 3-candle and 4-candle breaks only, as in section 3.2 (unchanged).
+- **LTF only:** a 5-candle break is added. C1 red, C2 red, C3 green (the same red-red-green as section 3.2). C3 and C4 do not close above C2 open, and C5 (the trigger candle) closes above C2 open.
+  - Key level = **C4 close**. Checked on C5.
+  - Conservative = lowest body bottom of C1 to C4.
+- The first break decides: 3-candle, then 4-candle, then 5-candle.
+
+### 0.2 LTF entry patterns
+The LTF has three entry patterns. Each one completes on an LTF bar and is a candidate at the same time:
+1. **OCL** (3, 4 or 5-candle break, section 0.1). Key = its key level, conservative as in 0.1.
+2. **Engulfing (LTF):** red candle then green candle, both bodies over 50 %, and the green closes above the high of the red candle. Key = **open of the red candle**. Conservative = lowest body bottom of the two candles.
+3. **Sell-fail top (LTF):** a red-red-green OCL with a 3- or 4-candle break whose candles C1 to C3 all have bodies over 50 % (section 0.3). Key = highest body top of C1 to C3. Conservative = open of the candle before the trigger. It can only be touched after its confirm candle (section 0.3).
+
+Rules:
+- **First touch wins.** When a candidate's key level is touched, that candidate becomes the entry. Every other candidate that has not been touched is cancelled.
+- After an entry, the existing rules apply unchanged: the conservative touch, the stop-out (a close below the pattern low), and the wait for a new LTF pattern below the stop-out level.
+- The HTF sweep step stays as in section 4. Engulfing on the LTF uses the same sweep as OCL (owner answer).
+
+### 0.3 Fail patterns: body rule and confirm candle
+Fail patterns: engulfing_fail (MTF), sell-fail top (MTF and LTF) and sell-fail bottom (MTF).
+- **Body rule:** every candle of the pattern has a body over 50 %.
+- **Confirm candle:** the first close after the pattern that is above the pattern's highest high must be a green candle with a body over 50 %. That candle is the confirm. Touches of the level count from the next bar.
+- A different first close above the pattern's highest high **voids** the pattern.
+- Until a close goes above that high, the pattern is **pending**: its level cannot be touched yet.
+- Sell-fail bottom: its single level is the lowest body bottom from C1 up to the breakout candle (sections 3.3 and 4.1, unchanged). It follows the same body and confirm rules.
+
+### 0.4 MTF and HTF setups
+- The MTF and HTF OCL setups use the 3-candle and 4-candle breaks only (0.1).
+- The MTF sell-fail top and sell-fail bottom setups follow the body and confirm rules of 0.3. The MTF touch counts only from the bar after the confirm candle.
+- The five sequence strategies keep their names and MTF kinds (`SEQUENCE_KINDS`). Their LTF step now uses the candidates in 0.2.
+
+### 0.5 Code (2026-11-22)
+- `src/quant/strategies/owner_patterns.py`: `find_ocl_rrg(df, last, ltf=True)` (5-candle break), `find_ocl_fail_top`, `find_ocl_fail_bottom_level`, `find_engulf_ltf`, `find_ltf_patterns`, `fail_touch_from`, `setup_touch_from`.
+- `src/quant/strategies/cycle.py`: `_ltf_loop` tracks the candidates and applies the first touch rule. `_mtf_touch` uses the MTF touch gate.
+- Tests: `tests/unit/test_ltf_patterns_2026_11_22.py` and the updated `tests/unit/test_owner_patterns.py`. Fail-pattern fixtures there now use a C2 with a body over 50 % and a confirm candle.
+
 ## 1. Words used
 
 - **MTF**: multi timeframe, the largest of the three. Example: Daily.
@@ -50,8 +90,11 @@ C1 red, C2 red, C3 green. **The first break wins** (owner confirmed 2026-11-19),
 - **4-candle break**: C3 did **not** close above C2 open, and C4 does. Key level = C3 close. Checked on C4. Pattern = C1..C3, trigger candle = C4.
 - If C3 already broke C2 open, the 4-candle break is never considered. One pattern gives one break.
 - Conservative level = lowest body bottom of C1..C3.
+- **2026-11-22:** the LTF also has a 5-candle break (section 0.1). HTF and MTF do not.
 
 ### 3.3 Sell-fail
+**Superseded in part by section 0.3 (2026-11-22):** every fail pattern now needs bodies over 50 % and the confirm candle.
+
 Owner rules (r3 and r5): the sell-fail trigger is a green candle with a body over 50% that closes above the sell pattern's high. Only the newest pattern is checked. An earlier close above the level voids it.
 - Built as `find_sell_fail_trigger` (tested). It is not used by the five strategies above. The five use the sequence in section 4 with the levels in section 2. Owner to confirm whether the sell-fail trigger candle should also be required.
 
@@ -182,6 +225,14 @@ Data and bot
 23. Timeframe sweep mapping: MTF sweeps on HTF, HTF sweeps on LTF, LTF needs no sweep (owner confirmed).
 24. HTF = 1-hour, LTF = 5-minute (or at least the bot interval), MTF = Daily in the owner's example. These are settings, not hard-coded.
 25. Paper mode only. Live stays off.
+
+Update 2026-11-22 (section 0). Each item is an assumption the owner has not yet confirmed.
+26. First touch wins: candidates that complete on the same LTF bar are tracked together. The first one whose key level is touched becomes the entry, and the others are cancelled. Before 2026-11-22 only one LTF OCL was tracked at a time.
+27. Sell-fail bottom confirm: the confirm close must be above the pattern's highest high (the same rule as the other fail patterns), not above its single level. The owner has not said which high to use.
+28. 5-candle break: the rule requires C3 and C4 not to close above C2 open, and C5 to close above it. It does not require C4 to be red or green.
+29. LTF engulfing key: the open of the red candle, the same as the MTF engulfing aggressive level (section 4.1).
+30. Pattern high for the confirm candle: the highest high from C1 to the trigger candle (for a 4-candle break, that includes C4).
+31. Sell-fail top on the LTF uses the same level and conservative as the MTF version (section 0.2 item 3). It is cancelled if an OCL or engulfing candidate touches first.
 
 ## 11. Final cycle flow (owner rules, 2026-11-19, revised 2026-11-19). Supersedes sections 4, 6, 7 and 12 where they differ.
 

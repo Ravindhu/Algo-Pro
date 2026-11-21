@@ -66,15 +66,19 @@ def find_sell_fail_trigger(df: pd.DataFrame, last: int, window: int = 10) -> Opt
     return None
 
 
-def find_ocl_rrg(df: pd.DataFrame, last: int) -> Optional[dict]:
+def find_ocl_rrg(df: pd.DataFrame, last: int, ltf: bool = False) -> Optional[dict]:
     """OCL Red-Red-Green check on closed bars. `last` = newest closed bar index.
 
-    Pattern: C1 red, C2 red, C3 green. Breaks (owner 2026-11-19):
+    Pattern: C1 red, C2 red, C3 green. Breaks (owner 2026-11-19, 2026-11-22):
       - 3-candle break: C3 closes above C2 open. Key level = C2 open. Checked on the 3rd candle.
       - 4-candle break: C4 closes above C2 open. Key level = C3 close. Checked on the 4th candle.
-    The first break decides. If C3 already broke C2 open, the 4-candle break is ignored.
-    Conservative level = lowest body bottom (min of open and close) among C1, C2, C3.
-    Returns {"break", "key_level", "conservative", "trigger_index"} or None.
+      - 5-candle break (LTF only, owner 2026-11-22): C3 and C4 did not close above C2 open, C5 closes above it.
+        Key level = C4 close. Checked on the 5th candle. Conservative = lowest body bottom of C1..C4.
+    The first break decides. A later break is ignored once an earlier one has fired.
+    Conservative level = lowest body bottom (min of open and close) among the pattern candles (C1..C3).
+    ltf=False (HTF and MTF) never returns the 5-candle break.
+    Returns {"break", "key_level", "conservative", "trigger_index", "start", "pattern_len"} or None.
+    `start` = index of C1; `pattern_len` = number of candles in the pattern before the trigger candle.
     """
     if last < 2 or last >= len(df):
         return None
@@ -83,18 +87,100 @@ def find_ocl_rrg(df: pd.DataFrame, last: int) -> Optional[dict]:
     def is_rrg(a: int) -> bool:
         return bool(c[a] < o[a] and c[a + 1] < o[a + 1] and c[a + 2] > o[a + 2])
 
-    def conservative(a: int) -> float:
-        return float(min(min(o[k], c[k]) for k in (a, a + 1, a + 2)))
+    def conservative(a: int, n: int) -> float:
+        return float(min(min(o[k], c[k]) for k in range(a, a + n)))
 
     a = last - 2  # pattern = last-2, last-1, last
     if a >= 0 and is_rrg(a) and c[last] > o[a + 1]:
         return {"break": "3-candle", "key_level": float(o[a + 1]),
-                "conservative": conservative(a), "trigger_index": last}
+                "conservative": conservative(a, 3), "trigger_index": last}
     a = last - 3  # pattern = last-3..last-1, C4 = last
     if a >= 0 and is_rrg(a) and not (c[a + 2] > o[a + 1]) and c[last] > o[a + 1]:
         return {"break": "4-candle", "key_level": float(c[a + 2]),
-                "conservative": conservative(a), "trigger_index": last}
+                "conservative": conservative(a, 3), "trigger_index": last}
+    a = last - 4  # LTF only: pattern = last-4..last-2, C4 = last-1, C5 = last
+    if ltf and a >= 0 and is_rrg(a) and not (c[a + 2] > o[a + 1]) and not (c[a + 3] > o[a + 1]) \
+            and c[last] > o[a + 1]:
+        return {"break": "5-candle", "key_level": float(c[a + 3]),
+                "conservative": conservative(a, 4), "trigger_index": last}
     return None
+
+
+_C1_OFFSET = {"3-candle": 2, "4-candle": 3, "5-candle": 4}  # C1 is this many bars before the trigger
+_PATTERN_LEN = {"3-candle": 3, "4-candle": 3, "5-candle": 4}  # candles from C1 used for the pattern low
+
+
+def _with_span(ocl: dict, last: int) -> dict:
+    """Adds the pattern span to an OCL dict: start = index of C1, pattern_len = candles from C1 for the low."""
+    return {**ocl, "start": last - _C1_OFFSET[ocl["break"]], "pattern_len": _PATTERN_LEN[ocl["break"]]}
+
+
+def _all_bodies_over_half(df: pd.DataFrame, start: int, end: int) -> bool:
+    """True when every candle from start to end (both included) has a body over 50 %."""
+    o, h, l, c = _arrays(df)
+    return all(_body_over_half(o, h, l, c, k) for k in range(start, end + 1))
+
+
+def find_ocl_fail_top(df: pd.DataFrame, last: int) -> Optional[dict]:
+    """Sell-fail top pattern (owner 2026-11-22): a 3- or 4-candle OCL whose C1..C3 bodies are all over 50 %.
+    Level (touched) = highest body top of C1..C3. Conservative = open of the candle before the trigger.
+    Confirmation is checked by the caller (fail_touch_from). Returns the OCL dict plus "level", or None."""
+    ocl = find_ocl_rrg(df, last)  # 3- and 4-candle breaks only, never the LTF-only 5-candle break
+    ocl = _with_span(ocl, last) if ocl is not None else None
+    if ocl is None or not _all_bodies_over_half(df, ocl["start"], ocl["start"] + 2):
+        return None
+    mo, _, _, mc = _arrays(df)
+    a = ocl["start"]
+    level = float(max(max(mo[k], mc[k]) for k in range(a, a + 3)))
+    return {**ocl, "level": level, "conservative": float(mo[last - 1])}
+
+
+def find_ocl_fail_bottom_level(df: pd.DataFrame, last: int) -> Optional[dict]:
+    """Sell-fail bottom pattern level (owner 2026-11-22): a 3- or 4-candle OCL whose bodies from C1 up to the
+    breakout candle are all over 50 %. Single level = lowest body bottom from C1 up to the breakout candle
+    (owner 2026-11-19). Returns the OCL dict plus "level", or None."""
+    ocl = find_ocl_rrg(df, last)
+    ocl = _with_span(ocl, last) if ocl is not None else None
+    if ocl is None or not _all_bodies_over_half(df, ocl["start"], last):
+        return None
+    mo, _, _, mc = _arrays(df)
+    a = ocl["start"]
+    return {**ocl, "level": float(min(min(mo[k], mc[k]) for k in range(a, last + 1)))}
+
+
+def find_engulf_ltf(df: pd.DataFrame, last: int) -> Optional[dict]:
+    """LTF engulfing (owner 2026-11-22: engulfing is an LTF entry pattern too). Pattern = candles last-1 and last:
+    red then green, both bodies over 50 %, close of `last` above the high of `last-1`.
+    Aggressive key level = open of the first candle (as the MTF engulfing). Conservative = lowest body bottom of the two."""
+    if last < 1 or last >= len(df) or not is_red_green_engulf(df, last):
+        return None
+    o, _, _, c = _arrays(df)
+    a = last - 1
+    return {"break": "engulf", "key_level": float(o[a]),
+            "conservative": float(min(o[a], c[a], o[last], c[last])),
+            "trigger_index": last, "start": a, "pattern_len": 2}
+
+
+def find_ltf_patterns(df: pd.DataFrame, last: int) -> list:
+    """All LTF entry patterns that complete on bar `last` (owner 2026-11-22). Candidates are OCL (3/4/5-candle
+    break), engulfing and sell-fail top; each one is a candidate and the first key-level touch wins.
+    Each dict has: break, key_level (aggressive, the touched level), conservative, start, pattern_len,
+    trigger_index, touch_from (first bar index whose range may touch the key level). A fail pattern whose
+    confirmation is voided is left out; a fail pattern still waiting for its confirm candle gets a touch_from
+    beyond the data, so it cannot touch yet."""
+    out = []
+    ocl = find_ocl_rrg(df, last, ltf=True)
+    if ocl is not None:
+        out.append({**_with_span(ocl, last), "touch_from": last + 1})
+    eng = find_engulf_ltf(df, last)
+    if eng is not None:
+        out.append({**eng, "touch_from": last + 1})
+    top = find_ocl_fail_top(df, last)
+    if top is not None:
+        touch_from = fail_touch_from(df, "ocl_top", last, top["level"], top["start"])
+        if touch_from is not None:
+            out.append({**top, "key_level": top["level"], "touch_from": touch_from})
+    return out
 
 
 def is_swing_low_3(df: pd.DataFrame, i: int) -> bool:
@@ -145,7 +231,43 @@ NO_SWEEP_KINDS = {"ocl_bottom"}
 
 def _ocl_start(end: int, ocl: dict) -> int:
     """Index of C1 for an OCL that ends (trigger candle) at `end`."""
-    return end - 2 if ocl["break"] == "3-candle" else end - 3
+    if "start" in ocl:
+        return int(ocl["start"])
+    return end - _C1_OFFSET[ocl["break"]]
+
+
+# Fail kinds (owner 2026-11-22): every fail pattern needs >50 % body candles and a confirm candle.
+#   egpattern_body (engulfing_fail), ocl_top (sell-fail top), ocl_bottom (sell-fail bottom).
+FAIL_KINDS = {"egpattern_body", "ocl_top", "ocl_bottom"}
+
+
+def fail_touch_from(df: pd.DataFrame, kind: str, end: int, level: float, start: int) -> Optional[int]:
+    """Confirmation for a fail pattern (owner 2026-11-20 rule 3.3, extended 2026-11-22 to every fail pattern).
+    The first close after the pattern (`end`) above the pattern's highest HIGH must be a green candle with a
+    body over 50 %. That candle is the confirm, and touches of the level count from the next bar.
+    Any other first close above the high voids the pattern (returns None).
+    Returns the first bar index whose range may touch the level. If no close has gone above the high yet,
+    returns len(df)+1 (pending: the level cannot be touched yet)."""
+    o, h, l, c = _arrays(df)
+    pattern_high = float(max(h[start: end + 1]))
+    for k in range(end + 1, len(df)):
+        if c[k] > pattern_high:
+            if c[k] > o[k] and _body_over_half(o, h, l, c, k):
+                return k + 1
+            return None
+    return len(df) + 1
+
+
+def setup_touch_from(mtf: pd.DataFrame, kind: str, end: int, level: float) -> Optional[int]:
+    """First MTF bar index whose range may touch the setup level. Non-fail kinds: the bar after the pattern.
+    Fail kinds: the bar after the confirm candle (see fail_touch_from). None when voided or still pending."""
+    if kind not in FAIL_KINDS:
+        return end + 1
+    start = end - 1 if kind == "egpattern_body" else _ocl_start(end, find_ocl_rrg(mtf, end))
+    tf = fail_touch_from(mtf, kind, end, level, start)
+    if tf is None or tf >= len(mtf):
+        return None
+    return tf
 
 
 def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
@@ -162,40 +284,20 @@ def _newest_setup(mtf: pd.DataFrame, kind: str) -> Optional[tuple]:
         else:  # highest body top (max of open and close) of the two candles
             level = float(max(max(mo[j - 1], mc[j - 1]), max(mo[j], mc[j])))
         return j, level
-    if kind in ("ocl_key", "ocl_top", "ocl_bottom"):
+    if kind == "ocl_key":
         for m in range(n_m - 1, 1, -1):
             ocl = find_ocl_rrg(mtf, m)
-            if ocl is None:
-                continue
-            start = _ocl_start(m, ocl)
-            if kind == "ocl_key":
-                level = float(ocl["key_level"])
-            elif kind == "ocl_top":
-                # highest body top of the OCL pattern C1..C3 (the 4-candle trigger C4 is not part of the pattern)
-                level = float(max(max(mo[k], mc[k]) for k in range(start, start + 3)))
-            else:
-                level = float(min(min(mo[k], mc[k]) for k in range(start, m + 1)))  # lowest body bottom
-            return m, level
+            if ocl is not None:
+                return m, float(ocl["key_level"])
+        return None
+    if kind in ("ocl_top", "ocl_bottom"):
+        # Fail kinds (owner 2026-11-22): every candle of the pattern must have a body over 50 %.
+        for m in range(n_m - 1, 1, -1):
+            fail = find_ocl_fail_top(mtf, m) if kind == "ocl_top" else find_ocl_fail_bottom_level(mtf, m)
+            if fail is not None:
+                return m, float(fail["level"])
         return None
     raise ValueError(f"unknown setup kind {kind!r}")
-
-
-def _sell_fail_confirmation(mtf: pd.DataFrame, end: int, level: float) -> Optional[int]:
-    """Sell-fail confirmation (owner 2026-11-20, rules 3.3): the first MTF close above `level` after the
-    pattern must be a green candle with a body over 50 %. That candle is the trigger and confirms the pattern.
-    Any other first close above the level voids the pattern (returns None). Index of the trigger, or None."""
-    o, _, _, c = _arrays(mtf)
-    h = mtf["high"].to_numpy(dtype=float)
-    for k in range(end + 1, len(mtf)):
-        if c[k] > level:
-            return k if (c[k] > o[k] and _body_over_half(o, h, mtf["low"].to_numpy(dtype=float), c, k)) else None
-    return None
-
-
-def _sell_fail_level(mtf: pd.DataFrame, end: int) -> float:
-    """Level the trigger must close above: the highest HIGH of the two engulfing candles (rules 3.3)."""
-    h = mtf["high"].to_numpy(dtype=float)
-    return float(max(h[end - 1], h[end]))
 
 
 def _mtf_conservative(mtf: pd.DataFrame, kind: str, end: int) -> Optional[float]:
@@ -230,13 +332,10 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     conservative_level = _mtf_conservative(mtf, kind, end)
     _, mh, ml, _ = _arrays(mtf)
     n_m = len(mtf) - 1
-    first_touch_bar = end + 1
-    if kind == "egpattern_body":
-        # Sell-fail confirmation first (owner 2026-11-20): the pattern counts only after its trigger candle.
-        trig = _sell_fail_confirmation(mtf, end, _sell_fail_level(mtf, end))
-        if trig is None:
-            return None
-        first_touch_bar = trig + 1
+    # Fail kinds: the pattern counts only after its confirm candle (owner 2026-11-20, extended 2026-11-22).
+    first_touch_bar = setup_touch_from(mtf, kind, end, level)
+    if first_touch_bar is None:
+        return None
     touch = next((k for k in range(first_touch_bar, n_m + 1) if ml[k] <= level <= mh[k]), None)
     if touch is None:
         return None
@@ -253,19 +352,18 @@ def sequence(mtf: pd.DataFrame, htf: pd.DataFrame, ltf: pd.DataFrame,
     for m in range(n_l, 1, -1):
         if ltf.index[m] < sweep_time:
             break
-        ocl = find_ocl_rrg(ltf, m)
-        if ocl is None:
-            continue
-        key = ocl["key_level"]
-        touches = [p for p in range(m + 1, n_l + 1) if ll[p] <= key <= lh[p]]
-        if not touches:
-            return None  # OCL formed after the sweep, not yet touched
-        if fresh and touches[0] != n_l:
-            return None  # touched earlier: stale, do not enter on an old bar
-        return {"pattern_time": mtf.index[end], "touch_time": touch_time, "sweep_time": sweep_time,
-                "conservative_level": ocl["conservative"] if kind == "ocl_key" else conservative_level,
-                "ocl_time": ltf.index[m], "ocl_start_time": ltf.index[_ocl_start(m, ocl)],
-                "trigger_time": ltf.index[touches[0]], "entry": float(key)}
+        # Every LTF pattern that completes on bar m is a candidate; the first key touch wins (owner 2026-11-22).
+        for pat in find_ltf_patterns(ltf, m):
+            key = pat["key_level"]
+            touches = [p for p in range(max(m + 1, pat["touch_from"]), n_l + 1) if ll[p] <= key <= lh[p]]
+            if not touches:
+                continue  # formed after the sweep, not yet touched
+            if fresh and touches[0] != n_l:
+                continue  # touched earlier: stale, do not enter on an old bar
+            return {"pattern_time": mtf.index[end], "touch_time": touch_time, "sweep_time": sweep_time,
+                    "conservative_level": pat["conservative"] if kind == "ocl_key" else conservative_level,
+                    "ocl_time": ltf.index[m], "ocl_start_time": ltf.index[pat["start"]],
+                    "trigger_time": ltf.index[touches[0]], "entry": float(key)}
     return None
 
 
