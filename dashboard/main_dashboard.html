@@ -199,77 +199,6 @@
     .limgrid { grid-template-columns: 1fr; }
   }
 
-  /* ===== UI refresh: agentic trading-bot look (CSS only; no IDs or behaviour changed) ===== */
-  :root { --glow: 0 0 0 1px rgba(63,208,255,.08), 0 6px 22px rgba(0,0,0,.35); --radius: 8px; }
-  html { background: radial-gradient(1200px 600px at 10% -10%, #0b1d2e 0%, transparent 60%), var(--bg); min-height: 100%; }
-  body { font: 12.5px/1.5 "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: .01em; }
-  header { position: sticky; top: 0; z-index: 15; background: rgba(5,10,18,.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid #13283b; padding: 10px 2px; }
-  .brand { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: .08em; color: var(--txt); }
-  .brand::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(46,230,166,.6); animation: livepulse 2s ease-out infinite; }
-  @keyframes livepulse { 0% { box-shadow: 0 0 0 0 rgba(46,230,166,.55); } 70% { box-shadow: 0 0 0 8px rgba(46,230,166,0); } 100% { box-shadow: 0 0 0 0 rgba(46,230,166,0); } }
-  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; background: rgba(10,20,32,.7); font-size: 11px; }
-  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .9; }
-  .chip.on, .chip.ok { background: rgba(46,230,166,.08); }
-  .chip.warn { background: rgba(255,179,71,.08); }
-  .chip.bad { background: rgba(255,77,109,.1); }
-  button { border-radius: 6px; padding: 5px 12px; background: rgba(10,20,32,.7); letter-spacing: .02em; }
-  button:hover:not(:disabled) { background: #0f2435; box-shadow: 0 0 0 2px rgba(63,208,255,.08); }
-  button.go { background: rgba(46,230,166,.08); }
-  button.stop { background: rgba(255,77,109,.08); }
-  header button.active { box-shadow: 0 0 14px rgba(63,208,255,.35); }
-  .panel { background: linear-gradient(180deg, rgba(14,28,44,.85), rgba(8,16,26,.92)); border: 1px solid #15304a; border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--glow); position: relative; }
-  .panel::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2px; border-radius: 2px; background: var(--cyan); opacity: .55; }
-  .ph { color: #9fe9ff; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; padding-bottom: 6px; border-bottom: 1px solid #13283b; margin-bottom: 10px; }
-  .ph span { text-transform: none; letter-spacing: 0; }
-  .big { font-size: 30px; letter-spacing: -.01em; text-shadow: 0 0 18px currentColor; }
-  .zone, .tile { border-radius: var(--radius); }
-  .tile { background: linear-gradient(160deg, #0f2336, #0a1624); box-shadow: var(--glow); }
-  .tile b { font-size: 22px; }
-  .zone { background: linear-gradient(180deg, #0d1e30, #09141f); border-color: #15304a; }
-  .zone .zh { color: #9fe9ff; }
-  .guard, .zrow { padding: 7px 2px; }
-  .guard:hover, .zrow:hover { background: rgba(63,208,255,.03); }
-  .bar { height: 5px; border-radius: 999px; background: #0a1a2a; }
-  .bar i { border-radius: 999px; background: linear-gradient(90deg, var(--ok), var(--cyan)); transition: width .4s ease; }
-  table { border-collapse: separate; border-spacing: 0; }
-  th { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; position: sticky; top: 0; background: #0a1624; z-index: 1; }
-  th, td { padding: 6px 8px; border-bottom: 1px solid #10243a; }
-  tbody tr:hover td { background: rgba(63,208,255,.04); }
-  .scroll { border-radius: 6px; }
-  input[type=number], input[type=password], input[type=text], select { background: #050b14; border-color: #17324b; border-radius: 6px; padding: 6px 8px; }
-  input:focus, select:focus, button:focus-visible { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(63,208,255,.25); }
-  form .row { grid-template-columns: minmax(0, 1fr) 150px; }
-  .setup { border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(63,208,255,.2); }
-  .modal { background: rgba(2,5,9,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
-  .sheet { border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,.6); }
-  .sheet-h { background: #070d15; border-bottom-color: #13283b; }
-  .sheet-h b { color: #9fe9ff; letter-spacing: .04em; }
-  .pfkpi { gap: 12px; }
-  .pfcharts > .panel, .limgrid > div { min-width: 0; }
-  #popup { border-radius: 8px; background: #0b1826; font-size: 12px; }
-  #popup.g { box-shadow: 0 8px 30px rgba(46,230,166,.18); }
-  #popup.r { box-shadow: 0 8px 30px rgba(255,77,109,.2); }
-  .profbtn { box-shadow: 0 0 0 3px rgba(63,208,255,.08); }
-  .profbtn:hover { box-shadow: 0 0 0 3px rgba(63,208,255,.25); }
-  .legend, .clock { display: none; }
-  @media (max-width: 600px) {
-    body { font-size: 12.5px; }
-    header { position: static; gap: 8px; }
-    .big { font-size: 24px; }
-    .panel { padding: 10px 12px; }
-    .ph { font-size: 10px; }
-    .tile b { font-size: 18px; }
-    .pfcharts { grid-template-columns: minmax(0, 1fr); }
-    .limgrid { grid-template-columns: minmax(0, 1fr); }
-    form .row { grid-template-columns: minmax(0, 1fr); }
-    .sbhead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .zones { grid-template-columns: minmax(0, 1fr); }
-    .top, .mid, .two { gap: 10px; }
-    .sheet { border-radius: 0; }
-    .modal { padding: 0; align-items: stretch; }
-    .setup { width: 100%; max-height: 100%; border-radius: 0; }
-  }
-  @media (prefers-reduced-motion: reduce) { .brand::before { animation: none; } .bar i { transition: none; } }
 
   /* ===== home layout: KPIs, three-column row, two-column row ===== */
   .home { padding-bottom: 16px; }
@@ -291,6 +220,10 @@
     .home-row4 { grid-template-columns: minmax(0, 1fr); }
   }
   header { padding-right: 52px; }
+  .tipstar { background: none; border: 0; padding: 0 0 0 4px; margin: 0; color: var(--cyan); cursor: help; font-size: 12px; line-height: 1; vertical-align: middle; box-shadow: none; }
+  .tipstar:hover, .tipstar:focus-visible { background: none; box-shadow: none; color: #9fe9ff; }
+  #tip { position: fixed; z-index: 60; max-width: 300px; background: #0b1826; border: 1px solid var(--cyan); border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.45; color: var(--txt); pointer-events: none; }
+  #tip[hidden] { display: none; }
   .setup .limgrid { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .setup .one { padding-top: 6px; }
   .setup .one .panel::before, .setup .one .panel::after { display: none; }
@@ -789,6 +722,57 @@
     }), scr.note || "No screener output yet.", 2);
     renderAnalysisTiles(o);
   }
+
+  // Instructions: hidden behind a star after the field name. The text pops up while the cursor is on
+  // the star and disappears when the cursor leaves it. The hidden text is read on hover, so text the
+  // page updates later still shows.
+  const TIP_SOURCES = [
+    "#setupform > p.d", "#setupform span.d:not(#su-daily-inr):not(#su-strat-inr)", "#brokerage-example",
+    "#limitform > p.d", "#limitform > div.d",
+    "#flowmodal .sheet-b > p",
+    "#sbmodal p.d:not(#eqnote)", "#sbmodal small.d",
+    "#pfmodal p.d", "#setmodal p.d",
+    "#acctbox p.d:not(#acct-who)"
+  ];
+  function tipAnchor(src) {
+    if (src.tagName === "SPAN" && src.closest("div")) {
+      const lab = src.closest("div").querySelector(":scope > label");
+      if (lab) return lab;
+    }
+    for (let el = src.previousElementSibling; el; el = el.previousElementSibling) {
+      if (el.matches("label, .ph, h2, .sechead")) return el;
+    }
+    const parent = src.parentElement;
+    return parent ? parent.querySelector(":scope > label, :scope > .ph, :scope > h2") : null;
+  }
+  function tuckInstructions() {
+    const tip = document.createElement("div");
+    tip.id = "tip"; tip.hidden = true; tip.setAttribute("role", "tooltip");
+    document.body.appendChild(tip);
+    const show = (star, src) => {
+      tip.textContent = src.textContent.trim();
+      const r = star.getBoundingClientRect();
+      tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 316)) + "px";
+      tip.style.top = Math.min(r.bottom + 6, window.innerHeight - 40) + "px";
+      tip.hidden = false;
+    };
+    const hide = () => { tip.hidden = true; };
+    for (const src of document.querySelectorAll(TIP_SOURCES.join(","))) {
+      if (src.dataset.tucked) continue;
+      src.dataset.tucked = "1";
+      const star = document.createElement("button");
+      star.type = "button"; star.className = "tipstar"; star.textContent = "★";
+      star.setAttribute("aria-label", "Instructions");
+      const anchor = tipAnchor(src);
+      if (anchor) anchor.append(star); else src.before(star);
+      src.hidden = true;
+      star.addEventListener("mouseenter", () => show(star, src));
+      star.addEventListener("mouseleave", hide);
+      star.addEventListener("focus", () => show(star, src));
+      star.addEventListener("blur", hide);
+    }
+  }
+  tuckInstructions();
 
   // Equity curve header: writes its own figures (the KPI strip it used to copy from is gone).
   function putEq(id, text, cls) {
