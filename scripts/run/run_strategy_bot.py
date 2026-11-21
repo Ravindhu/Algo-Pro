@@ -157,7 +157,7 @@ def run(bot: StrategyBot, audit: AuditLog, *, state_dir, clock: Callable[[], dat
                     tick(clock())
                 except Exception as exc:  # noqa: BLE001 - a quote problem must not stop the bot
                     audit.append("vwap_tick_error", {"error": repr(exc)})
-            peg_tick = getattr(bot, "peg_tick", None)
+            peg_tick = getattr(bot, "peg_slicer_tick", None)
             if peg_tick is not None and i % poll_s == 0:
                 try:
                     peg_tick(clock())

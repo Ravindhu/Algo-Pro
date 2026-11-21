@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from quant.execution.peg import peg_candidates, peg_level
+from quant.execution.peg_slicer import PegSlicer
 from quant.execution.peg_verify import BidVerifier, VerifyConfig
 from quant.execution.strategy_bot import BotConfig, StrategyBot
 
@@ -136,8 +137,9 @@ class _Verifier:
 
 def _bot_stub(verifier, depth, max_levels=3):
     cfg = BotConfig(pov_mode="peg_band_buyer", peg_tick_size=0.05, peg_max_levels=max_levels)
-    return SimpleNamespace(cfg=cfg, _depth_provider=lambda s: depth, _peg_verifier=verifier,
-                           _log=lambda *a, **k: None, _cycle_ts=0.0, _peg_status="")
+    noop = lambda *a, **k: None  # noqa: E731
+    return PegSlicer(cfg=cfg, executor=None, verifier=verifier, depth_provider=lambda s: depth,
+                     make_child=None, log=noop, alert=noop, close=noop, book=noop, add_fault=noop)
 
 
 DEPTH = _depth([(100.0, 5000), (99.0, 3000), (98.0, 1000)])
@@ -146,35 +148,35 @@ DEPTH = _depth([(100.0, 5000), (99.0, 3000), (98.0, 1000)])
 def test_first_verified_level_is_used_with_two_tick_offset():
     v = _Verifier({99.0})
     bot = _bot_stub(v, DEPTH)
-    assert StrategyBot._peg_price_now(bot, "A", cap=101.0) == (99.10, 3000)
+    assert bot.price_now("A", cap=101.0) == (99.10, 3000)
     assert v.asked == [100.0, 99.0]        # highest quantity tried first, then the next
-    assert bot._peg_status == "ok"
+    assert bot.status == "ok"
 
 
 def test_no_verified_level_means_wait():
     bot = _bot_stub(_Verifier(set()), DEPTH)
-    assert StrategyBot._peg_price_now(bot, "A", cap=101.0) is None
-    assert bot._peg_status == "unverified"
+    assert bot.price_now("A", cap=101.0) is None
+    assert bot.status == "unverified"
 
 
 def test_only_max_levels_are_tried():
     v = _Verifier({98.0})
     bot = _bot_stub(v, DEPTH, max_levels=2)
-    assert StrategyBot._peg_price_now(bot, "A", cap=101.0) is None
+    assert bot.price_now("A", cap=101.0) is None
     assert v.asked == [100.0, 99.0]
 
 
 def test_no_depth_falls_back_not_wait():
     bot = _bot_stub(_Verifier({100.0}), None)
-    bot._depth_provider = None
-    assert StrategyBot._peg_price_now(bot, "A", cap=101.0) is None
-    assert bot._peg_status == "nodepth"
+    bot._depth = None
+    assert bot.price_now("A", cap=101.0) is None
+    assert bot.status == "nodepth"
 
 
 def test_missing_verifier_waits_fail_closed():
     bot = _bot_stub(None, DEPTH)
-    assert StrategyBot._peg_price_now(bot, "A", cap=101.0) is None
-    assert bot._peg_status == "unverified"
+    assert bot.price_now("A", cap=101.0) is None
+    assert bot.status == "unverified"
 
 
 # ---- config validation -------------------------------------------------------------------------
