@@ -77,14 +77,14 @@ def _svg_block_titles():
 
     svg_ns = "{http://www.w3.org/2000/svg}"
     tree = ET.parse(ROOT / "quant_system_flow_v5.svg")
-    # Font size 15 is used only for block titles in the SVG.
-    return {t.text for t in tree.iter(svg_ns + "text") if t.get("font-size") == "15" and t.text}
+    # Each block is wrapped in <g class="stg" data-label="..."> by make_flow_svg.py's source.
+    return {g.get("data-label") for g in tree.iter(svg_ns + "g") if g.get("class") == "stg"}
 
 
 def test_every_svg_block_is_mapped_to_a_module():
     """Each SVG block title must appear in a stage file's Flow stage line, or be a known gap."""
     titles = _svg_block_titles()
-    assert len(titles) == 101, len(titles)  # guards against the parser finding nothing
+    assert len(titles) == 99, len(titles)  # guards against the parser finding nothing
     scripts = list((ROOT / "scripts").glob("*.py"))
     stage_lines = "\n".join(
         line

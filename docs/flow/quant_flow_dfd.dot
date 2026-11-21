@@ -1,5 +1,5 @@
 digraph G {
-graph [rankdir=TB, splines=true, nodesep=0.45, ranksep=0.9, fontname="Arial", bgcolor="white", pad=0.4, newrank=true, compound=true];
+graph [label=<<B>Quant system flow, v5 (DFD view)</B><BR/><FONT POINT-SIZE="14">Miro map is kept as a separate page; both are shown until one is removed</FONT>>, labelloc=t, fontsize=26, fontname="Arial", rankdir=TB, splines=true, nodesep=0.45, ranksep=0.9, fontname="Arial", bgcolor="white", pad=0.4, newrank=true, compound=true];
 node [fontname="Arial", fontsize=13, margin="0.12,0.06", penwidth=1.2];
 edge [fontname="Arial", fontsize=13, color="#5f5e5a", arrowsize=0.9, penwidth=1.3];
 subgraph cluster_0 { label="Blue engines and external inputs"; style="rounded,filled"; fillcolor="#e6f1fb80"; color="#185fa5"; fontname="Arial Bold"; fontsize=15; fontcolor="#185fa5";

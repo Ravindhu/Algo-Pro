@@ -80,7 +80,7 @@ def test_every_flag_label_exists_in_the_v5_svg():
         unset_limits=["max_order_quantity", "max_adv_pct", "max_daily_loss", "max_open_exposure",
                       "max_symbols_per_portfolio"]))
     root = ET.parse(ROOT / "quant_system_flow_v5.svg").getroot()
-    box_labels = {t.text for t in root.iter(SVG_NS + "text") if t.get("font-size") == "15"}
+    box_labels = {g.get("data-label") for g in root.iter(SVG_NS + "g") if g.get("class") == "stg"}
     missing = set(worst) - box_labels
     assert not missing, missing
 
