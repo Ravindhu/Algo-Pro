@@ -1,7 +1,7 @@
 // Service worker for the Algo Pro dashboard (M2). Caches the page shell only.
 // /api/* and any non-GET request always go to the network, never the cache.
-const SHELL = "algo-pro-shell-v4"; // v3: default bull account image (drops the cached page with initials)
-const SHELL_URLS = ["/ui", "/assets/icon.svg", "/assets/flow_svg.js", "/assets/pwa.js", "/manifest.webmanifest"];
+const SHELL = "algo-pro-shell-v5"; // v3: default bull account image (drops the cached page with initials)
+const SHELL_URLS = ["/ui", "/assets/icon.svg", "/assets/flow_svg.js", "/assets/miro_map.js", "/assets/pwa.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_URLS)));

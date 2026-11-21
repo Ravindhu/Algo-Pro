@@ -297,6 +297,7 @@
   <button id="setbtn" type="button" title="Settings: infrastructure, account, schedule, engine">SETTINGS</button>
   <span id="enginechip" class="chip">engine —</span>
   <button id="flowbtn" type="button">FLOW</button>
+  <button id="mirobtn" type="button" title="Miro-style flow map (popup, zoomable)">MIRO MAP</button>
   <button id="pfbtn" type="button" title="Broker holdings popup (read-only)">PORTFOLIO</button>
   <button id="sbbtn" type="button" title="Paper trade history popup (view only)">SANDBOX</button>
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
@@ -466,6 +467,19 @@
       <div id="flownode" class="panel" hidden></div>
       <div class="ph" style="margin-top:10px">Node status <span id="flowsum"></span></div>
       <ul id="flowissues"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="miromodal" hidden role="dialog" aria-modal="true" aria-labelledby="mirotitle">
+  <div class="sheet">
+    <div class="sheet-h">
+      <div><b id="mirotitle">MIRO MAP · QUANT FLOW</b> <span>zoom with buttons · scroll the map</span></div>
+      <span class="mirotools"><button type="button" id="mirozin">ZOOM +</button> <button type="button" id="mirozout">ZOOM −</button> <button type="button" id="mirofit">FIT</button></span>
+      <button type="button" id="miroclose">CLOSE ×</button>
+    </div>
+    <div class="sheet-b">
+      <div id="mirobox" style="background:#f7f6f1;padding:8px;border-radius:4px;overflow:auto;max-height:78vh"></div>
     </div>
   </div>
 </div>
@@ -647,6 +661,7 @@
   </div>
 </div>
 <script src="/assets/flow_svg.js"></script>
+<script src="/assets/miro_map.js"></script>
 <script src="/assets/pwa.js"></script>
 <script>
   const $ = id => document.getElementById(id);
@@ -1230,6 +1245,22 @@
   modal.addEventListener("click", e => { if (e.target === modal) closeFlow(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeFlow(); });
 
+  // ---- Miro map popup: zoomable copy of the Miro-style map (window.MIRO_SVG) ----
+  $("mirobox").innerHTML = window.MIRO_SVG || "<p class='d'>Miro map not found: check assets/miro_map.js.</p>";
+  const miroModal = $("miromodal");
+  const miroSvg = () => document.getElementById("miroflow");
+  let miroScale = 1;
+  const miroApply = () => { const s = miroSvg(); if (s) s.style.width = (miroScale * 100) + "%"; };
+  const openMiro = () => { miroModal.hidden = false; miroApply(); $("miroclose").focus(); syncActive(); };
+  const closeMiro = () => { miroModal.hidden = true; $("mirobtn").focus(); syncActive(); };
+  $("mirobtn").onclick = openMiro;
+  $("miroclose").onclick = closeMiro;
+  $("mirozin").onclick = () => { miroScale = Math.min(3, miroScale + 0.25); miroApply(); };
+  $("mirozout").onclick = () => { miroScale = Math.max(0.5, miroScale - 0.25); miroApply(); };
+  $("mirofit").onclick = () => { miroScale = 1; miroApply(); };
+  miroModal.addEventListener("click", e => { if (e.target === miroModal) closeMiro(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !miroModal.hidden) closeMiro(); });
+
   // ---- Portfolio popup: read-only broker holdings (decision 0032) ----
   const PF_COLORS = ["#3fd0ff", "#2ee6a6", "#ffb347", "#9d8cff", "#ff6fb5", "#ff4d6d", "#5d7b94", "#ffd166", "#c3d8e8"];
   const PF_STATE = {broker_read: ["LIVE BROKER READ", "ok"], not_connected: ["NOT CONNECTED", "warn"], error: ["ERROR", "bad"]};
@@ -1401,6 +1432,7 @@
     setAcct(false);
     if (!$("setupmodal").hidden) closeSetup();
     if (!$("flowmodal").hidden) closeFlow();
+    if (!$("miromodal").hidden) $("miroclose").click();
     if (!$("pfmodal").hidden) closePortfolio();
     if (!$("sbmodal").hidden) sbClose();
     if (!$("setmodal").hidden) closeSettings();
@@ -1660,6 +1692,7 @@
     $("engstart").classList.toggle("active", engineRunning);
     $("killstop").classList.toggle("active", killOn);
     $("flowbtn").classList.toggle("active", open("flowmodal"));
+    $("mirobtn").classList.toggle("active", open("miromodal"));
     $("pfbtn").classList.toggle("active", open("pfmodal"));
     $("sbbtn").classList.toggle("active", open("sbmodal"));
     $("setbtn").classList.toggle("active", open("setmodal"));
