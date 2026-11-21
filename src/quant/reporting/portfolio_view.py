@@ -219,6 +219,29 @@ def apply_margin(payload: Dict, borrowed_inr: float, model: Optional[CostModel] 
     return payload
 
 
+def fill_log(trades, limit: int = 50) -> list:
+    """Broker fills for the execution log: newest first, times in IST. Bad rows are skipped."""
+    rows = []
+    for item in trades if isinstance(trades, list) else []:
+        if not isinstance(item, dict):
+            continue
+        qty = _num(item.get("quantity"))
+        when = _trade_seconds(item)
+        action = str(item.get("action", "")).upper()
+        if qty is None or when is None or action not in ("BUY", "SELL"):
+            continue
+        rows.append((when, {
+            "time": datetime.fromtimestamp(when, IST).strftime("%H:%M:%S"),
+            "symbol": str(item.get("symbol") or "")[:20],
+            "action": action,
+            "quantity": abs(qty),
+            "price": _trade_price(item),
+            "product": str(item.get("product") or "")[:10],
+        }))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return [row for _, row in rows[:limit]]
+
+
 def trade_costs(trades, model: Optional[CostModel] = None) -> Dict:
     """Estimated cost of the day's broker fills: statutory charges plus capital-gains tax.
 
@@ -290,6 +313,7 @@ class HoldingsReader:
 
     def _add_hold_days(self, key: str, result: Dict, now: float) -> None:
         """Fill hold_days and today's estimated trade cost from the tradebook. Any failure leaves them blank."""
+        result["fills"] = []
         if self._trades is None or result.get("state") != "broker_read":
             return
         try:
@@ -300,6 +324,7 @@ class HoldingsReader:
                 return
             starts = open_since(trades)
             costs = trade_costs(trades)
+            result["fills"] = fill_log(trades)
         except Exception:  # name nothing: the tradebook is optional
             result["trade_cost"] = None
             return

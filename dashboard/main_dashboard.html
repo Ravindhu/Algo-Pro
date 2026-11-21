@@ -203,7 +203,8 @@
   /* ===== home layout: KPIs, three-column row, two-column row ===== */
   .home { padding-bottom: 16px; }
   .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 10px; }
-  .home-row3 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr) minmax(0, 0.9fr); gap: 10px; padding-top: 10px; }
+  .home-row3 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr); gap: 10px; padding-top: 10px; }
+  .home-row3 .stack { display: grid; gap: 10px; min-width: 0; align-content: start; }
   .eqhead { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--dim); margin: 0 0 6px; }
   .eqhead b { color: var(--txt); font-weight: 800; }
   .home-row4 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-top: 10px; }
@@ -230,7 +231,7 @@
   .setup .one .panel { background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 8px 0 0; box-shadow: none; }
   .setup form .row { grid-template-columns: minmax(0, 1fr) minmax(0, 150px); }
   .setup form .row input { width: 100%; min-width: 0; }
-  .home-row4 { grid-template-columns: minmax(0, 1fr); }
+  .home-row4 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 </style>
 
 <div class="topright">
@@ -305,8 +306,9 @@
 </header>
 <main class="home">
   <div class="home-row3">
+  <div class="stack">
     <section class="panel">
-      <div class="ph">Real equity curve <span id="navnote">–</span></div>
+      <div class="ph">Dashboard <span id="navnote">–</span></div>
       <div class="eqhead">
         <span>Invested <b id="eq-invested">—</b></span>
         <span>Total P&amp;L <b id="eq-pnl">—</b></span>
@@ -314,7 +316,7 @@
         <span>TWRR <b id="eq-twrr">—</b></span>
         <span>Sharpe <b id="eq-sharpe">—</b></span>
         <span>Max DD <b id="eq-dd">—</b></span>
-        <span>Cost of trading <b id="eq-cost">—</b></span>
+        <span>Cost <b id="eq-cost">—</b></span>
         <span>MTF % <b id="eq-mtf">—</b></span>
       </div>
       <svg id="navsvg" viewBox="0 0 800 120" preserveAspectRatio="none" style="height:150px;margin-top:6px">
@@ -328,6 +330,7 @@
         <tbody id="scr-rows"></tbody>
       </table></div>
     </section>
+  </div>
     <section class="panel">
       <div class="ph">Neural link <span>model view · animation only</span></div>
       <svg id="neural" viewBox="0 0 380 240" style="height:auto;min-height:300px;width:100%"></svg>
@@ -339,6 +342,13 @@
       <div class="scroll"><table>
         <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th><th class="n">Hold days</th></tr></thead>
         <tbody id="rk-pos-rows"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <div class="ph">Execution log <span>today's broker fills, newest first</span></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th></tr></thead>
+        <tbody id="rk-fills-rows"></tbody>
       </table></div>
     </section>
   </div>
@@ -1264,6 +1274,12 @@
     $("rk-mtm").className = today.length ? sign(mtm) : "";
     $("rk-poscount").textContent = p.state !== "broker_read" ? (PF_STATE[p.state] ? PF_STATE[p.state][0] : "")
       : known ? today.length + " opened today" : "trade history unavailable";
+    renderTable($("rk-fills-rows"), (p.fills || []).slice(0, 20).map(f => {
+      const tr = document.createElement("tr");
+      tr.append(cell(f.time || "—"), cell(f.symbol || "—"), cell(f.action || "—", f.action === "BUY" ? "g" : "r"),
+        cell(f.quantity == null ? "—" : String(f.quantity), "n"), cell(inr(f.price), "n"), cell(f.product || "—"));
+      return tr;
+    }), p.error || (known ? "No fills today." : "Trade history unavailable."), 6);
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),

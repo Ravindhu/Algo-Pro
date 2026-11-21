@@ -331,3 +331,17 @@ def test_apply_margin_records_source_for_the_page():
     out = apply_margin({"summary": {"value": 100.0, "invested": 100.0}, "trade_cost": None},
                        500.0, source="mstock")
     assert out["mtf"]["source"] == "mstock" and out["mtf"]["mtf_pct"] == 500.0
+
+
+def test_fill_log_is_newest_first_in_ist_and_skips_bad_rows():
+    from quant.reporting.portfolio_view import fill_log
+    trades = [
+        {"symbol": "OLD", "action": "BUY", "quantity": 1, "averageprice": 10, "product": "CNC", "timestamp": 1_700_000_000},
+        {"symbol": "NEW", "action": "SELL", "quantity": 2, "averageprice": 12.5, "product": "MIS", "timestamp": 1_700_003_600},
+        {"symbol": "BAD", "action": "BUY", "quantity": None, "averageprice": 5, "timestamp": 1_700_003_700},
+    ]
+    rows = fill_log(trades)
+    assert [r["symbol"] for r in rows] == ["NEW", "OLD"]
+    assert rows[0]["action"] == "SELL" and rows[0]["quantity"] == 2 and rows[0]["price"] == 12.5
+    assert len(rows[0]["time"]) == 8 and rows[0]["time"].count(":") == 2
+    assert fill_log(None) == []
