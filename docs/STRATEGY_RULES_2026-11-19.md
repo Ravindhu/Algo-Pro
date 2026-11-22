@@ -54,6 +54,11 @@ Fail patterns: engulfing_fail (MTF), sell-fail top (MTF and LTF) and sell-fail b
 - The sweep counts only after the break candle has closed (the last candle of the pattern: the green engulf, C3 or C4).
 - When several swings qualify, the newest one that is swept is used (section 4). A green confirm candle can therefore be the swing.
 
+### 0.6 Timeframe inputs (owner request 2026-11-22)
+- The MTF, HTF and LTF inputs accept `1m 3m 5m 10m 15m 30m 1h 1d 1w 1M` (daily, weekly, monthly added). The dashboard list is `TIMEFRAMES` in `core/setup_store.py`.
+- Weekly and monthly bars are closed by date: a bar is closed when its date is before the start of the current week (Monday) or month (the 1st). The last closed bar must be the previous week's or previous month's.
+- Ordering LTF < HTF < MTF uses approximate minutes (weekly 10080, monthly 43200).
+
 ### 0.6 Code (2026-11-22)
 - `src/quant/strategies/owner_patterns.py`: `find_ocl_rrg(df, last, ltf=True)` (5-candle break), `find_ocl_fail_top`, `find_ocl_fail_bottom_level`, `find_engulf_ltf`, `find_ltf_patterns`, `fail_touch_from`, `setup_touch_from`.
 - `src/quant/strategies/cycle.py`: `_ltf_loop` tracks the candidates and applies the first touch rule. `_mtf_touch` uses the MTF touch gate.

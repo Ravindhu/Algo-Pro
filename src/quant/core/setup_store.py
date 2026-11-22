@@ -59,7 +59,8 @@ BUDGET_OWNED_LIMITS = ("max_daily_loss", "max_strategy_loss")
 SETUP_LIMIT_KEYS = ("max_symbols_per_portfolio", *BUDGET_OWNED_LIMITS)
 LIVE_KEYS = ("live_max_capital_inr", "live_allowed_egress_ip")
 # Timeframe labels, same style as the OCL params (htf_interval, ltf_interval in config/bot.yaml).
-TIMEFRAMES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "1d": 1440}
+TIMEFRAMES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "1d": 1440,
+              "1w": 10080, "1M": 43200}  # weekly and monthly added 2026-11-22 (minutes approximate for ordering)
 TF_KEYS = {"htf_interval": "htf", "mtf_interval": "mtf", "ltf_interval": "ltf"}  # API key -> yaml key
 
 

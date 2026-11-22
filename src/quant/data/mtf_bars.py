@@ -20,9 +20,11 @@ from quant.data.live_bars import MIN_BARS, rows_to_frame
 
 ROLES = ("mtf", "htf", "ltf")
 OPENALGO_INTERVAL = {"1m": "1m", "3m": "3m", "5m": "5m", "10m": "10m", "15m": "15m",
-                     "30m": "30m", "1h": "1h", "1d": "D"}
-MINUTES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "1d": 1440}
-LOOKBACK_DAYS = {"1d": 120}  # daily needs about 120 calendar days for 30+ trading days
+                     "30m": "30m", "1h": "1h", "1d": "D", "1w": "W", "1M": "M"}
+MINUTES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "1d": 1440,
+           "1w": 10080, "1M": 43200}
+LOOKBACK_DAYS = {"1d": 120, "1w": 400, "1M": 1200}  # daily ~120 days; weekly ~30 weeks; monthly ~30 months
+DAILY_LIKE = ("1d", "1w", "1M")  # bars with no intraday end time: closed by calendar date, not by minutes
 DEFAULT_LOOKBACK_DAYS = 5
 
 
@@ -60,11 +62,26 @@ class MultiTimeframeBars:
         df = self._window(symbol, label, now)
         if df is None:
             return None
-        if label == "1d":
-            closed = df[df.index.date < now.date()]
+        if label in DAILY_LIKE:
+            # A bar is closed when its date is before the start of the current period: today for daily,
+            # this week's Monday for weekly, the 1st of this month for monthly. This holds whichever day
+            # the vendor dates the bar with.
+            if label == "1d":
+                period_start = now.date()
+                fresh_from = None  # daily: freshness checked below by the stale-days limit
+            elif label == "1w":
+                period_start = now.date() - timedelta(days=now.date().weekday())
+                fresh_from = period_start - timedelta(days=7)  # the last closed bar must be the previous week's
+            else:
+                period_start = now.date().replace(day=1)
+                fresh_from = (period_start - timedelta(days=1)).replace(day=1)  # ... and the previous month's
+            closed = df[df.index.date < period_start]
             if len(closed) < MIN_BARS:
                 return None
-            if (now.date() - closed.index[-1].date()).days > self._daily_stale:
+            if label == "1d":
+                if (now.date() - closed.index[-1].date()).days > self._daily_stale:
+                    return None
+            elif closed.index[-1].date() < fresh_from:
                 return None
             return closed
         closed = df.iloc[:-1]  # the last row is the bar still forming
