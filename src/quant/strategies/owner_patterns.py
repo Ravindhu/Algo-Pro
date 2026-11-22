@@ -192,27 +192,27 @@ def is_swing_low_3(df: pd.DataFrame, i: int) -> bool:
 
 
 def swing_break_index(df: pd.DataFrame, i: int) -> Optional[int]:
-    """Owner 2026-11-22: the swing low candle i must be the LAST RED candle of a break pattern on this timeframe.
-    Allowed breaks here: engulfing (2 candles), 3-candle and 4-candle OCL. The 5-candle break is LTF only.
-      - engulfing: candle i red, candle i+1 is the green engulf (is_red_green_engulf). Completes at i+1.
-      - 3-candle: C1 = i-1 red, C2 = i red, C3 = i+1 green closing above open of i. Completes at i+1.
-      - 4-candle: C1 = i-1 red, C2 = i red, C3 = i+1 green not closing above open of i, C4 = i+2 closes above it.
-        Completes at i+2.
+    """Owner 2026-11-22: the swing low candle i must be a candle of a break pattern on this timeframe. Any candle
+    of the pattern counts (not only the last red one). Allowed breaks here: engulfing (2 candles) and the 3-candle
+    and 4-candle OCL. The 5-candle break is LTF only.
+      - engulfing: candle i is the red candle or the green engulf of an engulfing (is_red_green_engulf rules:
+        red then green, both bodies over 50 %, green closes above the red high). Completes at the green candle.
+      - 3-candle OCL: pattern C1..C3 contains candle i. Completes at C3.
+      - 4-candle OCL: pattern C1..C3 contains candle i, the trigger C4 closes above C2 open. Completes at C4.
     Returns the index of the bar that completes the earliest such break, or None.
     A sweep counts only after that bar, so the swing is never used before its pattern has closed."""
     n = len(df)
-    if i < 1 or i + 2 >= n + 1 or i >= n:
+    if i < 0 or i >= n:
         return None
-    o, _, _, c = _arrays(df)
-    red_pair = bool(c[i - 1] < o[i - 1] and c[i] < o[i])
-    if not red_pair:
-        return None
-    if i + 1 < n and is_red_green_engulf(df, i + 1):
-        return i + 1
-    if i + 1 < n and c[i + 1] > o[i + 1] and c[i + 1] > o[i]:
-        return i + 1  # 3-candle break
-    if i + 2 < n and c[i + 1] > o[i + 1] and not (c[i + 1] > o[i]) and c[i + 2] > o[i]:
-        return i + 2  # 4-candle break
+    # Engulfing: candle i is the red candle (i+1 green) or the green engulf (i-1 red).
+    for a in (i - 1, i):
+        if a >= 0 and a + 1 < n and is_red_green_engulf(df, a + 1):
+            return a + 1
+    # OCL 3- and 4-candle breaks: the pattern runs from its C1 to its trigger, and must contain candle i.
+    for j in range(i, min(i + 4, n)):
+        ocl = find_ocl_rrg(df, j)  # HTF and MTF rules: 3- and 4-candle breaks only
+        if ocl is not None and _C1_OFFSET[ocl["break"]] >= 0 and j - _C1_OFFSET[ocl["break"]] <= i:
+            return j
     return None
 
 

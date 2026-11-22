@@ -165,3 +165,15 @@ def test_swing_without_a_break_is_not_a_swing_low_for_the_sweep():
     # swing candle 1 is a red candle but no break completes after it: no sweep can count
     bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.5), (9.4, 9.6, 8.7, 9.0)]
     assert op.find_swing_low_sweep(_frame(bars), last=3) is None
+
+
+def test_engulfing_applies_even_when_the_candle_before_is_green():
+    # engulfing rules alone (owner 2026-11-22): red candle 1, green engulf 2; candle 0 can be any colour
+    df = _frame([(8.0, 10.5, 7.9, 10.3), (10.0, 10.2, 8.0, 8.2), (8.0, 11.0, 7.9, 10.8)])
+    assert op.swing_break_index(df, 1) == 2
+
+
+def test_swing_low_can_be_the_first_candle_of_the_ocl():
+    # owner 2026-11-22: the swing low can be any candle of the OCL pattern, here C1
+    df = _frame([(10.0, 10.2, 9.0, 9.2), (11.0, 11.1, 10.1, 10.5), (10.4, 11.6, 10.3, 11.2)])
+    assert op.swing_break_index(df, 0) == 2
