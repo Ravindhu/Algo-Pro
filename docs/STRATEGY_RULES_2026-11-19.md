@@ -8,7 +8,7 @@ All rules use closed bars only. Oldest bar first. The bar in progress is never u
 
 ## 0. Update 2026-11-22 (owner rules, implemented)
 
-Owner answers 2026-11-22. This section changes sections 2, 3.2, 3.3, 4.1 and 10. Where it differs from an older section, this section wins. Assumptions still to confirm are listed in section 10 (items 26 to 31).
+Owner answers 2026-11-22. This section changes sections 2, 3.2, 3.3, 4.1 and 10. Where it differs from an older section, this section wins. Assumptions still to confirm are listed in section 10 (items 26 to 33).
 
 ### 0.1 OCL breaks
 - **HTF and MTF:** the 3-candle and 4-candle breaks only, as in section 3.2 (unchanged).
@@ -41,7 +41,15 @@ Fail patterns: engulfing_fail (MTF), sell-fail top (MTF and LTF) and sell-fail b
 - The MTF sell-fail top and sell-fail bottom setups follow the body and confirm rules of 0.3. The MTF touch counts only from the bar after the confirm candle.
 - The five sequence strategies keep their names and MTF kinds (`SEQUENCE_KINDS`). Their LTF step now uses the candidates in 0.2.
 
-### 0.5 Code (2026-11-22)
+### 0.5 HTF swing low (owner answer 2026-11-22: any break ends at the low)
+- The 3-candle swing low (section 2 and 4) must also be the **last red candle** of a break pattern on the HTF:
+  - **Engulfing:** the low candle is red, and the next candle is the green engulf (section 3.1).
+  - **3-candle break:** the candle before the low is red, the low candle is red, and the next candle is green and closes above the open of the low candle.
+  - **4-candle break:** as the 3-candle break, but the green candle does not close above the open of the low candle, and the candle after it closes above that open.
+- The **5-candle break is not used on the HTF**, because section 0.1 makes it LTF only.
+- The sweep counts only after the break candle has closed (the break candle is the last one of the pattern).
+
+### 0.6 Code (2026-11-22)
 - `src/quant/strategies/owner_patterns.py`: `find_ocl_rrg(df, last, ltf=True)` (5-candle break), `find_ocl_fail_top`, `find_ocl_fail_bottom_level`, `find_engulf_ltf`, `find_ltf_patterns`, `fail_touch_from`, `setup_touch_from`.
 - `src/quant/strategies/cycle.py`: `_ltf_loop` tracks the candidates and applies the first touch rule. `_mtf_touch` uses the MTF touch gate.
 - Tests: `tests/unit/test_ltf_patterns_2026_11_22.py` and the updated `tests/unit/test_owner_patterns.py`. Fail-pattern fixtures there now use a C2 with a body over 50 % and a confirm candle.
@@ -233,6 +241,8 @@ Update 2026-11-22 (section 0). Each item is an assumption the owner has not yet 
 29. LTF engulfing key: the open of the red candle, the same as the MTF engulfing aggressive level (section 4.1).
 30. Pattern high for the confirm candle: the highest high from C1 to the trigger candle (for a 4-candle break, that includes C4).
 31. Sell-fail top on the LTF uses the same level and conservative as the MTF version (section 0.2 item 3). It is cancelled if an OCL or engulfing candidate touches first.
+32. HTF swing low (section 0.5): the owner's answer listed 2, 3, 4 and 5 candle breaks. The 5-candle break is left out on the HTF, because section 0.1 says it is LTF only. Confirm.
+33. The swing low's break candle must close before the sweep candle (the sweep waits for the break). The owner has not said this; it follows from the "any break ends at the low" rule.
 
 ## 11. Final cycle flow (owner rules, 2026-11-19, revised 2026-11-19). Supersedes sections 4, 6, 7 and 12 where they differ.
 

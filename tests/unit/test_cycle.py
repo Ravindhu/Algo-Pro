@@ -30,7 +30,7 @@ ENG_M_TOUCH = (10.8, 10.9, 9.5, 10.2)          # touches MTF level 10.0 (open of
 MTF = [RED, GREEN_ENGULF, ENG_M_TOUCH]           # MTF low = 7.9
 
 # HTF: swing low at 1, sweep at 3, then HTF OCL (C1..C3 at 4..6), key level 11.0, touched at 7
-HTF = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.6, 8.7, 9.1),
+HTF = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.6, 8.7, 9.1),  # swing low 1 = red-candle break (2026-11-22)
        (10.0, 10.2, 9.0, 9.2), (11.0, 11.1, 10.1, 10.5), (10.4, 11.6, 10.3, 11.2), (11.3, 11.8, 10.9, 11.5)]
 # HTF OCL C1..C3 = indices 4..6 -> low 9.0 (HTF stop)
 HTF_LOW = 9.0

@@ -131,13 +131,13 @@ def test_swing_low_needs_both_neighbours_higher():
 
 
 def test_sweep_detected_when_later_low_breaks_swing_low():
-    bars = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.6, 8.7, 9.1)]
+    bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.6, 8.7, 9.1)]  # swing 1 = red-candle break
     res = op.find_swing_low_sweep(_frame(bars), last=3)
     assert res == {"swing_index": 1, "swing_low": 9.0, "sweep_index": 3}
 
 
 def test_no_sweep_when_no_low_breaks_swing_low():
-    bars = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.8, 9.1, 9.6)]
+    bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.8, 9.1, 9.6)]
     assert op.find_swing_low_sweep(_frame(bars), last=3) is None
 
 
@@ -147,10 +147,10 @@ def test_sweep_short_history_is_safe():
 
 # ---- Engulfing strategy sequence: MTF pattern -> touch -> HTF sweep -> LTF OCL -> touch ----
 ENG_M_TOUCH = (10.8, 10.9, 9.5, 10.2)  # low 9.5 <= level 10.0 <= high 10.9
-HTF_BARS = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.5, 9.6, 8.7, 9.1)]
+HTF_BARS = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.6, 8.7, 9.1)]  # swing 1 = red-candle break (2026-11-22)
 # A fail pattern with a confirm candle touches one bar later, so the HTF sweep needs one more bar.
 # swing low 9.0 at index 1, first sweep (low 8.5) at index 5: the sweep comes after an MTF touch at index 4
-HTF_SWEEP_LATE = [(10, 10.5, 9.5, 10.0), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.7), (9.6, 9.9, 9.3, 9.6),
+HTF_SWEEP_LATE = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.6, 9.9, 9.3, 9.6),
                   (9.5, 9.8, 9.2, 9.6), (9.5, 9.6, 8.5, 9.0)]
 LTF_FILL = (9.0, 9.5, 8.8, 9.2)
 LTF_TOUCH = (11.3, 11.8, 10.9, 11.5)   # low 10.9 <= OCL key level 11.0 <= high 11.8

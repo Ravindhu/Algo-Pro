@@ -136,3 +136,32 @@ def _htf_sweep_late():
 
 def _ltf_pattern_with_sweep():
     return _frame([(9.0, 9.5, 8.8, 9.2)] * 3 + [RRG_C1, RRG_C2_STRONG, C3_BREAK, (11.3, 11.8, 10.9, 11.5)])
+
+
+# ---- HTF swing low must be the last red candle of a break pattern (owner 2026-11-22) ----
+def test_swing_low_ends_a_three_candle_break():
+    df = _frame([(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9)])
+    assert op.swing_break_index(df, 1) == 2
+
+
+def test_swing_low_ends_a_four_candle_break():
+    df = _frame([(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.5, 9.7, 9.3, 9.6), (9.6, 10.0, 9.4, 9.9)])
+    assert op.swing_break_index(df, 1) == 3
+
+
+def test_swing_low_ends_an_engulfing():
+    df = _frame([(10.0, 10.2, 9.5, 9.6), (9.9, 10.0, 9.0, 9.1), (9.0, 10.5, 9.1, 10.1)])
+    assert op.swing_break_index(df, 1) == 2
+
+
+def test_five_candle_break_does_not_count_on_the_htf():
+    # C3 and C4 do not close above C2 open (9.8), C5 closes above it: a 5-candle break, LTF only
+    df = _frame([(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.5, 9.7, 9.3, 9.6),
+                 (9.5, 9.7, 9.3, 9.6), (9.6, 10.2, 9.4, 10.0)])
+    assert op.swing_break_index(df, 1) is None
+
+
+def test_swing_without_a_break_is_not_a_swing_low_for_the_sweep():
+    # swing candle 1 is a red candle but no break completes after it: no sweep can count
+    bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 9.9, 9.3, 9.5), (9.4, 9.6, 8.7, 9.0)]
+    assert op.find_swing_low_sweep(_frame(bars), last=3) is None
