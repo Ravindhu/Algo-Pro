@@ -41,13 +41,13 @@ Fail patterns: engulfing_fail (MTF), sell-fail top (MTF and LTF) and sell-fail b
 - The MTF sell-fail top and sell-fail bottom setups follow the body and confirm rules of 0.3. The MTF touch counts only from the bar after the confirm candle.
 - The five sequence strategies keep their names and MTF kinds (`SEQUENCE_KINDS`). Their LTF step now uses the candidates in 0.2.
 
-### 0.5 HTF swing low (owner answer 2026-11-22: any break ends at the low)
-- The 3-candle swing low (section 2 and 4) must also be the **last red candle** of a break pattern on the HTF:
-  - **Engulfing:** the low candle is red, and the next candle is the green engulf (section 3.1).
-  - **3-candle break:** the candle before the low is red, the low candle is red, and the next candle is green and closes above the open of the low candle.
-  - **4-candle break:** as the 3-candle break, but the green candle does not close above the open of the low candle, and the candle after it closes above that open.
+### 0.5 HTF swing low (owner answers 2026-11-22: any break ends at the low; any candle of the pattern)
+- The 3-candle swing low (section 2 and 4) must also be a candle of a break pattern on the HTF. **Any candle** of the pattern can be the swing low (owner 2026-11-22), not only the last red one:
+  - **Engulfing:** the swing candle is the red candle or the green engulf. The engulf rules of section 3.1 apply (both bodies over 50 %, green closes above the red high). The candle before the red one can be any colour.
+  - **3-candle break:** the pattern C1 to C3 (red, red, green, with C3 closing above the open of C2) contains the swing candle. Completes at C3.
+  - **4-candle break:** the pattern C1 to C3 contains the swing candle, and the trigger C4 closes above the open of C2. Completes at C4.
 - The **5-candle break is not used on the HTF**, because section 0.1 makes it LTF only.
-- The sweep counts only after the break candle has closed (the break candle is the last one of the pattern).
+- The sweep counts only after the break candle has closed (the last candle of the pattern: the green engulf, C3 or C4).
 
 ### 0.6 Code (2026-11-22)
 - `src/quant/strategies/owner_patterns.py`: `find_ocl_rrg(df, last, ltf=True)` (5-candle break), `find_ocl_fail_top`, `find_ocl_fail_bottom_level`, `find_engulf_ltf`, `find_ltf_patterns`, `fail_touch_from`, `setup_touch_from`.
