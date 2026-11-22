@@ -133,8 +133,9 @@ def test_swing_low_needs_both_neighbours_higher():
 def test_sweep_detected_when_later_low_breaks_swing_low():
     bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.6, 8.7, 9.1)]  # swing 1 = red-candle break
     res = op.find_swing_low_sweep(_frame(bars), last=3)
-    # any candle of the break pattern can be the swing (owner 2026-11-22): the newest is candle 2 (low 9.3)
-    assert res == {"swing_index": 2, "swing_low": 9.3, "sweep_index": 3}
+    # any candle of the break pattern can be the swing (owner 2026-11-22): the newest is candle 2.
+    # Its 3-candle pattern C1..C3 has lows 9.5, 9.0, 9.3, so the swing level is the lowest, 9.0.
+    assert res == {"swing_index": 2, "swing_low": 9.0, "sweep_index": 3}
 
 
 def test_no_sweep_when_no_low_breaks_swing_low():

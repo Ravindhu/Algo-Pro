@@ -191,29 +191,41 @@ def is_swing_low_3(df: pd.DataFrame, i: int) -> bool:
     return bool(low[i] < low[i - 1] and low[i] < low[i + 1])
 
 
-def swing_break_index(df: pd.DataFrame, i: int) -> Optional[int]:
-    """Owner 2026-11-22: the swing low candle i must be a candle of a break pattern on this timeframe. Any candle
-    of the pattern counts (not only the last red one). Allowed breaks here: engulfing (2 candles) and the 3-candle
-    and 4-candle OCL. The 5-candle break is LTF only.
-      - engulfing: candle i is the red candle or the green engulf of an engulfing (is_red_green_engulf rules:
-        red then green, both bodies over 50 %, green closes above the red high). Completes at the green candle.
-      - 3-candle OCL: pattern C1..C3 contains candle i. Completes at C3.
-      - 4-candle OCL: pattern C1..C3 contains candle i, the trigger C4 closes above C2 open. Completes at C4.
-    Returns the index of the bar that completes the earliest such break, or None.
-    A sweep counts only after that bar, so the swing is never used before its pattern has closed."""
+def swing_pattern(df: pd.DataFrame, i: int) -> Optional[tuple]:
+    """Owner 2026-11-22: candle i is a candle of a break pattern on this timeframe (any candle of the pattern).
+    Allowed breaks here: engulfing (2 candles), 3-candle and 4-candle OCL. The 5-candle break is LTF only.
+      - engulfing: candle i is the red candle or the green engulf (is_red_green_engulf). Completes at the green candle.
+        Level = low of candle i (no rule given for engulfing yet).
+      - 3-candle OCL: pattern C1..C3 contains candle i. Completes at C3. Level = lowest low of C1..C3 (owner 2026-11-22).
+      - 4-candle OCL: pattern C1..C3 contains candle i, trigger C4 closes above C2 open. Completes at C4.
+        Level = lowest low of C1..C4 (owner 2026-11-22).
+    Returns (completion_index, level) for the earliest such break, or None.
+    A sweep counts only after completion_index, so the swing is never used before its pattern has closed."""
     n = len(df)
     if i < 0 or i >= n:
         return None
+    _, _, low_arr, _ = _arrays(df)
     # Engulfing: candle i is the red candle (i+1 green) or the green engulf (i-1 red).
     for a in (i - 1, i):
         if a >= 0 and a + 1 < n and is_red_green_engulf(df, a + 1):
-            return a + 1
+            return a + 1, float(low_arr[i])
     # OCL 3- and 4-candle breaks: the pattern runs from its C1 to its trigger, and must contain candle i.
     for j in range(i, min(i + 4, n)):
         ocl = find_ocl_rrg(df, j)  # HTF and MTF rules: 3- and 4-candle breaks only
-        if ocl is not None and _C1_OFFSET[ocl["break"]] >= 0 and j - _C1_OFFSET[ocl["break"]] <= i:
-            return j
+        if ocl is None:
+            continue
+        c1 = j - _C1_OFFSET[ocl["break"]]
+        if c1 < 0 or c1 > i:
+            continue
+        level = float(min(low_arr[c1: j + 1]))  # C1..C3 for a 3-candle break, C1..C4 for a 4-candle break
+        return j, level
     return None
+
+
+def swing_break_index(df: pd.DataFrame, i: int) -> Optional[int]:
+    """Completion index of the swing pattern at candle i (see swing_pattern)."""
+    got = swing_pattern(df, i)
+    return got[0] if got is not None else None
 
 
 def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Optional[dict]:
@@ -230,10 +242,10 @@ def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Opt
     for i in range(last - 1, max(1, last - lookback) - 1, -1):
         if i + 1 > last:
             continue
-        j = swing_break_index(df, i)  # owner 2026-11-22: the swing is any candle of a break pattern (no low condition)
-        if j is None or j > last:
+        got = swing_pattern(df, i)  # owner 2026-11-22: any candle of a break pattern; level from the pattern
+        if got is None or got[0] > last:
             continue
-        level = low[i]
+        j, level = got
         for k in range(max(i + 1, j + 1), last + 1):  # sweep after the break pattern has closed
             if low[k] < level:
                 return {"swing_index": i, "swing_low": float(level), "sweep_index": k}
@@ -453,11 +465,12 @@ def first_sweep_after(htf: pd.DataFrame, touch_time) -> Optional[tuple]:
     for i in range(1, len(htf) - 1):
         if htf.index[i] >= touch_time:
             break
-        j = swing_break_index(htf, i)  # owner 2026-11-22: the swing is any candle of a break pattern (no low condition)
-        if j is None:
+        got = swing_pattern(htf, i)  # owner 2026-11-22: any candle of a break pattern; level from the pattern
+        if got is None:
             continue
+        j, level = got
         for k in range(max(i + 1, j + 1), len(htf)):
-            if htf.index[k] >= touch_time and low[k] < low[i]:
+            if htf.index[k] >= touch_time and low[k] < level:
                 best = (i, k)
                 break
     return best

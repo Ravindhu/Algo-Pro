@@ -177,3 +177,14 @@ def test_swing_low_can_be_the_first_candle_of_the_ocl():
     # owner 2026-11-22: the swing low can be any candle of the OCL pattern, here C1
     df = _frame([(10.0, 10.2, 9.0, 9.2), (11.0, 11.1, 10.1, 10.5), (10.4, 11.6, 10.3, 11.2)])
     assert op.swing_break_index(df, 0) == 2
+
+
+def test_three_candle_swing_level_is_lowest_low_of_c1_to_c3():
+    df = _frame([(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9)])
+    assert op.swing_pattern(df, 1) == (2, 9.0)
+
+
+def test_four_candle_swing_level_is_lowest_low_of_c1_to_c4():
+    df = _frame([(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.4, 9.4), (9.5, 9.7, 9.3, 9.6), (9.6, 10.0, 8.9, 9.9)])
+    got = op.swing_pattern(df, 1)
+    assert got == (3, 8.9)

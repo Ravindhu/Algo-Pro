@@ -8,7 +8,7 @@ All rules use closed bars only. Oldest bar first. The bar in progress is never u
 
 ## 0. Update 2026-11-22 (owner rules, implemented)
 
-Owner answers 2026-11-22. This section changes sections 2, 3.2, 3.3, 4.1 and 10. Where it differs from an older section, this section wins. Assumptions still to confirm are listed in section 10 (items 26 to 34).
+Owner answers 2026-11-22. This section changes sections 2, 3.2, 3.3, 4.1 and 10. Where it differs from an older section, this section wins. Assumptions still to confirm are listed in section 10 (items 26 to 35).
 
 ### 0.1 OCL breaks
 - **HTF and MTF:** the 3-candle and 4-candle breaks only, as in section 3.2 (unchanged).
@@ -46,6 +46,10 @@ Fail patterns: engulfing_fail (MTF), sell-fail top (MTF and LTF) and sell-fail b
   - **Engulfing:** the swing candle is the red candle or the green engulf. The engulf rules of section 3.1 apply (both bodies over 50 %, green closes above the red high). The candle before the red one can be any colour.
   - **3-candle break:** the pattern C1 to C3 (red, red, green, with C3 closing above the open of C2) contains the swing candle. Completes at C3.
   - **4-candle break:** the pattern C1 to C3 contains the swing candle, and the trigger C4 closes above the open of C2. Completes at C4.
+- **Swing level (owner 2026-11-22):**
+  - 3-candle break: the lowest low of C1 to C3.
+  - 4-candle break: the lowest low of C1 to C4.
+  - Engulfing: the low of the swing candle. No rule given yet (assumption 35).
 - The **5-candle break is not used on the HTF**, because section 0.1 makes it LTF only.
 - The sweep counts only after the break candle has closed (the last candle of the pattern: the green engulf, C3 or C4).
 - When several swings qualify, the newest one that is swept is used (section 4). A green confirm candle can therefore be the swing.
@@ -244,6 +248,7 @@ Update 2026-11-22 (section 0). Each item is an assumption the owner has not yet 
 31. Sell-fail top on the LTF uses the same level and conservative as the MTF version (section 0.2 item 3). It is cancelled if an OCL or engulfing candidate touches first.
 32. HTF swing low (section 0.5): the owner's answer listed 2, 3, 4 and 5 candle breaks. The 5-candle break is left out on the HTF, because section 0.1 says it is LTF only. Confirm.
 34. Which swing is used: the newest swing candle (any candle of a break pattern) that is swept after its break has closed. The owner has not said whether an older swing should be used instead.
+35. Engulfing swing level: the low of the swing candle. The owner has not given a rule for the engulfing level (the 3- and 4-candle levels are the lowest low of their pattern candles).
 33. The swing low's break candle must close before the sweep candle (the sweep waits for the break). The owner has not said this; it follows from the "any break ends at the low" rule.
 
 ## 11. Final cycle flow (owner rules, 2026-11-19, revised 2026-11-19). Supersedes sections 4, 6, 7 and 12 where they differ.
