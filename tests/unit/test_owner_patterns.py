@@ -133,11 +133,13 @@ def test_swing_low_needs_both_neighbours_higher():
 def test_sweep_detected_when_later_low_breaks_swing_low():
     bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.6, 8.7, 9.1)]  # swing 1 = red-candle break
     res = op.find_swing_low_sweep(_frame(bars), last=3)
-    assert res == {"swing_index": 1, "swing_low": 9.0, "sweep_index": 3}
+    # any candle of the break pattern can be the swing (owner 2026-11-22): the newest is candle 2 (low 9.3)
+    assert res == {"swing_index": 2, "swing_low": 9.3, "sweep_index": 3}
 
 
 def test_no_sweep_when_no_low_breaks_swing_low():
-    bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.8, 9.1, 9.6)]
+    # swing candidates have lows 9.0 (candle 1) and 9.3 (candle 2); the last low 9.35 breaks neither
+    bars = [(10.0, 10.2, 9.5, 9.6), (9.8, 10.0, 9.0, 9.4), (9.6, 10.0, 9.3, 9.9), (9.5, 9.8, 9.35, 9.6)]
     assert op.find_swing_low_sweep(_frame(bars), last=3) is None
 
 
@@ -173,7 +175,7 @@ def test_engulf_sequence_waits_when_no_mtf_touch():
 
 
 def test_engulf_sequence_needs_htf_sweep():
-    no_sweep = HTF_BARS[:3] + [(9.5, 9.6, 9.1, 9.6)]  # last low 9.1 does not take the swing low 9.0
+    no_sweep = HTF_BARS[:3] + [(9.5, 9.6, 9.35, 9.5)]  # last low 9.35 breaks no swing low (9.0 or 9.3)
     assert op.engulf_sequence(_frame([RED, GREEN_ENGULF, ENG_M_TOUCH]), _frame(no_sweep), _ltf_with_ocl()) is None
 
 

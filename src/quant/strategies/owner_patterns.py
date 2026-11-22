@@ -228,9 +228,9 @@ def find_swing_low_sweep(df: pd.DataFrame, last: int, lookback: int = 20) -> Opt
         return None
     low = df["low"].to_numpy(dtype=float)
     for i in range(last - 1, max(1, last - lookback) - 1, -1):
-        if i + 1 > last or not is_swing_low_3(df, i):
+        if i + 1 > last:
             continue
-        j = swing_break_index(df, i)  # owner 2026-11-22: the low must end a red-candle break pattern
+        j = swing_break_index(df, i)  # owner 2026-11-22: the swing is any candle of a break pattern (no low condition)
         if j is None or j > last:
             continue
         level = low[i]
@@ -453,9 +453,7 @@ def first_sweep_after(htf: pd.DataFrame, touch_time) -> Optional[tuple]:
     for i in range(1, len(htf) - 1):
         if htf.index[i] >= touch_time:
             break
-        if not is_swing_low_3(htf, i):
-            continue
-        j = swing_break_index(htf, i)  # owner 2026-11-22: the low must end a red-candle break pattern
+        j = swing_break_index(htf, i)  # owner 2026-11-22: the swing is any candle of a break pattern (no low condition)
         if j is None:
             continue
         for k in range(max(i + 1, j + 1), len(htf)):
