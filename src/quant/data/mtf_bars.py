@@ -20,12 +20,34 @@ from quant.data.live_bars import MIN_BARS, rows_to_frame
 
 ROLES = ("mtf", "htf", "ltf")
 OPENALGO_INTERVAL = {"1m": "1m", "3m": "3m", "5m": "5m", "10m": "10m", "15m": "15m",
-                     "30m": "30m", "1h": "1h", "1d": "D", "1w": "W", "1M": "M"}
-MINUTES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "1d": 1440,
-           "1w": 10080, "1M": 43200}
-LOOKBACK_DAYS = {"1d": 120, "1w": 400, "1M": 1200}  # daily ~120 days; weekly ~30 weeks; monthly ~30 months
+                     "30m": "30m", "75m": "5m", "125m": "5m", "1h": "1h", "1d": "D", "1w": "W", "1M": "M"}
+# 75m and 125m are not OpenAlgo intervals: they are built from 5m bars, anchored at 09:15 each day (2026-11-22).
+AGGREGATE_MINUTES = {"75m": 75, "125m": 125}
+SESSION_OPEN_HOUR, SESSION_OPEN_MINUTE = 9, 15
+MINUTES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "75m": 75, "125m": 125,
+           "1h": 60, "1d": 1440, "1w": 10080, "1M": 43200}
+LOOKBACK_DAYS = {"1d": 120, "1w": 400, "1M": 1200, "75m": 15, "125m": 20}  # daily ~120 days; weekly ~30 weeks; monthly ~30 months; 75m/125m ~30 bars
 DAILY_LIKE = ("1d", "1w", "1M")  # bars with no intraday end time: closed by calendar date, not by minutes
 DEFAULT_LOOKBACK_DAYS = 5
+
+
+def aggregate_session(df5: pd.DataFrame, minutes: int) -> Optional[pd.DataFrame]:
+    """Complete `minutes`-long bars built from 5m bars, anchored at 09:15 each day (the NSE session open).
+    A bar is kept only when all of its 5m bars are present, so a partial bar never reaches a strategy.
+    The 5m bar still forming must already be removed by the caller."""
+    if df5 is None or df5.empty:
+        return None
+    k = minutes // 5
+    pieces = []
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    for day, g in df5.groupby(df5.index.date):
+        origin = pd.Timestamp(day) + pd.Timedelta(hours=SESSION_OPEN_HOUR, minutes=SESSION_OPEN_MINUTE)
+        rs = g.resample(f"{minutes}min", origin=origin, label="left", closed="left")
+        bars = rs.agg(agg)
+        counts = rs["close"].count()
+        pieces.append(bars[counts == k].dropna())
+    out = pd.concat(pieces) if pieces else pd.DataFrame()
+    return out if not out.empty else None
 
 
 class MultiTimeframeBars:
@@ -56,7 +78,10 @@ class MultiTimeframeBars:
             return None
         if not isinstance(reply, dict) or reply.get("status") != "success":
             return None
-        return rows_to_frame(reply.get("data"))
+        df = rows_to_frame(reply.get("data"))
+        if df is None or label not in AGGREGATE_MINUTES:
+            return df
+        return aggregate_session(df.iloc[:-1], AGGREGATE_MINUTES[label])  # drop the 5m bar still forming
 
     def _closed(self, symbol: str, label: str, now: datetime) -> Optional[pd.DataFrame]:
         df = self._window(symbol, label, now)
@@ -84,7 +109,8 @@ class MultiTimeframeBars:
             elif closed.index[-1].date() < fresh_from:
                 return None
             return closed
-        closed = df.iloc[:-1]  # the last row is the bar still forming
+        # 75m/125m frames come back already without the forming bar and with complete buckets only
+        closed = df if label in AGGREGATE_MINUTES else df.iloc[:-1]  # the last row is the bar still forming
         if len(closed) < MIN_BARS:
             return None
         closed_end = closed.index[-1] + timedelta(minutes=MINUTES[label])

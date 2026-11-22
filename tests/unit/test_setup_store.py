@@ -33,7 +33,7 @@ def test_read_setup_returns_current_values(paths):
         "strategies": ["alpha", "beta"], "live_max_capital_inr": None, "live_allowed_egress_ip": None,
         "brokerage": None, "brokerage_example": None,
         "htf_interval": None, "mtf_interval": None, "ltf_interval": None,
-        "timeframe_options": ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "1d", "1w", "1M"],
+        "timeframe_options": ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "75m", "125m", "1d", "1w", "1M"],
         "capital_inr": None, "max_daily_loss_pct": None, "max_strategy_loss_pct": None,
         "max_daily_loss": 1000, "max_strategy_loss": None}
 
