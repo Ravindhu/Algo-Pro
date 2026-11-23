@@ -20,3 +20,4 @@
 - **Append-Only Audit Trails:** Treat execution logs, state transitions, and order events as immutable append-only records; never overwrite or hard-delete historical audit rows (use soft-delete flags or status columns where needed).
 - **Idempotency Keys:** Enforce `UNIQUE` constraints on external event IDs, order IDs, and webhook delivery IDs so retries never create duplicate records.
 - **Automated Retention & Backups:** Implement scheduled log compaction/archival for high-volume telemetry tables and atomic online backups (`.backup` API) without halting active readers.
+   Backups must pass a restore test at least once per release
