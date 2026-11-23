@@ -3,8 +3,7 @@
 ## 1. Visual Identity & Surface Rules
 - **Base Canvas:** Deep obsidian-black background (`#05080D`) with zero white or light-gray surfaces anywhere in the UI.
 - **Panel Containers:** Elevated dark navy-slate surfaces (`#0A1018`) bounded by crisp, continuous `1px` structural grid lines (`#162231`) and sharp corners (`border-radius: 2px` to `4px`). Avoid soft drop shadows, gradients on cards, or rounded consumer-style bubbles.
-- **Grid Geometry:** Pack panels edge-to-edge in a tight bento/terminal grid anchored to a `100vh` desktop viewport (`gap: 4px` to `6px`). Internal scrolling is allowed strictly inside data tables, log streams, and popup bodies.
-
+- **Grid Geometry:** Pack panels edge-to-edge in a tight bento/terminal desktop layout. On phone width, panels stack vertically with no horizontal scroll. Internal scrolling is allowed strictly inside data tables, log streams, and popup bodies.
 ## 2. Color Palette & Semantic Restraint
 - **Neutral Dominance:** Keep 85%+ of the screen in dark obsidian, slate, and muted steel grays.
 - **Strict Semantic Accents:**
@@ -30,7 +29,7 @@
 
 ## 5. Interactive Popups, Modals & Drawers
 - **Clean Canvas, Layered Inputs:** Keep the primary terminal grid unobstructed by multi-field forms. Trigger all configuration forms, parameter editors, and deep inspectors inside **centered modal popups** or **right-side slide-over drawers**.
-- **Popup Styling:** Match the terminal theme (`#0A1018` surface, `1px solid #1E293B` border, `backdrop-filter: blur(4px)` with `70%` dark overlay).
+- **Popup Styling:** Match the terminal theme (`#0A1018` surface, `1px solid #1E293B` border, `backdrop-filter: blur(4px)` with `70%` dark overlay).On phone width, popups become full-screen sheets
 - **Standardized Popup Controls:**
   - Include a compact uppercase header bar with a `✕` close button.
   - Support closing via `ESC` key and backdrop click.
@@ -40,3 +39,5 @@
 ## 6. Component States & Micro-Interactions
 - **Hover & Focus Affordance:** Every clickable pill, table row, log line, and canvas node must show `cursor: pointer` and a crisp `1px` cyan/amber border or subtle surface tint (`#111B27`) on hover.
 - **Explicit State Styling:** Define distinct dark-mode visual treatments for `Default`, `Hover`, `Active`, `Disabled` (`40%` opacity), `Loading` (minimal pulse bar), `Empty` (muted centered monospace label), and `Error` (`1px` crimson border).
+-7. **Mobile":** "Usable at 360px width. Touch targets at least 44px. Installable as a web app.
+
