@@ -5,7 +5,7 @@ Usage: python scripts/run_backtest.py --bars data/raw/bars.csv --top 3 --capital
 
 Flow stage: Historical bars
 Status: PHASE 2 IMPLEMENTED
-Existing code to reuse or wrap (do not copy): Blue_engine/backtest/engine.py
+Existing code to reuse or wrap (do not copy): src/quant/engines/backtest/engine.py
 """
 from __future__ import annotations
 

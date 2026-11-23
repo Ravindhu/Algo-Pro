@@ -3,7 +3,7 @@ update_vendor_data.py - keep the pinned vendor repo current, in place.
 
 WHY THIS IS A THIN WRAPPER
 --------------------------
-`Blue_engine/database/vendor/indian-market-historical-data` is a pinned upstream
+`src/quant/engines/database/vendor/indian-market-historical-data` is a pinned upstream
 clone with its own `scripts/update_indices.py`. Duplicating that logic here would
 drift from upstream on the next pull, so this script only orchestrates it:
 verify the checkout, run the vendor's own updater, then prove the data the
