@@ -201,7 +201,7 @@ class PaperBroker:
     # ------------------------------------------------------------------ #
     # order surface
     # ------------------------------------------------------------------ #
-    def placeorder(self, *, strategy: str = "PAPER", symbol: str,
+    def place_order(self, *, strategy: str = "PAPER", symbol: str,
                    action: str, exchange: str, price_type: str = "MARKET",
                    product: str = "MIS", quantity: int = 1,
                    price: Optional[float] = None,
@@ -273,7 +273,7 @@ class PaperBroker:
             pos["avg"] = price
         pos["qty"] = new_qty
 
-    def cancelorder(self, *, order_id: str, **kwargs: Any) -> Dict[str, Any]:
+    def cancel_order(self, *, order_id: str, **kwargs: Any) -> Dict[str, Any]:
         with self._lock:
             for order in self.orders:
                 if order["orderid"] == order_id:

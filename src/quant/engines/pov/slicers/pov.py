@@ -3,6 +3,7 @@ from __future__ import annotations
 import time, uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from quant.execution.openalgo_client import send_engine_cancel, send_engine_order
 from quant.engines.core.auction_windows import is_within_auction_window
 from quant.engines.core.band import BandConfig, compute_target_pov_rate
 from quant.engines.core.benchmark import ArrivalPriceWindow, SlippageAccumulator
@@ -688,7 +689,8 @@ class POVSlicer(BaseSlicer):
                 try:
                     arrival_window.clear()
                     attempt_ts = datetime.now()
-                    resp = self.client.placeorder(
+                    resp = send_engine_order(
+                        self.client,
                         strategy=self.strategy_label, symbol=self.symbol,
                         action=self.order_action, exchange=self.exchange,
                     price_type=("LIMIT" if self.order_mode == "PEG"
@@ -697,7 +699,7 @@ class POVSlicer(BaseSlicer):
                 except Exception as exc:
                     # A timeout can hide an order the broker accepted. Check the
                     # broker before any retry, or the retry doubles the exposure.
-                    self.log(f"placeorder raised {exc!r}; reconciling with broker")
+                    self.log(f"order send raised {exc!r}; reconciling with broker")
                     state, found_oid = self._reconcile_failed_placement(
                         client=self.client, symbol=self.symbol, exchange=self.exchange,
                         strategy_label=self.strategy_label, action=self.order_action,
@@ -800,7 +802,7 @@ class POVSlicer(BaseSlicer):
     def _reconcile_failed_placement(
         self, *, client: Any, symbol: str, exchange: str, strategy_label: str,
         action: str, quantity: int, known_oids: set) -> Tuple[str, Optional[str]]:
-        """After a ``placeorder`` exception, check the broker before any retry.
+        """After an order-send exception, check the broker before any retry.
 
         Returns ``("placed", oid)`` when a matching order exists that this run
         has not recorded, ``("absent", None)`` when none exists so a retry is
@@ -870,7 +872,7 @@ class POVSlicer(BaseSlicer):
                 if not oid or str(oid) not in own_oids: continue
                 age = (datetime.now() - own_oids[str(oid)]).total_seconds()
                 if age < min_age_sec: continue
-                cresp = client.cancelorder(order_id=oid, strategy=strategy_label)
+                cresp = send_engine_cancel(client, order_id=oid, strategy=strategy_label)
                 if isinstance(cresp, dict) and cresp.get("status") == "success":
                     self.log(f"cancelled stale LIMIT child {oid}")
                     if execution_id:

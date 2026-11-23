@@ -372,3 +372,53 @@ class AnalyzeBroker:
         if state in ("rejected", "cancelled", "canceled"):
             return out("REJECTED", order_id=order_id, reason=f"order {state}")
         return out("UNKNOWN", order_id=order_id, reason=f"order state {state or 'missing'}")
+
+
+# ---------------------------------------------------------------------------
+# Engine order gateway
+# ---------------------------------------------------------------------------
+# Engine code (POV slicer, exit engine, paper broker callers) sends orders only
+# through these four functions, so every broker order call sits in this one
+# module. Behaviour is unchanged: the call goes to the SDK-style client that the
+# caller passes in. A client may expose ``place_order`` / ``cancel_order`` (the
+# paper broker does) or the SDK names ``placeorder`` / ``cancelorder``.
+#
+# NOTE: these engine paths do not pass through the LiveApproval / analyze-mode
+# checks of OpenAlgoClient.place. That gap is recorded in the branch notes.
+
+_PLACE_NAMES = ("place_order", "placeorder")
+_CANCEL_NAMES = ("cancel_order", "cancelorder")
+
+
+def _find_method(client, names) -> Optional[Callable]:
+    for name in names:
+        fn = getattr(client, name, None)
+        if callable(fn):
+            return fn
+    return None
+
+
+def has_engine_order_method(client) -> bool:
+    """True when the client can take an order."""
+    return _find_method(client, _PLACE_NAMES) is not None
+
+
+def send_engine_order(client, **kwargs) -> Dict:
+    """Send one order through the caller's client. Raises if the client cannot place orders."""
+    fn = _find_method(client, _PLACE_NAMES)
+    if fn is None:
+        raise RuntimeError("client has no order method")
+    return fn(**kwargs)
+
+
+def has_engine_cancel_method(client) -> bool:
+    """True when the client can cancel an order."""
+    return _find_method(client, _CANCEL_NAMES) is not None
+
+
+def send_engine_cancel(client, **kwargs) -> Dict:
+    """Cancel one order through the caller's client. Raises if the client cannot cancel."""
+    fn = _find_method(client, _CANCEL_NAMES)
+    if fn is None:
+        raise RuntimeError("client has no cancel method")
+    return fn(**kwargs)

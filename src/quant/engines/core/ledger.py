@@ -602,7 +602,7 @@ def get_vwap(execution_id):
 def open_arrival_window(execution_id, *, max_ticks: int = 20):
     """Begin (or reset) the arrival-price window for the next child fill.
 
-    Idempotent. Use this just BEFORE ``client.placeorder(...)``.
+    Idempotent. Use this just BEFORE the order send.
     """
     try:
         row = _in_memory_get(execution_id)

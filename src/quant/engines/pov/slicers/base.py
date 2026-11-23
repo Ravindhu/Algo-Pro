@@ -43,7 +43,7 @@ class BaseSlicer(ABC):
             dict with at least:
                 filled:           total shares actually submitted
                 target:           target shares from the intent
-                child_orders:     number of placeorder() calls made
+                child_orders:     number of order sends made
                 mode:             "live" or "analyze" (from OpenAlgo)
         """
         raise NotImplementedError

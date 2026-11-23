@@ -5,7 +5,7 @@ Responsibility
 --------------
 Hook the broker's order-update event stream into the persistent
 child-order ledger so the slicer can track exposure on slow /
-partial fills. Instead of trusting a placeorder() ack as a "filled"
+partial fills. Instead of trusting an order ack as a "filled"
 event, the loop now:
 
   1. Subscribes once to the broker's order-update feed.
@@ -421,7 +421,7 @@ def subscribe_to_order_updates(
     # AUDIT (2026-10-29): the previous code probed ``order_update_stream()`` /
     # ``orderupdates()``, which the installed SDK does not have. The guarded
     # return False looked like a clean degradation, so a live run logged
-    # "degraded" and then relied on placeorder ACKs alone - the ledger never
+    # "degraded" and then relied on order ACKs alone - the ledger never
     # learned about a fill. openalgo/feed.py exposes the real API:
     # ``client.subscribe_orders(on_order_update=callable) -> bool``, which
     # pushes the dict documented in its docstring (the same shape
@@ -481,7 +481,7 @@ def subscribe_to_order_updates(
 
     logger.warning(
         "quant.engines.order_updates: SDK client has no subscribe_orders(); "
-        "ledger will rely on placeorder acks and REST orderbook polling."
+        "ledger will rely on order acks and REST orderbook polling."
     )
     return False
 

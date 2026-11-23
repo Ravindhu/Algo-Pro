@@ -152,7 +152,7 @@ def init_client(api_key: str | None = None,
 
     Returns:
         An instance of openalgo.api - keyword-only arg compatible with
-        placeorder, placesmartorder, quotes, history, modifyorder, cancelorder,
+        place order, placesmartorder, quotes, history, modify order, cancel order,
         orderbook, tradebook, positionbook, analyzerstatus, etc.
     """
     # Load the operator's .env before reading host/ws_url, so a deployment that

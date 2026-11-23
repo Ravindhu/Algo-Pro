@@ -7,7 +7,7 @@ PURPOSE
 Pure (no SDK, no DB) helpers that:
 
   1. Maintain a rolling ring buffer of mid-quote ticks recorded between
-     ``placeorder`` send and fill arrival, so we can compute an
+     order send and fill arrival, so we can compute an
      **arrival-price VWAP** per child order.
   2. Compute signed slippage in basis points for an incoming fill.
   3. Maintain a rolling ring buffer of recent slippage samples so the
@@ -37,7 +37,7 @@ USAGE FROM THE POV SLICER
     # 1) Per poll, after a successful quote:
     window.record(price=mid, volume_weight=delta_volume)
 
-    # 2) Just before placeorder:
+    # 2) Just before the order send:
     window.clear()  # start fresh for the next child
 
     # 3) On fill (from the order-update WebSocket):

@@ -38,8 +38,8 @@ DESIGN RULES (mirroring the rest of core/)
   kill switch. The supervisor never assumes a stop exists.
 * **Idempotent.** A stop is identified by the strategy tag it was placed
   under, so a restart or a repeated cycle does not stack duplicate stops.
-* **SDK-only.** ``positionbook`` / ``orderbook`` / ``placeorder`` /
-  ``cancelorder``; no OpenAlgo internals, no direct REST.
+* **SDK-only.** ``positionbook`` / ``orderbook`` / order send /
+  cancel (through the order gateway); no OpenAlgo internals, no direct REST.
 * **No import-time I/O.** Construction does not touch the broker; ``run_cycle``
   does, and is safe to unit-test with a stub client.
 """
@@ -49,6 +49,9 @@ import logging
 import threading
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from quant.execution.openalgo_client import (
+    has_engine_cancel_method, has_engine_order_method, send_engine_cancel, send_engine_order)
 
 logger = logging.getLogger(__name__)
 
@@ -287,29 +290,27 @@ class ExitEngine:
     def _place_stop(self, symbol: str, exchange: str, action: str,
                     quantity: int, trigger: float) -> Tuple[Optional[str], str]:
         """Place one SL-M. Returns ``(order_id, status)``."""
-        place = getattr(self.client, "placeorder", None)
-        if not callable(place):
-            return None, "client has no placeorder()"
+        if not has_engine_order_method(self.client):
+            return None, "client has no order method"
         try:
-            resp = place(strategy=self.config.strategy_tag, symbol=symbol,
-                         action=action, exchange=exchange, price_type="SL-M",
-                         product=self.config.product, quantity=int(quantity),
-                         trigger_price=self._rnd(trigger), price=0)
+            resp = send_engine_order(self.client, strategy=self.config.strategy_tag, symbol=symbol,
+                                     action=action, exchange=exchange, price_type="SL-M",
+                                     product=self.config.product, quantity=int(quantity),
+                                     trigger_price=self._rnd(trigger), price=0)
         except Exception as exc:  # noqa: BLE001
-            return None, f"placeorder raised: {exc!r}"
+            return None, f"order send raised: {exc!r}"
         if not _ok(resp):
-            return None, f"placeorder rejected: {str(resp)[:160]}"
+            return None, f"order send rejected: {str(resp)[:160]}"
         order_id = resp.get("order_id") or (resp.get("data") or {}).get("order_id")
         return (str(order_id) if order_id else None), _status_of(resp) or "open"
 
     def _cancel(self, order_id: str) -> bool:
-        cancel = getattr(self.client, "cancelorder", None)
-        if not callable(cancel):
+        if not has_engine_cancel_method(self.client):
             return False
         try:
-            return _ok(cancel(order_id=order_id))
+            return _ok(send_engine_cancel(self.client, order_id=order_id))
         except Exception as exc:  # noqa: BLE001
-            self._log_msg(f"cancelorder {order_id} raised: {exc!r}")
+            self._log_msg(f"cancel {order_id} raised: {exc!r}")
             return False
 
     # -- one reconciliation cycle ---------------------------------------
@@ -482,15 +483,14 @@ class ExitEngine:
                 f"{symbol}: would flatten {size} ({reason}) but "
                 "allow_market_exit is false")
             return
-        place = getattr(self.client, "placeorder", None)
-        if not callable(place):
-            report["errors"].append(f"{symbol}: no placeorder() to flatten")
+        if not has_engine_order_method(self.client):
+            report["errors"].append(f"{symbol}: no order method to flatten")
             report["critical"] = True
             return
         try:
-            resp = place(strategy=self.config.strategy_tag, symbol=symbol,
-                         action=side, exchange=exchange, price_type="MARKET",
-                         product=self.config.product, quantity=int(size))
+            resp = send_engine_order(self.client, strategy=self.config.strategy_tag, symbol=symbol,
+                                     action=side, exchange=exchange, price_type="MARKET",
+                                     product=self.config.product, quantity=int(size))
         except Exception as exc:  # noqa: BLE001
             report["errors"].append(f"{symbol}: flatten raised: {exc!r}")
             report["critical"] = True

@@ -5,7 +5,7 @@ throttle.py - Order-to-Trade Ratio (OTR) and minimum-interval throttling
 Responsibility
 --------------
 Expose a single helper, :func:`should_throttle_order`, that the POV
-loop calls BEFORE every ``client.placeorder(...)`` payload. The
+loop calls BEFORE every order payload. The
 helper enforces three hard tracking parameters from the JSON
 config (each with a safe default):
 

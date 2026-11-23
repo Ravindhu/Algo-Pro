@@ -23,7 +23,7 @@ Design rules (from the OpenAlgo reference strategy simple_ema_strategy.py)
 -------------------------------------------------------------------------
 - Import:  from openalgo import api
 - Init:    client = api(api_key=..., host=..., ws_url=...)
-- All SDK method args are keyword-only (placeorder, placesmartorder, etc.)
+- All SDK method args are keyword-only (place order, placesmartorder, etc.)
 - Read OPENALGO_API_KEY, HOST_SERVER, WEBSOCKET_URL from environment
 - Mode (LIVE vs ANALYZER) is controlled in the OpenAlgo UI, never toggled here
 - Every response is checked:  if response.get("status") == "success":
