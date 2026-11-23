@@ -22,13 +22,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "Blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, os.pardir, "src")))
 
 FRESH_DAYS = 30
 
 
 def main() -> int:
-    cfg_path = ROOT / "Blue_engine" / "input" / "macro_master.json"
+    cfg_path = ROOT / "src" / "quant" / "engines" / "input" / "macro_master.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     econ = cfg["engines"]["economic"]
     macro = econ["macro"]
@@ -47,7 +47,7 @@ def main() -> int:
     print("=" * 78)
     print("2. Engine output (what the Dash page renders)")
     print("=" * 78)
-    from blue_engine.economics.economic_engine import EconomicEngine
+    from quant.engines.economics.economic_engine import EconomicEngine
 
     eng = EconomicEngine({"signals": econ.get("signals") or {},
                           "macro": macro,

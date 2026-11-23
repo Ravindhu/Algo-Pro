@@ -52,7 +52,7 @@ def get(url, timeout=30, headers=None):
 def test_sdk():
     print("\n[1] OpenAlgo SDK (no scraping - uses the authenticated client)")
     try:
-        from blue_engine.core.client import init_client
+        from quant.engines.core.client import init_client
         c = init_client(api_key=KEY)
     except Exception as exc:  # noqa: BLE001
         note("(all SDK)", "openalgo sdk", False, f"client init failed: {exc!r}")

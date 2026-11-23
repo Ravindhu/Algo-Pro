@@ -17,8 +17,8 @@ no live market, so the whole chain can be observed before it touches money:
 Unlike backtest_ocl_confirm.py (which re-implements the rules as an A/B
 comparison), this script imports and runs the ACTUAL classes:
 
-    blue_engine.alpha.Statergy.ocl_keylevel.OCLKeylevelSignal
-    blue_engine.pov.slicers.pov.POVSlicer
+    quant.engines.alpha.Statergy.ocl_keylevel.OCLKeylevelSignal
+    quant.engines.pov.slicers.pov.POVSlicer
 
 so what it validates is the shipped code, not a model of it.
 
@@ -32,7 +32,7 @@ REAL:
 
 SIMULATED:
   * the broker. A RecordingClient replays recorded candles for history()
-    and returns canned quotes/depth/orderbook. placeorder() does NOT reach
+    and returns canned quotes/depth/orderbook. send_order() does NOT reach
     any broker; it records what would have been sent.
   * the ledger is redirected to a temp file.
 
@@ -61,7 +61,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
-_ENGINE = os.path.join(_ROOT, "Blue_engine")
+_ENGINE = os.path.abspath(os.path.join(_HERE, "..", "..", "src"))
 if _ENGINE not in sys.path:
     sys.path.insert(0, _ENGINE)
 
@@ -100,13 +100,15 @@ class RecordedOrder:
 
 @dataclass
 class RecordingClient:
+    #: Replay recorder: orders are recorded only and never reach OpenAlgo.
+    is_paper_broker = True
     """A stand-in for the OpenAlgo SDK backed by recorded candles.
 
     history()  -> replays the recorded frame for the requested interval
     quotes()   -> synthesises a quote from the current LTF candle
     depth()    -> synthesises a two-sided book around the LTP
-    placeorder -> records the order; touches no broker
-    orderbook/cancelorder -> minimal stubs so slicer guards behave
+    send_order -> records the order; touches no broker
+    orderbook/cancel_order -> minimal stubs so slicer guards behave
     """
 
     daily: List[Dict[str, Any]] = field(default_factory=list)
@@ -242,7 +244,7 @@ class RecordingClient:
         return [dict(r) for r in self.ltf[:upto]]
 
     # -- order management --------------------------------------------------
-    def placeorder(self, *, strategy=None, symbol=None, action=None,
+    def send_order(self, *, strategy=None, symbol=None, action=None,
                    exchange=None, price_type=None, product=None,
                    quantity=None, price=None, **kwargs):
         self._seq += 1
@@ -261,7 +263,7 @@ class RecordingClient:
     def orderbook(self, **kwargs):
         return {"status": "success", "data": []}
 
-    def cancelorder(self, *, order_id=None, strategy=None, **kwargs):
+    def cancel_order(self, *, order_id=None, strategy=None, **kwargs):
         return {"status": "success", "data": {"order_id": order_id}}
 
 
@@ -490,8 +492,8 @@ def run_e2e(daily: List[Dict[str, Any]], ltf: List[Dict[str, Any]],
             roc_period: int = 5, z_window: int = 20,
             entry_z: float = 0.8, ltf_interval: str = "15minute") -> Dict[str, Any]:
     """Drive the real signal + slicer through a replayed session."""
-    from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
-    from blue_engine.pov.slicers.pov import POVSlicer
+    from quant.engines.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal
+    from quant.engines.pov.slicers.pov import POVSlicer
 
     client = RecordingClient(daily=daily, ltf=ltf)
     # The slicer slices against growing cumulative volume; the client must
@@ -688,7 +690,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"ltf candles   : {len(ltf)}")
     print(f"confirm gate  : {'ON' if args.confirmed else 'OFF (legacy)'}")
     print(f"ceiling pct   : +{args.ceiling_pct}% on the daily buyer VWAP")
-    print("\nNOTE: the broker is SIMULATED. placeorder() records orders and")
+    print("\nNOTE: the broker is SIMULATED. send_order() records orders and")
     print("      fills nothing. Every figure below is REPLAYED, not live.")
 
     result = run_e2e(daily, ltf, confirm_enabled=args.confirmed,

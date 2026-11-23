@@ -200,7 +200,7 @@ def run_sequence(*, base_url: str = "http://127.0.0.1:5000",
                  enable: Optional[bool] = None,
                  readiness_timeout: float = 300.0) -> Dict[str, Any]:
     """Start (if needed) -> wait -> login -> verify. Returns a JSON-safe record."""
-    from blue_engine.core.broker_auth import autologin_enabled
+    from quant.engines.core.broker_auth import autologin_enabled
 
     record: Dict[str, Any] = {
         "started_at": _now(), "motive": "boot_sequence", "base_url": base_url,
@@ -314,7 +314,7 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    from blue_engine.economics.providers.secrets import get_secret
+    from quant.engines.economics.providers.secrets import get_secret
 
     base_url = args.url or get_secret("OPENALGO_URL") or "http://127.0.0.1:5000"
 

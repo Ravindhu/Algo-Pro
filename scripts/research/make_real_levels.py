@@ -17,9 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "Blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 
-from blue_engine.alpha.signals._pattern import (  # noqa: E402
+from quant.engines.alpha.signals._pattern import (  # noqa: E402
     calculate_trigger_level,
     validate_pattern,
 )

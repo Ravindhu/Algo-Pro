@@ -15,7 +15,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from blue_engine.ml.data_sources.price_cache import PriceCacheSource
+from quant.engines.ml.data_sources.price_cache import PriceCacheSource
 
 db = PriceCacheSource()._cache().db_path
 print("cache db =", db)

@@ -20,7 +20,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "Blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, os.pardir, "src")))
 
 # Plausible bands for India. A value outside these means the payload shape
 # changed or the wrong series was selected -- not a market move.
@@ -32,7 +32,7 @@ BANDS = {
 
 
 def main() -> int:
-    from blue_engine.economics.providers.mospi_provider import MospiProvider
+    from quant.engines.economics.providers.mospi_provider import MospiProvider
 
     print("=" * 84)
     print("MospiProvider - LIVE verification")

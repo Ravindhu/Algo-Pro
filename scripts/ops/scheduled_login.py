@@ -170,8 +170,8 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--json", action="store_true", help="machine-readable")
     args = parser.parse_args(argv)
 
-    from blue_engine.core import broker_auth
-    from blue_engine.economics.providers.secrets import get_secret
+    from quant.engines.core import broker_auth
+    from quant.engines.economics.providers.secrets import get_secret
 
     if args.status:
         credentials = broker_auth.load_credentials()

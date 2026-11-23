@@ -64,12 +64,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 # ---------------------------------------------------------------------------
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
-_ENGINE = os.path.join(_ROOT, "src", "quant", "blue_engine")
+_ENGINE = os.path.join(_ROOT, "src", "quant", "engines")
 if _ENGINE not in sys.path:
     sys.path.insert(0, _ENGINE)
 
-from blue_engine.alpha.confirm.roc import find_flip, zscored_roc  # noqa: E402
-from blue_engine.core.band import BuyerInitiatedDailyVWAP          # noqa: E402
+from quant.engines.alpha.confirm.roc import find_flip, zscored_roc  # noqa: E402
+from quant.engines.core.band import BuyerInitiatedDailyVWAP          # noqa: E402
 
 
 # ===========================================================================

@@ -29,17 +29,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT / "src" / "quant" / "blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""
 
 
 def main() -> int:
-    from blue_engine.economics.economic_engine import EconomicEngine
-    from blue_engine.economics import run_history
+    from quant.engines.economics.economic_engine import EconomicEngine
+    from quant.engines.economics import run_history
 
     cfg = json.loads(
-        (ROOT / "src" / "quant" / "blue_engine" / "input" / "macro_master.json")
+        (ROOT / "src" / "quant" / "engines" / "input" / "macro_master.json")
         .read_text(encoding="utf-8"))
     econ_cfg = cfg["engines"]["economic"]
 
@@ -48,11 +48,11 @@ def main() -> int:
     provider_note = "static config only"
 
     try:
-        from blue_engine.economics.providers import build_default_stack
+        from quant.engines.economics.providers import build_default_stack
 
         client = None
         if KEY:
-            from blue_engine.core.client import init_client
+            from quant.engines.core.client import init_client
             client = init_client(api_key=KEY)
 
         logs = []

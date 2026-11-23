@@ -59,8 +59,8 @@ def _api_key():
 
 # ---- 1. blue_engine imports cleanly (installed package) ----
 def t_engine_import():
-    import blue_engine
-    import blue_engine.core.runner
+    import quant.engines as blue_engine
+    import quant.engines.core.runner
 
 
 check("blue_engine imports cleanly", t_engine_import)
@@ -68,7 +68,7 @@ check("blue_engine imports cleanly", t_engine_import)
 
 # ---- 2. engine config schema ----
 def t_config_schema():
-    import blue_engine
+    import quant.engines as blue_engine
     cfg_path = Path(blue_engine.__file__).parent / "input" / "master.json"
     if cfg_path.exists():
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
