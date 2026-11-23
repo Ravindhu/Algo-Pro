@@ -164,6 +164,14 @@ Temp/*
 # Exception: the OpenAlgo Python SDK is tracked as a submodule (pinned to v2.0.3)
 # so the test suite can import it. Everything else in Temp/ stays ignored.
 !Temp/openalgo-python-library/
+# Exceptions (2026-11-23): two paths were committed before the Temp/ rule existed
+# and are still in the tree. Without these, `git add` refuses them and a merge
+# that drops them cannot be undone on Windows.
+#   Temp/Stag/               - folder of parked engine modules
+#   Temp/Stage/blueprints.py - was Temp/stag, a FILE whose name collided with
+#                              Temp/Stag/ on a case-insensitive filesystem.
+!Temp/Stag/
+!Temp/Stage/
 
 # -----------------------------------------------------------------------------
 # EXCEPTIONS — things that look ignored but must be tracked
