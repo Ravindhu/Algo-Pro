@@ -12,6 +12,7 @@ All development, refactoring, UI design, and testing in this repository must str
 @docs/DATABASE_RULES.md
 @docs/API_RULES.md
 @docs/SOURCES_RULES.md
+@doc/QUANT_RULES.MD
 
 ## Observability, Verification & Terminal UI
 @docs/LOG_RULES.md
