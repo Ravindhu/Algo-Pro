@@ -18,5 +18,6 @@
 
 ## 4. Security & Validation Guardrails
 - **Credential Masking:** Load secrets exclusively from environment variables (`.env`); never return raw API keys, tokens, or passwords in `GET` configuration responses (mask all sensitive fields).
-- **Local Origin Lockdown:** Restrict CORS policies strictly to local dashboard origins (`localhost` / `127.0.0.1`) unless explicitly configured otherwise.
-- **Pre-Execution Risk Gate:** Validate every order-placing or parameter-updating request against server-side risk bounds (max quantity, max daily loss, allowed symbols) before passing to the execution layer.
+- **Local Origin Lockdown:** "Allow only localhost, or an approved HTTPS origin behind an authenticated reverse proxy.
+All remote access requires login. Local-only access without login is allowed only on localhost."
+- **Pre-Execution Risk Gate:** Validate every order-placing or parameter-updating request against server-side risk bounds (configured business limits) before passing to the execution layer.
