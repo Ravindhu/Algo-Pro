@@ -68,7 +68,6 @@ from .filters import (
     default_rules,
 )
 from .screener_engine import ScreenerEngine
-from ..valuation_engine import ValuationEngine
 from .client.screener_client import ScreenerClient
 from . import valuations
 from . import yf_fallback
@@ -85,6 +84,18 @@ from .valuations import (
     value_company,
     value_symbol,
 )
+
+def __getattr__(name: str):
+    """Load ValuationEngine on first use.
+
+    ``valuation_engine`` imports ``screener.valuations``, which runs this package
+    __init__. An eager import here would be a circular import, so it is lazy.
+    """
+    if name == "ValuationEngine":
+        from ..valuation_engine import ValuationEngine
+        return ValuationEngine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "ScreenerEngine",

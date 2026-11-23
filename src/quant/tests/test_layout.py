@@ -29,7 +29,8 @@ sys.path.insert(0, str(SRC))
 # modules this file guards, it does not carry "Flow stage:" lines, and it owns
 # its own order path through the SDK. Scanning it would make all three guards
 # meaningless, so it is excluded exactly like the vendored trees.
-VENDOR_DIRS = {"openalgo_platform", "vendor", "tests", "blue_engine"}
+# old_blue_engine: parked, never imported (kept for reference; imports blue_engine.* which no longer exists).
+VENDOR_DIRS = {"openalgo_platform", "vendor", "tests", "blue_engine", "old_blue_engine"}
 
 
 def _our_py_files():
@@ -51,7 +52,11 @@ def test_every_module_imports():
 
 
 def test_stage_modules_are_marked_scaffold():
+    # quant/engines is the copied engine that the v5 stages wrap (decision 0032). It is
+    # held to the import and order-path guards, but it does not carry the v5 "Status:" header.
     for path in _stage_files():
+        if "engines" in path.relative_to(SRC / "quant").parts[:1]:
+            continue
         assert re.search(r"^Status: (SCAFFOLD|PHASE \d IMPLEMENTED)", path.read_text(encoding="utf-8"), re.M), path
 
 
@@ -62,9 +67,6 @@ def test_only_openalgo_client_names_the_order_client():
     """
     for path in _stage_files():
         if path.name == "openalgo_client.py":
-            continue
-        # Parked files (old_blue_engine) are never imported; they are kept for reference only.
-        if "old_blue_engine" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
         assert ".placeorder(" not in text, path

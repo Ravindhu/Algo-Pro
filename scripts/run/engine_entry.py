@@ -18,7 +18,7 @@ The engine never builds its own broker client. This launcher does:
 Live mode needs the explicit --live flag AND OpenAlgo in live mode. It then runs the
 same start gates as the live strategy bot (scripts/run/run_live.py startup_checks):
 recorded human approval, unchanged limits file, complete limits, kill switch off,
-holiday calendar, API key, and the egress IP. Its order gate is OpenAlgoClient in
+holiday calendar and API key. Its order gate is OpenAlgoClient in
 live mode (approval, limits hash and compliance, on every order). Any gate that does
 not pass, or any unclear mode, is refused (fail closed). The committed config has
 live_enabled false and null book caps, so live stays refused until the owner sets them.

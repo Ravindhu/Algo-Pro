@@ -479,7 +479,7 @@ class StrategyBot:
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
         self._stops = stops                        # broker SL-M stops: place / status / cancel (None = paper)
         self._pos_store = position_store           # restart-safe position book (None = in-memory only)
-        self._entry_guard = entry_guard            # re-checked every cycle in live (egress IP)
+        self._entry_guard = entry_guard            # re-checked every cycle in live
         self._faults: set = set()                  # ("stop"|"partial", key): entries and slicing blocked while any exists
         self._restored_day = None                  # day of a restored book (keeps marks and done set on first cycle)
         # Pre-gate: capital-protection checks BEFORE the risk gate (calendar, blackout, gap,
@@ -1344,7 +1344,7 @@ class StrategyBot:
         return "LIMIT", round(last_close * (1 + band), 2)
 
     def _run_entry_guard(self) -> bool:
-        """Per-cycle guard (live: egress IP). A refusal blocks new entries only; exits still run."""
+        """Per-cycle guard (optional; live passes none). A refusal blocks new entries only; exits still run."""
         if self._entry_guard is None:
             return True
         try:

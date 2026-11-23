@@ -369,8 +369,6 @@
         <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
       <div><label for="su-cap">Live capital cap (₹, fixed)</label>
         <input type="number" id="su-cap" min="1" step="1" placeholder="not set"></div>
-      <div><label for="su-ip">Live whitelisted static IP</label>
-        <input type="text" id="su-ip" placeholder="not set, e.g. 203.0.113.10"></div>
       <div><label for="su-strategy">Strategy</label>
         <select id="su-strategy"></select></div>
       <div><label for="su-product">Broker product</label>
@@ -1029,7 +1027,6 @@
     updateBudgetHint();
     $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
     $("su-cap").value = s.live_max_capital_inr == null ? "" : String(s.live_max_capital_inr);
-    $("su-ip").value = s.live_allowed_egress_ip || "";
     const sel = $("su-strategy");
     const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
     sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
@@ -1122,8 +1119,6 @@
     }
     const cap = $("su-cap").value.trim();
     if (cap) payload.live_max_capital_inr = Number(cap);
-    const ip = $("su-ip").value.trim();
-    if (ip) payload.live_allowed_egress_ip = ip;
     for (const [id, key] of TF_FIELDS) payload[key] = $(id).value || null;
     setSetupMsg("Saving…", "d");
     try {

@@ -217,7 +217,7 @@ class _Reader:
 
 def _live_build(tmp_path, cash, cap, seen):
     settings = tmp_path / "settings.yaml"
-    settings.write_text("live:\n  allowed_egress_ip: '203.0.113.10'\n  max_capital_inr: 500000\n"
+    settings.write_text("live:\n  max_capital_inr: 500000\n"
                         "trade_setup:\n  timeframes:\n    htf: 1h\n    mtf: 1d\n    ltf: 5m\n", encoding="utf-8")
     limits = tmp_path / "risk_limits.yaml"
     limits.write_text("max_order_quantity: 10\nmax_order_notional: 10000\nmax_open_exposure: 20000\n"
@@ -240,7 +240,7 @@ def _live_build(tmp_path, cash, cap, seen):
     bot, _ = run.build_live_bot(bot_cfg_path=cfg, limits_path=limits, state_dir=tmp_path / "s",
                                 base_url="http://x", api_key="K", transport=_Transport(),
                                 reader=_Reader(cash), startup_fn=startup,
-                                settings_path=settings, egress_fn=lambda: "203.0.113.10")
+                                settings_path=settings)
     return bot
 
 

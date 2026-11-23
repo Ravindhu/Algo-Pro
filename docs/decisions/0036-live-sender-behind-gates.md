@@ -12,7 +12,7 @@ Path A: the strategy bot is the only live order path.
 - `execution/strategy_bot.py` gains `LiveSender` (inherits the analyze fill check) and
   `mode: live`. Live needs `live_enabled: true` AND an injected `live_gate` that passes.
 - `scripts/run/run_strategy_bot_live.py` supplies the gate: `run_live.startup_checks`
-  (approval, limits hash, complete limits, kill switch, calendar, API key, egress IP) and
+  (approval, limits hash, complete limits, kill switch, calendar, API key) and
   the broker position reconciliation (`require_broker=True`: no broker reader blocks entries).
 - Every live order still passes `OpenAlgoClient`'s live guard (approval, limits hash,
   compliance gate) and an approved `GateDecision` for the same intent.

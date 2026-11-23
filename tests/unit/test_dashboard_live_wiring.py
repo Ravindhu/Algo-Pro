@@ -62,20 +62,19 @@ def test_status_is_on_when_only_the_live_bot_file_is_on(owner_client):
     assert body["active"] is True and "live only" in body["reason"]
 
 
-def test_setup_saves_live_cap_and_ip_to_settings(owner_client):
+def test_setup_saves_live_cap_to_settings(owner_client):
     client, paths = owner_client
-    r = client.post("/api/setup", json={"live_max_capital_inr": 250000, "live_allowed_egress_ip": "203.0.113.10"})
+    r = client.post("/api/setup", json={"live_max_capital_inr": 250000})
     assert r.status_code == 200, r.text
     text = paths["settings"].read_text(encoding="utf-8")
-    assert "max_capital_inr: 250000" in text and "allowed_egress_ip: 203.0.113.10" in text
+    assert "max_capital_inr: 250000" in text and "allowed_egress_ip" not in text
     read = client.get("/api/setup").json()
-    assert read["live_max_capital_inr"] == 250000 and read["live_allowed_egress_ip"] == "203.0.113.10"
+    assert read["live_max_capital_inr"] == 250000 and "live_allowed_egress_ip" not in read
     assert "risk_per_trade: 0.005" in text   # other keys are kept
 
 
 @pytest.mark.parametrize("body", [
     {"live_max_capital_inr": 0}, {"live_max_capital_inr": -5}, {"live_max_capital_inr": True},
-    {"live_allowed_egress_ip": "not-an-ip"}, {"live_allowed_egress_ip": "300.1.1.1"},
 ])
 def test_setup_refuses_bad_live_values(owner_client, body):
     client, _ = owner_client
@@ -88,7 +87,7 @@ def test_live_status_is_owner_only_and_lists_what_is_missing(owner_client):
     body = client.get("/api/live/status").json()
     assert body["ready"] is False
     text = " | ".join(body["reasons"])
-    assert "allowed_egress_ip" in text and "max_capital_inr" in text and "book-level" in text
+    assert "max_capital_inr" in text and "book-level" in text
 
 
 def test_live_status_refuses_a_viewer(tmp_path, monkeypatch):
