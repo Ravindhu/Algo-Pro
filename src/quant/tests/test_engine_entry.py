@@ -45,3 +45,54 @@ def test_unreadable_mode_fails_closed(monkeypatch):
     monkeypatch.setattr(entry, "read_mode", boom)
     with pytest.raises(ConnectionError):
         entry.build_order_client({"api_key": "k"})
+
+
+def test_live_mode_without_live_flag_is_refused(monkeypatch):
+    entry = _load_entry()
+    monkeypatch.setattr(entry, "init_client", lambda **kw: _Sdk())
+    monkeypatch.setattr(entry, "read_mode", lambda c: "live")
+    with pytest.raises(RuntimeError, match="refused"):
+        entry.build_order_client({"api_key": "k"}, live=False)
+
+
+def _live_env(monkeypatch, entry, tmp_path, checks):
+    monkeypatch.setattr(entry, "init_client", lambda **kw: _Sdk())
+    monkeypatch.setattr(entry, "read_mode", lambda c: "live")
+
+    class _Checks:
+        @staticmethod
+        def startup_checks(**kw):
+            return checks
+    monkeypatch.setattr(entry, "_live_checks", lambda: _Checks)
+    limits = tmp_path / "risk_limits.yaml"
+    limits.write_text("x: 1\n", encoding="utf-8")
+    return limits
+
+
+def test_live_refused_when_start_gate_fails(monkeypatch, tmp_path):
+    entry = _load_entry()
+    limits = _live_env(monkeypatch, entry, tmp_path, {"ok": False, "reasons": ["kill switch on"]})
+    with pytest.raises(RuntimeError, match="kill switch on"):
+        entry.build_order_client({"api_key": "k"}, live=True, limits_path=limits, state_dir=tmp_path)
+
+
+def test_live_refused_without_approval(monkeypatch, tmp_path):
+    entry = _load_entry()
+    limits = _live_env(monkeypatch, entry, tmp_path, {"ok": True, "approval": None, "capital_cap": 1000})
+    with pytest.raises(RuntimeError, match="approval"):
+        entry.build_order_client({"api_key": "k"}, live=True, limits_path=limits, state_dir=tmp_path)
+
+
+def test_live_refused_without_capital_cap(monkeypatch, tmp_path):
+    entry = _load_entry()
+    limits = _live_env(monkeypatch, entry, tmp_path, {"ok": True, "approval": object(), "capital_cap": None})
+    with pytest.raises(RuntimeError, match="capital cap"):
+        entry.build_order_client({"api_key": "k"}, live=True, limits_path=limits, state_dir=tmp_path)
+
+
+def test_live_gateway_built_when_every_gate_passes(monkeypatch, tmp_path):
+    entry = _load_entry()
+    limits = _live_env(monkeypatch, entry, tmp_path,
+                       {"ok": True, "approval": object(), "capital_cap": 100000.0})
+    gw = entry.build_order_client({"api_key": "k"}, live=True, limits_path=limits, state_dir=tmp_path)
+    assert isinstance(gw, EngineOrderGateway)
