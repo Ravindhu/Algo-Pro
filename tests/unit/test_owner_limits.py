@@ -70,11 +70,14 @@ def test_input_config_is_not_mutated(tmp_path):
 
 
 def test_repo_owner_file_loads_and_tightens_the_real_master():
-    """Against the committed owner file and the committed master.json."""
+    """Against the committed owner file and the committed master.json.
+    Caps are the owner-set values in config/risk_limits.yaml (owner 2026-11-20)."""
     import json
     master = json.loads((ROOT / "src/quant/engines/input/master.json").read_text(encoding="utf-8"))
     risk = apply_owner_limits(master)["risk"]
-    assert risk["max_order_quantity"] == 10
-    assert risk["max_order_notional"] == 10000
-    assert risk["max_daily_loss"] == 1000
-    assert risk["max_open_exposure"] == 20000
+    # min(master.json cap, owner cap): qty 500 vs 100000, notional 250000 vs 100000,
+    # daily loss 10000 vs 20000, exposure 500000 vs 300000.
+    assert risk["max_order_quantity"] == 500
+    assert risk["max_order_notional"] == 100000
+    assert risk["max_daily_loss"] == 10000
+    assert risk["max_open_exposure"] == 300000

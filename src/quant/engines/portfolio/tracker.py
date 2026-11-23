@@ -85,7 +85,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 DEFAULT_CHARGES_BPS: float = 12.0
 
 # <repo>/data/portfolio_nav/YYYY-MM.jsonl
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_NAV_DIR = _REPO_ROOT / "data" / "portfolio_nav"
 
 __all__ = [

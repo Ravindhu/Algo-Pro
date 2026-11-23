@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 # <repo>/data/portfolio_runs/   (sibling-safe, survives an openalgo re-clone)
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_DIR = _REPO_ROOT / "data" / "portfolio_runs"
 
 

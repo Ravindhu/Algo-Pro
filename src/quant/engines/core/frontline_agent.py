@@ -479,7 +479,7 @@ class FrontlineAgent:
             client.governor.stage_ttl = {
                 str(k).lower(): float(v) for k, v in stage_ttls.items()}
             cache_dir = cache_cfg.get("cache_dir") or (
-                Path(__file__).resolve().parents[2] / "data" / "llm_cache" / "stage")
+                Path(__file__).resolve().parents[4] / "data" / "llm_cache" / "stage")
             client.governor.cache_dir = Path(cache_dir)
         return client
 

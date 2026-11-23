@@ -35,7 +35,7 @@ def test_read_setup_returns_current_values(paths):
         "htf_interval": None, "mtf_interval": None, "ltf_interval": None,
         "timeframe_options": ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "75m", "125m", "1d", "1w", "1M"],
         "capital_inr": None, "max_daily_loss_pct": None, "max_strategy_loss_pct": None,
-        "max_daily_loss": 1000, "max_strategy_loss": None}
+        "max_daily_loss": 1000, "max_strategy_loss": None, "mtf_borrowed_inr": None}
 
 
 def test_save_writes_risk_strategy_and_symbol_cap_to_their_files(paths):

@@ -34,7 +34,7 @@ from .rbi_provider import RbiReferenceRateProvider
 from .secrets import get_secret, has_secret, redact
 
 # Default cache directory: <repo>/data/macro_cache/ (survives engine reloads).
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_CACHE_DIR = _REPO_ROOT / "data" / "macro_cache"
 
 

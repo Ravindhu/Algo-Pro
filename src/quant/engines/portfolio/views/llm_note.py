@@ -52,8 +52,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["extract_views", "write_pm_note", "available", "cache_path",
            "VIEW_PROMPT"]
 
-# Blue_engine/portfolio/views/llm_note.py -> repo root is 4 parents up.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# quant/engines/portfolio/views/llm_note.py -> repo root is 5 parents up.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_CACHE_DIR = runtime_data_root() / "portfolio_llm"
 
 #: PM-note cache TTL in seconds (LLM_STAGE_TTL_PLAN Phase 3). The old cache had

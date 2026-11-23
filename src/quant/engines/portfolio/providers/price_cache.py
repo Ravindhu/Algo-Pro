@@ -50,7 +50,7 @@ from ...runtime_paths import runtime_data_root
 logger = logging.getLogger(__name__)
 
 # <repo>/data/price_cache/prices.db
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_DB = runtime_data_root() / "price_cache" / "prices.db"
 
 _SCHEMA = """

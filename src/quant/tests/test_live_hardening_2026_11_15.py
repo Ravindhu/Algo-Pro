@@ -17,6 +17,7 @@ import sys
 from datetime import date, datetime
 
 import pandas as pd
+import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -108,6 +109,20 @@ def _pos(key, strategy, entry=100.0, qty=10):
 
 
 # ---- daily P&L: a closed trade is counted once -----------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _test_only_owner_caps(tmp_path, monkeypatch):
+    """Owner caps in config/risk_limits.yaml would refuse these test
+    entries. Point the gate at a test-only file with large caps. The real file is not changed."""
+    from quant.core import owner_limits_store as ols
+    p = tmp_path / "owner_caps_for_tests.yaml"
+    p.write_text("max_order_quantity: 1000000\nmax_order_notional: 100000000\n"
+                 "max_open_exposure: 100000000\nblocked: false\n", encoding="utf-8")
+    monkeypatch.setattr(ols, "DEFAULT_PATH", p)
+    monkeypatch.setattr(ols, "_loaded_from", None)
+    monkeypatch.setattr(ols, "_cached", {})
+    yield
+
 
 def test_a_closed_trade_is_counted_once_in_daily_pnl(tmp_path):
     bars = TimedBars()

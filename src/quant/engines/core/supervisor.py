@@ -350,7 +350,7 @@ def _interruptible_sleep(seconds: float) -> None:  # pragma: no cover - thin
 # --------------------------------------------------------------------------- #
 # Read-only status for the dashboard
 # --------------------------------------------------------------------------- #
-_DEFAULT_JOURNAL = (Path(__file__).resolve().parents[2] / "data"
+_DEFAULT_JOURNAL = (Path(__file__).resolve().parents[4] / "data"
                     / "supervisor_journal.jsonl")
 
 

@@ -20,10 +20,10 @@ POLL_INTERVAL = int(os.getenv("POLLING_INTERVAL_SECONDS", 5))
 INITIAL_DAYS = int(os.getenv("INITIAL_DAYS", 30))
 
 # Paths
-# Script lives in Blue_engine/market/, so the project root is three levels up.
+# Script lives in quant/engines/market/, so the project root is three levels up.
 # Runtime database goes under data/openalgo_db/ (gitignored) so it never ends
 # up tracked in the repo.
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 DB_FOLDER = os.path.join(_REPO_ROOT, "data", "openalgo_db")
 os.makedirs(DB_FOLDER, exist_ok=True)
 SYMBOLS_FILE = os.path.join(os.path.dirname(__file__), "symbols", "sample_nse.csv")

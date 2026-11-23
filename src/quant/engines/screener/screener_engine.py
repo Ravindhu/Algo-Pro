@@ -71,7 +71,7 @@ class ScreenerEngine(BaseEngine):
 
         try:
             from dotenv import load_dotenv
-            load_dotenv(Path(__file__).resolve().parents[2] / ".env",
+            load_dotenv(Path(__file__).resolve().parents[4] / ".env",
                         override=False)
         except ImportError:
             pass
@@ -128,7 +128,7 @@ class ScreenerEngine(BaseEngine):
         if self._client is None:
             try:
                 from dotenv import load_dotenv
-                load_dotenv(Path(__file__).resolve().parents[2] / ".env",
+                load_dotenv(Path(__file__).resolve().parents[4] / ".env",
                             override=False)
             except ImportError as exc:
                 raise RuntimeError(

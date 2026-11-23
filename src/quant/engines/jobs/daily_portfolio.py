@@ -49,8 +49,7 @@ from ..runtime_paths import runtime_data_root
 
 logger = logging.getLogger(__name__)
 
-# <repo>/data/job_status/
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# <repo>/data/job_status/  (root unused directly; STATUS_DIR goes through runtime_data_root)
 STATUS_DIR = runtime_data_root() / "job_status"
 STATUS_FILE = STATUS_DIR / "daily_portfolio.json"
 

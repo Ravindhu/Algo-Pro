@@ -110,8 +110,8 @@ def _utc_now_iso() -> str:
 
 
 def _repo_root() -> Path:
-    """Repository root, derived from this file (``<root>/blue_engine/core/``)."""
-    return Path(__file__).resolve().parents[2]
+    """Repository root, derived from this file (``<root>/src/quant/engines/core/``)."""
+    return Path(__file__).resolve().parents[4]
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

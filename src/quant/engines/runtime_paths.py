@@ -21,5 +21,5 @@ def runtime_data_root() -> Path:
     override = os.getenv("BLUE_RUNTIME_DATA_ROOT")
     if override:
         return Path(override)
-    # Blue_engine/runtime_paths.py -> repo root is one level above Blue_engine.
-    return Path(__file__).resolve().parents[1] / "data"
+    # quant/engines/runtime_paths.py -> repo root is three levels above engines/.
+    return Path(__file__).resolve().parents[3] / "data"

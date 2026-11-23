@@ -22,8 +22,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Optional
 
-# Blue_engine/economics/providers/secrets.py -> repo root is 3 parents up.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# quant/engines/economics/providers/secrets.py -> repo root is 5 parents up.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 _ENV_CANDIDATES = (
     _REPO_ROOT / "_restored" / ".env",
     _REPO_ROOT / ".env",

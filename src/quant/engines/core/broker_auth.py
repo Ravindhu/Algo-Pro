@@ -749,7 +749,8 @@ LOGIN_FAILURE_BACKOFF_SECONDS = 1800.0
 #: Login bookkeeping lives beside the other run records (never in git-tracked
 #: config), and is read by the dashboard card as well.
 def _login_state_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "Temp" / "run" / "login_guard.json"
+    # engines/core/x.py -> repo root is four levels up (core -> engines -> quant -> src -> repo).
+    return Path(__file__).resolve().parents[4] / "Temp" / "run" / "login_guard.json"
 
 
 def login_guard(*, now: Optional[float] = None) -> Dict[str, Any]:

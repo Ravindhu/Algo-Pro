@@ -41,7 +41,7 @@ def fii_flows(category: str = "FII", *, as_of=None) -> dict:
     and never as a zero flow.
     """
     row = nse_fii.latest(category)
-    stale = nse_fii.staleness(row)
+    stale = nse_fii.staleness(row, today=as_of)
     if row is None:
         return {"known": False, "net_value": None, "trade_date": None,
                 "stale": True, "detail": "no flow data stored; run scripts/ops/fetch_fii_daily.py"}

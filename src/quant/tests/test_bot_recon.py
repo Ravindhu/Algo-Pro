@@ -20,6 +20,20 @@ from quant.risk.kill_switch import KillSwitch
 NOW = datetime(2026, 11, 17, 10, 15)
 
 
+@pytest.fixture(autouse=True)
+def _test_only_owner_caps(tmp_path, monkeypatch):
+    """Owner caps in config/risk_limits.yaml would refuse these test
+    entries. Point the gate at a test-only file with large caps. The real file is not changed."""
+    from quant.core import owner_limits_store as ols
+    p = tmp_path / "owner_caps_for_tests.yaml"
+    p.write_text("max_order_quantity: 1000000\nmax_order_notional: 100000000\n"
+                 "max_open_exposure: 100000000\nblocked: false\n", encoding="utf-8")
+    monkeypatch.setattr(ols, "DEFAULT_PATH", p)
+    monkeypatch.setattr(ols, "_loaded_from", None)
+    monkeypatch.setattr(ols, "_cached", {})
+    yield
+
+
 class Audit:
     def __init__(self):
         self.records = []
