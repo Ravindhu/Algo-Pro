@@ -1,0 +1,7 @@
+{
+  "pipeline_enabled": false,
+  "lookback_window": 14,
+  "agent_enabled": false,
+  "openrouter_model": "qwen/qwen-2.5-7b-instruct:free",
+  "ollama_model": "qwen2.5-coder:7b"
+}

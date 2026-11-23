@@ -1,0 +1,340 @@
+{
+  "_comment": "macro_master.json - configuration for the six-engine macro pipeline. Every block is optional; engines degrade to sane defaults when a block is absent. Credentials are NEVER stored here - the API key is read from the environment / _restored/.env.",
+  "dry_run": true,
+  "gate_on_infrastructure": true,
+  "engines": {
+    "economic": {
+      "_comment": "New opt-in knobs. Defaults reproduce the baseline scorer. Set regime_model='hmm' + model_weight>0 to use the sticky-HMM posterior; use_surprise/use_delevel blend change vs trend; event_trim scales gross down near known events; use_nlp reads context['headlines']/'rbi_text'.",
+      "use_surprise": true,
+      "use_delevel": true,
+      "blend": {"level": 0.35, "delevel": 0.25, "surprise": 0.40},
+      "regime_model": "none",
+      "model_weight": 0.0,
+      "use_nlp": true,
+      "event_trim": 0.0,
+      "event_window_days": 10,
+      "mpc_dates": [],
+      "fixed_events": [],
+      "macro": {
+        "_comment": [
+          "FALLBACK macro block. STATIC values, used only when no live provider",
+          "supplies a signal. They do NOT auto-update, so they drift silently -",
+          "which is how 'currency' sat at 84.5 while USD/INR was near 95.9.",
+          "",
+          "LIVE now (fetched every 6h, provenance shown on the dashboard):",
+          "  currency       FBIL reference rate via RBI",
+          "  inflation      MoSPI CPI, All-India Combined",
+          "  gdp_growth     MoSPI NAS, real GDP YoY computed from constant prices",
+          "  employment     MoSPI PLFS unemployment rate, person, rural+urban",
+          "The values here are only the last-resort fallback for those four.",
+          "",
+          "STILL STATIC (no scriptable source found - see notes per key):",
+          "  debt, forex_reserves, bond_return",
+          "",
+          "REMOVED as signals (see engines.economic.signals):",
+          "  climate, tax - no citable source exists, so their weights were set",
+          "  to 0. Scoring an invented number is worse than scoring nothing."
+        ],
+        "as_of": "2026-09-26",
+        "gdp_growth": {
+          "value": 7.82, "previous": 7.8, "unit": "pct", "as_of": "2026-09-26",
+          "src": "MoSPI NAS real GDP YoY, Q1 FY27 computed from constant-price levels (LIVE via MospiProvider)",
+          "period": "Q1 FY2026-27"
+        },
+        "bond_return": {
+          "value": 6.68, "previous": 6.72, "unit": "pct", "as_of": "2026-09-26",
+          "src": "FBIL/CCIL 10Y G-Sec benchmark yield. NOT live: FBIL+CCIL render via JS, NSE allIndices exposes index LEVELS only (NIFTY GS 10YR = 2644, which is ~2644 not a yield), FRED unreachable. Do not substitute the index for the yield.",
+          "period": "Sep 2026"
+        },
+        "debt": {
+          "value": 81.92, "previous": 81.76, "unit": "pct_gdp",
+          "as_of": "2026-09-26",
+          "src": "RBI/IMF general government debt/GDP. Annual release; SOTW (IMF WEO) gives 83.4 for 2026 but its API silently ignores the country filter, so it is not wired.",
+          "period": "FY2024-25 actual"
+        },
+        "employment": {
+          "value": 4.8, "previous": 4.7, "unit": "pct", "as_of": "2026-09-26",
+          "src": "MoSPI PLFS unemployment rate, All-India, person, rural+urban, all ages (LIVE via MospiProvider)",
+          "period": "Dec 2025"
+        },
+        "inflation": {
+          "value": 4.82, "previous": 4.31, "unit": "pct", "as_of": "2026-09-26",
+          "src": "MoSPI CPI All-India Combined (LIVE via MospiProvider). Rural is 5.23 and Urban 4.31 - the Combined row is the headline.",
+          "period": "Aug 2026"
+        },
+        "climate": {
+          "value": 42.0, "previous": 40.0, "unit": "index",
+          "as_of": "2026-09-26",
+          "src": "UNSOURCED placeholder. Weight is 0 - not scored. No free citable series exists for this input.",
+          "period": "-"
+        },
+        "tax": {
+          "value": 27.0, "previous": 26.5, "unit": "pct",
+          "as_of": "2026-09-26",
+          "src": "UNSOURCED placeholder. Weight is 0 - not scored. No citable series; note the only candidate (GC.TAX.TOTL.GD.ZS) measures tax REVENUE, not the effective corporate rate, and ends FY2022.",
+          "period": "-"
+        },
+        "currency": {
+          "value": 95.8918, "previous": 94.4, "unit": "usd_local",
+          "as_of": "25-Sep-2026 13:00 IST",
+          "src": "FBIL reference rate via RBI (LIVE via RbiReferenceRateProvider)",
+          "period": "1.00pm fix 25-Sep-2026"
+        },
+        "forex_reserves": {
+          "value": 765.9, "previous": 780.78, "unit": "bn_usd",
+          "as_of": "2026-09-26",
+          "src": "RBI Weekly Statistical Supplement. NOT live: data.rbi.org.in refuses scripted access (SAP token needs a browser fingerprint) and the WSS HTML pages carry only a 3.4KB JS template. Weekly release, so a dated value is defensible.",
+          "period": "Sep 2026"
+        }
+      },
+      "signals": {
+        "bond_return": {"direction": -1, "weight": 1.0},
+        "currency":    {"direction": -1, "weight": 0.5},
+        "inflation":   {"direction": -1, "weight": 1.0},
+        "employment":  {"direction": -1, "weight": 0.5},
+        "gdp_growth":  {"direction": 1,  "weight": 1.0},
+        "debt":        {"direction": -1, "weight": 0.5},
+        "forex_reserves": {"direction": 1, "weight": 0.5},
+        "fii_inflow":  {"direction": 1,  "weight": 0.5},
+        "_fii_inflow_comment": "FII net cash from the vendor parquet. Kept at 0.5 because the Market engine already scores FII in risk_appetite; this adds it to the macro composite without double-counting the full weight. Stale flow is capped at multiplier 1.0 by the Economic engine.",
+        "climate":     {"direction": -1, "weight": 0.0},
+        "tax":         {"direction": -1, "weight": 0.0}
+      }
+    },
+    "market": {
+      "indices": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
+      "fii_weight": 0.5,
+      "fii_scale": 6000.0,
+      "fii_zscore_window": 20,
+      "_fii_zscore_comment": "20-day mean/std z-score of FII net flow, blended with the level score. One day of flow is noisy: +2000 Cr is unremarkable in a week running +/-4000 Cr but extreme in a quiet month.",
+      "fii_zscore_weight": 0.35,
+      "_fii_scale_comment": "Cr of FII net flow that scores +/-1. 6000 = ~95th pct of |daily FII net cash| over 170 vendor trading days, so normal days stay mid-band. Was 1000, which saturated the score on 82% of days and made a -1305 Cr day indistinguishable from -5000 Cr.",
+      "low_volatility_pct": 15.0,
+      "high_volatility_pct": 30.0,
+      "market": {
+        "indices": {
+          "NIFTY":      {"close": 24500, "prev_close": 24380, "return_1m_pct": 3.2, "return_3m_pct": 6.1},
+          "BANKNIFTY":  {"close": 52300, "prev_close": 52500, "return_1m_pct": -1.1, "return_3m_pct": 2.0},
+          "NIFTYIT":    {"close": 38200, "prev_close": 37900, "return_1m_pct": 4.8, "return_3m_pct": 9.4},
+          "NIFTYPHARMA":{"close": 21400, "prev_close": 21350, "return_1m_pct": 1.9, "return_3m_pct": 3.3}
+        },
+        "commodities": {
+          "gold":     {"close": 72000, "prev_close": 71500},
+          "crude":    {"close": 6200,  "prev_close": 6320}
+        },
+        "fii": {"net_cash": 1450.0, "net_futures": 320.0}
+      }
+    },
+    "portfolio": {
+      "_comment": "portfolio_inputs below is the LAST-RESORT fallback. The live path is provider_ref -> providers/factory.py:portfolio_inputs, which assembles openalgo (history/positionbook) + account (funds) + price_cache + this static block. Set BLUE_PORTFOLIO_CONFIG=/path/to.json to override the universe/costs per deployment without editing this file. P0 finding (11y walk-forward, net of India costs): no optimiser beat inverse_vol SIGNIFICANTLY (all Sharpe CIs spanned zero), so optimiser choice is stability-driven; the COST lever is ~20x larger than the optimiser lever. Hence rebalance_band_pct=1.0 (cost 268 -> 171 bps for ~0.02 Sharpe).",
+      "provider_ref": "blue_engine.portfolio.providers.factory:portfolio_inputs",
+      "optimiser": "risk_parity",
+      "max_weight": 0.30,
+      "min_weight": 0.0,
+      "max_gross": 1.0,
+      "max_tech_sector_exposure": 0.20,
+      "min_cash_buffer_pct": 0.15,
+      "max_turnover": 0.10,
+      "beta_lower": 0.9,
+      "beta_upper": 1.1,
+      "rebalance_band_pct": 1.0,
+      "cost_band_pct": 1.0,
+      "target_vol": 0.12,
+      "benchmark": "NIFTY",
+      "sizing_enabled": true,
+      "use_kelly": true,
+      "use_drawdown_governor": true,
+      "views_enabled": false,
+      "cov_method": "ledoit_wolf",
+      "cache_prices": true,
+      "hedge_beta_tolerance": 0.10,
+      "max_hedge_ratio": 0.60,
+      "leader_tilt": 0.0,
+      "universe_names": ["NIFTY", "BANKNIFTY", "IT", "PHARMA", "AUTO"],
+      "costs": {
+        "_comment": "Conservative India DELIVERY cost model, bps of notional per side. Override for intraday/F&O (STT differs).",
+        "brokerage": 3.0,
+        "stt": 10.0,
+        "exchange_txn": 0.33,
+        "gst_on_brokerage_pct": 18.0,
+        "stamp_duty": 1.5,
+        "sebi": 0.01,
+        "slippage": 5.0
+      },
+      "portfolio_inputs": {
+        "universe": ["NIFTY", "BANKNIFTY", "NIFTYIT", "NIFTYPHARMA"],
+        "sector_by_symbol": {
+          "NIFTY": "Broad Market",
+          "BANKNIFTY": "Banking",
+          "NIFTYIT": "Information Technology",
+          "NIFTYPHARMA": "Healthcare"
+        },
+        "vols": {"NIFTY": 0.14, "BANKNIFTY": 0.19, "NIFTYIT": 0.17, "NIFTYPHARMA": 0.16},
+        "betas": {"NIFTY": 1.0, "BANKNIFTY": 1.15, "NIFTYIT": 0.9, "NIFTYPHARMA": 0.7},
+        "corr": {
+          "NIFTY":       {"BANKNIFTY": 0.82, "NIFTYIT": 0.61, "NIFTYPHARMA": 0.48},
+          "BANKNIFTY":   {"NIFTY": 0.82, "NIFTYIT": 0.55, "NIFTYPHARMA": 0.44},
+          "NIFTYIT":     {"NIFTY": 0.61, "BANKNIFTY": 0.55, "NIFTYPHARMA": 0.39},
+          "NIFTYPHARMA": {"NIFTY": 0.48, "BANKNIFTY": 0.44, "NIFTYIT": 0.39}
+        },
+        "current_weights": {"NIFTY": 0.30, "BANKNIFTY": 0.15},
+        "capital": 1000000.0
+      }
+    },
+    "risk": {
+      "max_network_latency_ms": 5000,
+      "max_allowed_slippage_pct": 0.005,
+      "force_trailing_stop_pct": 2.5
+    },
+    "sector": {
+      "_comment": "Optional Mansfield relative-strength stage. Supply aligned benchmark and sector close series in sector_market_data. Agent is opt-in; any invalid or unavailable advice applies zero-allocation WAIT_AND_SEE limits.",
+      "pipeline_enabled": false,
+      "agent_enabled": false,
+      "lookback_window": 14,
+      "openrouter_model": "qwen/qwen-2.5-7b-instruct:free",
+      "ollama_model": "qwen2.5-coder:7b"
+    },
+    "agent": {
+      "_comment": "Optional frontline advisory. Backend chain: Ollama (local, unlimited, no key) -> OpenRouter free-tier overflow -> disabled. Only explicit public text from context.agent_inputs is sent. Suggestions NEVER write configuration or place orders, and for veto-capable keys the agent may only move in the safe direction (see _CAPS in core/frontline_agent.py).",
+      "enabled": false,
+      "model": "openai/gpt-4o-mini",
+      "timeout_seconds": 20,
+      "max_rounds": 2,
+      "max_calls": 3,
+      "memory": {
+        "_comment": "Three memories for the stage skills. JSON only, under <agent_io.sandbox>/_memory/: working.json (this shift + last few cycles), calibration.json (what each station usually produces and how often the rails clamp it), mistakes.json (the exact failure each station made, capped and de-duplicated). Memory enters the prompt as CONTEXT: it never sets an operative number, never clears a veto and never bypasses the validator. Delete a file to forget that memory; it degrades to empty, never to an error.",
+        "enabled": true
+      },
+      "self_correction": {
+        "_comment": "Automatic self-correction loop. After each skill answer a DETERMINISTIC judge (schema validator + data gate) decides whether to re-ask. max_attempts is hard-clamped 1..3; every attempt shares the ONE session call budget above, so a loop cannot drain the free tier. 'tools' enables the read-only data toolbelt (core/data_tools.py) so the agent can fetch missing evidence instead of guessing. A clamped answer is a SUCCESS and is not retried.",
+        "enabled": true,
+        "max_attempts": 2,
+        "tools": true
+      },
+      "tools": {
+        "_comment": "Read-only evidence the agent may fetch for itself. read_roots are directories whose *.json payloads may be read (capped at 512 KB each). Nothing here can write.",
+        "read_roots": ["data", "output"],
+        "catalog_paths": []
+      },
+      "_agentic_comment": "max_rounds/max_calls bound the optional read-only tool loop. Hard-clamped to 4 rounds / 6 calls in AgenticLLM so a misconfiguration cannot drain the OpenRouter free tier (50 req/day below 10 credits, 1000 above).",
+      "patch": {
+        "_comment": "JSON-patch edit mode (docs/FRONTLINE_PATCH_PROTOCOL_PLAN.md). enabled=false keeps full regeneration. edit_model routes the small edit call to the cheapest backend model (element 7); empty = normal chain order. A malformed patch falls back to a full call; the patched result still passes _SCHEMAS validation and the _CAPS clamp.",
+        "enabled": false,
+        "edit_model": ""
+      },
+      "cache": {
+        "_comment": "Per-stage TTL in seconds for the governed prompt cache (LLM_STAGE_TTL_PLAN). 0 = always call (default, unchanged behaviour). A cached answer still passes schema validation and the safe-direction clamp. risk and portfolio MUST stay 0: a cached veto answer is never acceptable.",
+        "stage_ttl_seconds": {
+          "economic": 0,
+          "sector": 0,
+          "market": 0,
+          "screener": 0,
+          "portfolio": 0,
+          "risk": 0,
+          "valuation": 0,
+          "backtest": 0,
+          "optimization": 0
+        }
+      },
+      "llm": {
+        "_chain_comment": "Order is fixed in code: ollama, then openrouter, then disabled. Set enabled=false to drop a backend from the chain.",
+        "ollama": {
+          "enabled": true,
+          "model": "qwen3:8b",
+          "digest": "",
+          "timeout_seconds": 8,
+          "_comment": "OLLAMA_HOST defaults to http://127.0.0.1:11434. Fill 'digest' (e.g. sha256:...) once the model is pinned: ':latest' is mutable, so an upgrade would silently change agent output."
+        },
+        "openrouter": {
+          "enabled": true,
+          "model": "qwen/qwen-2.5-7b-instruct:free",
+          "_comment": "Overflow only. ':free' variants are capped at 20 req/min and 50 req/day (< 10 credits) or 1000 req/day (>= 10 credits). A 429 marks the backend exhausted for the rest of the UTC day."
+        }
+      }
+    },
+    "agent_io": {
+      "_comment": "Where an agentic stage skill may publish its answer. JSON ONLY: core/skill_writer.py refuses any other extension, any path outside this sandbox, NaN/Infinity, and every protected config basename (macro_master.json, strategy.active.json). An agent can never write code or configuration.",
+      "sandbox": "",
+      "audit": true,
+      "_sandbox_comment": "Empty = <repo>/data/agent_stage. Every accepted AND refused write is appended to <sandbox>/_audit/writes.jsonl."
+    },
+    "stage_gate": {
+      "_comment": "DATA SUFFICIENCY gate, evaluated by deterministic code only (core/stage_gate.py) - never by an LLM. 'halt_analysis' stops the analytic chain at the first stage whose evidence is missing; risk/infrastructure/POV-block still run so the report is complete. 'warn' records the verdict and continues. Per-stage requirements may be overridden in 'stages'; a stage listing [] is left ungated.",
+      "enabled": false,
+      "on_block": "halt_analysis",
+      "stages": {}
+    },
+    "screener": {
+      "_comment": "Optional pipeline stage. Runs when enabled: the candidate universe is the screener.in sectors selected by the sector HM gate. Network scraping stays bounded by the polite limits below. PAPER-RUN FIRST - this is a strategy change, not just a switch.",
+      "pipeline_enabled": true,
+      "enabled": true,
+      "_sector_filter_comment": "When enabled, the stock universe is chosen by the sector HM gate (RSI > EMA) instead of a hard-coded 'sectors' list. The gate and the index->screener slug map are documented in docs/My_trading_system_SOP/SOP.md section 8b. Measured out-of-sample: RSI>EMA scored 0.518 (5d) / 0.535 (20d) against 0.500 for random; adding an RSI<=40 cap REDUCED it to 0.454 / 0.446, so require_discount is false on purpose. An explicit 'sectors' list always wins over this filter.",
+      "sector_filter": {
+        "enabled": true,
+        "mode": "rsi_above_ema",
+        "require_discount": false,
+        "discount_level": 40,
+        "confirm_bars": 2,
+        "membership_limit": 250
+      }
+    },
+    "valuation": {
+      "_comment": "Optional, offline pipeline stage. Requires caller-supplied company financial snapshots.",
+      "pipeline_enabled": false,
+      "growth_rate_ceiling": 0.05,
+      "margin_safety_adjustment": 0.85
+    },
+    "alpha": {
+      "weight_fundamental": 1.0,
+      "weight_technical": 1.5,
+      "min_score": 0.30,
+      "backtest_min_hit_rate": 0.45,
+      "backtest_horizon": 10,
+      "backtest_window": 5,
+      "alpha_inputs": {
+        "symbols": ["INFY", "TCS"],
+        "fundamentals": {
+          "INFY": {"pe": 24.0, "pb": 7.5, "roe": 0.31, "de": 0.1, "earnings_growth": 0.12, "dividend_yield": 0.025},
+          "TCS":  {"pe": 28.0, "pb": 12.0, "roe": 0.48, "de": 0.0, "earnings_growth": 0.08, "dividend_yield": 0.035}
+        },
+        "prices": {
+          "INFY": {"close": 1480, "prev_high": 1470, "vwap": 1475, "sma_20": 1450, "sma_50": 1430},
+          "TCS":  {"close": 4100, "prev_high": 4120, "vwap": 4110, "sma_20": 4050, "sma_50": 4080}
+        },
+        "history": {
+          "INFY": [{"close": 1440}, {"close": 1450}, {"close": 1462}, {"close": 1458}, {"close": 1470}, {"close": 1478}, {"close": 1480}, {"close": 1490}, {"close": 1495}, {"close": 1502}, {"close": 1510}, {"close": 1508}, {"close": 1515}, {"close": 1520}, {"close": 1518}]
+        }
+      }
+    },
+    "pov": {
+      "symbol": "INFY",
+      "exchange": "NSE",
+      "action": "BUY",
+      "quantity": 1000,
+      "participation_pct": 5.0,
+      "duration_seconds": 900,
+      "poll_interval_seconds": 15,
+      "product": "CNC",
+      "order_mode": "LIMIT",
+      "limit_price": null,
+      "max_slice_quantity": 100,
+      "ceiling_price": 1520.0,
+      "stop_loss_price": 1440.0,
+      "cutoff_time": "15:15",
+      "squareoff_time": "15:20",
+      "depth_aware_pricing": true,
+      "depth_offset_ticks": 1,
+      "circuit_buffer_pct": 0.5,
+      "quote_failure_threshold": 3,
+      "assume_fill_on_ack": false,
+      "strategy_label": "MACRO-POV"
+    },
+    "infrastructure": {
+      "openalgo_host": "127.0.0.1",
+      "openalgo_port": 5000,
+      "dash_port": 8050,
+      "ws_port": 8765,
+      "dashboard_required": false
+    }
+  }
+}
