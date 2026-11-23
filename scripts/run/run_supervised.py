@@ -3,7 +3,7 @@
 Usage
 -----
     .venv\\Scripts\\python.exe scripts\\run\\run_supervised.py
-    .venv\\Scripts\\python.exe scripts\\run\\run_supervised.py --config blue_engine/input/master.json
+    .venv\\Scripts\\python.exe scripts\\run\\run_supervised.py --config src/quant/engines/input/master.json
     .venv\\Scripts\\python.exe scripts\\run\\run_supervised.py --once     # one attempt, no restart
 
 Exit codes mirror the engine: 0 clean stop, 4 safety halt (operator review),
@@ -13,7 +13,7 @@ a non-zero result and never "retries" a safety stop by itself.
 What the supervisor does NOT do
 -------------------------------
 It never re-arms a tripped kill switch and never retries a safety exit. Before
-every (re)start it runs the six gates in ``blue_engine.core.supervisor``:
+every (re)start it runs the six gates in ``quant.engines.core.supervisor``:
 kill switch clear, OpenAlgo reachable, positionbook verifiable, no unreconciled
 working orders, sane quote, and a previous run that did not stop for safety.
 """
@@ -28,20 +28,24 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from blue_engine.core.supervisor import (  # noqa: E402
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from quant.engines.core.supervisor import (  # noqa: E402
     EXIT_SAFETY_STOP,
     Supervisor,
     SupervisorConfig,
     build_default_gates,
 )
 
-DEFAULT_CONFIG = _ROOT / "src" / "quant" / "blue_engine" / "input" / "master.json"
+DEFAULT_CONFIG = _ROOT / "src" / "quant" / "engines" / "input" / "master.json"
 DEFAULT_JOURNAL = _ROOT / "data" / "supervisor_journal.jsonl"
 
 
 def _engine_command(config_path: Path, paper: bool = False) -> list:
     """The exact command the supervisor will run, using the current python."""
-    cmd = [sys.executable, "-m", "blue_engine.core.runner", str(config_path)]
+    cmd = [sys.executable, str(_ROOT / "scripts" / "run" / "engine_entry.py"), str(config_path)]
     if paper:
         cmd.append("--paper")
     return cmd
@@ -51,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
-                    help="engine config JSON (default: blue_engine/input/master.json)")
+                    help="engine config JSON (default: engines/input/master.json)")
     ap.add_argument("--journal", type=Path, default=DEFAULT_JOURNAL,
                     help="JSONL event journal (default: data/supervisor_journal.jsonl)")
     ap.add_argument("--once", action="store_true",
@@ -77,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"config is not valid JSON: {exc!r}")
         return 2
 
-    from blue_engine.core.client import init_client
+    from quant.engines.core.client import init_client
 
     symbol = str(raw.get("symbol") or "")
     exchange = str(raw.get("exchange") or "NSE")
@@ -101,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     # Paper (analyze) runs are exempt from the market-hours gate; a live run is
     # not. Unreadable mode counts as LIVE, so the gate fails closed.
     try:
-        from blue_engine.core.mode import read_mode
+        from quant.engines.core.mode import read_mode
         paper = str(read_mode(client)).strip().lower() == "analyze"
     except Exception:  # noqa: BLE001
         paper = False
@@ -111,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         # Paper validates the plumbing, so a missing broker login must not stop
         # it; the market-hours gate still applies (a closed market proves
         # nothing about a strategy).
-        from blue_engine.core.supervisor import market_hours_gate
+        from quant.engines.core.supervisor import market_hours_gate
         gates = [] if args.no_preflight else [
             lambda: market_hours_gate(
                 symbol, entry_cutoff=str(session_cfg.get("entry_cutoff", "14:45")))]
