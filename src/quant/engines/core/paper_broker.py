@@ -66,6 +66,7 @@ class PaperBroker:
         fill_slippage_bps: adverse slippage applied to every simulated fill.
         tick_size: rounding for simulated prices.
     """
+    is_paper_broker = True  # the order gateway allows this client; it never reaches OpenAlgo
 
     def __init__(self, *, starting_cash: float = 100000.0,
                  data_source: Any = None,

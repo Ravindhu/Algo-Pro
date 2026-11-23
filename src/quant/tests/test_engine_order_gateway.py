@@ -1,13 +1,15 @@
 """The engine order gateway in execution/openalgo_client.py.
 
-Engine code sends orders and cancels only through send_engine_order /
-send_engine_cancel, so the call lives in one module. These tests check that
-the gateway reaches whichever method the client exposes, and that a client
-without one fails loudly instead of silently doing nothing.
+Engine code sends orders only through send_engine_order / send_engine_cancel.
+An order reaches the SDK only through a guarded EngineOrderGateway (same mode
+checks as OpenAlgoClient, run before every send) or through the paper broker.
+Any other client is refused.
 """
 import pytest
 
 from quant.execution.openalgo_client import (
+    EngineOrderGateway,
+    OpenAlgoClient,
     has_engine_cancel_method,
     has_engine_order_method,
     send_engine_cancel,
@@ -15,7 +17,7 @@ from quant.execution.openalgo_client import (
 )
 
 
-class _SdkStyle:
+class _Sdk:
     def __init__(self):
         self.calls = []
 
@@ -28,9 +30,8 @@ class _SdkStyle:
         return {"status": "success"}
 
 
-class _PaperStyle:
-    def __init__(self):
-        self.calls = []
+class _Paper(_Sdk):
+    is_paper_broker = True
 
     def place_order(self, **kwargs):
         self.calls.append(("order", kwargs))
@@ -41,26 +42,72 @@ class _PaperStyle:
         return {"status": "success"}
 
 
-def test_sdk_style_client_gets_order_and_cancel():
-    client = _SdkStyle()
-    assert has_engine_order_method(client) and has_engine_cancel_method(client)
-    assert send_engine_order(client, symbol="SBIN", quantity=1)["status"] == "success"
-    assert send_engine_cancel(client, order_id="1")["status"] == "success"
-    assert [c[0] for c in client.calls] == ["order", "cancel"]
+def _analyzer(on: bool):
+    def transport(url, payload):
+        if url.endswith("/api/v1/analyzer"):
+            return {"status": "success", "data": {"analyze_mode": on}}
+        return {"status": "success"}
+    return transport
 
 
-def test_paper_style_client_gets_order_and_cancel():
-    client = _PaperStyle()
-    assert send_engine_order(client, symbol="SBIN", quantity=1)["status"] == "success"
-    assert send_engine_cancel(client, order_id="1")["status"] == "success"
-    assert len(client.calls) == 2
+def _gateway(sdk, analyze_on: bool, api_key: str = "key"):
+    guard = OpenAlgoClient("http://x", _analyzer(analyze_on), mode="analyze")
+    return EngineOrderGateway(sdk, guard, api_key)
 
 
-def test_client_without_order_method_fails_loudly():
-    class Empty:
-        pass
-    assert not has_engine_order_method(Empty())
-    with pytest.raises(RuntimeError):
-        send_engine_order(Empty(), symbol="SBIN")
-    with pytest.raises(RuntimeError):
-        send_engine_cancel(Empty(), order_id="1")
+def test_raw_sdk_client_is_refused_for_orders_and_cancels():
+    sdk = _Sdk()
+    assert not has_engine_order_method(sdk) and not has_engine_cancel_method(sdk)
+    with pytest.raises(PermissionError):
+        send_engine_order(sdk, symbol="SBIN", quantity=1)
+    with pytest.raises(PermissionError):
+        send_engine_cancel(sdk, order_id="1")
+    assert sdk.calls == []
+
+
+def test_paper_broker_gets_orders_and_cancels():
+    paper = _Paper()
+    assert has_engine_order_method(paper) and has_engine_cancel_method(paper)
+    assert send_engine_order(paper, symbol="SBIN", quantity=1)["status"] == "success"
+    assert send_engine_cancel(paper, order_id="1")["status"] == "success"
+    assert [c[0] for c in paper.calls] == ["order", "cancel"]
+
+
+def test_gateway_sends_when_analyzer_is_on():
+    sdk = _Sdk()
+    gw = _gateway(sdk, analyze_on=True)
+    assert send_engine_order(gw, symbol="SBIN", quantity=1)["status"] == "success"
+    assert send_engine_cancel(gw, order_id="1")["status"] == "success"
+    assert [c[0] for c in sdk.calls] == ["order", "cancel"]
+
+
+def test_gateway_refuses_when_analyzer_is_off_and_never_calls_sdk():
+    sdk = _Sdk()
+    gw = _gateway(sdk, analyze_on=False)
+    with pytest.raises(PermissionError):
+        send_engine_order(gw, symbol="SBIN", quantity=1)
+    with pytest.raises(PermissionError):
+        send_engine_cancel(gw, order_id="1")
+    assert sdk.calls == []
+
+
+def test_gateway_refuses_empty_api_key():
+    sdk = _Sdk()
+    gw = _gateway(sdk, analyze_on=True, api_key="")
+    with pytest.raises(PermissionError):
+        send_engine_order(gw, symbol="SBIN", quantity=1)
+    assert sdk.calls == []
+
+
+def test_gateway_live_mode_needs_approval():
+    sdk = _Sdk()
+    guard = OpenAlgoClient("http://x", _analyzer(True), mode="live")  # no LiveApproval
+    gw = EngineOrderGateway(sdk, guard, "key")
+    with pytest.raises(PermissionError):
+        send_engine_order(gw, symbol="SBIN", quantity=1)
+    assert sdk.calls == []
+
+
+def test_gateway_requires_an_order_client_guard():
+    with pytest.raises(TypeError):
+        EngineOrderGateway(_Sdk(), object(), "key")
