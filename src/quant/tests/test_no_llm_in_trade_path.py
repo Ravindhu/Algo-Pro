@@ -83,13 +83,13 @@ def test_no_llm_import_on_trade_path():
 
 # --- Transitive check (static, no imports run) -------------------------------------
 
-BLUE_DIR = ROOT / "Blue_engine"
+BLUE_DIR = ROOT / "src" / "quant" / "engines"
 
 
 def _blue_file(name: str):
     parts = name.split(".")
-    if parts[0] == "blue_engine":
-        parts = parts[1:]
+    if parts[:2] == ["quant", "engines"]:
+        parts = parts[2:]
     base = BLUE_DIR.joinpath(*parts)
     if (base / "__init__.py").exists():
         return base / "__init__.py"
@@ -115,7 +115,7 @@ def _blue_reach(start_names: list) -> set:
     seen, stack = set(), list(start_names)
     while stack:
         name = stack.pop()
-        if name in seen or not name.startswith("blue_engine"):
+        if name in seen or not name.startswith("quant.engines"):
             continue
         seen.add(name)
         parts = name.split(".")
@@ -138,14 +138,14 @@ def _bridge_targets() -> list:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) == "load" \
                     and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                targets.append(f"blue_engine.{node.args[0].value}")
+                targets.append(f"quant.engines.{node.args[0].value}")
     return targets
 
 
 @pytest.mark.xfail(strict=True, reason=(
     "Known gap X-9b: Blue package __init__ files load the LLM client. "
-    "blue_engine/core/__init__.py imports frontline_agent, which imports core.llm; "
-    "blue_engine/portfolio/__init__.py imports views.llm_note. Fix in Blue, then remove this marker."))
+    "quant/engines/core/__init__.py imports frontline_agent, which imports core.llm; "
+    "quant/engines/portfolio/__init__.py imports views.llm_note. Fix in Blue, then remove this marker."))
 def test_no_llm_reached_transitively_from_trade_path():
     targets = _bridge_targets()
     assert targets, "no bridge targets found"
@@ -158,7 +158,7 @@ def test_scanner_catches_planted_violations():
     # The scanner must flag each kind of LLM import, or the test above proves nothing.
     samples = {
         "from quant.core.llm import tokens": ["quant.core.llm"],
-        "import blue_engine.core.llm.tokens": ["blue_engine.core.llm.tokens"],
+        "import quant.engines.core.llm.tokens": ["quant.engines.core.llm.tokens"],
         "from ..core.llm import tokens": ["..core.llm"],
         "from quant.core import llm": ["quant.core.llm"],
         "import openai": ["openai"],

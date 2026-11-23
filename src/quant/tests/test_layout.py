@@ -63,6 +63,9 @@ def test_only_openalgo_client_names_the_order_client():
     for path in _stage_files():
         if path.name == "openalgo_client.py":
             continue
+        # Parked files (old_blue_engine) are never imported; they are kept for reference only.
+        if "old_blue_engine" in path.parts:
+            continue
         text = path.read_text(encoding="utf-8")
         assert ".placeorder(" not in text, path
         assert "placeorder" not in text.lower(), path

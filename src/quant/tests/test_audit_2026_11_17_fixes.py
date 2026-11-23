@@ -14,14 +14,14 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import pytest  # noqa: E402
 
-from blue_engine.backtest import metrics as M  # noqa: E402
-from blue_engine.backtest.costs import CostModel  # noqa: E402
-from blue_engine.core.owner_limits import (  # noqa: E402
+from quant.engines.backtest import metrics as M  # noqa: E402
+from quant.engines.backtest.costs import CostModel  # noqa: E402
+from quant.engines.core.owner_limits import (  # noqa: E402
     apply_owner_limits,
     unset_owner_caps,
 )
-from blue_engine.core.risk_engine import RiskEngine  # noqa: E402
-from blue_engine.portfolio.optim import cost_aware  # noqa: E402
+from quant.engines.core.risk_engine import RiskEngine  # noqa: E402
+from quant.engines.portfolio.optim import cost_aware  # noqa: E402
 from quant.execution.pov_sizing import slippage_penalised_rate  # noqa: E402
 
 LIMITS = ROOT / "config" / "risk_limits.yaml"
@@ -167,7 +167,7 @@ def test_a_null_cap_does_not_switch_the_gate_check_off():
         risk = apply_owner_limits({"risk": {}}, path)["risk"]
     assert "max_order_notional" not in risk
 
-    from blue_engine.core.risk_gate import RiskGate
+    from quant.engines.core.risk_gate import RiskGate
     decision = RiskGate(risk).check({"action": "BUY", "quantity": 1,
                                      "price": 100.0}, live=True)
     assert decision.approved is False
@@ -232,7 +232,7 @@ def test_veto_rationale_is_not_truncated():
 def test_reconciler_has_no_buy_only_shortcut():
     import inspect
 
-    from blue_engine.backtest.loops import SlippageReconciler
+    from quant.engines.backtest.loops import SlippageReconciler
     src = inspect.getsource(SlippageReconciler.reconcile)
     assert 'side != "BUY"' not in src
 
@@ -256,7 +256,7 @@ def test_penalty_still_reduces_and_respects_the_floor():
 # Item 11: avg price lands on the claimed child.
 # --------------------------------------------------------------------------- #
 def test_avg_price_lands_on_the_claimed_child_not_the_list_tail():
-    from blue_engine.core import ledger
+    from quant.engines.core import ledger
 
     ledger._degrade_db(RuntimeError("test: in-memory ledger"))
     ledger._IN_MEMORY_EXECUTIONS.clear()
@@ -294,7 +294,7 @@ def test_sell_fill_is_below_the_reference_by_the_same_bps():
 
 
 def test_an_open_position_is_marked_with_its_exit_cost():
-    from blue_engine.backtest.engine import BacktestConfig, run_backtest
+    from quant.engines.backtest.engine import BacktestConfig, run_backtest
 
     rows = [
         {"ts": "2025-01-01", "open": 100, "high": 101, "low": 99,

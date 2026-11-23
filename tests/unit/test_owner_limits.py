@@ -7,10 +7,10 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src" / "quant"))  # the blue_engine package lives here
+sys.path.insert(0, str(ROOT / "src"))  # the quant.engines package lives here
 sys.path.insert(0, str(ROOT / "src"))
 
-from blue_engine.core.owner_limits import apply_owner_limits  # noqa: E402
+from quant.engines.core.owner_limits import apply_owner_limits  # noqa: E402
 
 LOOSE_MASTER = {"risk": {
     "require_live_ack": True, "blocked": False, "allowed_actions": ["BUY", "SELL"],
@@ -72,7 +72,7 @@ def test_input_config_is_not_mutated(tmp_path):
 def test_repo_owner_file_loads_and_tightens_the_real_master():
     """Against the committed owner file and the committed master.json."""
     import json
-    master = json.loads((ROOT / "src/quant/blue_engine/input/master.json").read_text(encoding="utf-8"))
+    master = json.loads((ROOT / "src/quant/engines/input/master.json").read_text(encoding="utf-8"))
     risk = apply_owner_limits(master)["risk"]
     assert risk["max_order_quantity"] == 10
     assert risk["max_order_notional"] == 10000

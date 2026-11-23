@@ -313,23 +313,23 @@ PYEOF
 fi
 
 # ------------------------------------------------------------------ engine
-step "Installing blue_engine (editable, SDK-only)"
-if [[ -f "$INSTALL_ROOT/src/quant/blue_engine/pyproject.toml" ]]; then
-  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -e "$INSTALL_ROOT/src/quant/blue_engine[charts]"
+step "Installing quant engine chart dependencies"
+if [[ -d "$INSTALL_ROOT/src/quant/engines" ]]; then
+  sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q "plotly>=5.18" "pandas>=2.0" "numpy>=1.26"
   sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q fastapi uvicorn
-  ok "blue_engine installed editable with [charts] extras; fastapi + uvicorn installed for the dashboard"
+  ok "engine chart extras installed; fastapi + uvicorn installed for the dashboard"
 
   # The engine must not import from the OpenAlgo tree. Assert that here so a
   # regression is caught at install time rather than at 09:15 on a trading day.
   ENGINE_CHECK=$(cd "$INSTALL_ROOT" && sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -c "
 import sys
-sys.path.insert(0, '$INSTALL_ROOT')
-import blue_engine.core.ledger as L
+sys.path.insert(0, '$INSTALL_ROOT/src')
+import quant.engines.core.ledger as L
 print('LEDGER_AVAILABLE=%s' % L._LEDGER_AVAILABLE)
 " 2>&1 | tail -1)
   ok "engine import probe: $ENGINE_CHECK  (LEDGER_AVAILABLE=False is correct: in-memory authoritative)"
 else
-  warn "src/quant/blue_engine/pyproject.toml not found - skipping engine install"
+  warn "src/quant/engines not found - skipping engine dependency install"
   warn "clone the repo into $INSTALL_ROOT (launch_ubuntu_server.sh does this), then re-run"
 fi
 

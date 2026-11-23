@@ -142,10 +142,10 @@ def test_no_placeholder_stage_markers_remain():
 # --------------------------------------------------------------------------- #
 def test_every_blue_engine_is_loaded_or_listed():
     """A new Blue engine must be wrapped, or named in doc section 4.3."""
-    blue = SRC / "blue_engine"
+    blue = SRC / "engines"
     loaded = set()
     for lane in SRC.iterdir():
-        if not lane.is_dir() or lane.name in ("blue_engine", "tests", "openalgo_platform"):
+        if not lane.is_dir() or lane.name in ("engines", "tests", "openalgo_platform"):
             continue
         for path in lane.rglob("*.py"):
             if "tests" in path.parts:

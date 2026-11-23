@@ -11,7 +11,7 @@
 # WHAT THIS FILE IS NOT
 #   * It does NOT describe the Ubuntu VPS. There, `Servers/install_ubuntu.sh`
 #     builds the venv from the upstream `openalgo/requirements.txt` (pinned,
-#     generated upstream) and then installs `blue_engine[charts]` plus fastapi/uvicorn. Installing
+#     generated upstream) and then installs the `plotly` / `pandas` / `numpy` chart extras plus fastapi/uvicorn. Installing
 #     this file there would make a second, conflicting source of truth.
 #   * It is NOT a lock file. Floor pins with a deliberate upper cap only where a
 #     known break exists. Regenerate exact versions with:
@@ -87,7 +87,7 @@ scipy==1.18.1
 scikit-learn==1.9.1
 statsmodels==0.15.0
 
-# TPE hyper-parameter search. OPTIONAL at runtime - blue_engine/optimizer/
+# TPE hyper-parameter search. OPTIONAL at runtime - engines/optimizer/
 # sampler.py ships a self-contained TPE fallback and engine.py detects Optuna
 # once, at construction. Installed because the dashboard's parameter-importance
 # / slice / parallel-coordinate workflow is the documented optimisation path.

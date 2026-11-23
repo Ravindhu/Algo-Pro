@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ENGINE_DIR = ROOT / "src" / "quant" / "blue_engine"
+ENGINE_DIR = ROOT / "src" / "quant" / "engines"
 #: A quote right before the old capitalised folder name means a dead path literal.
 PATH_LITERAL = re.compile(r"""["']Blue_engine/""")
 #: Directories that hold third-party installs, never our source.

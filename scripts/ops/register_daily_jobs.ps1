@@ -54,7 +54,7 @@ if (-not (Test-Path $WorkDir)) {
 
 $action = New-ScheduledTaskAction `
     -Execute $Python `
-    -Argument "-m blue_engine.jobs.daily_portfolio" `
+    -Argument "-m quant.engines.jobs.daily_portfolio" `
     -WorkingDirectory $WorkDir
 
 # Daily trigger at the configured close+settle time.
@@ -95,4 +95,4 @@ Write-Host ""
 Write-Host "Verify with:" -ForegroundColor Cyan
 Write-Host "  Get-ScheduledTask -TaskName $TaskName | Format-List"
 Write-Host "Run it now (bypasses the market-hours guard):" -ForegroundColor Cyan
-Write-Host "  & `"$Python`" -m blue_engine.jobs.daily_portfolio --force"
+Write-Host "  & `"$Python`" -m quant.engines.jobs.daily_portfolio --force"

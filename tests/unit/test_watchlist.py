@@ -1,4 +1,4 @@
-"""resolve_watchlist (moved from the removed console to blue_engine/screener/watchlist.py).
+"""resolve_watchlist (moved from the removed console to engines/screener/watchlist.py).
 
 Pure logic: extras, dedupe, exchange filter. Preset lookup is not tested here: the presets module is not in the repo yet.
 """
@@ -8,7 +8,7 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Load the file by path: the Blue_engine package name is not importable from tests/unit.
 _spec = importlib.util.spec_from_file_location(
-    "watchlist_under_test", ROOT / "src" / "quant" / "blue_engine" / "screener" / "watchlist.py")
+    "watchlist_under_test", ROOT / "src" / "quant" / "engines" / "screener" / "watchlist.py")
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 resolve_watchlist = _mod.resolve_watchlist

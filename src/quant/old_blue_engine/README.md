@@ -55,3 +55,15 @@ in place. `input/` is runtime data.
 ## To restore a file
 
 `git mv src/quant/old_blue_engine/<path> src/quant/blue_engine/<path>`
+
+## Moved from the original blue engine (2026-11-23)
+
+The original `src/quant/blue_engine/` folder was deleted after its used code was copied into
+`src/quant/engines/`. The files below were not used by quant and were moved here with their
+relative paths kept. Nothing in the live path imports them. Their imports still say `blue_engine.*`
+and they are kept for reference only.
+
+- The original blue README is kept as `BLUE_ENGINE_README.md` here (the parked README above is unchanged).
+- Full list of moved files: `src/quant/old_blue_engine/` (112 files: 90 Python modules plus data, docs, pins, configs and tests).
+- The original `pyproject.toml` (package `blue-engine`) is now `old_blue_engine/pyproject.toml`; the installers no longer editable-install it.
+- `tests/parity/` was deleted: it compared quant against the original blue files, which no longer exist.

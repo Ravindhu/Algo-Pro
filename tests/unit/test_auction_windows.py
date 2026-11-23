@@ -85,7 +85,7 @@ def test_module_reads_no_clock_env_or_blue():
             imported.add(node.module or "")
         elif isinstance(node, ast.Import):
             imported.update(a.name for a in node.names)
-    assert not any(name.startswith("blue_engine") for name in imported), imported
+    assert not any(name.startswith("quant.engines") for name in imported), imported
     assert "os" not in imported
 
     used_names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
