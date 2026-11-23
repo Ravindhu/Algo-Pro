@@ -67,22 +67,6 @@ SETTINGS_FILE = ROOT / "config" / "settings.yaml"
 LIVE_BOT_KILL_FILE = ROOT / "data" / "bot_live" / "kill.json"
 
 
-def _egress_ip() -> Optional[str]:
-    """The public IP this machine leaves through, or None when it cannot be found.
-
-    Uses only the standard library. Any failure returns None and the check is
-    skipped: an unreachable lookup must not block a start, and the IP question is
-    really the broker's whitelisting.
-    """
-    import json as _json
-    import urllib.request
-    try:
-        with urllib.request.urlopen("https://api.ipify.org?format=json", timeout=5) as r:
-            return str(_json.loads(r.read().decode("utf-8")).get("ip")) or None
-    except Exception:  # noqa: BLE001 - offline or blocked: skip, do not guess
-        return None
-
-
 def _live_settings(settings_path=SETTINGS_FILE) -> dict:
     """The ``live`` section of settings.yaml, or {} when the file is missing or unreadable."""
     import yaml
@@ -100,11 +84,10 @@ def _live_settings(settings_path=SETTINGS_FILE) -> dict:
 def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
                    mode_file=MODE_FILE, approval_file=APPROVAL_FILE,
                    holidays_file=HOLIDAYS_FILE, audit: Optional[AuditLog] = None,
-                   kill_path=None, settings_path=SETTINGS_FILE, egress_fn=None) -> dict:
+                   kill_path=None, settings_path=SETTINGS_FILE) -> dict:
     """Every start gate, evaluated in order. Returns {ok, reasons, approval, capital_cap}.
 
-    Pure checks: no orders. The only network call is the egress IP lookup, which can be
-    injected (egress_fn). kill_path must be the file the live bot's KillSwitch uses.
+    Pure checks: no orders and no network calls. kill_path must be the file the live bot's KillSwitch uses.
     A missing or null setting refuses the start (fail closed).
     """
     reasons: list = []
@@ -170,22 +153,8 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     except RuntimeError as exc:
         reasons.append(f"OpenAlgo API key: {exc}")
 
-    # 8. egress IP: the broker whitelists a static IP for API orders. No setting, or an
-    # IP that cannot be checked, refuses the start (fail closed; was optional before 2026-11-15).
+    # 8. fixed capital cap: the live bot sizes against at most this much (no cap = no start)
     live = _live_settings(settings_path)
-    allowed = str(live.get("allowed_egress_ip") or "").strip()
-    if not allowed:
-        reasons.append("live needs live.allowed_egress_ip in config/settings.yaml: "
-                       "the static IP the broker whitelisted for API orders")
-    else:
-        egress = (egress_fn or _egress_ip)()
-        if egress is None:
-            reasons.append("egress IP could not be checked; live refuses to start without it")
-        elif egress != allowed:
-            reasons.append(f"egress IP {egress} is not the whitelisted {allowed}; "
-                           "the broker requires API orders from a whitelisted static IP")
-
-    # 9. fixed capital cap: the live bot sizes against at most this much (no cap = no start)
     cap = live.get("max_capital_inr")
     capital_cap = None
     if isinstance(cap, (int, float)) and not isinstance(cap, bool) and math.isfinite(cap) and cap > 0:

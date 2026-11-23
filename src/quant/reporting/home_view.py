@@ -3,9 +3,9 @@
 Read-only. Nothing here sends orders or writes files.
 
 * Screener list: the Blue Engine screener's last saved run
-  (``blue_engine/screener/last_screen.json``, written by its CLI with ``--save``).
+  (``engines/screener/last_screen.json``, written by its CLI with ``--save``).
 * Portfolio analysis (REAL money): the Blue Engine NAV store, built from the broker's view of the live book, read through
-  ``blue_engine.portfolio.risk_report.report``, the same code the desk uses.
+  ``quant.engines.portfolio.risk_report.report``, the same code the desk uses.
 
 A missing file, too few NAV rows, or a Blue Engine import error gives an empty
 state with a short note. It never raises into the dashboard poll.
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[3]
-SCREEN_PATH = ROOT / "src" / "quant" / "blue_engine" / "screener" / "last_screen.json"
+SCREEN_PATH = ROOT / "src" / "quant" / "engines" / "screener" / "last_screen.json"
 MAX_ROWS = 50        # AGENTS.md token rules: cap what reaches the page
 CACHE_S = 60.0       # the NAV store changes once a day; no need to re-read every poll
 
@@ -72,17 +72,17 @@ def _pct(value: Any) -> Optional[float]:
     return round(float(value) * 100.0, 2)
 
 
-def _ensure_blue_engine_path() -> None:
-    """The Blue Engine imports its own modules as top-level ``blue_engine``, so src/quant must be on sys.path."""
+def _ensure_engines_path() -> None:
+    """The engine lives at ``quant.engines``, so the ``src`` folder must be on sys.path."""
     import sys
-    entry = str(ROOT / "src" / "quant")
+    entry = str(ROOT / "src")
     if entry not in sys.path:
         sys.path.append(entry)
 
 
 def _load_nav_rows() -> List[Dict[str, Any]]:
-    _ensure_blue_engine_path()
-    from quant.blue_engine.portfolio import tracker  # imported here: heavy, and optional at runtime
+    _ensure_engines_path()
+    from quant.engines.portfolio import tracker  # imported here: heavy, and optional at runtime
     return tracker.read_nav(months=12)
 
 
@@ -99,8 +99,8 @@ def portfolio_analysis(*, now: Optional[float] = None,
 
 def _compute_analysis(rows_fn: Callable[[], List[Dict[str, Any]]]) -> Dict[str, Any]:
     try:
-        _ensure_blue_engine_path()
-        from quant.blue_engine.portfolio.risk_report import report
+        _ensure_engines_path()
+        from quant.engines.portfolio.risk_report import report
     except Exception as exc:  # name the error type only
         return {"state": "unavailable", "note": f"Blue Engine not importable ({type(exc).__name__})"}
     try:

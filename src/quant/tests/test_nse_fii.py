@@ -201,7 +201,8 @@ def test_market_inputs_serves_a_stored_value(monkeypatch, tmp_path):
     monkeypatch.setenv("QUANT_FII_DB", str(tmp_path / "has.sqlite"))
     from quant.data import market_inputs as mi
     f.save_flows(f.parse_fii_dii(PAYLOAD))
-    out = mi.fii_flows("FII")
+    # as_of pins "today" so the test does not rot when the payload date ages out
+    out = mi.fii_flows("FII", as_of=date(2026, 11, 16))
     assert out["known"] is True
     assert out["net_value"] == pytest.approx(2345.67)
     assert out["stale"] is False

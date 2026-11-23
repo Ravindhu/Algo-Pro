@@ -52,7 +52,7 @@ def test_page_reads_overview_and_writes_only_known_routes():
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     # Settings popup routes added 2026-11-10: account, schedule, engine, infrastructure.
     # Kill switch STOP/RESET and its read-only state added 2026-11-11 (owner request in the header).
-    assert routes == {"/api/account", "/api/account/avatar", "/api/account/change-password", "/api/account/forgot-password", "/api/account/login", "/api/account/logout", "/api/account/reset-password", "/api/account/signup", "/api/account/totp/enroll", "/api/account/totp/remove", "/api/engine", "/api/engine/start", "/api/flow/apply", "/api/infrastructure", "/api/kill", "/api/kill/reset", "/api/kill/trip", "/api/limits", "/api/live/status", "/api/loop/start", "/api/loop/stop", "/api/overview", "/api/portfolio", "/api/schedule", "/api/setup", "/api/trading-mode"}
+    assert routes == {"/api/account", "/api/account/avatar", "/api/account/change-password", "/api/account/forgot-password", "/api/account/login", "/api/account/logout", "/api/account/reset-password", "/api/account/totp/enroll", "/api/account/totp/remove", "/api/engine", "/api/engine/start", "/api/flow/apply", "/api/infrastructure", "/api/kill", "/api/kill/reset", "/api/kill/trip", "/api/limits", "/api/live/status", "/api/loop/start", "/api/loop/stop", "/api/overview", "/api/portfolio", "/api/schedule", "/api/setup", "/api/trading-mode"}
     # postMode, postLoop, saveLimits, saveSetup, jpost helper (settings writes), avatar upload (2026-11-10)
     assert text.count('method: "POST"') == 6
     # 2026-11-12: the token box is gone; writes use the owner sign-in (top right) or the server token for scripts

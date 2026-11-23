@@ -200,7 +200,7 @@ USER_CONFIG = {
 def _find_project_root(start):
     from pathlib import Path
     for p in [Path(start), *Path(start).parents]:
-        if (p / "blue_engine").is_dir() or (p / "src" / "quant" / "blue_engine").is_dir():
+        if (p / "src" / "quant" / "engines").is_dir():
             return str(p)
     return str(Path(start))
 
@@ -214,7 +214,8 @@ if _api:
 
 
 def main():
-    from blue_engine.core.runner import run_with_config
+    sys.path.insert(0, str(Path(_ROOT) / "scripts" / "run"))
+    from engine_entry import run_guarded
     print("=" * 68)
     print("POV ENGINE  --  single-file launcher")
     print("=" * 68)
@@ -225,7 +226,7 @@ def main():
     ex  = str(USER_CONFIG.get("exchange"))
     print("symbol       : " + sym + "/" + ex)
     print("=" * 68)
-    return run_with_config(USER_CONFIG)
+    return run_guarded(USER_CONFIG)
 
 
 if __name__ == "__main__":

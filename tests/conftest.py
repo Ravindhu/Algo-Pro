@@ -6,7 +6,7 @@
 
 WHY (2) IS HERE AND NOT ONLY UNDER src/quant/blue_engine/tests
 --------------------------------------------------------------
-``blue_engine.portfolio.optim_policy.decide()`` keeps ONE latching kill switch per
+``quant.engines.portfolio.optim_policy.decide()`` keeps ONE latching kill switch per
 process and PERSISTS a trip to sqlite. ``src/quant/blue_engine/tests/conftest.py``
 resets it around each of ITS tests, but that fixture only applies to files inside that
 folder. A test under ``tests/`` that calls ``decide(drawdown=...)`` above the
@@ -42,8 +42,8 @@ def _isolate_blue_kill_switch(request):
     NOT for tests/parity. Those tests deliberately register STUB ``blue_engine``
     packages in ``sys.modules`` so the real ``__init__`` (which needs openalgo)
     never runs. Importing the real package here - even inside an except guard -
-    put real ``blue_engine.core`` next to the stub and produced 17
-    ``ImportError: cannot import name 'kill_switch_store' from 'blue_engine.core'
+    put real ``quant.engines.core`` next to the stub and produced 17
+    ``ImportError: cannot import name 'kill_switch_store' from 'quant.engines.core'
     (unknown location)`` errors. Parity does not touch the kill switch.
     """
     import os
@@ -54,8 +54,8 @@ def _isolate_blue_kill_switch(request):
         return
 
     try:
-        from blue_engine.core import kill_switch_store as ks_store
-        from blue_engine.portfolio import optim_policy as op
+        from quant.engines.core import kill_switch_store as ks_store
+        from quant.engines.portfolio import optim_policy as op
     except ImportError:  # optional SDK absent, or a stubbed package: nothing to isolate
         yield
         return

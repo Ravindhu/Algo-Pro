@@ -372,3 +372,70 @@ class AnalyzeBroker:
         if state in ("rejected", "cancelled", "canceled"):
             return out("REJECTED", order_id=order_id, reason=f"order {state}")
         return out("UNKNOWN", order_id=order_id, reason=f"order state {state or 'missing'}")
+
+
+# ---------------------------------------------------------------------------
+# Engine order gateway
+# ---------------------------------------------------------------------------
+# Engine code (POV slicer, exit engine) is injected with a client and never
+# imports this module. The caller builds an EngineOrderGateway, which:
+#   * runs the same mode guard as OpenAlgoClient before every send and cancel
+#     (live: LiveApproval + unchanged limits file + compliance; analyze: OpenAlgo
+#     analyzer confirmed on), and refuses an empty API key;
+#   * lets reads (quotes, orderbook, positionbook, analyzer status) pass through
+#     to the SDK client unchanged;
+#   * refuses every other order-writing method by name (WRITE_NAMES).
+# Engines recognise the gateway by its ``is_order_gateway`` marker.
+
+_PLACE_NAMES = ("place_order", "placeorder")
+_CANCEL_NAMES = ("cancel_order", "cancelorder")
+#: Order-writing SDK methods. Only send_order / cancel_order may reach these.
+WRITE_NAMES = frozenset({
+    "placeorder", "placesmartorder", "modifyorder", "cancelorder", "cancelallorder",
+    "closeposition", "basketorder", "splitorder", "optionsorder", "optionsmultiorder",
+    "place_order", "cancel_order",
+})
+
+
+def _find_method(client, names) -> Optional[Callable]:
+    for name in names:
+        fn = getattr(client, name, None)
+        if callable(fn):
+            return fn
+    return None
+
+
+class EngineOrderGateway:
+    """Wraps an SDK-style client. Orders and cancels pass the mode guard; reads pass through."""
+
+    is_order_gateway = True
+
+    def __init__(self, sdk_client, guard: "OpenAlgoClient", api_key: str) -> None:
+        if not isinstance(guard, OpenAlgoClient):
+            raise TypeError("EngineOrderGateway needs an OpenAlgoClient guard")
+        self._sdk = sdk_client
+        self._guard = guard
+        self._api_key = api_key
+
+    def _guarded(self, names, kwargs):
+        if not self._api_key:
+            raise PermissionError("engine order refused: empty API key")
+        self._guard._check_session_guard(self._api_key)  # live approval or analyzer on
+        fn = _find_method(self._sdk, names)
+        if fn is None:
+            raise RuntimeError("engine order refused: SDK client has no such method")
+        return fn(**kwargs)
+
+    def send_order(self, **kwargs) -> Dict:
+        return self._guarded(_PLACE_NAMES, kwargs)
+
+    def cancel_order(self, **kwargs) -> Dict:
+        return self._guarded(_CANCEL_NAMES, kwargs)
+
+    def __getattr__(self, name: str):
+        # Only reached for names not defined above. Private names never delegate.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if name in WRITE_NAMES:
+            raise PermissionError(f"{name} is an order write; use send_order / cancel_order")
+        return getattr(self._sdk, name)

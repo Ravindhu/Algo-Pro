@@ -1,10 +1,10 @@
-﻿# smoke_test.py - Post-upgrade acceptance gate for the blue_engine / OpenAlgo setup.
+﻿# smoke_test.py - Post-upgrade acceptance gate for the quant engines / OpenAlgo setup.
 # Location: my-trading-system\scripts\verify\smoke_test.py
 # Run:  openalgo\.venv\Scripts\python.exe my-trading-system\scripts\verify\smoke_test.py
 # Exit 0 = all good. Exit 1 = do not trade.
 #
 # ARCHITECTURE (locked):
-#   Python (blue_engine) -> OpenAlgo REST/SDK -> Broker -> Exchange
+#   Python (quant engines) -> OpenAlgo REST/SDK -> Broker -> Exchange
 # OpenAlgo is a PRISTINE upstream clone. Nothing POV-related is ever
 # patched into it. The engine talks only through the public `openalgo` SDK.
 
@@ -57,18 +57,18 @@ def _api_key():
     return ""
 
 
-# ---- 1. blue_engine imports cleanly (installed package) ----
+# ---- 1. quant engines import cleanly ----
 def t_engine_import():
-    import blue_engine
-    import blue_engine.core.runner
+    import quant.engines as blue_engine
+    import quant.engines.core.runner
 
 
-check("blue_engine imports cleanly", t_engine_import)
+check("quant engines import cleanly", t_engine_import)
 
 
 # ---- 2. engine config schema ----
 def t_config_schema():
-    import blue_engine
+    import quant.engines as blue_engine
     cfg_path = Path(blue_engine.__file__).parent / "input" / "master.json"
     if cfg_path.exists():
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -170,7 +170,7 @@ def t_pov_endpoint_gone():
 check("server-side POV endpoint retired (404)", t_pov_endpoint_gone)
 
 
-HARD_PREFIXES = ("blue_engine", "engine ", "dashboard", "local state",
+HARD_PREFIXES = ("quant engines", "engine ", "dashboard", "local state",
                  "OpenAlgo clone")
 print()
 print("=" * 60)

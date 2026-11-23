@@ -18,7 +18,7 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "Blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, os.pardir, "src")))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""
 
@@ -26,11 +26,11 @@ FAILURES = []
 
 
 def main() -> int:
-    from blue_engine.economics.providers import build_default_stack
+    from quant.engines.economics.providers import build_default_stack
 
     client = None
     if KEY:
-        from blue_engine.core.client import init_client
+        from quant.engines.core.client import init_client
         client = init_client(api_key=KEY)
 
     print("=" * 78)
@@ -73,7 +73,7 @@ def main() -> int:
     print("=" * 78)
     print("3. Engine consumes it (provenance must survive to the signal)")
     print("=" * 78)
-    from blue_engine.economics.economic_engine import EconomicEngine
+    from quant.engines.economics.economic_engine import EconomicEngine
 
     eng = EconomicEngine({
         "signals": {"bond_return": {"direction": -1, "weight": 1.0},

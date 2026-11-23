@@ -98,9 +98,11 @@ def test_api_token_header_alone_is_refused(write_client):
 def test_limits_write_saves_and_audits(write_client):
     client, limits, audit = write_client
     sign_in(client, "Owner", "owner-password-1")
-    r = client.post("/api/limits", json={"max_daily_loss": 500})
-    assert r.status_code == 200 and r.json()["changed"]["new"] == {"max_daily_loss": 500}
-    assert "max_daily_loss: 500" in limits.read_text(encoding="utf-8")
+    # max_daily_loss is budget-owned (set as % of capital in Trade setup) and
+    # refused here; a share-count cap is still a valid direct write.
+    r = client.post("/api/limits", json={"max_order_quantity": 500})
+    assert r.status_code == 200 and r.json()["changed"]["new"] == {"max_order_quantity": 500}
+    assert "max_order_quantity: 500" in limits.read_text(encoding="utf-8")
     records = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines()]
     assert records[-1]["kind"] == "limits_changed"
 

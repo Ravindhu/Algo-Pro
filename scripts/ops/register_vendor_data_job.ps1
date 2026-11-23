@@ -42,7 +42,7 @@ $ErrorActionPreference = "Stop"
 # Resolve repo root from this script's location (scripts\ops\ -> repo root).
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
-# -m blue_engine.jobs.vendor_maintenance must resolve, so run from Blue_engine/.
+# -m quant.engines.jobs.vendor_maintenance must resolve, so run from Blue_engine/.
 $WorkDir = Join-Path $RepoRoot "Blue_engine"
 $LogDir = Join-Path $RepoRoot "data\logs"
 $LogFile = Join-Path $LogDir "vendor_maintenance.log"
@@ -69,7 +69,7 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 # Redirect output to a durable log: Task Scheduler keeps stdout in memory only,
 # so an invisible failure would otherwise leave no trace after the run.
-$cliArgs = "-m blue_engine.jobs.vendor_maintenance --max-age-days $MaxAgeDays"
+$cliArgs = "-m quant.engines.jobs.vendor_maintenance --max-age-days $MaxAgeDays"
 $psArgs = "-NoProfile -ExecutionPolicy Bypass -Command " +
           "& '$Python' $cliArgs *>> '$LogFile'; exit `$LASTEXITCODE"
 
@@ -114,6 +114,6 @@ Write-Host ""
 Write-Host "Verify with:" -ForegroundColor Cyan
 Write-Host "  Get-ScheduledTask -TaskName $TaskName | Format-List"
 Write-Host "Run it now:" -ForegroundColor Cyan
-Write-Host "  & `"$Python`" -m blue_engine.jobs.vendor_maintenance"
+Write-Host "  & `"$Python`" -m quant.engines.jobs.vendor_maintenance"
 Write-Host "Log file:" -ForegroundColor Cyan
 Write-Host "  $LogFile"

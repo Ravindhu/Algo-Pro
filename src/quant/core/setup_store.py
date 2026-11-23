@@ -1,4 +1,4 @@
-"""Trade setup from the dashboard panel: risk per trade, max symbols, strategy, live cap and live IP.
+"""Trade setup from the dashboard panel: risk per trade, max symbols, strategy and live cap.
 
 Owner request 2026-11-07, live fields added 2026-11-15. A person sets these through the dashboard
 API (owner sign-in required).
@@ -6,7 +6,7 @@ API (owner sign-in required).
   at start, so a change takes effect on the next start.
 - max_symbols_per_portfolio: a risk limit in config/risk_limits.yaml. Saved through limits_store,
   and enforced by the Risk gate (risk/symbol_cap.py). Null (not set) blocks new symbols.
-- live.max_capital_inr and live.allowed_egress_ip in config/settings.yaml: read by the live start gate.
+- live.max_capital_inr in config/settings.yaml: read by the live start gate.
 - risk_budget (capital_inr, max_daily_loss_pct, max_strategy_loss_pct) in config/settings.yaml: loss
   budgets as a share of capital (owner 2026-11-19). Saving them also writes the rupee caps
   max_daily_loss and max_strategy_loss in config/risk_limits.yaml.
@@ -25,7 +25,6 @@ Status: PHASE 3 IMPLEMENTED
 """
 from __future__ import annotations
 
-import ipaddress
 import math
 import os
 from pathlib import Path
@@ -46,7 +45,7 @@ DEFAULT_RISK = 0.0025
 RISK_MAX = 0.05          # same upper bound as RiskLimits.risk_per_trade
 SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
 KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
-        "live_max_capital_inr", "live_allowed_egress_ip", "brokerage",
+        "live_max_capital_inr", "brokerage",
         "htf_interval", "mtf_interval", "ltf_interval",
         "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct", "aggressive_share",
         "mtf_borrowed_inr")
@@ -57,7 +56,7 @@ BUDGET_MAX_PCT = 0.10  # a loss budget above 10 % of capital is refused
 # Rupee caps owned by the Trade setup budget. /api/limits refuses them so they cannot drift.
 BUDGET_OWNED_LIMITS = ("max_daily_loss", "max_strategy_loss")
 SETUP_LIMIT_KEYS = ("max_symbols_per_portfolio", *BUDGET_OWNED_LIMITS)
-LIVE_KEYS = ("live_max_capital_inr", "live_allowed_egress_ip")
+LIVE_KEYS = ("live_max_capital_inr",)
 # Timeframe labels, same style as the OCL params (htf_interval, ltf_interval in config/bot.yaml).
 TIMEFRAMES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "75m": 75,
               "125m": 125, "1d": 1440, "1w": 10080, "1M": 43200}  # weekly and monthly added 2026-11-22 (minutes approximate for ordering)
@@ -101,7 +100,6 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
         "strategy": trade.get("strategy"),
         "strategies": strategy_names(strategies_dir),
         "live_max_capital_inr": live.get("max_capital_inr"),
-        "live_allowed_egress_ip": live.get("allowed_egress_ip"),
         "brokerage": brokerage if isinstance(brokerage, dict) else None,
         "brokerage_example": summary,
         "htf_interval": tf.get("htf"),
@@ -164,11 +162,6 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
                     or value <= 0:
                 raise ValueError("live_max_capital_inr must be a positive number of rupees")
             clean[key] = float(value)
-        elif key == "live_allowed_egress_ip":
-            try:
-                clean[key] = str(ipaddress.IPv4Address(str(value).strip()))
-            except (ValueError, TypeError):
-                raise ValueError("live_allowed_egress_ip must be an IPv4 address, e.g. 203.0.113.10")
         elif key == "capital_inr":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
                     or value <= 0:
@@ -281,9 +274,6 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
         if "live_max_capital_inr" in clean:
             old["live_max_capital_inr"] = live.get("max_capital_inr")
             live["max_capital_inr"] = clean["live_max_capital_inr"]
-        if "live_allowed_egress_ip" in clean:
-            old["live_allowed_egress_ip"] = live.get("allowed_egress_ip")
-            live["allowed_egress_ip"] = clean["live_allowed_egress_ip"]
         current["sizing"] = sizing
         current["trade_setup"] = trade
         current["live"] = live

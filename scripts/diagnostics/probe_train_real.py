@@ -16,7 +16,7 @@ if _ROOT not in sys.path:
 os.environ["BLUE_ML_DATA_ROOT"] = os.path.join(_HERE, "ml_probe_artifacts")
 os.environ["BLUE_ML_SIGNING_KEY"] = "temp-probe-key-not-a-real-secret"
 
-from blue_engine.ml.training import run_training
+from quant.engines.ml.training import run_training
 
 out = run_training("NIFTY", sources=["price_cache"], candidates=["ridge"],
                    horizon=5, n_splits=5, min_train=250, register=True)

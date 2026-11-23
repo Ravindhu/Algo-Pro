@@ -18,7 +18,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "quant", "blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""
 
@@ -59,7 +59,7 @@ def frame_close(result):
 
 
 def main() -> int:
-    from blue_engine.core.client import init_client
+    from quant.engines.core.client import init_client
 
     client = init_client(api_key=KEY)
     end = datetime.now()

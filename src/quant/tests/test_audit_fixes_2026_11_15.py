@@ -371,27 +371,13 @@ def test_unknown_exchange_is_refused():
         OpenAlgoClient("http://x", lambda u, p: {}, mode="analyze", exchange="XYZ")
 
 
-# ---- fix 8: egress guard every cycle -------------------------------------------------------
-
-def test_egress_guard_blocks_when_the_ip_changes_or_is_unknown():
-    spec = importlib.util.spec_from_file_location(
-        "run_strategy_bot_live_guard", ROOT / "scripts" / "run" / "run_strategy_bot_live.py")
-    run = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(run)
-    ok = run.make_egress_guard("203.0.113.10", egress_fn=lambda: "203.0.113.10")
-    assert ok() == (True, [])
-    moved = run.make_egress_guard("203.0.113.10", egress_fn=lambda: "198.51.100.7")
-    passed, reasons = moved()
-    assert passed is False and "not the whitelisted" in reasons[0]
-    unknown = run.make_egress_guard("203.0.113.10", egress_fn=lambda: None)
-    assert unknown()[0] is False
-
+# ---- fix 8: entry guard every cycle -------------------------------------------------------
 
 def test_entry_guard_refusal_is_logged_and_alerted(tmp_path):
     bot = _bot(tmp_path)
-    bot._entry_guard = lambda: (False, ["egress IP changed"])
+    bot._entry_guard = lambda: (False, ["guard says no"])
     assert bot._run_entry_guard() is False
-    assert any("egress IP changed" in a["message"] for a in bot._audit.alerts("CRITICAL"))
+    assert any("guard says no" in a["message"] for a in bot._audit.alerts("CRITICAL"))
 
 
 # ---- fix 3: the retired runner refuses ------------------------------------------------------

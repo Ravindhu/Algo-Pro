@@ -5,7 +5,7 @@ WHAT THIS IS
 The one supported way to train a model in this system. Everything else
 (notebooks, ad-hoc `python -c` snippets) duplicates the orchestrator's ordering
 and risks fitting before auditing. This script only *invokes* the orchestrator
-in `blue_engine.ml.training`, which owns the enforced order:
+in `quant.engines.ml.training`, which owns the enforced order:
 
     fetch -> audit -> features -> labels -> split -> fit -> score -> register
 
@@ -223,7 +223,7 @@ def main(argv=None) -> int:
     # Import AFTER arg parsing so --help works even if the ML layer cannot
     # import (e.g. a broken optional dependency) and so the error is clean.
     try:
-        from blue_engine.ml.training import run_training
+        from quant.engines.ml.training import run_training
     except Exception as exc:  # noqa: BLE001
         print(f"FATAL: cannot import the ML training layer: {exc!r}",
               file=sys.stderr)

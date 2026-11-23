@@ -118,4 +118,4 @@ These are not verified against a live or analyzer account. Each must be checked 
 5. **Poll rate:** about 8 symbols every 15 seconds. Confirm OpenAlgo's rate limit.
 6. **Restart:** after a restart the quote baseline is set again, so the day's buyer VWAP is partial. Acceptable for now; noted.
 7. **Approximation:** the buyer share is the day's share, applied to the last bar.
-8. **Owner items (unchanged):** book caps, `live.allowed_egress_ip`, `live.max_capital_inr`, the analyzer soak, and the kill-switch drill.
+8. **Owner items (unchanged):** book caps, `live.max_capital_inr`, the analyzer soak, and the kill-switch drill.

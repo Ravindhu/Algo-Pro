@@ -20,9 +20,9 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from blue_engine.ml.data_sources.price_cache import PriceCacheSource
-from blue_engine.ml.evaluation import metrics as M
-from blue_engine.ml.features import engineering, labels as labels_mod
+from quant.engines.ml.data_sources.price_cache import PriceCacheSource
+from quant.engines.ml.evaluation import metrics as M
+from quant.engines.ml.features import engineering, labels as labels_mod
 
 rows = PriceCacheSource().fetch("NIFTY", None, None).rows
 feats = engineering.build_price_features(rows)

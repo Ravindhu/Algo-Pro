@@ -29,7 +29,14 @@ def _limits(**over):
 
 
 @pytest.fixture
-def ctx(tmp_path):
+def ctx(tmp_path, monkeypatch):
+    from quant.core import owner_limits_store as ols
+    p = tmp_path / "owner_caps_for_tests.yaml"
+    p.write_text("max_order_quantity: 1000000\nmax_order_notional: 500000\n"
+                 "max_open_exposure: 2000000\nmax_daily_loss: 50000\nblocked: false\n", encoding="utf-8")
+    monkeypatch.setattr(ols, "DEFAULT_PATH", p)
+    monkeypatch.setattr(ols, "_loaded_from", None)
+    monkeypatch.setattr(ols, "_cached", {})
     return dict(state=RiskState(), limits=_limits(), kill=KillSwitch(tmp_path / "kill.json"),
                 safe=SafeMode(), halt=HaltHandler(), available_funds=1_000_000.0)
 

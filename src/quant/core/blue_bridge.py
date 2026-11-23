@@ -1,4 +1,4 @@
-"""The only import bridge from src/quant to the vendored engine package.
+"""The only import bridge from src/quant to the engine package (src/quant/engines/).
 
 Flow stage: none (shared infrastructure, used by wrappers in every stage)
 Status: PHASE 0 IMPLEMENTED
@@ -29,12 +29,12 @@ from types import ModuleType
 
 __all__ = ["BlueEngineUnavailable", "load"]
 
-#: src/quant/core/blue_bridge.py -> src/quant is two levels up from ``core``.
-_SOURCE_DIR = Path(__file__).resolve().parents[1] / "blue_engine"
+#: Engine package now lives inside quant itself: src/quant/engines/.
+_SOURCE_DIR = Path(__file__).resolve().parents[1] / "engines"
 
 
 class BlueEngineUnavailable(ImportError):
-    """Blue_engine (or its OpenAlgo SDK dependency) cannot be imported here."""
+    """The engine package (or its OpenAlgo SDK dependency) cannot be imported here."""
 
 
 #: Vendored OpenAlgo SDK (Temp/openalgo, MIT; decision 0014). The SDK package is
@@ -50,39 +50,30 @@ def _ensure_sdk_on_path() -> None:
 
 
 def _ensure_package() -> None:
-    """Make ``blue_engine`` importable: installed package first, else the source folder."""
+    """Import ``quant.engines`` once. Its own __init__ fixes the SDK import path."""
     _ensure_sdk_on_path()
-    if "blue_engine" in sys.modules:
+    if "quant.engines" in sys.modules:
         return
+    if not (_SOURCE_DIR / "__init__.py").is_file():
+        raise BlueEngineUnavailable(f"engine package not found at {_SOURCE_DIR}")
     try:
-        importlib.import_module("blue_engine")
-        return
+        importlib.import_module("quant.engines")
     except ModuleNotFoundError as exc:
-        if exc.name != "blue_engine":
+        if exc.name not in ("quant.engines",):
             # A real dependency is missing (for example openalgo). Report it, do not hide it.
-            raise BlueEngineUnavailable(f"Blue_engine dependency missing: {exc}") from exc
-
-    init_file = _SOURCE_DIR / "__init__.py"
-    if not init_file.is_file():
-        raise BlueEngineUnavailable(f"blue_engine source not found at {_SOURCE_DIR}")
-    spec = importlib.util.spec_from_file_location(
-        "blue_engine", init_file, submodule_search_locations=[str(_SOURCE_DIR)])
-    if spec is None or spec.loader is None:
-        raise BlueEngineUnavailable("cannot build an import spec for blue_engine")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["blue_engine"] = module
-    try:
-        spec.loader.exec_module(module)
+            raise BlueEngineUnavailable(f"engine dependency missing: {exc}") from exc
+        raise BlueEngineUnavailable(f"engine package unavailable: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - leave no half-loaded package behind
-        sys.modules.pop("blue_engine", None)
+        for key in [k for k in sys.modules if k == "quant.engines" or k.startswith("quant.engines.")]:
+            sys.modules.pop(key, None)
         raise BlueEngineUnavailable(
-            f"blue_engine failed to load (is openalgo installed?): {exc}") from exc
+            f"engine package failed to load (is openalgo installed?): {exc}") from exc
 
 
 def load(name: str) -> ModuleType:
-    """Return the module ``blue_engine.<name>``, for example ``load("backtest.costs")``."""
+    """Return the module ``quant.engines.<name>``, for example ``load("backtest.costs")``."""
     _ensure_package()
     try:
-        return importlib.import_module(f"blue_engine.{name}")
+        return importlib.import_module(f"quant.engines.{name}")
     except ModuleNotFoundError as exc:
-        raise BlueEngineUnavailable(f"blue_engine.{name} unavailable: {exc}") from exc
+        raise BlueEngineUnavailable(f"quant.engines.{name} unavailable: {exc}") from exc

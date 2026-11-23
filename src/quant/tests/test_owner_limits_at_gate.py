@@ -83,7 +83,7 @@ def test_store_does_not_cache_a_failed_read(tmp_path):
     missing = tmp_path / "missing.yaml"
     assert owner_limits_store.load(missing)["blocked"] is True
     # The file appears: the next load must pick it up, not the cached failure.
-    _owner_file(tmp_path, "max_order_quantity: 10\n")
+    missing.write_text("max_order_quantity: 10\n", encoding="utf-8")
     assert owner_limits_store.load(missing)["max_order_quantity"] == 10
 
 

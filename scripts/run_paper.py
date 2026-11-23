@@ -13,7 +13,7 @@ Usage:
 
 Flow stage: Paper trading stage, Kill switch
 Status: PHASE 1 IMPLEMENTED; analyze broker added 2026-11-06 (decision 0026, AZ2); kill close added 2026-11-06 (decision 0020)
-Existing code to reuse or wrap (do not copy): Blue_engine/core/paper_broker.py
+Existing code to reuse or wrap (do not copy): src/quant/engines/core/paper_broker.py
 """
 from __future__ import annotations
 

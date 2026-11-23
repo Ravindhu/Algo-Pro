@@ -24,15 +24,13 @@ _spec = importlib.util.spec_from_file_location(
 run_live = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_live)
 
-# Test values only. The real config keeps the book caps, egress IP and capital cap null.
+# Test values only. The real config keeps the book caps and the capital cap null.
 LIMITS_OK = ("max_order_quantity: 10\nmax_order_notional: 10000\n"
              "max_open_exposure: 20000\nmax_daily_loss: 1000\n"
              "max_strategy_loss: 500\nmax_adv_pct: 0.01\n"
              "max_symbols_per_portfolio: 5\nblocked: false\n"
              "max_sector_pct: 0.30\nmax_beta: 1.2\nmax_cvar: 0.05\nmax_drawdown: 0.20\n")
-SETTINGS_OK = ("live:\n  allowed_egress_ip: \"203.0.113.10\"\n"
-               "  max_capital_inr: 500000\n")
-EGRESS_OK = lambda: "203.0.113.10"  # noqa: E731 - injected, so no test touches the network
+SETTINGS_OK = "live:\n  max_capital_inr: 500000\n"
 
 #: An empty CSV is deliberately UNVERIFIED (calendar.py), so the gate-6 test
 #: needs no holiday rows at all.
@@ -66,14 +64,14 @@ def _world(tmp_path, limits_text=LIMITS_OK, holidays=HOLIDAYS_OK, settings_text=
             "holidays_file": holidays_file, "settings_path": settings, "kill_path": kill}
 
 
-def _check(world, monkeypatch, audit=None, egress_fn=EGRESS_OK):
+def _check(world, monkeypatch, audit=None):
     """Run the gate with the API key stubbed (the key is an env concern, not a gate)."""
     monkeypatch.setenv("OPENALGO_API_KEY", "test-key")
     return run_live.startup_checks(
         limits_path=world["limits_path"], mode_file=world["mode_file"],
         approval_file=world["approval_file"], holidays_file=world["holidays_file"],
         audit=audit, kill_path=world["kill_path"], settings_path=world["settings_path"],
-        egress_fn=egress_fn)
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -190,37 +188,13 @@ def test_gate_7_a_missing_api_key_blocks(tmp_path, monkeypatch):
                                   approval_file=world["approval_file"],
                                   holidays_file=world["holidays_file"],
                                   kill_path=world["kill_path"],
-                                  settings_path=world["settings_path"], egress_fn=EGRESS_OK)
+                                  settings_path=world["settings_path"])
     assert out["ok"] is False
     assert any("API key" in r for r in out["reasons"])
 
 
-def test_gate_8_no_whitelisted_ip_setting_blocks(tmp_path, monkeypatch):
-    """2026-11-15: the egress check was optional. Now an unset IP refuses the start."""
-    world = _world(tmp_path, settings_text="live:\n  allowed_egress_ip: null\n"
-                                           "  max_capital_inr: 500000\n")
-    out = _check(world, monkeypatch)
-    assert out["ok"] is False
-    assert any("allowed_egress_ip" in r for r in out["reasons"])
-
-
-def test_gate_8_an_ip_that_cannot_be_checked_blocks(tmp_path, monkeypatch):
-    world = _world(tmp_path)
-    out = _check(world, monkeypatch, egress_fn=lambda: None)
-    assert out["ok"] is False
-    assert any("could not be checked" in r for r in out["reasons"])
-
-
-def test_gate_8_a_different_ip_blocks(tmp_path, monkeypatch):
-    world = _world(tmp_path)
-    out = _check(world, monkeypatch, egress_fn=lambda: "198.51.100.7")
-    assert out["ok"] is False
-    assert any("not the whitelisted" in r for r in out["reasons"])
-
-
 def test_gate_9_no_capital_cap_blocks(tmp_path, monkeypatch):
-    world = _world(tmp_path, settings_text="live:\n  allowed_egress_ip: \"203.0.113.10\"\n"
-                                           "  max_capital_inr: null\n")
+    world = _world(tmp_path, settings_text="live:\n  max_capital_inr: null\n")
     out = _check(world, monkeypatch)
     assert out["ok"] is False
     assert any("max_capital_inr" in r for r in out["reasons"])
@@ -229,8 +203,7 @@ def test_gate_9_no_capital_cap_blocks(tmp_path, monkeypatch):
 
 @__import__("pytest").mark.parametrize("bad", ["0", "-5", "nan", "true"])
 def test_gate_9_a_non_positive_or_bad_cap_blocks(tmp_path, monkeypatch, bad):
-    world = _world(tmp_path, settings_text=f"live:\n  allowed_egress_ip: \"203.0.113.10\"\n"
-                                           f"  max_capital_inr: {bad}\n")
+    world = _world(tmp_path, settings_text=f"live:\n  max_capital_inr: {bad}\n")
     out = _check(world, monkeypatch)
     assert out["ok"] is False
     assert any("max_capital_inr" in r for r in out["reasons"])

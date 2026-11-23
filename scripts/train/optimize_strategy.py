@@ -46,7 +46,7 @@ from typing import Optional
 # --- make the package importable when run as a plain script --------------- #
 _HERE = os.path.dirname(os.path.abspath(__file__))          # <repo>/scripts/train
 _REPO = os.path.dirname(os.path.dirname(_HERE))              # <repo>
-# ``blue_engine`` imports by name, so its PARENT (src/quant) goes on sys.path,
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 # not the package folder itself. ``quant`` (this repo's own package) lives one
 # level up, under src/, so ``src`` goes on too - the leak gate imports
 # ``quant.research.optimizer`` and would otherwise fail closed on every run.
@@ -54,13 +54,13 @@ sys.path.insert(0, os.path.join(_REPO, "src", "quant"))
 sys.path.insert(0, os.path.join(_REPO, "src"))
 sys.path.insert(0, _REPO)
 
-from blue_engine.optimizer import __version__, config, ensure_dirs, logger  # noqa: E402
-from blue_engine.optimizer.analysis import visual_workflow  # noqa: E402
-from blue_engine.optimizer.engine import EngineConfig, OptimizerEngine  # noqa: E402
-from blue_engine.optimizer.report import build_report, render_markdown  # noqa: E402
-from blue_engine.optimizer.spaces import available_spaces, load_space  # noqa: E402
-from blue_engine.optimizer.store import StudyStore, write_report  # noqa: E402
-from blue_engine.optimizer.strategies import available_builtin_strategies  # noqa: E402
+from quant.engines.optimizer import __version__, config, ensure_dirs, logger  # noqa: E402
+from quant.engines.optimizer.analysis import visual_workflow  # noqa: E402
+from quant.engines.optimizer.engine import EngineConfig, OptimizerEngine  # noqa: E402
+from quant.engines.optimizer.report import build_report, render_markdown  # noqa: E402
+from quant.engines.optimizer.spaces import available_spaces, load_space  # noqa: E402
+from quant.engines.optimizer.store import StudyStore, write_report  # noqa: E402
+from quant.engines.optimizer.strategies import available_builtin_strategies  # noqa: E402
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -235,7 +235,7 @@ def _maybe_load_bars(args) -> Optional[list]:
     # Lazy import: the data cache pulls in the broker providers, which
     # may not be importable in every dev environment.
     try:
-        from blue_engine.optimizer.data_cache import OptimizerDataCache
+        from quant.engines.optimizer.data_cache import OptimizerDataCache
     except Exception as exc:  # noqa: BLE001
         print(f"warning: OptimizerDataCache not importable ({exc!r}); "
               f"falling back to synthetic data",

@@ -67,7 +67,7 @@ if "%SCHED%"=="1" goto deps_sched
 if errorlevel 1 goto fail
 "%VPY%" -m pip install -q -r requirements.txt
 if errorlevel 1 goto fail
-"%VPY%" -m pip install -q -e "src/quant/blue_engine[charts]"
+"%VPY%" -m pip install -q "plotly>=5.18" "pandas>=2.0" "numpy>=1.26"
 if errorlevel 1 goto fail
 echo   [ok] dependencies installed
 goto deps_done

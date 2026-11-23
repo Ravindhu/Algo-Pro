@@ -17,9 +17,9 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "src", "quant", "blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 
-from blue_engine.economics.providers.rbi_provider import (  # noqa: E402
+from quant.engines.economics.providers.rbi_provider import (  # noqa: E402
     RbiReferenceRateProvider as P,
 )
 

@@ -3,7 +3,7 @@ update_vendor_data.py - keep the pinned vendor repo current, in place.
 
 WHY THIS IS A THIN WRAPPER
 --------------------------
-`Blue_engine/database/vendor/indian-market-historical-data` is a pinned upstream
+`src/quant/engines/database/vendor/indian-market-historical-data` is a pinned upstream
 clone with its own `scripts/update_indices.py`. Duplicating that logic here would
 drift from upstream on the next pull, so this script only orchestrates it:
 verify the checkout, run the vendor's own updater, then prove the data the
@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
-VENDOR_DIR = (ROOT / "Blue_engine" / "database" / "vendor"
+VENDOR_DIR = (ROOT / "src" / "quant" / "engines" / "database" / "vendor"
               / "indian-market-historical-data")
 INDICES_DIR = VENDOR_DIR / "data" / "INDICES"
 UPDATER = VENDOR_DIR / "scripts" / "update_indices.py"
@@ -55,7 +55,7 @@ UPDATER = VENDOR_DIR / "scripts" / "update_indices.py"
 #: header warns about.
 def _sector_stems() -> tuple:
     sys.path.insert(0, str(ROOT))
-    from blue_engine.sectors.providers.vendor_sector import (  # noqa: E402
+    from quant.engines.sectors.providers.vendor_sector import (  # noqa: E402
         DEFAULT_BENCHMARK, DEFAULT_SECTORS)
 
     return tuple(dict.fromkeys([DEFAULT_BENCHMARK, *DEFAULT_SECTORS.values()]))
@@ -104,7 +104,7 @@ def main() -> int:
         # Every parquet the vendor repo actually ships, which is now derived
         # from the registry so a new index is reported as soon as it lands.
         try:
-            from blue_engine.sectors.providers.vendor_sector import INDEX_TICKERS
+            from quant.engines.sectors.providers.vendor_sector import INDEX_TICKERS
             stems = tuple(INDEX_TICKERS)
         except Exception:  # noqa: BLE001 - fall back to whatever is on disk
             stems = tuple(sorted(p.stem for p in INDICES_DIR.glob("*.parquet")))

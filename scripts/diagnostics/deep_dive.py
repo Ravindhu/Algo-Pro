@@ -22,7 +22,7 @@ for _sub in ("research", "verify", "run", "data", "ops", "train"):
     if _p not in sys.path:
         sys.path.append(_p)
 # --------------------------------------------------------------------------
-sys.path.insert(0, str(HERE.parent / "src" / "quant" / "blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 
 import e2e_replay as e2e  # noqa: E402
 
@@ -63,8 +63,8 @@ print(f"ltf close range: {min(r['close'] for r in ltf):.2f} .. "
       f"{max(r['close'] for r in ltf):.2f}")
 
 # What level does the signal derive?
-from blue_engine.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal  # noqa
-from blue_engine.core.band import BuyerInitiatedDailyVWAP  # noqa
+from quant.engines.alpha.Statergy.ocl_keylevel import OCLKeylevelSignal  # noqa
+from quant.engines.core.band import BuyerInitiatedDailyVWAP  # noqa
 
 client = e2e.RecordingClient(daily=daily, ltf=ltf)
 client.advance_on_quote = True

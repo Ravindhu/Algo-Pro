@@ -2,7 +2,7 @@
 """run_screener_bridge.py - launch the screener -> OCL -> POV bridge.
 
 Reads symbols from a screener export (``filtered_summary.csv`` written by
-``blue_engine.screener.scrape_saved_screen``) or from ``--symbols`` and runs
+``quant.engines.screener.scrape_saved_screen``) or from ``--symbols`` and runs
 one OCL signal per symbol. Fires go through RiskGate + the POV slicer.
 
 Examples
@@ -40,7 +40,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blue_engine.core.screener_bridge import ScreenerBridge  # noqa: E402
+from quant.engines.core.screener_bridge import ScreenerBridge  # noqa: E402
 
 
 def read_symbols_from_csv(path: Path) -> tuple[list[tuple[str, str]], str]:

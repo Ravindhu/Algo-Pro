@@ -4,7 +4,7 @@ Throwaway diagnostic (Temp/ is the staging workspace). Read-only.
 """
 import sqlite3
 
-from blue_engine.ml.data_sources.price_cache import PriceCacheSource
+from quant.engines.ml.data_sources.price_cache import PriceCacheSource
 
 src = PriceCacheSource()
 db = src._cache().db_path

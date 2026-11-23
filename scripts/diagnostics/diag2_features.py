@@ -27,9 +27,9 @@ _ROOT = os.path.dirname(_HERE)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from blue_engine.ml.data_sources.price_cache import PriceCacheSource
-from blue_engine.ml.evaluation.metrics import auc, hit_rate, skill
-from blue_engine.ml.features import engineering, labels as labels_mod
+from quant.engines.ml.data_sources.price_cache import PriceCacheSource
+from quant.engines.ml.evaluation.metrics import auc, hit_rate, skill
+from quant.engines.ml.features import engineering, labels as labels_mod
 
 
 def screen(rows, horizon, feats, y, fwd):

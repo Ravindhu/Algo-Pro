@@ -8,7 +8,6 @@ Gates, in order. Each one must pass before any order can be sent:
   1. config/bot.yaml: mode is "live" and live_enabled is true.
   2. scripts/run/run_live.startup_checks: approval on file, limits hash unchanged,
      limits complete, kill switch off, holiday calendar verified, API key present,
-     egress IP (when the owner set allowed_egress_ip).
   3. StrategyBot start: the same gate is run again inside the bot.
   4. Startup reconciliation with the broker position book. No match = no entries.
   5. OpenAlgoClient live guard on EVERY order: approval, limits hash, compliance
@@ -119,18 +118,6 @@ class LiveStops:
                 "reason": str(r.get("message", "")) if isinstance(r, dict) else "bad reply"}
 
 
-def make_egress_guard(allowed_ip: str, egress_fn=None):
-    """Per-cycle guard: the machine's public IP must still be the whitelisted one (audit fix 8)."""
-    def guard():
-        ip = (egress_fn or _live_checks._egress_ip)()
-        if ip is None:
-            return False, ["egress IP could not be checked"]
-        if ip != allowed_ip:
-            return False, [f"egress IP {ip} is not the whitelisted {allowed_ip}"]
-        return True, []
-    return guard
-
-
 from quant.execution.buyer_vwap import BuyerVwapBook  # noqa: E402
 from quant.execution.peg_verify import BidVerifier, VerifyConfig  # noqa: E402
 
@@ -150,7 +137,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
                    startup_fn: Callable = _live_checks.startup_checks,
                    alerts: Optional[Alerts] = None,
                    on_critical: Optional[Callable[[str], None]] = None,
-                   settings_path=None, egress_fn=None):
+                   settings_path=None):
     """Wire the live bot. Raises BotRefused unless every start gate passes. Places no orders."""
     cfg = load_bot_config(bot_cfg_path)
     if cfg.mode != "live" or not cfg.live_enabled:
@@ -181,10 +168,6 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
     )
     readonly = reader if reader is not None else OpenAlgoReadOnly(base_url, transport)
     alerts = alerts or Alerts(on_critical=on_critical)
-    live_settings = _live_checks._live_settings(settings_path or _live_checks.SETTINGS_FILE)
-    allowed_ip = str(live_settings.get("allowed_egress_ip") or "").strip()
-    if not allowed_ip:
-        raise BotRefused("live needs live.allowed_egress_ip in config/settings.yaml")
 
     # Buyer-initiated VWAP per screened symbol, from quote polls. Only used in band mode.
     vwap_book = BuyerVwapBook(readonly, api_key, exchange="NSE")
@@ -232,7 +215,10 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         pnl_store=PnlStore(state_dir / "pnl_state.json"),
         position_store=PositionStore(state_dir / "positions.json"),
         stops=LiveStops(client, api_key),
-        entry_guard=make_egress_guard(allowed_ip, egress_fn),
+        # No extra per-cycle check: the egress IP check was removed (owner, 2026-11-23).
+        # The bot still requires a guard object; this one always passes. The live gate and
+        # OpenAlgoClient's live guard still run on every order.
+        entry_guard=lambda: (True, []),
     )
     # Restore the saved book first, then reconcile it with the broker. Entries stay blocked
     # unless the two match. require_broker: no reader means "unavailable", which blocks entries.

@@ -30,13 +30,13 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "src", "quant", "blue_engine"))
+sys.path.insert(0, __import__("os").path.abspath(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), os.pardir, os.pardir, "src")))
 
 KEY = sys.argv[1] if len(sys.argv) > 1 else ""
 
 
 def main() -> int:
-    from blue_engine.core.client import init_client
+    from quant.engines.core.client import init_client
 
     c = init_client(api_key=KEY)
 
