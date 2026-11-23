@@ -50,8 +50,7 @@ import threading
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from quant.execution.openalgo_client import (
-    has_engine_cancel_method, has_engine_order_method, send_engine_cancel, send_engine_order)
+from quant.engines.core.order_channel import order_channel_ok
 
 logger = logging.getLogger(__name__)
 
@@ -290,11 +289,11 @@ class ExitEngine:
     def _place_stop(self, symbol: str, exchange: str, action: str,
                     quantity: int, trigger: float) -> Tuple[Optional[str], str]:
         """Place one SL-M. Returns ``(order_id, status)``."""
-        if not has_engine_order_method(self.client):
-            return None, "client has no order method"
+        if not order_channel_ok(self.client):
+            return None, "client is not the guarded order gateway"
         try:
-            resp = send_engine_order(self.client, strategy=self.config.strategy_tag, symbol=symbol,
-                                     action=action, exchange=exchange, price_type="SL-M",
+            resp = self.client.send_order(strategy=self.config.strategy_tag, symbol=symbol,
+                                          action=action, exchange=exchange, price_type="SL-M",
                                      product=self.config.product, quantity=int(quantity),
                                      trigger_price=self._rnd(trigger), price=0)
         except Exception as exc:  # noqa: BLE001
@@ -305,10 +304,10 @@ class ExitEngine:
         return (str(order_id) if order_id else None), _status_of(resp) or "open"
 
     def _cancel(self, order_id: str) -> bool:
-        if not has_engine_cancel_method(self.client):
+        if not order_channel_ok(self.client):
             return False
         try:
-            return _ok(send_engine_cancel(self.client, order_id=order_id))
+            return _ok(self.client.cancel_order(order_id=order_id))
         except Exception as exc:  # noqa: BLE001
             self._log_msg(f"cancel {order_id} raised: {exc!r}")
             return False
@@ -483,13 +482,13 @@ class ExitEngine:
                 f"{symbol}: would flatten {size} ({reason}) but "
                 "allow_market_exit is false")
             return
-        if not has_engine_order_method(self.client):
-            report["errors"].append(f"{symbol}: no order method to flatten")
+        if not order_channel_ok(self.client):
+            report["errors"].append(f"{symbol}: client is not the guarded order gateway")
             report["critical"] = True
             return
         try:
-            resp = send_engine_order(self.client, strategy=self.config.strategy_tag, symbol=symbol,
-                                     action=side, exchange=exchange, price_type="MARKET",
+            resp = self.client.send_order(strategy=self.config.strategy_tag, symbol=symbol,
+                                          action=side, exchange=exchange, price_type="MARKET",
                                      product=self.config.product, quantity=int(size))
         except Exception as exc:  # noqa: BLE001
             report["errors"].append(f"{symbol}: flatten raised: {exc!r}")

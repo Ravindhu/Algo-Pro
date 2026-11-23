@@ -377,16 +377,24 @@ class AnalyzeBroker:
 # ---------------------------------------------------------------------------
 # Engine order gateway
 # ---------------------------------------------------------------------------
-# Engine code (POV slicer, exit engine) sends orders only through the functions
-# below. An engine order reaches the broker only when the client is:
-#   * an EngineOrderGateway, which runs the same mode guard as OpenAlgoClient
+# Engine code (POV slicer, exit engine) is injected with a client and never
+# imports this module. The caller builds an EngineOrderGateway, which:
+#   * runs the same mode guard as OpenAlgoClient before every send and cancel
 #     (live: LiveApproval + unchanged limits file + compliance; analyze: OpenAlgo
-#     analyzer confirmed on) before every send, or
-#   * the paper broker (flag ``is_paper_broker``), which never reaches OpenAlgo.
-# Any other client is refused (fail closed).
+#     analyzer confirmed on), and refuses an empty API key;
+#   * lets reads (quotes, orderbook, positionbook, analyzer status) pass through
+#     to the SDK client unchanged;
+#   * refuses every other order-writing method by name (WRITE_NAMES).
+# Engines recognise the gateway by its ``is_order_gateway`` marker.
 
 _PLACE_NAMES = ("place_order", "placeorder")
 _CANCEL_NAMES = ("cancel_order", "cancelorder")
+#: Order-writing SDK methods. Only send_order / cancel_order may reach these.
+WRITE_NAMES = frozenset({
+    "placeorder", "placesmartorder", "modifyorder", "cancelorder", "cancelallorder",
+    "closeposition", "basketorder", "splitorder", "optionsorder", "optionsmultiorder",
+    "place_order", "cancel_order",
+})
 
 
 def _find_method(client, names) -> Optional[Callable]:
@@ -398,7 +406,9 @@ def _find_method(client, names) -> Optional[Callable]:
 
 
 class EngineOrderGateway:
-    """Wraps an SDK-style client and runs OpenAlgoClient's mode guard before every order send."""
+    """Wraps an SDK-style client. Orders and cancels pass the mode guard; reads pass through."""
+
+    is_order_gateway = True
 
     def __init__(self, sdk_client, guard: "OpenAlgoClient", api_key: str) -> None:
         if not isinstance(guard, OpenAlgoClient):
@@ -422,38 +432,10 @@ class EngineOrderGateway:
     def cancel_order(self, **kwargs) -> Dict:
         return self._guarded(_CANCEL_NAMES, kwargs)
 
-
-def _is_paper(client) -> bool:
-    return getattr(client, "is_paper_broker", False) is True
-
-
-def has_engine_order_method(client) -> bool:
-    """True only for a guarded gateway or the paper broker."""
-    if isinstance(client, EngineOrderGateway):
-        return True
-    return _is_paper(client) and _find_method(client, _PLACE_NAMES) is not None
-
-
-def has_engine_cancel_method(client) -> bool:
-    """True only for a guarded gateway or the paper broker."""
-    if isinstance(client, EngineOrderGateway):
-        return True
-    return _is_paper(client) and _find_method(client, _CANCEL_NAMES) is not None
-
-
-def send_engine_order(client, **kwargs) -> Dict:
-    """Send one order. Refuses any client that is not guarded or paper."""
-    if isinstance(client, EngineOrderGateway):
-        return client.send_order(**kwargs)
-    if has_engine_order_method(client):
-        return _find_method(client, _PLACE_NAMES)(**kwargs)
-    raise PermissionError("engine order refused: client is not the guarded order gateway")
-
-
-def send_engine_cancel(client, **kwargs) -> Dict:
-    """Cancel one order. Refuses any client that is not guarded or paper."""
-    if isinstance(client, EngineOrderGateway):
-        return client.cancel_order(**kwargs)
-    if has_engine_cancel_method(client):
-        return _find_method(client, _CANCEL_NAMES)(**kwargs)
-    raise PermissionError("engine cancel refused: client is not the guarded order gateway")
+    def __getattr__(self, name: str):
+        # Only reached for names not defined above. Private names never delegate.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if name in WRITE_NAMES:
+            raise PermissionError(f"{name} is an order write; use send_order / cancel_order")
+        return getattr(self._sdk, name)

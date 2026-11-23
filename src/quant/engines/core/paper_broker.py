@@ -202,6 +202,9 @@ class PaperBroker:
     # ------------------------------------------------------------------ #
     # order surface
     # ------------------------------------------------------------------ #
+    def send_order(self, **kwargs: Any) -> Dict[str, Any]:
+        return self.place_order(**kwargs)
+
     def place_order(self, *, strategy: str = "PAPER", symbol: str,
                    action: str, exchange: str, price_type: str = "MARKET",
                    product: str = "MIS", quantity: int = 1,

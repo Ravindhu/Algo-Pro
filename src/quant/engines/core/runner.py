@@ -165,6 +165,7 @@ def run_with_config(
     raw: Dict[str, Any], *,
     monitor_inputs_provider: Optional[Callable[..., Dict[str, Any]]] = None,
     paper: bool = False,
+    order_client: Optional[Any] = None,
 ) -> int:
     """Run the POV engine from an already-loaded raw config dict.
 
@@ -235,7 +236,11 @@ def run_with_config(
     # Real quotes are used when a broker login exists; otherwise a deterministic
     # synthetic tape is used and the report says so.
     paper_broker = None
-    if paper:
+    if order_client is not None:
+        if paper:
+            raise ValueError("pass order_client or paper=True, not both")
+        client = order_client  # injected by the caller; engines refuse anything unguarded
+    elif paper:
         from quant.engines.core.paper_broker import PaperBroker
         real = None
         try:

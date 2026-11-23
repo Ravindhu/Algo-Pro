@@ -3,7 +3,7 @@ from __future__ import annotations
 import time, uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
-from quant.execution.openalgo_client import send_engine_cancel, send_engine_order
+from quant.engines.core.order_channel import order_channel_ok
 from quant.engines.core.auction_windows import is_within_auction_window
 from quant.engines.core.band import BandConfig, compute_target_pov_rate
 from quant.engines.core.benchmark import ArrivalPriceWindow, SlippageAccumulator
@@ -686,11 +686,12 @@ class POVSlicer(BaseSlicer):
                 self.log(f"[poll {child_count+1}] {self.order_action} {slice_qty} "
                           f"{self.symbol}/{self.exchange} {self.order_mode} "
                           f"@ {place_price or 'MARKET'}")
+                if not order_channel_ok(self.client):
+                    raise PermissionError("order refused: client is not the guarded order gateway")
                 try:
                     arrival_window.clear()
                     attempt_ts = datetime.now()
-                    resp = send_engine_order(
-                        self.client,
+                    resp = self.client.send_order(
                         strategy=self.strategy_label, symbol=self.symbol,
                         action=self.order_action, exchange=self.exchange,
                     price_type=("LIMIT" if self.order_mode == "PEG"
@@ -846,6 +847,8 @@ class POVSlicer(BaseSlicer):
         """
         if own_oids is None:
             return
+        if not order_channel_ok(client):
+            raise PermissionError("cancel refused: client is not the guarded order gateway")
         try: ob = client.orderbook()
         except Exception as exc:
             self.log(f"orderbook read failed: {exc}"); return
@@ -872,7 +875,7 @@ class POVSlicer(BaseSlicer):
                 if not oid or str(oid) not in own_oids: continue
                 age = (datetime.now() - own_oids[str(oid)]).total_seconds()
                 if age < min_age_sec: continue
-                cresp = send_engine_cancel(client, order_id=oid, strategy=strategy_label)
+                cresp = client.cancel_order(order_id=oid, strategy=strategy_label)
                 if isinstance(cresp, dict) and cresp.get("status") == "success":
                     self.log(f"cancelled stale LIMIT child {oid}")
                     if execution_id:
