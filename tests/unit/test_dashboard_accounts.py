@@ -223,3 +223,34 @@ def test_totp_bad_secret_refused(tmp_path):
     acc.create_user("Ravi", PW, path, now=1000)
     with pytest.raises(ValueError):
         acc.totp_enroll("Ravi", "not-base32!!", path)
+
+
+def test_remove_viewers_dry_run_changes_nothing(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Owner1", PW, path, now=1000, role=acc.OWNER)
+    acc.create_user("Viewer1", PW, path, now=1000)
+    before = path.read_text(encoding="utf-8")
+    assert acc.remove_viewer_accounts(path) == ["Viewer1"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_remove_viewers_keeps_owner_and_removes_roleless_accounts(tmp_path):
+    path = tmp_path / "users.json"
+    acc.create_user("Owner1", PW, path, now=1000, role=acc.OWNER)
+    acc.create_user("Viewer1", PW, path, now=1000)
+    # A legacy account with no role field reads as viewer, so it must go too.
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["users"]["Legacy1"] = dict(data["users"]["Viewer1"])
+    data["users"]["Legacy1"].pop("role", None)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    removed = acc.remove_viewer_accounts(path, dry_run=False)
+    assert removed == ["Legacy1", "Viewer1"]
+    left = json.loads(path.read_text(encoding="utf-8"))["users"]
+    assert list(left) == ["Owner1"]
+    assert acc.account_role("Owner1", path) == acc.OWNER
+
+
+def test_remove_viewers_missing_file_is_a_no_op(tmp_path):
+    path = tmp_path / "missing.json"
+    assert acc.remove_viewer_accounts(path, dry_run=False) == []
+    assert not path.exists()

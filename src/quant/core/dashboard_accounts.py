@@ -298,6 +298,26 @@ def is_owner(name: Optional[str], path: Path = DEFAULT_USERS) -> bool:
     return bool(name) and account_role(name, path) == OWNER
 
 
+def viewer_account_names(path: Path = DEFAULT_USERS) -> list:
+    """Every account that is NOT an owner (viewer, or no role at all), sorted."""
+    return sorted(name for name, record in _read(path).items() if account_role(name, path) != OWNER)
+
+
+def remove_viewer_accounts(path: Path = DEFAULT_USERS, dry_run: bool = True) -> list:
+    """Delete every non-owner account. Owners are never touched. Dry run by default.
+
+    Returns the names that were (or, on a dry run, would be) removed. Writes the
+    file atomically only when dry_run is False.
+    """
+    users = _read(path)
+    names = viewer_account_names(path)
+    if dry_run or not names:
+        return names
+    kept = {name: record for name, record in users.items() if name not in names}
+    _write(path, kept)
+    return names
+
+
 def hash_password(password: str, salt: Optional[bytes] = None, iterations: int = ITERATIONS) -> Dict[str, object]:
     salt = salt or secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)

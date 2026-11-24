@@ -87,6 +87,10 @@ def _hash_dir(path: Path) -> str:
     for p in sorted(path.rglob("*")):
         if not p.is_file():
             continue
+        # Python bytecode caches are written by running the code, not by upstream. Skip them so the
+        # pin does not change after a test run (2026-11-24: __pycache__ under install/ moved the hash).
+        if "__pycache__" in p.parts or p.suffix == ".pyc":
+            continue
         rel = p.relative_to(path).as_posix()
         h.update(rel.encode("utf-8"))
         h.update(b"\0")

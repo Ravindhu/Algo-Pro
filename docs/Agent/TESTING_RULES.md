@@ -1,4 +1,4 @@
-# Automated Testing & Verification Rules (`docs/TESTING_RULES.md`)
+# Automated Testing & Verification Rules (`docs/Agent/TESTING_RULES.md`)
 
 ## 1. Test Pyramid & Scope Discipline
 - **Unit Tests (Core Domain):** Test all pure calculations, risk checks, state machine transitions, and data mappers in complete isolation with zero network, disk, or external broker dependencies.
@@ -14,7 +14,7 @@
 - **Mandatory Boundary Coverage:** Explicitly test zero values, negative numbers, `None`/missing fields, precision rounding boundaries, and empty collections.
 - **Fault & Degradation Injection:** Simulate upstream `503` outages, malformed payloads, stale feed timeouts, and duplicate/retry deliveries to verify graceful error envelopes and idempotency.
 - **Async & Race Condition Checks:** Test concurrent state reads/writes and WebSocket broadcast loops under simulated load to ensure zero deadlocks or state corruption.
-- **Fail-closed test:** when a safety check errors or times out, the action must be blocked, and a test must prove it
+- **Fail-Closed Test:** When a safety check errors or times out, the action must be blocked, and a test must prove it.
 ## 4. Test Structure & Execution Standards
 - **Arrange-Act-Assert (AAA):** Structure every test clearly into setup, single action, and explicit assertions with descriptive failure messages.
 - **Regression Lock:** Every bug fix must include a failing regression test reproducing the exact defect before applying the patch.

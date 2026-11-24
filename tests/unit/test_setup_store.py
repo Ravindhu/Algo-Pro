@@ -30,7 +30,7 @@ def test_read_setup_returns_current_values(paths):
     settings, strategies, limits = paths
     assert read_setup(settings, strategies, limits) == {
         "risk_per_trade": 0.0025, "aggressive_share": 0.6, "max_symbols_per_portfolio": None, "strategy": None,
-        "strategies": ["alpha", "beta"], "live_max_capital_inr": None,
+        "strategies": ["alpha", "beta"], "bot_strategies": [], "available_bot_strategies": ["engulfing", "engulfing_fail", "ocl_seq", "ocl_sell_fail_top_seq", "ocl_sell_fail_bottom_seq"], "live_max_capital_inr": None,
         "brokerage": None, "brokerage_example": None,
         "htf_interval": None, "mtf_interval": None, "ltf_interval": None,
         "timeframe_options": ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "75m", "125m", "1d", "1w", "1M"],

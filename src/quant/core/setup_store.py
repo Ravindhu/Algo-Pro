@@ -35,6 +35,7 @@ import yaml
 from quant.core.config import RiskLimits
 from quant.core.limits_store import apply_limit_updates
 from quant.core import broker_costs
+from quant.strategies.owner_patterns import SEQUENCE_KINDS
 from quant.strategies.risk_tree import validate_share
 
 HEADER = (
@@ -44,7 +45,7 @@ HEADER = (
 DEFAULT_RISK = 0.0025
 RISK_MAX = 0.05          # same upper bound as RiskLimits.risk_per_trade
 SYMBOLS_MIN, SYMBOLS_MAX = 1, 100
-KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy",
+KEYS = ("risk_per_trade", "max_symbols_per_portfolio", "strategy", "strategies",
         "live_max_capital_inr", "brokerage",
         "htf_interval", "mtf_interval", "ltf_interval",
         "capital_inr", "max_daily_loss_pct", "max_strategy_loss_pct", "aggressive_share",
@@ -61,6 +62,53 @@ LIVE_KEYS = ("live_max_capital_inr",)
 TIMEFRAMES = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "75m": 75,
               "125m": 125, "1d": 1440, "1w": 10080, "1M": 43200}  # weekly and monthly added 2026-11-22 (minutes approximate for ordering)
 TF_KEYS = {"htf_interval": "htf", "mtf_interval": "mtf", "ltf_interval": "ltf"}  # API key -> yaml key
+# Strategies the bot can run (owner_patterns.SEQUENCE_KINDS). The dashboard offers exactly these.
+BOT_STRATEGIES = tuple(SEQUENCE_KINDS)
+BOT_CONFIG_NAME = "bot.yaml"  # same folder as settings.yaml; the bot reads its `strategies:` list
+
+
+def bot_config_path(settings_path) -> Path:
+    """bot.yaml sits beside settings.yaml in config/."""
+    return Path(settings_path).parent / BOT_CONFIG_NAME
+
+
+def read_bot_strategies(bot_path) -> List[str]:
+    """Names in the `strategies:` list of bot.yaml. Missing file or list gives an empty list."""
+    path = Path(bot_path)
+    if not path.is_file():
+        return []
+    names: List[str] = []
+    inside = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("strategies:"):
+            inside = True
+            continue
+        if inside:
+            if line.startswith("  - "):
+                names.append(line[4:].split("#", 1)[0].strip())
+            elif line.strip() and not line.startswith(" "):
+                break
+    return names
+
+
+def set_bot_strategies(bot_path, names: List[str]) -> None:
+    """Replace the `strategies:` list in bot.yaml. Comments and other keys are kept as written.
+
+    Atomic write. The bot reads this list when it starts, so a change applies at the next start.
+    """
+    path = Path(bot_path)
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    new_block = [f"  - {name}\n" for name in names]
+    start = next((i for i, ln in enumerate(lines) if ln.startswith("strategies:")), None)
+    if start is None:
+        raise ValueError("bot.yaml has no strategies: list to update")
+    end = start + 1
+    while end < len(lines) and lines[end].startswith("  - "):
+        end += 1
+    lines[start + 1:end] = new_block
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("".join(lines), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def strategy_names(strategies_dir) -> List[str]:
@@ -99,6 +147,8 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
         "max_symbols_per_portfolio": symbols,
         "strategy": trade.get("strategy"),
         "strategies": strategy_names(strategies_dir),
+        "bot_strategies": read_bot_strategies(bot_config_path(settings_path)),
+        "available_bot_strategies": list(BOT_STRATEGIES),
         "live_max_capital_inr": live.get("max_capital_inr"),
         "brokerage": brokerage if isinstance(brokerage, dict) else None,
         "brokerage_example": summary,
@@ -191,7 +241,16 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
             if value is not None and (not isinstance(value, str) or value not in TIMEFRAMES):
                 raise ValueError(f"{key} must be one of: {', '.join(TIMEFRAMES)}")
             clean[key] = value
-        else:  # strategy
+        elif key == "strategies":
+            if not isinstance(value, list) or not value:
+                raise ValueError("choose at least one strategy")
+            if len(set(value)) != len(value):
+                raise ValueError("a strategy is listed twice")
+            for name in value:
+                if name not in BOT_STRATEGIES:
+                    raise ValueError(f"unknown strategy: {name!r}. Choose from: {', '.join(BOT_STRATEGIES)}")
+            clean[key] = list(value)
+        else:  # strategy (legacy single choice, saved only)
             if value not in strategies:
                 raise ValueError(f"unknown strategy: {value!r}. Choose one of: {', '.join(strategies) or 'none'}")
             clean[key] = value
@@ -238,6 +297,10 @@ def apply_setup_updates(settings_path, strategies_dir, limits_path,
         for k in BUDGET_KEYS:
             if k in clean:
                 old[k] = (current.get("risk_budget") or {}).get(k)
+    if "strategies" in clean:
+        bot_path = bot_config_path(settings)
+        old["strategies"] = read_bot_strategies(bot_path)
+        set_bot_strategies(bot_path, clean["strategies"])
     file_keys = {"risk_per_trade", "strategy", "brokerage", "aggressive_share", "mtf_borrowed_inr",
                  *LIVE_KEYS, *TF_KEYS}
     if file_keys & set(clean) or plan is not None:

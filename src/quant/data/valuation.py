@@ -2,7 +2,7 @@
 
 Flow stage: Valuation engine
 Status: PHASE 5 IMPLEMENTED (wrap; offline; advice only, never an order)
-Existing code to reuse or wrap (do not copy): src/quant/blue_engine/valuation_engine.py
+Existing code to reuse or wrap (do not copy): src/quant/engines/valuation_engine.py
 (ValuationEngine)
 
 Company snapshots arrive from the caller through config (``valuation_inputs``). The

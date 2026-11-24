@@ -9,7 +9,7 @@
 - **Train / Validation / Test Split:** Lock away an out-of-sample (OOS) holdout set before writing strategy code. Touch the OOS set once; never tune hyperparameters on OOS results.
 - **Walk-Forward & Purged Cross-Validation:** Use expanding/rolling walk-forward windows or purged K-fold CV with embargo periods to prevent label leakage in overlapping horizons.
 - **Realistic Friction:** Every backtest must explicitly deduct:
-  - Exchange/broker commissions and regulatory fees (e.g., STT, stamp duty, exchange turnover charges,tax).
+  - Exchange/broker commissions and regulatory fees (e.g., STT, stamp duty, exchange turnover charges, tax).
   - Bid-ask spread and volume-dependent market impact / slippage.
 - **Execution Realism:** Assume signal execution at `Next Open` or `VWAP`—never at the same bar's `Close` used to generate the signal.
 

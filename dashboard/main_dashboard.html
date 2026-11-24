@@ -207,6 +207,7 @@
   .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 10px; }
   .home-row3 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr); gap: 10px; padding-top: 10px; }
   .home-row3 .stack { display: grid; gap: 10px; min-width: 0; align-content: start; }
+  .home-row3 .scr-panel { justify-self: start; width: min(100%, 240px); }
   .eqhead { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--dim); margin: 0 0 6px; }
   .eqhead b { color: var(--txt); font-weight: 800; }
   .home-row4 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-top: 10px; }
@@ -217,7 +218,7 @@
   .nn { fill: #0a1624; stroke: var(--cyan); stroke-width: 1.5; animation: nodepulse 2.4s ease-in-out infinite; }
   @keyframes nodepulse { 0%, 100% { fill: #0a1624; } 50% { fill: #1d6e8a; } }
   @media (prefers-reduced-motion: reduce) { .nl, .nn { animation: none; } }
-  @media (max-width: 900px) { .home-row3 { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 900px) { .home-row3 { grid-template-columns: minmax(0, 1fr); } .home-row3 .scr-panel { width: 100%; } }
   @media (max-width: 600px) {
     .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .home-row4 { grid-template-columns: minmax(0, 1fr); }
@@ -303,8 +304,8 @@
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
   <span id="engmsg" class="d"></span>
-  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Owner sign-in needed">STOP</button>
-  <button class="go" id="killreset" type="button" title="Kill switch OFF. Owner sign-in needed; written to the override log">RESET</button>
+  <button class="kill" id="killstop" type="button" title="Stop the bot: kill switch ON (blocks new entries, does not close positions) and stops the engine. Owner sign-in needed">STOP</button>
+  <button class="go" id="killreset" type="button" title="Reset the stop: kill switch OFF so the bot can start again. Owner sign-in needed; written to the override log">RESET</button>
   <span id="killmsg" class="d"></span>
 </header>
 <main class="home">
@@ -326,7 +327,7 @@
         <polyline id="navline" fill="none" stroke="#3fd0ff" stroke-width="2" points=""/>
       </svg>
     </section>
-    <section class="panel">
+    <section class="panel scr-panel">
       <div class="ph">Screener stocks <span id="scr-note"></span></div>
       <div class="scroll"><table>
         <thead><tr><th>Symbol</th><th>Name</th><th class="n">Price ₹</th></tr></thead>
@@ -343,7 +344,7 @@
     <section class="panel">
       <div class="ph">Open positions <span>MTM ₹ <b id="rk-mtm">—</b> · <span id="rk-poscount"></span></span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th><th class="n">Hold days</th></tr></thead>
+        <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th></tr></thead>
         <tbody id="rk-pos-rows"></tbody>
       </table></div>
     </section>
@@ -369,8 +370,8 @@
         <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
       <div><label for="su-cap">Live capital cap (₹, fixed)</label>
         <input type="number" id="su-cap" min="1" step="1" placeholder="not set"></div>
-      <div><label for="su-strategy">Strategy</label>
-        <select id="su-strategy"></select></div>
+      <div><label>Strategies (the bot runs the ticked ones)</label>
+        <div id="su-strategies"></div></div>
       <div><label for="su-product">Broker product</label>
         <select id="su-product">
           <option value="delivery">Delivery (STT 0.1% both sides)</option>
@@ -408,7 +409,7 @@
       <div id="livestatus" class="muted"></div>
     </div>
     <p class="d" id="brokerage-example"></p>
-    <p class="d">Loss caps are a percent of the capital base. Saving them also sets the rupee caps the Risk gate reads (max daily loss, max strategy loss). Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
+    <p class="d">Loss caps are a percent of the capital base. Saving them also sets the rupee caps the Risk gate reads (max daily loss, max strategy loss). Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Ticked strategies are written to config/bot.yaml. The bot reads that list when it starts, so a change applies at the next start.</p>
   </form>
 <div class="one">
   <section class="panel">
@@ -635,6 +636,11 @@
     <div class="sec">
       <h2 class="sechead">Infrastructure</h2>
       <ul id="infra"></ul>
+      <h2 class="sechead">Secrets (.env)</h2>
+      <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
+      <div id="envform"></div>
+      <button type="button" id="envsave">SAVE SECRETS</button>
+      <span id="envmsg" class="d"></span>
 
       <h3>Scheduler</h3>
       <form id="schedform" autocomplete="off">
@@ -1034,10 +1040,13 @@
     updateBudgetHint();
     $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
     $("su-cap").value = s.live_max_capital_inr == null ? "" : String(s.live_max_capital_inr);
-    const sel = $("su-strategy");
-    const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
-    sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
-    sel.value = s.strategy || "";
+    const ticked = s.bot_strategies || [];
+    $("su-strategies").replaceChildren(...(s.available_bot_strategies || []).map(n => {
+      const box = Object.assign(document.createElement("input"), {type: "checkbox", value: n, checked: ticked.includes(n)});
+      const row = Object.assign(document.createElement("label"), {textContent: " " + n});
+      row.prepend(box);
+      return row;
+    }));
     const b = s.brokerage || {};
     $("su-product").value = b.product || "delivery";
     $("su-method").value = b.method || "bps";
@@ -1083,9 +1092,9 @@
   async function saveSetup(ev) {
     ev.preventDefault();
     if (!Number.isInteger(symbols) || symbols < 1 || symbols > 100) return setSetupMsg("Max symbols per portfolio must be a whole number 1-100.", "r");
-    const strategy = $("su-strategy").value;
-    if (!strategy) return setSetupMsg("Choose a strategy.", "r");
-    const payload = {max_symbols_per_portfolio: symbols, strategy};
+    const strategies = [...document.querySelectorAll("#su-strategies input:checked")].map(c => c.value);
+    if (!strategies.length) return setSetupMsg("Tick at least one strategy.", "r");
+    const payload = {max_symbols_per_portfolio: symbols, strategies};
     const method = $("su-method").value;
     const brokerage = {product: $("su-product").value, method};
     if (method === "fixed") {
@@ -1345,9 +1354,9 @@
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
-        cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)), cell(h.hold_days == null ? "—" : String(h.hold_days), "n"));
+        cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
-    }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 6);
+    }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 5);
   }
 
   function renderPortfolio(p) {
@@ -1488,6 +1497,42 @@
     if (res.status === 503) return "Writes are off: the server could not create its login key.";
     return res.j.error || ("Failed (HTTP " + res.status + ").");
   }
+
+  // ---- Secrets (.env): owner only. The server never returns a value; empty boxes keep the saved value. ----
+  const SECRET_KEYS_HIDDEN = /PASSWORD|TOTP_SECRET|API_KEY/;
+  async function loadEnv() {
+    const res = await jget("/api/env");
+    if (!res.ok) { $("envform").textContent = ""; sMsg("envmsg", describeFail(res), "r"); return; }
+    const form = $("envform");
+    form.textContent = "";
+    for (const key of res.j.editable) {
+      const label = document.createElement("label");
+      label.textContent = key + (res.j.set[key] ? "  (saved)" : "  (not set)");
+      const input = document.createElement("input");
+      input.type = SECRET_KEYS_HIDDEN.test(key) ? "password" : "text";
+      input.id = "env-" + key;
+      input.autocomplete = "off";
+      input.placeholder = res.j.set[key] ? "saved: leave empty to keep" : "enter value";
+      label.appendChild(input);
+      form.appendChild(label);
+    }
+  }
+  $("envsave").onclick = async () => {
+    const values = {};
+    for (const input of document.querySelectorAll("#envform input")) {
+      values[input.id.slice(4)] = input.value;
+    }
+    sMsg("envmsg", "Saving…", "d");
+    const res = await jpost("/api/env", {values});
+    // Clear every box straight away, so no typed secret stays on the page.
+    document.querySelectorAll("#envform input").forEach(i => { i.value = ""; });
+    if (res.ok) {
+      sMsg("envmsg", res.j.saved.length ? "Saved: " + res.j.saved.join(", ") : "Nothing new to save.", "g");
+      loadEnv();
+    } else {
+      sMsg("envmsg", describeFail(res), "r");
+    }
+  };
 
   async function loadInfra() {
     const res = await jget("/api/infrastructure");
@@ -1676,7 +1721,7 @@
   function openSettings() {
     $("setmodal").hidden = false;
     $("setclose").focus();
-    loadInfra(); loadSchedule(); loadEngine(); loadAccount();
+    loadInfra(); loadEnv(); loadSchedule(); loadEngine(); loadAccount();
   }
   function closeSettings() { $("setmodal").hidden = true; $("setbtn").focus(); }
   $("setbtn").onclick = openSettings;
@@ -1710,7 +1755,12 @@
     if (res.ok) sMsg("killmsg", res.j.message || "Done.", "g");
     else sMsg("killmsg", describeFail(res), "r");
   }
-  $("killstop").onclick = () => killAction("/api/kill/trip", "dashboard STOP button");
+  // STOP stops the bot: kill switch ON (no new entries, open positions are not closed) and the engine process stops.
+  $("killstop").onclick = async () => {
+    await killAction("/api/kill/trip", "dashboard STOP button");
+    await jpost("/api/engine/stop"); // an error here just means the engine was already stopped
+    loadEngine();
+  };
   $("killreset").onclick = () => killAction("/api/kill/reset", "dashboard RESET button");
   setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); loadKill(); }, 10000);
   loadEngine();

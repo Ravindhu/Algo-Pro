@@ -58,7 +58,7 @@ def read_screener(path: Optional[Path] = None, *,
     path = _latest_screen_path() if path is None else Path(path)
     if not path.is_file():
         return {"state": "not_run", "as_of": None, "source": None, "count": 0, "rows": [],
-                "note": "No screener run yet. Run the Blue Engine screener with --save."}
+                "note": "No screener output yet."}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
