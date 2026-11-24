@@ -8,6 +8,8 @@ Rules:
 - Intent id is KILL-<SYMBOL>-1. If that id is already in the ledger and the position is still open,
   the earlier close is not confirmed. That symbol is skipped and needs a human check (fail closed).
 - A position with no reference price is skipped, never priced from a guess.
+- The product (CNC or MIS) must be given by the caller, matching how the position was bought.
+  No product means no close: a close sent with the wrong product can misfire at the broker.
 
 Flow stage: Kill switch
 Status: PHASE 1 IMPLEMENTED
@@ -15,7 +17,7 @@ Existing code to reuse or wrap (do not copy): none. Orders go through risk/gate.
 """
 from __future__ import annotations
 
-from typing import Iterable, List, Mapping, Tuple
+from typing import Iterable, List, Mapping, Optional, Tuple
 
 from quant.core.types import TradeIntent
 
@@ -26,8 +28,12 @@ def kill_exit_intents(
     positions: Mapping[str, int],
     ref_prices: Mapping[str, float],
     ledger_intent_ids: Iterable[str],
+    product: Optional[str] = None,
 ) -> Tuple[List[TradeIntent], List[Tuple[str, str]]]:
     """Return (exit intents, skipped). positions: symbol -> signed qty. ref_prices: symbol -> last price."""
+    code = str(product or "").strip().upper()
+    if code and code not in ("MIS", "CNC"):
+        raise ValueError(f"kill close product must be MIS or CNC, got {product!r}")
     taken = set(ledger_intent_ids)
     intents: List[TradeIntent] = []
     skipped: List[Tuple[str, str]] = []
@@ -36,6 +42,9 @@ def kill_exit_intents(
         if qty == 0:
             continue
         intent_id = f"KILL-{symbol}-1"
+        if not code:
+            skipped.append((symbol, "product unknown: no close sent, check the broker"))
+            continue
         if intent_id in taken:
             skipped.append((symbol, "earlier kill close not confirmed flat: check the broker"))
             continue
@@ -51,5 +60,6 @@ def kill_exit_intents(
             qty=abs(qty),
             ref_price=float(px),
             kind="exit",
+            product=code,
         ))
     return intents, skipped

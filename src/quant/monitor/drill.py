@@ -159,7 +159,7 @@ def run_drill(out_dir: Path, audit: Optional[AuditLog] = None) -> DrillReport:
                if revived.active and not d2.approved else "KILL STATE DID NOT SURVIVE RELOAD")
 
     # ---- Phase 4: kill closes pass the gate while killed ----------------- #
-    intents, skipped = kill_exit_intents({"TCS": 5}, {"TCS": 100.0}, [])
+    intents, skipped = kill_exit_intents({"TCS": 5}, {"TCS": 100.0}, [], product="CNC")
     d3 = _gate(intents[0], revived, safe) if intents else None
     closed_ok = bool(intents) and d3 is not None and d3.approved and \
         intents[0].strategy_id == KILL_STRATEGY_ID

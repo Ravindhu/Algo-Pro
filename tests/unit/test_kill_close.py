@@ -38,20 +38,20 @@ def _trip(out, reason="test"):
 
 
 def test_long_is_sold_and_short_is_bought():
-    intents, skipped = kill_exit_intents({"A": 5, "B": -3}, {"A": 100.0, "B": 50.0}, [])
+    intents, skipped = kill_exit_intents({"A": 5, "B": -3}, {"A": 100.0, "B": 50.0}, [], product="CNC")
     assert skipped == []
     assert [(i.symbol, i.side, i.qty, i.kind, i.strategy_id) for i in intents] == [
         ("A", "SELL", 5, "exit", "KILL"), ("B", "BUY", 3, "exit", "KILL")]
 
 
 def test_zero_position_and_missing_price_are_skipped():
-    intents, skipped = kill_exit_intents({"A": 0, "B": 4}, {}, [])
+    intents, skipped = kill_exit_intents({"A": 0, "B": 4}, {}, [], product="CNC")
     assert intents == []
     assert skipped == [("B", "no reference price")]
 
 
 def test_earlier_close_not_confirmed_blocks_a_second_attempt():
-    intents, skipped = kill_exit_intents({"A": 5}, {"A": 100.0}, ["KILL-A-1"])
+    intents, skipped = kill_exit_intents({"A": 5}, {"A": 100.0}, ["KILL-A-1"], product="CNC")
     assert intents == []
     assert skipped and "not confirmed" in skipped[0][1]
 

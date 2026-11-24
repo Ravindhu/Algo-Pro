@@ -93,9 +93,16 @@ daily loss limit in `strategy_bot.py`.
 - Restored saved positions without a product take the config product.
 - Tests: 26 in `test_square_off_wiring.py`. Full suite: 2411 passed, 2 skipped, 1 xfailed.
 
+**Done after section 10 (same branch):**
+- `risk/kill_close.kill_exit_intents` takes an explicit `product` (MIS or CNC). With no product it
+  sends no close and logs "product unknown". Regression test: no MIS close is ever built by default.
+- Callers pass the product: `monitor/drill.py` (CNC), `scripts/run_paper.py` (CNC).
+
 **Open before live (must fix):**
-- `src/quant/risk/kill_close.py` builds kill-switch close orders with the default MIS. Those must follow
-  the position's real product, or a close of a CNC holding may be sent as MIS.
-- Other non-bot intents still default to MIS: `monitor/drill.py`, `execution/protection.py`,
-  `scripts/run_paper.py`, `engines/alpha/strategies/signals/risk_adapter.py` (callers outside the bot).
+- **The live bot never calls the kill-close flatten.** `kill_exit_intents` is used only by the paper
+  script and the drill. When the kill switch trips in live, the bot blocks new entries but does not
+  close open positions. Positions leave only by stop, target or the square-off rule. Decide: wire a
+  kill flatten into the live cycle (same exit path, product from config), or document the gap.
+- Non-bot intents still default to MIS: `monitor/drill.py` (intents other than kill close),
+  `execution/protection.py`, `engines/alpha/strategies/signals/risk_adapter.py` callers outside the bot.
 - Carry rule (`risk/controls.carry_allowed`) is not wired; not changed here.

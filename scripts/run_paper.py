@@ -187,7 +187,8 @@ def run(signals_csv, limits_path, out_dir, broker=None, readers=None, *,
             return
         flattened = True
         intents, skipped = kill_exit_intents(ledger.positions(), _last_fill_prices(ledger),
-                                             ledger.seen_intent_ids())
+                                             ledger.seen_intent_ids(),
+                                             product="CNC")  # paper positions follow the bot default
         closed = [i.symbol for i in intents]
         audit.append("kill_close", {"reason": _close_reason(closed, skipped), "closed": closed,
                                     "skipped": [{"symbol": s, "why": w} for s, w in skipped],
