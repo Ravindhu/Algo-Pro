@@ -1,4 +1,4 @@
-# Data Modeling & Type Safety Rules (`docs/DATA_MODEL_RULES.md`)
+# Data Modeling & Type Safety Rules (`docs/Agent/DATA_MODEL_RULES.md`)
 
 ## 1. Schema Definition & Single Source of Truth
 - **Typed Domain Models:** Define all entities, payloads, and state objects using strict static schemas (e.g., Pydantic `BaseModel`, `dataclasses`, or TypeScript interfaces); strictly forbid passing untyped `dict` or `any` objects across module boundaries.
@@ -10,7 +10,7 @@
 - **Explicit Units in Field Names:** Suffix ambiguous numeric fields with their exact unit (`_ms`, `_pct`, `_qty`, `_bps`, `_utc`) so scale and unit conversions are unmistakable.
 - **Strict Enums Over Magic Strings:** Model all finite states, sides, modes, and statuses using explicit `Enum` or union literal types; never scatter raw status strings across conditionals.
 - **Nullable Explicitness:** Declare optional fields explicitly (`Optional[T] = None`) and separate "missing/unset" (`None`) from valid zero/empty values (`0`, `""`).
-       Round numbers only at the display layer or at a named, documented boundary. Never round inside calculations."
+- **Rounding Rule:** Round numbers only at the display layer or at a named, documented boundary. Never round inside calculations.
 ## 3. State Lifecycle & Serialization Rules
 - **Enforced State Machines:** Define valid state transitions explicitly inside the model or state manager and reject illegal transitions with deterministic domain errors.
 - **Separate DTOs from Domain Entities:** Keep transport schemas (API request/response DTOs) and persistence models decoupled from internal domain entities via explicit mapper functions.

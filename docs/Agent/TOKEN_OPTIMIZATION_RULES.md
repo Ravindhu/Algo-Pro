@@ -1,4 +1,4 @@
-# Token Optimization & Context Efficiency Rules (**TOKEN_OPTIMIZATION_RULES.md**)
+# Token Optimization & Context Efficiency Rules (`docs/Agent/TOKEN_OPTIMIZATION_RULES.md`)
 
 ## 1. File Reading & Codebase Exploration Rules
 - **Targeted Reads Only:** Never read entire large files when only a specific function, class, or section is needed. Use line ranges (`offset`/`limit`) or search for exact symbols first.
