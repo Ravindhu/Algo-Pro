@@ -636,7 +636,7 @@
     <div class="sec">
       <h2 class="sechead">Infrastructure</h2>
       <ul id="infra"></ul>
-      <h2 class="sechead">Secrets (.env)</h2>
+      <h2 class="sechead">Secrets</h2>
       <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
       <div id="envform"></div>
       <button type="button" id="envsave">SAVE SECRETS</button>
@@ -1491,7 +1491,7 @@
     return res.j.error || ("Failed (HTTP " + res.status + ").");
   }
 
-  // ---- Secrets (.env): owner only. The server never returns a value; empty boxes keep the saved value. ----
+  // ---- Secrets: owner only. The server never returns a value; empty boxes keep the saved value. ----
   const SECRET_KEYS_HIDDEN = /PASSWORD|TOTP_SECRET|API_KEY/;
   async function loadEnv() {
     const res = await jget("/api/env");

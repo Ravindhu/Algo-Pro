@@ -301,7 +301,7 @@ class HoldingsReader:
         try:
             key = self._key_source()
         except Exception:  # message kept generic: never echo secrets
-            result = _state("not_connected", as_of, "OPENALGO_API_KEY is not set in .env")
+            result = _state("not_connected", as_of, "Broker key not set")
         else:
             try:
                 result = build_portfolio(self._fetch(key), as_of)
