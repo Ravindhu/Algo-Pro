@@ -20,6 +20,7 @@ import json
 import os
 import platform
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -47,6 +48,7 @@ from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
 from quant.core import dashboard_accounts as accounts  # noqa: E402
 from quant.core import engine_control  # noqa: E402
+from quant.core.broker_signin import login_after_signin  # noqa: E402
 from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
@@ -471,6 +473,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             status = 401 if reason != "totp_required" else 403
             return JSONResponse({"error": reason, "totp_required": reason == "totp_required"},
                                 status_code=status)
+        threading.Thread(target=login_after_signin, args=(name[:32], paths["audit"]),
+                         daemon=True).start()
         response = JSONResponse({"signed_in": name,
                                  "role": accounts.account_role(name, paths["users"]),
                                  "avatar": (accounts.avatar_file(name) is not None)})
