@@ -37,3 +37,14 @@ Simple-English plan. Live trading stays OFF. Nothing here changes order behaviou
 - **Q3:** Item 3 – may the `.env` editor save broker secrets and TOTP secrets from the browser? (Recommended: yes, owner-only, masked, audit logged.)
 - **Q4:** Item 4 – exact new ranges: aggressive %, conservative %, and the max aggressive risk % you want to allow.
 - **Q5:** Item 5 – describe one case where unfilled shares or risk were NOT carried (which strategy, which cycle).
+
+## Owner answers (2026-11-24)
+
+- **Q1 (item 1):** Delete viewer accounts. Status: approved, not implemented.
+- **Q2 (item 2):** Auto-login OpenAlgo and the broker with 2FA. The dashboard login stays manual. Status: approved for paper. Live auto-login is NOT confirmed; recommendation is a manual approval click for live.
+- **Q3 (item 3):** Yes. The owner saves the broker password and TOTP secret once. At each dashboard sign-in, OpenAlgo and the broker log in automatically. Recommendation: store secrets encrypted at rest, owner-only, masked in the UI, never logged.
+- **Q4 (item 4):** Per-level risk range 0–100 % with no guard. Conflict to confirm: `quant-rule.md` section 4 says hard risk limits must not be overridable in code. Recommendation: keep the existing daily loss cap (2 %) and kill switch as the hard limit, even though the per-level % is free.
+- **Q5 (item 5):** Recommendation only, not yet implemented. Problem: an aggressive entry of 0.15 % risk rounds to 0 shares.
+  - Keep the unused rupee risk and carry it to the next entry in the same OCL, not to the next share count.
+  - If still 0 shares when the OCL closes, drop it and write an audit row with the reason. Do not round up to 1 share, because that breaks the risk limit.
+  - Add a test: 0-share entry carries risk; a later entry that fits uses the carried risk.
