@@ -175,28 +175,18 @@ def screen_rows(payload: Dict[str, Any], *, as_of=None, max_symbols: int = 50) -
     ordered = select_universe(payload_for_universe)
     candidates = {c.get("symbol"): c for c in payload.get("candidates", []) if c.get("symbol")}
     results = []
-    dropped: List[Dict[str, str]] = []
     for sym in ordered[:max_symbols]:
         c = candidates.get(sym) or {}
         circuit = c.get("circuit_pct")
         asm_gsm = bool(c.get("asm_gsm") or c.get("asm") or c.get("gsm"))
         if not isinstance(circuit, (int, float)) or not 0 < float(circuit) <= 1:
-            # Record WHY. Without this, a payload that never carried a circuit limit
-            # produced {"results": []} and read exactly like a clean empty screen.
-            dropped.append({"symbol": str(sym),
-                            "reason": "circuit_pct missing" if circuit is None
-                            else f"circuit_pct implausible ({circuit!r})"})
-            continue
+            continue  # unknown circuit limit: not safe to trade, skip
         if asm_gsm:
-            dropped.append({"symbol": str(sym), "reason": "ASM/GSM flag"})
             continue
         results.append({"symbol": str(sym).upper(), "selected": True,
                         "asm_gsm": False, "circuit_pct": float(circuit)})
     stamp = as_of.isoformat() if hasattr(as_of, "isoformat") else (as_of or datetime.now(timezone.utc).isoformat())
-    # ``dropped`` is diagnostic only; the bot's read_screen ignores unknown keys.
-    return {"as_of": stamp, "results": results, "dropped": dropped,
-            "counts": {"considered": len(ordered[:max_symbols]),
-                       "selected": len(results), "dropped": len(dropped)}}
+    return {"as_of": stamp, "results": results}
 
 
 def write_screen_file(payload: Dict[str, Any], path, *, as_of=None, max_symbols: int = 50) -> int:

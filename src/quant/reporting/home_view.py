@@ -4,8 +4,6 @@ Read-only. Nothing here sends orders or writes files.
 
 * Screener list: the Blue Engine screener's last saved run
   (``engines/screener/last_screen.json``, written by its CLI with ``--save``).
-  A BSE-linked row is a bare 6-digit security code; its company name is filled
-  from the BSE/NSE symbol master so the dashboard shows a name, not a number.
 * Portfolio analysis (REAL money): the Blue Engine NAV store, built from the broker's view of the live book, read through
   ``quant.engines.portfolio.risk_report.report``, the same code the desk uses.
 
@@ -24,38 +22,15 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[3]
-# The screener CLI writes ``--save`` output next to itself; ``data/screened/`` is the
-# path the dashboard's RUN SCREENER button and the ops scripts use. Reading only the
-# first made the panel report "not run" while a full 14-row screen sat on disk.
-SCREEN_PATHS = (
-    ROOT / "data" / "screened" / "last_screen.json",
-    ROOT / "src" / "quant" / "engines" / "screener" / "last_screen.json",
-)
+SCREEN_PATH = ROOT / "src" / "quant" / "engines" / "screener" / "last_screen.json"
 MAX_ROWS = 50        # AGENTS.md token rules: cap what reaches the page
 CACHE_S = 60.0       # the NAV store changes once a day; no need to re-read every poll
 
 _analysis_cache: Dict[str, Any] = {"at": None, "value": None}
 
 
-def _latest_screen_path() -> Path:
-    """Newest existing screen file, or the primary path when none exists (state=not_run)."""
-    found = [p for p in SCREEN_PATHS if p.is_file()]
-    if not found:
-        return SCREEN_PATHS[0]
-    return max(found, key=lambda p: p.stat().st_mtime)
-
-
-def read_screener(path: Optional[Path] = None, *,
-                  name_fn: Optional[Callable[[str], str]] = None) -> Dict[str, Any]:
-    """The selected names from the last screener run, or an empty state.
-
-    A BSE-linked company reaches us as a bare 6-digit security code; ``name_fn``
-    fills the display name from the BSE/NSE master when the row has none. Default
-    is ``_resolve_name``; pass ``None`` to skip the lookup. A lookup failure is
-    ignored - the code still shows, so the row is never blank.
-    """
-    lookup = _resolve_name if name_fn is None else name_fn
-    path = _latest_screen_path() if path is None else Path(path)
+def read_screener(path: Path = SCREEN_PATH) -> Dict[str, Any]:
+    """The selected names from the last screener run, or an empty state."""
     if not path.is_file():
         return {"state": "not_run", "as_of": None, "source": None, "count": 0, "rows": [],
                 "note": "No screener output yet."}
@@ -69,7 +44,7 @@ def read_screener(path: Optional[Path] = None, *,
     selected = [r for r in results if isinstance(r, dict) and r.get("selected")]
     rows: List[Dict[str, Any]] = [{
         "symbol": str(r.get("symbol") or "")[:20],
-        "name": _name_for(str(r.get("symbol") or ""), r.get("name"), lookup),
+        "name": str(r.get("name") or "")[:40],
         "status": "selected",
         "reason": str(r.get("reason") or "")[:120],
         "price": _price(r),
@@ -79,34 +54,6 @@ def read_screener(path: Optional[Path] = None, *,
             "source": str(payload.get("source") or "")[:120] if isinstance(payload, dict) else None,
             "count": len(selected), "rows": rows,
             "note": "" if rows else "The last screener run selected no names."}
-
-
-def _resolve_name(symbol: str) -> str:
-    """Company name for a screener symbol from the Blue symbol master; "" if unknown.
-
-    The master lists are optional local data, so a missing list resolves to ""
-    rather than raising into the dashboard poll.
-    """
-    if not symbol:
-        return ""
-    try:
-        _ensure_engines_path()
-        from quant.engines.screener.symbol_map import resolve_symbol
-        resolved = resolve_symbol(symbol).name
-    except Exception:  # noqa: BLE001 - display only; a lookup failure is not an error
-        return ""
-    return str(resolved or "").strip()[:40]
-
-
-def _name_for(symbol: str, stored: Any, name_fn: Optional[Callable[[str], str]]) -> str:
-    """Name already in the row wins; otherwise look it up (bounded); else ""."""
-    text = str(stored or "").strip()
-    if text:
-        return text[:40]
-    try:
-        return str(name_fn(symbol) or "").strip()[:40]
-    except Exception:  # noqa: BLE001 - display only
-        return ""
 
 
 def _price(row: Dict[str, Any]) -> Optional[float]:

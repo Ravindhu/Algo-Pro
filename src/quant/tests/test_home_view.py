@@ -24,58 +24,6 @@ def test_screener_lists_only_selected_names(tmp_path: Path):
     assert [r["symbol"] for r in out["rows"]] == ["AAA"]
 
 
-def test_bse_code_without_name_is_looked_up(tmp_path: Path):
-    """A BSE-only row carries a bare security code; the name comes from the master."""
-    path = tmp_path / "last_screen.json"
-    path.write_text(json.dumps({"as_of": "x", "source": "s", "results": [
-        {"symbol": "500319", "selected": True, "reason": "r"},
-        {"symbol": "522650", "name": "Known Ltd", "selected": True, "reason": "r"},
-    ]}), encoding="utf-8")
-    out = home_view.read_screener(path, name_fn=lambda s: {"500319": "ISPAT Industries"}.get(s, ""))
-    names = {r["symbol"]: r["name"] for r in out["rows"]}
-    assert names == {"500319": "ISPAT Industries", "522650": "Known Ltd"}
-
-
-def test_default_paths_include_the_data_screened_dir(tmp_path: Path, monkeypatch):
-    """The dashboard used to read only a path the screener never writes.
-
-    Real screens land in ``data/screened/last_screen.json``; the panel reported
-    "not run" while 14 rows sat on disk. The newest existing file must win.
-    """
-    a = tmp_path / "a.json"
-    b = tmp_path / "b.json"
-    a.write_text(json.dumps({"as_of": "old", "results": [
-        {"symbol": "OLD", "name": "Old", "selected": True}]}), encoding="utf-8")
-    b.write_text(json.dumps({"as_of": "new", "results": [
-        {"symbol": "NEW", "name": "New", "selected": True}]}), encoding="utf-8")
-    import os
-    import time
-    os.utime(a, (time.time() - 500, time.time() - 500))
-    monkeypatch.setattr(home_view, "SCREEN_PATHS", (a, b))
-    out = home_view.read_screener()
-    assert out["state"] == "ok" and out["as_of"] == "new"
-    assert [r["symbol"] for r in out["rows"]] == ["NEW"]
-
-
-def test_no_screen_file_anywhere_is_not_run(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(home_view, "SCREEN_PATHS", (tmp_path / "x.json", tmp_path / "y.json"))
-    out = home_view.read_screener()
-    assert out["state"] == "not_run" and out["rows"] == []
-
-
-def test_name_lookup_failure_is_blank_not_fatal(tmp_path: Path):
-    path = tmp_path / "last_screen.json"
-    path.write_text(json.dumps({"as_of": "x", "source": "s", "results": [
-        {"symbol": "500319", "selected": True, "reason": "r"},
-    ]}), encoding="utf-8")
-
-    def boom(_s):
-        raise RuntimeError("no master")
-
-    out = home_view.read_screener(path, name_fn=boom)
-    assert out["state"] == "ok" and out["rows"][0]["name"] == ""
-
-
 def test_broken_screener_file_is_an_error_state(tmp_path: Path):
     path = tmp_path / "last_screen.json"
     path.write_text("{not json", encoding="utf-8")

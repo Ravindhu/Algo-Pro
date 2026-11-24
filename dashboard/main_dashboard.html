@@ -330,7 +330,7 @@
     <section class="panel scr-panel">
       <div class="ph">Screener stocks <span id="scr-note"></span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Symbol</th><th>Name</th><th class="n">Price ₹</th></tr></thead>
+        <thead><tr><th>Symbol</th><th class="n">Price ₹</th></tr></thead>
         <tbody id="scr-rows"></tbody>
       </table></div>
     </section>
@@ -682,8 +682,6 @@
   const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
   const money = v => inr(v);
   const cell = (text, cls) => { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; };
-  // A bare 6-digit symbol is a BSE security code, not an NSE trading symbol.
-  const bseCode = s => /^\d{6}$/.test(String(s || ""));
   const sign = v => v == null ? "d" : v > 0 ? "g" : v < 0 ? "r" : "d";
 
   function setChip(id, text, cls) { const e = $(id); e.textContent = text; e.className = "chip " + cls; }
@@ -752,14 +750,9 @@
       : scr.state === "not_run" ? "not run yet" : scr.state === "empty" ? "none selected" : "unavailable";
     renderTable($("scr-rows"), rows.map(x => {
       const tr = document.createElement("tr");
-      // BSE-linked rows carry a bare 6-digit security code as the symbol; show the
-      // company name next to it so the row reads as a company, not a number.
-      const name = x.name || (bseCode(x.symbol) ? "BSE " + x.symbol : "");
-      const tdName = cell(name || "—");
-      tdName.title = name; tdName.style.overflow = "hidden"; tdName.style.textOverflow = "ellipsis";
-      tr.append(cell(x.symbol || "—"), tdName, cell(inr(x.price), "n"));
+      tr.append(cell(x.symbol || "—"), cell(inr(x.price), "n"));
       return tr;
-    }), scr.note || "No screener output yet.", 3);
+    }), scr.note || "No screener output yet.", 2);
     renderAnalysisTiles(o);
   }
 
