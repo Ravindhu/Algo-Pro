@@ -48,6 +48,7 @@ from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn_loop, start_loop, stop_loop  # noqa: E402
 from quant.core import dashboard_accounts as accounts  # noqa: E402
 from quant.core import engine_control  # noqa: E402
+from quant.core import env_editor  # noqa: E402
 from quant.core.broker_signin import login_after_signin  # noqa: E402
 from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
@@ -690,6 +691,32 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         if not ok:
             return JSONResponse({"error": message}, status_code=409)
         return JSONResponse({"message": message, "pid": pid})
+
+    @app.get("/api/env")
+    def env_status(request: Request):
+        """Which broker and OpenAlgo secrets are set. Never returns a value. Owner only."""
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        return JSONResponse({"set": env_editor.status(), "editable": list(env_editor.EDITABLE_KEYS)})
+
+    @app.post("/api/env")
+    async def env_save(request: Request):
+        """Save secrets to .env. An empty field keeps the saved value. Owner only. Audit: key names only."""
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        values = body.get("values") if isinstance(body, dict) else None
+        if not isinstance(values, dict):
+            return JSONResponse({"error": "values must be an object"}, status_code=422)
+        try:
+            changed = env_editor.apply_updates(values)
+        except env_editor.EnvEditError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        AuditLog(paths["audit"]).append("env_saved", {"keys": env_editor.describe_keys(changed),
+                                                     "actor": ACTOR})
+        return JSONResponse({"saved": changed, "set": env_editor.status()})
 
     @app.get("/api/infrastructure")
     def infrastructure():

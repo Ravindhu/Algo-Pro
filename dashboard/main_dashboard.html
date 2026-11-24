@@ -635,6 +635,11 @@
     <div class="sec">
       <h2 class="sechead">Infrastructure</h2>
       <ul id="infra"></ul>
+      <h2 class="sechead">Secrets (.env)</h2>
+      <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
+      <div id="envform"></div>
+      <button type="button" id="envsave">SAVE SECRETS</button>
+      <span id="envmsg" class="d"></span>
 
       <h3>Scheduler</h3>
       <form id="schedform" autocomplete="off">
@@ -1482,6 +1487,42 @@
     return res.j.error || ("Failed (HTTP " + res.status + ").");
   }
 
+  // ---- Secrets (.env): owner only. The server never returns a value; empty boxes keep the saved value. ----
+  const SECRET_KEYS_HIDDEN = /PASSWORD|TOTP_SECRET|API_KEY/;
+  async function loadEnv() {
+    const res = await jget("/api/env");
+    if (!res.ok) { $("envform").textContent = ""; sMsg("envmsg", describeFail(res), "r"); return; }
+    const form = $("envform");
+    form.textContent = "";
+    for (const key of res.j.editable) {
+      const label = document.createElement("label");
+      label.textContent = key + (res.j.set[key] ? "  (saved)" : "  (not set)");
+      const input = document.createElement("input");
+      input.type = SECRET_KEYS_HIDDEN.test(key) ? "password" : "text";
+      input.id = "env-" + key;
+      input.autocomplete = "off";
+      input.placeholder = res.j.set[key] ? "saved: leave empty to keep" : "enter value";
+      label.appendChild(input);
+      form.appendChild(label);
+    }
+  }
+  $("envsave").onclick = async () => {
+    const values = {};
+    for (const input of document.querySelectorAll("#envform input")) {
+      values[input.id.slice(4)] = input.value;
+    }
+    sMsg("envmsg", "Saving…", "d");
+    const res = await jpost("/api/env", {values});
+    // Clear every box straight away, so no typed secret stays on the page.
+    document.querySelectorAll("#envform input").forEach(i => { i.value = ""; });
+    if (res.ok) {
+      sMsg("envmsg", res.j.saved.length ? "Saved: " + res.j.saved.join(", ") : "Nothing new to save.", "g");
+      loadEnv();
+    } else {
+      sMsg("envmsg", describeFail(res), "r");
+    }
+  };
+
   async function loadInfra() {
     const res = await jget("/api/infrastructure");
     const ul = $("infra");
@@ -1669,7 +1710,7 @@
   function openSettings() {
     $("setmodal").hidden = false;
     $("setclose").focus();
-    loadInfra(); loadSchedule(); loadEngine(); loadAccount();
+    loadInfra(); loadEnv(); loadSchedule(); loadEngine(); loadAccount();
   }
   function closeSettings() { $("setmodal").hidden = true; $("setbtn").focus(); }
   $("setbtn").onclick = openSettings;
