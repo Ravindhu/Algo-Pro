@@ -55,3 +55,8 @@ Simple-English plan. Live trading stays OFF. Nothing here changes order behaviou
 - **Item 5 (0-share entries):** Recommendation APPROVED. Carry unused rupee risk to the next entry in the same OCL; drop with an audit row if still 0 shares at OCL close; never round up to 1 share.
 - **New request (dashboard):** Show only one control on the dashboard: a bot ON/OFF button. Scope to confirm: which other dashboard controls (including the kill switch) are removed or moved.
 - **Live auto-login (earlier question):** NOT answered clearly. Still open.
+
+## Owner decisions (2026-11-24, third round) – all questions now answered
+
+- **Dashboard buttons:** One main button: BOT START / BOT STOP. It replaces the separate Start Engine and Stop buttons. Keep RESET as its own control. Interpretation to confirm in the UI review: the kill switch is treated as the STOP action.
+- **Live auto-login:** YES. OpenAlgo and the broker log in automatically in live mode too (no manual approval click). This overrides the earlier recommendation. Secrets must be encrypted at rest and never logged.
