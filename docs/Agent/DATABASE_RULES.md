@@ -1,4 +1,4 @@
-# Database & Persistence Rules (`docs/DATABASE_RULES.md`)
+# Database & Persistence Rules (`docs/Agent/DATABASE_RULES.md`)
 
 ## 1. Engine Configuration & Concurrency
 - **WAL Mode & Busy Timeout:** For embedded databases (SQLite), always enable Write-Ahead Logging (`PRAGMA journal_mode=WAL;`), `PRAGMA synchronous=NORMAL;`, and a non-zero `busy_timeout` (`>= 5000ms`) on every connection to prevent write-lock contention during concurrent reads.
@@ -20,4 +20,4 @@
 - **Append-Only Audit Trails:** Treat execution logs, state transitions, and order events as immutable append-only records; never overwrite or hard-delete historical audit rows (use soft-delete flags or status columns where needed).
 - **Idempotency Keys:** Enforce `UNIQUE` constraints on external event IDs, order IDs, and webhook delivery IDs so retries never create duplicate records.
 - **Automated Retention & Backups:** Implement scheduled log compaction/archival for high-volume telemetry tables and atomic online backups (`.backup` API) without halting active readers.
-   Backups must pass a restore test at least once per release
+- **Backup Restore Test:** Backups must pass a restore test at least once per release.

@@ -1,4 +1,4 @@
-# System Architecture & Engineering Rules (`docs/ARCHITECTURE_RULES.md`)
+# System Architecture & Engineering Rules (`docs/Agent/ARCHITECTURE_RULES.md`)
 
 ## 1. Layer Separation & Dependency Direction
 - **Strict Layered Boundaries:** Enforce one-way dependencies across four isolated layers:
@@ -23,5 +23,5 @@
 - **Plugin / Strategy Interface:** Every strategy, scanner, or automation rule must implement a uniform lifecycle interface (`init`, `on_tick`/`on_event`, `teardown`) so modules can be toggled or hot-reloaded without modifying core engine code.
 - **Configuration Over Hardcoding:** Drive environment-specific parameters, thresholds, and feature flags from external config files and `.env` schemas validated at startup.
 - **File & Module Cohesion:** Keep each file focused on one single responsibility and under ~300 lines; split growing modules by domain capability rather than technical file type.
-Safe defaults: any risky feature is off unless explicitly enabled in config."
-   "Refuse to start if required config is missing or invalid. Log the exact reason."
+- **Safe Defaults:** Any risky feature is off unless explicitly enabled in config.
+- **Refuse to Start:** Refuse to start if required config is missing or invalid. Log the exact reason.
