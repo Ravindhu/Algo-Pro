@@ -111,3 +111,26 @@ def test_screen_rows_and_write_file(tmp_path):
     assert n == 1
     import json
     assert json.loads(out.read_text(encoding="utf-8"))["results"][0]["symbol"] == "INFY"
+
+
+def test_screen_rows_explains_every_drop():
+    """A payload with no circuit limits must say so, not return a bare empty list.
+
+    2026-11-24: the real screener payload carried no ``circuit_pct`` at all, so every
+    row was discarded and the file read ``{"results": []}`` - indistinguishable from
+    a clean empty screen. The reason is now recorded per symbol.
+    """
+    from quant.data.screener_engine import screen_rows
+
+    payload = {"candidates": [
+        {"symbol": "AAA", "selected": True},
+        {"symbol": "BBB", "selected": True, "circuit_pct": 0.1, "asm_gsm": True},
+        {"symbol": "CCC", "selected": True, "circuit_pct": 5.0},
+    ]}
+    doc = screen_rows(payload, as_of="2026-11-24T10:00:00")
+    assert doc["results"] == []
+    assert doc["counts"] == {"considered": 3, "selected": 0, "dropped": 3}
+    reasons = {d["symbol"]: d["reason"] for d in doc["dropped"]}
+    assert reasons["AAA"] == "circuit_pct missing"
+    assert reasons["BBB"] == "ASM/GSM flag"
+    assert reasons["CCC"].startswith("circuit_pct implausible")
