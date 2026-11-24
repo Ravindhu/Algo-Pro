@@ -1,9 +1,9 @@
-"""alpha - Alpha engine package.
+"""alpha - strategy package (signal strategies that decide WHEN to trade).
 
-Also hosts the ``signals`` sub-package (the signal strategies that decide
-WHEN to trade) -- signal generation is the alpha stage's responsibility.
+The ``AlphaEngine`` scoring stage was retired on 2026-11-24 and parked in
+``Temp/Stag/alpha_engine``. The strategy signals below are the live trading
+strategy and stay here. See docs/IMPLEMENTATION_PLAN_2026-11-24_RETIRE_ALPHA.md.
 """
-from .alpha_engine import AlphaEngine, DEFAULT_FUNDAMENTAL_RULES
 from . import signals
 
-__all__ = ["AlphaEngine", "DEFAULT_FUNDAMENTAL_RULES", "signals"]
+__all__ = ["signals"]
