@@ -303,8 +303,8 @@
   <button id="setupbtn" type="button" aria-expanded="false" aria-controls="setup">Trade setup ▾</button>
   <button class="go" id="engstart" type="button" title="Log in to the broker, then start the engine. Refused while the kill switch is on or an engine is running">START ENGINE</button>
   <span id="engmsg" class="d"></span>
-  <button class="kill" id="killstop" type="button" title="Kill switch ON: blocks new entries. Does not close positions. Owner sign-in needed">STOP</button>
-  <button class="go" id="killreset" type="button" title="Kill switch OFF. Owner sign-in needed; written to the override log">RESET</button>
+  <button class="kill" id="killstop" type="button" title="Stop the bot: kill switch ON (blocks new entries, does not close positions) and stops the engine. Owner sign-in needed">STOP</button>
+  <button class="go" id="killreset" type="button" title="Reset the stop: kill switch OFF so the bot can start again. Owner sign-in needed; written to the override log">RESET</button>
   <span id="killmsg" class="d"></span>
 </header>
 <main class="home">
@@ -1703,7 +1703,12 @@
     if (res.ok) sMsg("killmsg", res.j.message || "Done.", "g");
     else sMsg("killmsg", describeFail(res), "r");
   }
-  $("killstop").onclick = () => killAction("/api/kill/trip", "dashboard STOP button");
+  // STOP stops the bot: kill switch ON (no new entries, open positions are not closed) and the engine process stops.
+  $("killstop").onclick = async () => {
+    await killAction("/api/kill/trip", "dashboard STOP button");
+    await jpost("/api/engine/stop"); // an error here just means the engine was already stopped
+    loadEngine();
+  };
   $("killreset").onclick = () => killAction("/api/kill/reset", "dashboard RESET button");
   setInterval(() => { if (!$("setmodal").hidden) loadInfra(); loadEngine(); loadKill(); }, 10000);
   loadEngine();
