@@ -207,6 +207,7 @@
   .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 10px; }
   .home-row3 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr); gap: 10px; padding-top: 10px; }
   .home-row3 .stack { display: grid; gap: 10px; min-width: 0; align-content: start; }
+  .home-row3 .scr-panel { justify-self: start; width: min(100%, 240px); }
   .eqhead { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--dim); margin: 0 0 6px; }
   .eqhead b { color: var(--txt); font-weight: 800; }
   .home-row4 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-top: 10px; }
@@ -217,7 +218,7 @@
   .nn { fill: #0a1624; stroke: var(--cyan); stroke-width: 1.5; animation: nodepulse 2.4s ease-in-out infinite; }
   @keyframes nodepulse { 0%, 100% { fill: #0a1624; } 50% { fill: #1d6e8a; } }
   @media (prefers-reduced-motion: reduce) { .nl, .nn { animation: none; } }
-  @media (max-width: 900px) { .home-row3 { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 900px) { .home-row3 { grid-template-columns: minmax(0, 1fr); } .home-row3 .scr-panel { width: 100%; } }
   @media (max-width: 600px) {
     .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .home-row4 { grid-template-columns: minmax(0, 1fr); }
@@ -326,7 +327,7 @@
         <polyline id="navline" fill="none" stroke="#3fd0ff" stroke-width="2" points=""/>
       </svg>
     </section>
-    <section class="panel">
+    <section class="panel scr-panel">
       <div class="ph">Screener stocks <span id="scr-note"></span></div>
       <div class="scroll"><table>
         <thead><tr><th>Symbol</th><th class="n">Price ₹</th></tr></thead>
@@ -343,7 +344,7 @@
     <section class="panel">
       <div class="ph">Open positions <span>MTM ₹ <b id="rk-mtm">—</b> · <span id="rk-poscount"></span></span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th><th class="n">Hold days</th></tr></thead>
+        <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th></tr></thead>
         <tbody id="rk-pos-rows"></tbody>
       </table></div>
     </section>
@@ -1346,9 +1347,9 @@
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
-        cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)), cell(h.hold_days == null ? "—" : String(h.hold_days), "n"));
+        cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
-    }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 6);
+    }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 5);
   }
 
   function renderPortfolio(p) {

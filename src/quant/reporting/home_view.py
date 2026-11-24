@@ -33,7 +33,7 @@ def read_screener(path: Path = SCREEN_PATH) -> Dict[str, Any]:
     """The selected names from the last screener run, or an empty state."""
     if not path.is_file():
         return {"state": "not_run", "as_of": None, "source": None, "count": 0, "rows": [],
-                "note": "No screener run yet. Run the Blue Engine screener with --save."}
+                "note": "No screener output yet."}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
