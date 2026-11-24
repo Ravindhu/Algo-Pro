@@ -161,7 +161,7 @@ class SectorHMScorer:
     # ---- scoring ---------------------------------------------------------- #
     def score_one(self, stem: str, as_of: date) -> Dict[str, Any]:
         """HM reading for one sector. Always returns a dict."""
-        from ...indicators.hilega_milega import ema, hilega_milega_rsi
+        from ..alpha.indicators.hilega_milega import ema, hilega_milega_rsi
 
         out: Dict[str, Any] = {
             "stem": stem,

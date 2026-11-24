@@ -231,7 +231,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 | Research validation | `src/quant/research/` |
 | Market inputs | `src/quant/data/market_inputs.py`, `src/quant/data/live_bars.py` (read-only history, stale-feed checks) |
 | Data and features | `src/quant/data/` |
-| Signal and conviction | `src/quant/models/`; candle and strategy ports in `src/quant/strategies/` and `src/quant/indicators/`; signal-to-intent adapter `src/quant/strategies/signals/risk_adapter.py` |
+| Signal and conviction | `src/quant/models/`; candle and strategy ports in `src/quant/engines/alpha/strategies/` and `src/quant/engines/alpha/indicators/`; signal-to-intent adapter `src/quant/engines/alpha/strategies/signals/risk_adapter.py` |
 | Sizing and portfolio | `src/quant/portfolio/` |
 | Portfolio risk, session guards, safety gate | `src/quant/risk/` |
 | Execution | `src/quant/execution/` (includes `strategy_bot.py`: 5-min bot, paper and analyze only) |
@@ -242,7 +242,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-**46** distinct Blue modules are loaded through the bridge (verified 2026-11-24 by
+**43** distinct Blue modules are loaded through the bridge (verified 2026-11-24 by
 counting `load("...")` calls across the `src/quant/` lanes, excluding the one
 deliberately missing module the bridge test uses). The table below names the
 wrapper rows; a row can cover more than one engine module, and a few engine
@@ -261,7 +261,7 @@ hard boundary (advice only, or plan only - never an order).
 | `optimizer/engine.py`, `analysis.py` | `research/optimizer.py` | Walk-forward + purged CV, Trial logger + DSR/PBO | a run is refused without a trial log; the 3-step visual workflow in one call |
 | `backtest/engine.py` | `research/backtest.py` (`run_symbol_backtest`) | Historical bars, Replay simulator | long-only enforced; the local cost table is fed into Blue's cost model |
 | `core/auto_tune.py` | `feedback/auto_tune.py` | Champion/challenger, Re-opt request | OOS policy recomputed; an `apply` request is refused |
-| `alpha/registry.py`, `optimizer/strategies.py` | `strategies/` | Signal | one registry, two contracts kept apart; `guard_intent` enforces buy/add only |
+| `alpha/registry.py`, `optimizer/strategies.py` | `engines/alpha/strategies/` | Signal | one registry, two contracts kept apart; `guard_intent` enforces buy/add only |
 | `ml/audit/leakage.py` | `research/leakage_gate.py` | Walk-forward + purged CV, Trial logger + DSR/PBO | one verdict (`clean`/`suspect`/`leaked`/`incomplete`); a skipped shift test is never a pass; **wired 2026-11-16** - `research/optimizer.py::leakage_verdict` audits the study's bar series and refuses BEFORE `search()`, so the engine's `trial`/`optimizer_run` rows are never written for a leaked series (FATAL blocks; DEGRADED passes with a named warning because the engine rates duplicates a screen, not a proof) |
 | `ml/evaluation/walk_forward.py` | `research/walk_forward_eval.py` | Walk-forward + purged CV, DSR/PBO | fitted/scored folds with deflated Sharpe and a cost check; `require_passed` needs the deflated Sharpe to beat random trials |
 | `ml/registry/` | `models/registry_bridge.py` | Human sign-off, Model registry, Approved-model handoff | requires a recorded approver AND reason on top of `validated` status and a verified signature; never promotes, never saves |

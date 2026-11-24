@@ -13,7 +13,7 @@ import pandas as pd
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from quant.strategies import cycle  # noqa: E402
+from quant.engines.alpha.strategies import cycle  # noqa: E402
 
 
 def _bars(rows):

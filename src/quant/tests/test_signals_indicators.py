@@ -5,8 +5,8 @@ Tests for the ported indicator math (indicators.py) and pattern helpers (pattern
 """
 import pytest
 
-from quant.indicators.indicators import atr, ema, hilega_milega_rsi, wma
-from quant.indicators.pattern import (
+from quant.engines.alpha.indicators.indicators import atr, ema, hilega_milega_rsi, wma
+from quant.engines.alpha.indicators.pattern import (
     action_for_pattern,
     calculate_trigger_level,
     extract_ohlc,

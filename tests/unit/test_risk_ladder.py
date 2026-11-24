@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from quant.strategies.risk_ladder import (CONVICTION, PROBE_AGGRESSIVE, PROBE_CONSERVATIVE,
+from quant.engines.alpha.strategies.risk_ladder import (CONVICTION, PROBE_AGGRESSIVE, PROBE_CONSERVATIVE,
                                           RiskLadder, load_cycle_settings, shares_for, sizing_stop)
 
 EQUITY = 100_000.0

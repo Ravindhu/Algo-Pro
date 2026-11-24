@@ -21,7 +21,7 @@ from quant.notify.alerts import Alerts
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
-from quant.strategies.signals.risk_adapter import gate_signal
+from quant.engines.alpha.strategies.signals.risk_adapter import gate_signal
 
 NOW = datetime(2026, 11, 17, 10, 15)
 

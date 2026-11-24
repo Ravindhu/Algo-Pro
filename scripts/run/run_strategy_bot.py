@@ -32,8 +32,8 @@ from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused,
 from quant.data.live_bars import LiveBars  # noqa: E402
 from quant.data.mtf_bars import MultiTimeframeBars  # noqa: E402
 from quant.core.setup_store import load_timeframes  # noqa: E402
-from quant.strategies.engulf_sequence_strategy import SequenceStrategy  # noqa: E402
-from quant.strategies.owner_patterns import SEQUENCE_KINDS  # noqa: E402
+from quant.engines.alpha.strategies.engulf_sequence_strategy import SequenceStrategy  # noqa: E402
+from quant.engines.alpha.strategies.owner_patterns import SEQUENCE_KINDS  # noqa: E402
 from quant.monitor.paper_loop import now_ist  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
 from quant.notify.alerts import Alerts  # noqa: E402
@@ -75,7 +75,7 @@ def _make_strategy(name: str, strategy_params: Optional[dict] = None, feed=None,
     if name in SEQUENCE_KINDS:
         if feed is None:
             raise BotRefused(f"{name} needs MTF, HTF and LTF set in the trade setup; the runner does not start without them")
-        from quant.strategies.risk_ladder import load_cycle_settings
+        from quant.engines.alpha.strategies.risk_ladder import load_cycle_settings
         cyc = load_cycle_settings(ROOT / "config" / "settings.yaml")
         return SequenceStrategy(feed, name, SEQUENCE_KINDS[name], target_r=cyc["target_r"],
                                 equity=equity, loss_ceiling=loss_ceiling,
@@ -95,7 +95,7 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
     if cfg.live_enabled:
         raise BotRefused("live_enabled must stay false")
     strategy_params = _strategy_params(bot_cfg_path)
-    from quant.strategies.risk_ladder import load_cycle_settings as _load_cycle
+    from quant.engines.alpha.strategies.risk_ladder import load_cycle_settings as _load_cycle
     cycle_cfg = _load_cycle(ROOT / "config" / "settings.yaml")  # owner N and loss ceiling (None = not set)
     tf = timeframes or {}
     feed = None

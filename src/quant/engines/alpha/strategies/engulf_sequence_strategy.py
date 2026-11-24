@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from quant.indicators.indicators import atr as atr_series
-from quant.strategies.cycle import CycleResult, run_cycles
-from quant.strategies.owner_patterns import SEQUENCE_KINDS, sequence_signal
+from quant.engines.alpha.indicators.indicators import atr as atr_series
+from quant.engines.alpha.strategies.cycle import CycleResult, run_cycles
+from quant.engines.alpha.strategies.owner_patterns import SEQUENCE_KINDS, sequence_signal
 
 
 @dataclass

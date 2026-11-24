@@ -8,7 +8,7 @@ from quant.monitor.safe_mode import Mode, SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
-from quant.strategies.signals.risk_adapter import (
+from quant.engines.alpha.strategies.signals.risk_adapter import (
     gate_signal,
     levels_from_signal,
     size_from_risk,

@@ -1,5 +1,5 @@
 """Replay event record for the risk ladder (plan P3 prerequisite). Checks the shape, not the market logic."""
-from quant.strategies.cycle import CycleResult, Entry, _finish
+from quant.engines.alpha.strategies.cycle import CycleResult, Entry, _finish
 
 
 def test_entry_carries_its_ocl_id_and_defaults_to_none():

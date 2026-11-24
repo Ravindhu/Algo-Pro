@@ -69,3 +69,10 @@ Move files back from `Temp/Stag/` to their original paths (git revert of the com
 - Test result: quant suite and tests/ folder: 2372 passed, 2 skipped, 1 xfailed.
   Skipped: one Blue-alpha-registry test in test_phase5_wraps (registry parked). Coverage lost: the
   parked tests above; the live-gate tests for the kept live runner are still in place.
+
+## 10. Folder move (2026-11-24, same branch)
+
+- `src/quant/strategies/` moved to `src/quant/engines/alpha/strategies/` (the five live strategies).
+- `src/quant/indicators/` moved to `src/quant/engines/alpha/indicators/`.
+- 25 files rewritten to the new import paths; sector engine import updated.
+- Doc: module count 43 (verified 2026-11-24). Tests: 2372 passed, 2 skipped, 1 xfailed.

@@ -18,7 +18,7 @@ EQUITY = 1_000_000.0  # paper capital, same as the bot's read_funds
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from quant.strategies import cycle  # noqa: E402
+from quant.engines.alpha.strategies import cycle  # noqa: E402
 
 def _frame(rows):
     return pd.DataFrame(rows, columns=["open", "high", "low", "close"])
@@ -122,8 +122,8 @@ def test_close_below_ltf_ocl_low_arms_a_new_ocl_that_adds_an_entry():
     res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF_DEEP), ltf, target_r=3.0, equity=EQUITY, loss_ceiling=0.01, atr_by_time=FLAT_ATR)
     assert res.htf_low == 8.5
     assert [e.price for e in res.entries] == [11.0, 8.8]
-    from quant.strategies.risk_ladder import shares_for
-    from quant.strategies.risk_ladder import sizing_stop
+    from quant.engines.alpha.strategies.risk_ladder import shares_for
+    from quant.engines.alpha.strategies.risk_ladder import sizing_stop
     q1 = shares_for(EQUITY, 0.0010, 11.0, 8.5, stop=sizing_stop(11.0, 8.5, 1.0))  # probe, sizing stop
     q2 = shares_for(EQUITY, 0.0010, 8.8, 8.5, stop=sizing_stop(8.8, 8.5, 1.0))    # new OCL below the stop-out: aggressive 0.10 % (its conservative +0.15 % is separate), nothing carried
     assert res.avg_entry == pytest.approx((q1 * 11.0 + q2 * 8.8) / (q1 + q2))
@@ -220,7 +220,7 @@ def test_tree_exit_mode_does_not_depend_on_the_old_loss_ceiling():
 def test_tree_average_is_weighted_by_the_tree_sizes():
     """Fix 2026-11-20 (rules doc 15.8 B): the average entry is weighted by the shares the tree sizes,
     not by the old ladder's 0.10 / 0.15 weights."""
-    from quant.strategies.risk_ladder import sizing_stop
+    from quant.engines.alpha.strategies.risk_ladder import sizing_stop
     res = cycle.run_cycle("egpattern_open", _frame(MTF), _frame(HTF), _ltf(AGG_TOUCH, CONS_TOUCH),
                           target_r=2.1, equity=EQUITY, loss_ceiling=None, atr_by_time=FLAT_ATR,
                           symbol_allocation_pct=4.0)

@@ -11,7 +11,7 @@ volatility regimes: the result is how many "typical moves" the current move
 represents (the z-score).
 
 Usage:
-    from quant.indicators.roc import zscored_roc, find_flip
+    from quant.engines.alpha.indicators.roc import zscored_roc, find_flip
 
     z = zscored_roc(closes, period=10, z_window=100)
     idx = find_flip(z, 0, entry_z=1.0, direction="BUY")   # first bullish flip

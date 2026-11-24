@@ -56,9 +56,9 @@ from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.pre_gate import PreGate, PreGateConfig
 from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
-from quant.strategies.cycle import fresh_entries
-from quant.strategies.risk_ladder import RiskLadder
-from quant.strategies.signals.risk_adapter import gate_signal, levels_from_signal
+from quant.engines.alpha.strategies.cycle import fresh_entries
+from quant.engines.alpha.strategies.risk_ladder import RiskLadder
+from quant.engines.alpha.strategies.signals.risk_adapter import gate_signal, levels_from_signal
 
 ALLOWED_MODES = ("paper", "analyze", "live")
 
@@ -1376,7 +1376,7 @@ class StrategyBot:
         intent = dict(d["intent"])
         if intent.get("trade_day") is not None:
             intent["trade_day"] = _date.fromisoformat(intent["trade_day"])
-        from quant.strategies.risk_ladder import RiskLadder as _RiskLadder
+        from quant.engines.alpha.strategies.risk_ladder import RiskLadder as _RiskLadder
         names = {f.name for f in _fields(_Parent)}
         kwargs = {k: v for k, v in d.items() if k in names and k not in ("intent", "ladder")}
         ladder_doc = d.get("ladder")

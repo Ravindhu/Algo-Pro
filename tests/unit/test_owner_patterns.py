@@ -11,7 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "src" / "quant"))
 
-from quant.strategies import owner_patterns as op  # noqa: E402
+from quant.engines.alpha.strategies import owner_patterns as op  # noqa: E402
 
 
 def _frame(rows):

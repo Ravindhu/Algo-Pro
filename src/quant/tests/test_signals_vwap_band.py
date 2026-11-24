@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from quant.indicators.vwap_band import (
+from quant.engines.alpha.indicators.vwap_band import (
     BandConfig,
     BuyerInitiatedDailyVWAP,
     compute_band_fraction,
