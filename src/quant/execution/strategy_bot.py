@@ -189,7 +189,8 @@ class BotConfig:
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
     product: str = "CNC"           # order product sent to the broker: CNC (delivery, default) or MIS (intraday)
-    square_off_time: str = "15:15"  # HH:MM IST. From here: no new entries; MIS positions are flattened
+    square_off_time: str = "15:15"  # HH:MM IST. From here: no new entries (all products)
+    mis_flatten_time: str = "15:10"  # HH:MM IST. MIS positions are squared off from here, before 15:15
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
     strategies: tuple = field(default_factory=lambda: ("engulfing",))
@@ -198,6 +199,15 @@ class BotConfig:
     exits: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        def _hhmm(text, name):
+            try:
+                hh, mm = (int(x) for x in str(text).split(":"))
+                assert 0 <= hh <= 23 and 0 <= mm <= 59
+                return hh * 60 + mm
+            except (ValueError, AssertionError):
+                raise ValueError(f"{name} must be HH:MM, got {text!r}")
+        if _hhmm(self.mis_flatten_time, "mis_flatten_time") > _hhmm(self.square_off_time, "square_off_time"):
+            raise ValueError("mis_flatten_time must not be later than square_off_time")
         if self.product not in ("MIS", "CNC"):
             raise ValueError(f"product must be MIS or CNC, got {self.product!r}")
         try:
@@ -486,7 +496,9 @@ class StrategyBot:
         self._cycle_no = 0                        # cycle counter, used to age the last known bar
         hh, mm = (int(x) for x in cfg.square_off_time.split(":"))
         from datetime import time as _time
-        self._square_off_at = _time(hh, mm)       # owner 2026-11-25: stop entries and flatten MIS here
+        self._square_off_at = _time(hh, mm)       # owner 2026-11-25: no new entries from here (all products)
+        fh, fm = (int(x) for x in cfg.mis_flatten_time.split(":"))
+        self._flatten_at = _time(fh, fm)          # owner 2026-11-25: MIS squared off from here
         self._policy = {"block_entries": False, "flatten": False}
         self._pnl_day = None                      # day the realized P&L counters belong to
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
@@ -1245,7 +1257,7 @@ class StrategyBot:
 
     def _update_session_policy(self, now: datetime, report: Dict[str, Any]) -> None:
         """Set the entry block and the MIS flatten for this cycle, and log when either turns on."""
-        policy = session_policy(now.time(), self.cfg.product, self._square_off_at)
+        policy = session_policy(now.time(), self.cfg.product, self._square_off_at, self._flatten_at)
         if policy != self._policy:
             self._log("session_policy", **policy, cutoff=self._square_off_at.isoformat(), product=self.cfg.product)
             if policy["flatten"] and self._positions:

@@ -98,18 +98,26 @@ def roll_urgency(expiry: date, today: date, roll_days: int = 3) -> Dict[str, Any
                        if due else f"{days_left} day(s) to expiry")}
 
 
-def session_policy(now: time, product: str, cutoff: time = DEFAULT_MIS_CUTOFF) -> Dict[str, bool]:
-    """What the bot must do at ``now`` for a product (owner decision 2026-11-25).
+def session_policy(now: time, product: str, cutoff: time = DEFAULT_MIS_CUTOFF,
+                   flatten_at: "time | None" = None) -> Dict[str, bool]:
+    """What the bot must do at ``now`` for a product (owner decisions 2026-11-25).
 
-    * ``block_entries``: from the cutoff on, no new entry for any product. Unknown or
-      non-time input also blocks entries (fail closed).
-    * ``flatten``: intraday (MIS) only. From the cutoff, open MIS positions are closed
-      by the bot through its normal exit path, before the broker's own square-off.
-      CNC (delivery) positions are never flattened; they are held.
+    * ``flatten``: intraday (MIS) only. From ``flatten_at`` (default: the cutoff) open MIS
+      positions are closed by the bot through its normal exit path, before the broker's own
+      square-off. CNC (delivery) positions are never flattened: they are held overnight, and
+      their normal exits (stop, target, trail) keep running.
+    * ``block_entries``: no new entry from the cutoff for any product. For MIS, entries stop
+      from ``flatten_at``, since a position opened after it would be closed at once.
+      Unknown or non-time input blocks entries (fail closed).
     """
     if not isinstance(now, time) or not isinstance(cutoff, time):
         return {"block_entries": True, "flatten": False}
+    flat = flatten_at if flatten_at is not None else cutoff
+    if not isinstance(flat, time):
+        return {"block_entries": True, "flatten": False}
+    is_mis = isinstance(product, str) and product.strip().upper() in MIS_PRODUCTS
+    entry_stop = min(flat, cutoff) if is_mis else cutoff
     return {
-        "block_entries": now >= cutoff,
-        "flatten": should_square_off(now, product, cutoff),
+        "block_entries": now >= entry_stop,
+        "flatten": should_square_off(now, product, flat),
     }

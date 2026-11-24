@@ -183,3 +183,55 @@ def test_order_client_refuses_unknown_product(bad):
     # Fail closed: an unknown product is never sent to the broker.
     with pytest.raises(ValueError, match="MIS or CNC"):
         _order_product(bad)
+
+
+# --- owner 2026-11-25: MIS squared before 15:15; CNC held overnight -----------
+
+@pytest.mark.parametrize("now, product, block, flatten", [
+    (time(15, 9, 59), "MIS", False, False),
+    (time(15, 10), "MIS", True, True),       # MIS: flatten and no new entries from 15:10
+    (time(15, 14, 59), "MIS", True, True),
+    (time(15, 12), "CNC", False, False),     # CNC: no flatten; entries only from 15:15
+    (time(15, 15), "CNC", True, False),
+])
+def test_policy_with_mis_flatten_at_1510(now, product, block, flatten):
+    policy = session_policy(now, product, time(15, 15), time(15, 10))
+    assert policy == {"block_entries": block, "flatten": flatten}
+
+
+def test_mis_flatten_time_must_not_be_after_entry_cutoff():
+    with pytest.raises(ValueError, match="mis_flatten_time"):
+        BotConfig(mis_flatten_time="15:20", square_off_time="15:15")
+
+
+def test_mis_is_squared_off_at_1510_not_at_1515(tmp_path):
+    sender = FakeSender()
+    bot, _ = _bot(tmp_path, MORNING, sender, product="MIS")
+    bot.cycle(MORNING)
+    _refresh_screen(tmp_path, datetime(2026, 11, 17, 15, 12))
+    bot.cycle(datetime(2026, 11, 17, 15, 12))
+    assert _exits(sender), "MIS must be squared off before 15:15"
+
+
+def test_cnc_is_not_squared_off_at_1512(tmp_path):
+    sender = FakeSender()
+    bot, _ = _bot(tmp_path, MORNING, sender)  # CNC
+    bot.cycle(MORNING)
+    _refresh_screen(tmp_path, datetime(2026, 11, 17, 15, 12))
+    bot.cycle(datetime(2026, 11, 17, 15, 12))
+    assert not _exits(sender), "CNC is held overnight, not squared off"
+
+
+def test_cnc_position_survives_to_next_day_and_entries_reopen(tmp_path):
+    day1_close = datetime(2026, 11, 17, 15, 20)
+    day2_open = datetime(2026, 11, 18, 10, 15)
+    sender = FakeSender()
+    bot, _ = _bot(tmp_path, MORNING, sender)  # CNC
+    bot.cycle(MORNING)
+    _refresh_screen(tmp_path, day1_close)
+    bot.cycle(day1_close)
+    assert len(bot._positions) == 1 and not _exits(sender)  # held overnight
+    _refresh_screen(tmp_path, day2_open)
+    bot.cycle(day2_open)
+    assert len(bot._positions) == 1, "the held CNC position must still be tracked next day"
+    assert bot._policy["block_entries"] is False, "entries reopen on the next trading day"

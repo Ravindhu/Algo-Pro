@@ -106,3 +106,15 @@ daily loss limit in `strategy_bot.py`.
 - Non-bot intents still default to MIS: `monitor/drill.py` (intents other than kill close),
   `execution/protection.py`, `engines/alpha/strategies/signals/risk_adapter.py` callers outside the bot.
 - Carry rule (`risk/controls.carry_allowed`) is not wired; not changed here.
+
+## 11. MIS and CNC rules (2026-11-25, owner)
+
+- **MIS:** squared off before 15:15. `BotConfig.mis_flatten_time` = 15:10 IST (must not be later
+  than `square_off_time`). From 15:10 MIS entries stop too, since a position opened after that would
+  be closed at once. The bot flattens through the normal exit path.
+- **CNC:** never squared off. A position still open at 15:15 is held overnight. Its stop, target and
+  trailing exits keep running (owner choice). Entries reopen on the next trading day, and the
+  restored position stays tracked (test: `test_cnc_position_survives_to_next_day_and_entries_reopen`).
+- **Entries:** no new entry from `square_off_time` (15:15) for either product.
+- Tests: 35 in `test_square_off_wiring.py`. Full suite: 2432 passed, 2 skipped, 1 xfailed.
+- Choice made by me, to confirm: 15:10 for the MIS flatten (owner said "before 15:15").
