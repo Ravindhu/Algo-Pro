@@ -1,8 +1,10 @@
 """
 signals/ - auto-registers every BaseSignal subclass found in this package.
 
-This package lives under the Alpha engine (blue_engine/alpha/signals/):
-a signal is an alpha decision -- it decides WHEN to trade. The POV engine
+Flow stage: Alpha engine (strategy signals; the AlphaEngine scoring class was
+retired 2026-11-24 and parked in Temp/Stag/alpha_engine).
+
+This package is the live strategy: a signal decides WHEN to trade. The POV engine
 (blue_engine/pov/slicers/) decides HOW to slice the resulting order.
 
 To add a new signal strategy:

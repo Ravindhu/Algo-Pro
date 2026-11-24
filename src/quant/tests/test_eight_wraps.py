@@ -13,7 +13,7 @@ import pytest
 from quant.core.blue_bridge import BlueEngineUnavailable
 from quant.data import data_source_contract, valuation
 from quant.execution import job_status
-from quant.models import alpha_engine, ml_models
+from quant.models import ml_models
 from quant.portfolio import alt_optimizers, attribution, portfolio_targets
 
 
@@ -51,27 +51,6 @@ def test_fingerprint_changes_when_rows_change():
 def test_fingerprint_is_none_when_blue_missing(monkeypatch):
     monkeypatch.setattr(data_source_contract, "load", _unavailable)
     assert data_source_contract.data_fingerprint([{"close": 1.0}]) is None
-
-
-# ----------------------------------------------------------------- alpha
-def test_alpha_runs_on_empty_inputs_with_no_signals():
-    res = alpha_engine.run_alpha(inputs={})
-    assert res["advice_only"] is True
-    assert isinstance(res["signals"], list)
-
-
-def test_alpha_failure_has_no_signals(monkeypatch):
-    monkeypatch.setattr(alpha_engine, "load", _unavailable)
-    res = alpha_engine.run_alpha()
-    assert res["ok"] is False and res["signals"] == [] and res["advice_only"] is True
-
-
-def test_alpha_engine_raising_is_not_ok(monkeypatch):
-    class Boom:
-        def __init__(self, *a, **k):
-            raise RuntimeError("bad config")
-    monkeypatch.setattr(alpha_engine, "load", lambda name: type("M", (), {"AlphaEngine": Boom}))
-    assert alpha_engine.run_alpha()["ok"] is False
 
 
 # ----------------------------------------------------------------- portfolio

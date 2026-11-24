@@ -7,7 +7,7 @@ Strategy framework built on the OpenAlgo Python SDK (openalgo==2.0.3).
 Architecture
 ------------
 Every sub-folder under Blue_engine/ is an ENGINE (plus core/, the shared kernel):
-- alpha/        Alpha engine: signal generation. Also hosts signals/ (WHEN to trade)
+- alpha/        Strategy signals (WHEN to trade). AlphaEngine scoring retired 2026-11-24
 - pov/          POV engine: execution. Also hosts slicers/ (HOW to slice orders)
 - economics/    Economic engine
 - market/       Market engine

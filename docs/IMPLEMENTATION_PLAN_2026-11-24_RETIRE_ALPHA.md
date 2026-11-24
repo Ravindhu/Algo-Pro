@@ -72,3 +72,14 @@ no portfolio selection. The pipeline never picks a symbol by itself.
 
 Revert the commit, or move `Temp/Stag/alpha_engine/alpha_engine.py` back to
 `src/quant/engines/alpha/alpha_engine.py`.
+
+## 8. Follow-up status (2026-11-24, implemented on the same branch)
+
+- Done: `models/alpha_engine.py` parked in `Temp/Stag/alpha_engine/` (its 3 tests removed).
+- Done: `alpha` block removed from `engines/input/macro_master.json`.
+- Done: `alpha` agent skill and "Signal desk" removed from `core/stage_skills.py`
+  and `core/agent_team.py`; the portfolio skill now needs `strategy.intent`.
+- Done: flow-diagram block "Alpha engine" now maps to the live strategy
+  (`alpha/signals/base.py`), so `test_layout` passes.
+- Open (separate PR, per section 6): rename `alpha/` to `strategy/`.
+- Test result: 1521 passed, 1 xfailed (baseline 1518 + 6 new − 3 removed wrapper tests).

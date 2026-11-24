@@ -1,4 +1,6 @@
 """
+Flow stage: Alpha engine (strategy signals; WHEN to trade)
+
 base.py â€” abstract base class for all signal strategies.
 
 A signal decides WHEN to enter a position and HOW MUCH. It does NOT decide

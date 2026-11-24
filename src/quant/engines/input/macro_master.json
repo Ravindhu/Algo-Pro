@@ -284,28 +284,6 @@
       "growth_rate_ceiling": 0.05,
       "margin_safety_adjustment": 0.85
     },
-    "alpha": {
-      "weight_fundamental": 1.0,
-      "weight_technical": 1.5,
-      "min_score": 0.30,
-      "backtest_min_hit_rate": 0.45,
-      "backtest_horizon": 10,
-      "backtest_window": 5,
-      "alpha_inputs": {
-        "symbols": ["INFY", "TCS"],
-        "fundamentals": {
-          "INFY": {"pe": 24.0, "pb": 7.5, "roe": 0.31, "de": 0.1, "earnings_growth": 0.12, "dividend_yield": 0.025},
-          "TCS":  {"pe": 28.0, "pb": 12.0, "roe": 0.48, "de": 0.0, "earnings_growth": 0.08, "dividend_yield": 0.035}
-        },
-        "prices": {
-          "INFY": {"close": 1480, "prev_high": 1470, "vwap": 1475, "sma_20": 1450, "sma_50": 1430},
-          "TCS":  {"close": 4100, "prev_high": 4120, "vwap": 4110, "sma_20": 4050, "sma_50": 4080}
-        },
-        "history": {
-          "INFY": [{"close": 1440}, {"close": 1450}, {"close": 1462}, {"close": 1458}, {"close": 1470}, {"close": 1478}, {"close": 1480}, {"close": 1490}, {"close": 1495}, {"close": 1502}, {"close": 1510}, {"close": 1508}, {"close": 1515}, {"close": 1520}, {"close": 1518}]
-        }
-      }
-    },
     "pov": {
       "symbol": "INFY",
       "exchange": "NSE",
