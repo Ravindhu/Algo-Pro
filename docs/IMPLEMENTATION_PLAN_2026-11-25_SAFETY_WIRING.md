@@ -1,7 +1,7 @@
 # Implementation plan: wire or retire the unwired safety modules (2026-11-25)
 
 Flow stage: Risk gate, exits, monitoring (live readiness)
-Status: PLAN ONLY. No code changed. Owner decisions needed before implementation.
+Status: IMPLEMENTED on branch wire/safety-modules (tests pass). NOT on master. Live still off.
 
 ## 1. Why
 A static import scan of master `e94cd12` found 91 of 379 quant modules that no
@@ -48,3 +48,38 @@ daily loss limit in `strategy_bot.py`.
 - Flatten at 15:15 can fail if the broker rejects orders. The bot must alert,
   not retry blindly, and must not reverse the position.
 - Changing the exit path affects every open position. Test with paper broker first.
+
+## 7. Owner decisions (2026-11-25) and what was built
+
+1. CNC: only block new entries; never flatten. MIS: close before the broker's square-off.
+   Built: `risk/squareoff.session_policy`. Entries blocked from the cutoff for all products;
+   MIS positions flattened through the normal exit path (`_send_exit`, reason `square_off`).
+2. Cutoff: the bot stops 15 minutes before the 15:30 close, at 15:15 IST.
+   Built: `BotConfig.square_off_time = "15:15"`, validated as HH:MM.
+3. Retire the duplicate owner-limits module and move it to Temp/Stag.
+   Built: moved to `Temp/Stag/owner_limits_duplicate/` with its tests and a README.
+   Two audit tests of the duplicate moved with it (kept in the same folder).
+
+## 8. Limits of this change (read before live)
+
+- **CNC is refused by config** (`product` must be MIS). Orders are still hardcoded to MIS in
+  `openalgo_client.py`. Supporting CNC needs the product carried on each intent. Not done.
+- **Feed outage holds the flatten.** If the bar feed is down for more than `max_outage_cycles`,
+  the existing rule holds the position and raises a CRITICAL alert. A held MIS position can
+  stay open past 15:15 in that case. A person must act.
+- **Halted exits are skipped.** A position with `exit_halted` set is not flattened. This is the
+  existing behaviour for exit errors and needs a person.
+- **Repeated sends.** If the flatten order is not filled, it is re-sent each cycle (5 min), as
+  the existing exit retry does.
+- **Clock.** The check uses `now.time()` of the cycle timestamp. The live runner must pass IST time.
+- **Null-cap coverage.** Two audit tests of the duplicate moved out. The live store and
+  `test_owner_limits_at_gate.py` cover the gate. Confirm with the owner.
+- **Not in this change:** `risk/exits.py` (time-limit overlap with exit_manager), `monitor/live_monitor.py`,
+  `execution/protection.py`. Still open per section 2.
+
+## 9. Test results
+
+- New: `src/quant/tests/test_square_off_wiring.py`, 16 tests, all pass.
+- Against the unchanged master bot, 7 of those fail (entry block, flatten, config checks). The
+  9 pure-policy tests pass on both, as expected.
+- Full suite on this branch: 2408 passed, 2 skipped, 1 xfailed.

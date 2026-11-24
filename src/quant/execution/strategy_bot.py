@@ -54,6 +54,7 @@ from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
+from quant.risk.squareoff import session_policy
 from quant.risk.pre_gate import PreGate, PreGateConfig
 from quant.execution.exit_manager import ExitConfig, Position, evaluate_bar
 from quant.engines.alpha.strategies.cycle import fresh_entries
@@ -187,6 +188,8 @@ class BotConfig:
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
+    product: str = "MIS"           # order product. Only MIS is sent today (CNC needs order plumbing)
+    square_off_time: str = "15:15"  # HH:MM IST. From here: no new entries; MIS positions are flattened
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
     strategies: tuple = field(default_factory=lambda: ("engulfing",))
@@ -195,6 +198,13 @@ class BotConfig:
     exits: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.product != "MIS":
+            raise ValueError("product must be MIS: CNC is not wired to the order client yet")
+        try:
+            hh, mm = (int(x) for x in str(self.square_off_time).split(":"))
+            assert 0 <= hh <= 23 and 0 <= mm <= 59
+        except (ValueError, AssertionError):
+            raise ValueError(f"square_off_time must be HH:MM, got {self.square_off_time!r}")
         if not 0 < self.entry_max_slippage_bps <= 200:
             raise ValueError("entry_max_slippage_bps must be in (0, 200]")
         names = {_strategy_name(s) for s in self.strategies}
@@ -474,6 +484,10 @@ class StrategyBot:
         self._booked: Dict[str, float] = {}       # notional added to open exposure, per position key
         self._marks: Dict[str, float] = {}        # mark-to-market P&L each open position has added to daily P&L
         self._cycle_no = 0                        # cycle counter, used to age the last known bar
+        hh, mm = (int(x) for x in cfg.square_off_time.split(":"))
+        from datetime import time as _time
+        self._square_off_at = _time(hh, mm)       # owner 2026-11-25: stop entries and flatten MIS here
+        self._policy = {"block_entries": False, "flatten": False}
         self._pnl_day = None                      # day the realized P&L counters belong to
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
@@ -611,6 +625,7 @@ class StrategyBot:
         self._cycle_no += 1
         self._peg.start_cycle(now.timestamp())
         self._roll_day(now)
+        self._update_session_policy(now, report)
         self._check_broker_stops()
         self._resync_stops()
         if not live_feed_approved(self.cfg.data_sources_path):
@@ -711,6 +726,10 @@ class StrategyBot:
                     ref_price: float, risk_fraction: Optional[float] = None,
                     equity: Optional[float] = None) -> Optional[TradeIntent]:
         """Lot check, pre-gate and the full risk gate for one new parent. Returns the sized intent or None (logged)."""
+        if self._policy["block_entries"]:
+            self._log("parent_skipped", strategy=strat.name, symbol=sym,
+                      reason=f"at or after square-off {self._square_off_at.isoformat()}: no new entries")
+            return None
         lot = stats.get("lot_size", 1)
         if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
@@ -1219,6 +1238,17 @@ class StrategyBot:
         self._last_bar[sym] = bar
         return bar
 
+    def _update_session_policy(self, now: datetime, report: Dict[str, Any]) -> None:
+        """Set the entry block and the MIS flatten for this cycle, and log when either turns on."""
+        policy = session_policy(now.time(), self.cfg.product, self._square_off_at)
+        if policy != self._policy:
+            self._log("session_policy", **policy, cutoff=self._square_off_at.isoformat(), product=self.cfg.product)
+            if policy["flatten"] and self._positions:
+                self._alert("WARNING", f"square-off {self._square_off_at.isoformat()} reached: flattening MIS positions")
+        self._policy = policy
+        if policy["block_entries"]:
+            report["skipped"].append("entries blocked: at or after square-off time")
+
     def _manage_exits(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         """Check each open position on its last closed bar. Stop, target, breakeven and trail."""
         for key, pos in list(self._positions.items()):
@@ -1247,6 +1277,10 @@ class StrategyBot:
                     continue
                 self._log("exit_used_last_bar", key=key, symbol=pos.symbol, bar_time=bar["time"], age_cycles=age)
                 report["skipped"].append(f"{pos.symbol}: feed down, managed on last known bar")
+            if self._policy["flatten"]:
+                # Owner 2026-11-25: MIS is closed by the bot before the broker square-off. The normal exit path runs.
+                self._send_exit(key, pos, float(bar["close"]), "square_off", now, report)
+                continue
             if pos.last_bar_time == bar["time"]:
                 continue  # this bar was already evaluated for this position
             pos.last_bar_time = bar["time"]

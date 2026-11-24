@@ -16,10 +16,6 @@ import pytest  # noqa: E402
 
 from quant.engines.backtest import metrics as M  # noqa: E402
 from quant.engines.backtest.costs import CostModel  # noqa: E402
-from quant.engines.core.owner_limits import (  # noqa: E402
-    apply_owner_limits,
-    unset_owner_caps,
-)
 from quant.engines.core.risk_engine import RiskEngine  # noqa: E402
 from quant.engines.portfolio.optim import cost_aware  # noqa: E402
 from quant.execution.pov_sizing import slippage_penalised_rate  # noqa: E402
@@ -144,39 +140,6 @@ def test_repo_limits_header_does_not_promise_that_null_disables_a_check():
     assert "NOT SET" in text
 
 
-def test_a_null_owner_cap_is_reported_as_unset():
-    owner = {"max_order_quantity": 10, "max_sector_pct": None}
-    unset = unset_owner_caps(owner)
-    assert "max_sector_pct" in unset
-    assert "max_order_quantity" not in unset
-    assert "max_beta" in unset
-
-
-def test_a_null_cap_does_not_switch_the_gate_check_off():
-    """Null adds nothing to the config, so the gate's own fail-closed policy
-    applies: a live intent with no monetary cap is refused."""
-    owner = {"max_order_quantity": 10, "max_order_notional": None,
-             "max_daily_loss": None, "max_open_exposure": None}
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        path = pathlib.Path(tmp) / "risk_limits.yaml"
-        path.write_text(
-            "max_order_quantity: 10\nmax_order_notional: null\n"
-            "max_daily_loss: null\nmax_open_exposure: null\n", encoding="utf-8")
-        risk = apply_owner_limits({"risk": {}}, path)["risk"]
-    assert "max_order_notional" not in risk
-
-    from quant.engines.core.risk_gate import RiskGate
-    decision = RiskGate(risk).check({"action": "BUY", "quantity": 1,
-                                     "price": 100.0}, live=True)
-    assert decision.approved is False
-    assert any("require_live_ack" in b for b in decision.breaches)
-
-
-# --------------------------------------------------------------------------- #
-# Item 6: slippage units are declared, not guessed.
-# --------------------------------------------------------------------------- #
 def test_declared_fraction_slippage_under_the_cap_passes():
     out = RiskEngine({"max_allowed_slippage_pct": 0.005}).run({
         "dry_run": True,

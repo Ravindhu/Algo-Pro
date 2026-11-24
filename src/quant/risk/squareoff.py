@@ -38,6 +38,7 @@ __all__ = [
     "DEFAULT_MIS_CUTOFF",
     "MIS_PRODUCTS",
     "should_square_off",
+    "session_policy",
     "roll_due",
     "roll_urgency",
 ]
@@ -95,3 +96,20 @@ def roll_urgency(expiry: date, today: date, roll_days: int = 3) -> Dict[str, Any
     return {"due": due, "days_left": days_left, "expired": False,
             "detail": (f"roll due: {days_left} day(s) to expiry"
                        if due else f"{days_left} day(s) to expiry")}
+
+
+def session_policy(now: time, product: str, cutoff: time = DEFAULT_MIS_CUTOFF) -> Dict[str, bool]:
+    """What the bot must do at ``now`` for a product (owner decision 2026-11-25).
+
+    * ``block_entries``: from the cutoff on, no new entry for any product. Unknown or
+      non-time input also blocks entries (fail closed).
+    * ``flatten``: intraday (MIS) only. From the cutoff, open MIS positions are closed
+      by the bot through its normal exit path, before the broker's own square-off.
+      CNC (delivery) positions are never flattened; they are held.
+    """
+    if not isinstance(now, time) or not isinstance(cutoff, time):
+        return {"block_entries": True, "flatten": False}
+    return {
+        "block_entries": now >= cutoff,
+        "flatten": should_square_off(now, product, cutoff),
+    }
