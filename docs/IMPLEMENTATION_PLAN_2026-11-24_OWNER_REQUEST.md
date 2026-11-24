@@ -48,3 +48,10 @@ Simple-English plan. Live trading stays OFF. Nothing here changes order behaviou
   - Keep the unused rupee risk and carry it to the next entry in the same OCL, not to the next share count.
   - If still 0 shares when the OCL closes, drop it and write an audit row with the reason. Do not round up to 1 share, because that breaks the risk limit.
   - Add a test: 0-share entry carries risk; a later entry that fits uses the carried risk.
+
+## Owner decisions (2026-11-24, second round)
+
+- **Item 4 (risk range):** SKIPPED. Keep the current ranges unchanged. No code change.
+- **Item 5 (0-share entries):** Recommendation APPROVED. Carry unused rupee risk to the next entry in the same OCL; drop with an audit row if still 0 shares at OCL close; never round up to 1 share.
+- **New request (dashboard):** Show only one control on the dashboard: a bot ON/OFF button. Scope to confirm: which other dashboard controls (including the kill switch) are removed or moved.
+- **Live auto-login (earlier question):** NOT answered clearly. Still open.
