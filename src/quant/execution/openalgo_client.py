@@ -86,6 +86,14 @@ class PaperBroker:
         return {"order_id": f"PAPER-{self._n}", "status": "FILLED", "filled_qty": intent.qty, "avg_price": px}
 
 
+def _order_product(value) -> str:
+    """MIS or CNC, upper-cased. Anything else is refused: never send an unknown product to the broker."""
+    code = str(value or "").strip().upper()
+    if code not in ("MIS", "CNC"):
+        raise ValueError(f"order product must be MIS or CNC, got {value!r}")
+    return code
+
+
 class OpenAlgoClient:
     """Sends orders to OpenAlgo. Refuses unless every guard for its mode passes (see module doc)."""
 
@@ -191,7 +199,7 @@ class OpenAlgoClient:
             "action": intent.side,
             "quantity": intent.qty,
             "pricetype": "MARKET",
-            "product": "MIS",
+            "product": _order_product(intent.product),
             "strategy": intent.strategy_id,
             "tag": intent.intent_id,
         }
@@ -224,7 +232,7 @@ class OpenAlgoClient:
             "action": intent.side,
             "quantity": intent.qty,
             "pricetype": price_type,
-            "product": "MIS",
+            "product": _order_product(intent.product),
             "strategy": intent.strategy_id,
             "tag": intent.intent_id,
         }
@@ -233,7 +241,7 @@ class OpenAlgoClient:
         return self._transport(self.base_url + self.PLACE_PATH, payload)
 
     def place_stop(self, symbol: str, action: str, qty: int, trigger_price: float,
-                   strategy: str, api_key: str) -> Dict:
+                   strategy: str, api_key: str, product: str = "MIS") -> Dict:
         """Place a broker-side stop-loss (SL-M, market after trigger) for an open position.
 
         Protective order: it only reduces risk, so there is no GateDecision here. The same session
@@ -258,7 +266,7 @@ class OpenAlgoClient:
             "pricetype": "SL-M",
             "price": "0",
             "trigger_price": round(float(trigger_price), 2),
-            "product": "MIS",
+            "product": _order_product(product),
             "strategy": strategy,
         }
         return self._transport(self.base_url + self.PLACE_PATH, payload)

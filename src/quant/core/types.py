@@ -32,6 +32,7 @@ class TradeIntent:
     asm_gsm: bool = False
     trade_day: Optional[date] = None  # needed for the event-blackout check on entries
     algo_id: Optional[str] = None  # exchange-approved algo ID, when one is configured
+    product: str = "MIS"  # order product sent to the broker: MIS or CNC. Bot sets it from config.
 
     @property
     def notional(self) -> float:

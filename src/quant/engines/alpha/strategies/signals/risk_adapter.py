@@ -106,6 +106,7 @@ def gate_signal(
     *,
     symbol: str,
     strategy_id: str,
+    product: str = "MIS",
     equity: float,
     risk_fraction: float,
     state: RiskState,
@@ -163,6 +164,7 @@ def gate_signal(
         asm_gsm=asm_gsm,
         trade_day=trade_day,
         algo_id=algo_id,
+        product=product,
     )
     # Pre-gate (capital protection): calendar, event blackout, overnight gap, handoff
     # contract, stress/VaR, auction window, feed health. Runs BEFORE the risk gate.

@@ -50,7 +50,7 @@ class FakeStops:
         self.cancel_reply = {"status": "success"}
         self.status_reply = {"order_status": "open", "avg_price": None}
 
-    def place_stop(self, symbol, action, qty, trigger_price, strategy):
+    def place_stop(self, symbol, action, qty, trigger_price, strategy, product="MIS"):
         self.calls.append(("place", symbol, action, qty, trigger_price))
         return dict(self.place_reply)
 

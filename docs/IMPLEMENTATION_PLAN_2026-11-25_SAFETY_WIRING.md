@@ -62,8 +62,6 @@ daily loss limit in `strategy_bot.py`.
 
 ## 8. Limits of this change (read before live)
 
-- **CNC is refused by config** (`product` must be MIS). Orders are still hardcoded to MIS in
-  `openalgo_client.py`. Supporting CNC needs the product carried on each intent. Not done.
 - **Feed outage holds the flatten.** If the bar feed is down for more than `max_outage_cycles`,
   the existing rule holds the position and raises a CRITICAL alert. A held MIS position can
   stay open past 15:15 in that case. A person must act.
@@ -83,3 +81,21 @@ daily loss limit in `strategy_bot.py`.
 - Against the unchanged master bot, 7 of those fail (entry block, flatten, config checks). The
   9 pure-policy tests pass on both, as expected.
 - Full suite on this branch: 2408 passed, 2 skipped, 1 xfailed.
+
+## 10. Product switched to CNC (2026-11-25, owner request)
+
+- `BotConfig.product` default is **CNC**; MIS is still accepted. Other values are refused.
+- The product now flows: `TradeIntent.product` -> entry (`risk_adapter.gate_signal`), child slices
+  (`pov_executor.make_child`), exits, broker stops (`place_stop(product=...)`), and the order client
+  (`_order_product`, refuses anything but MIS/CNC).
+- CNC (delivery): no short (SELL) entries (the bot was already long-only; a second guard added),
+  no square-off flatten, entries blocked from 15:15.
+- Restored saved positions without a product take the config product.
+- Tests: 26 in `test_square_off_wiring.py`. Full suite: 2411 passed, 2 skipped, 1 xfailed.
+
+**Open before live (must fix):**
+- `src/quant/risk/kill_close.py` builds kill-switch close orders with the default MIS. Those must follow
+  the position's real product, or a close of a CNC holding may be sent as MIS.
+- Other non-bot intents still default to MIS: `monitor/drill.py`, `execution/protection.py`,
+  `scripts/run_paper.py`, `engines/alpha/strategies/signals/risk_adapter.py` (callers outside the bot).
+- Carry rule (`risk/controls.carry_allowed`) is not wired; not changed here.

@@ -84,9 +84,11 @@ def test_session_policy_fails_closed_on_bad_time():
 
 # --- config ------------------------------------------------------------------
 
-def test_cnc_product_refused_until_order_plumbing_exists():
-    with pytest.raises(ValueError, match="CNC"):
-        BotConfig(product="CNC")
+def test_product_defaults_to_cnc_and_unknown_products_refused():
+    assert BotConfig().product == "CNC"
+    assert BotConfig(product="MIS").product == "MIS"
+    with pytest.raises(ValueError, match="MIS or CNC"):
+        BotConfig(product="NRML")
 
 
 @pytest.mark.parametrize("bad", ["15.15", "25:00", "abc", "15:60"])
@@ -114,7 +116,7 @@ def test_no_new_entry_at_or_after_cutoff(tmp_path):
 
 def test_mis_position_flattened_at_cutoff(tmp_path):
     sender = FakeSender()
-    bot, _ = _bot(tmp_path, MORNING, sender)
+    bot, _ = _bot(tmp_path, MORNING, sender, product="MIS")
     bot.cycle(MORNING)                      # entry opened in the morning
     assert len(sender.sent) >= 1 and not _exits(sender)
     _refresh_screen(tmp_path, AFTER)
@@ -122,6 +124,62 @@ def test_mis_position_flattened_at_cutoff(tmp_path):
     assert _exits(sender), "MIS position was not flattened at square-off"
 
 
-def test_cnc_policy_would_hold_position_past_cutoff(tmp_path):
-    # Product CNC is refused by config, so this checks the policy the bot would use for CNC.
-    assert session_policy(AFTER.time(), "CNC")["flatten"] is False
+class RecordingSender(FakeSender):
+    """Records the product carried on each child order intent."""
+
+    def __init__(self):
+        super().__init__()
+        self.products = []
+
+    def place_child(self, intent, api_key, decision, price_type="MARKET", limit_price=None):
+        self.products.append(intent.product)
+        return super().place_child(intent, api_key, decision, price_type=price_type, limit_price=limit_price)
+
+
+def test_cnc_orders_carry_cnc_product(tmp_path):
+    sender = RecordingSender()
+    bot, _ = _bot(tmp_path, MORNING, sender)  # default config: CNC
+    bot.cycle(MORNING)
+    assert sender.products and set(sender.products) == {"CNC"}
+
+
+def test_mis_orders_carry_mis_product(tmp_path):
+    sender = RecordingSender()
+    bot, _ = _bot(tmp_path, MORNING, sender, product="MIS")
+    bot.cycle(MORNING)
+    assert sender.products and set(sender.products) == {"MIS"}
+
+
+def test_cnc_holds_position_past_cutoff(tmp_path):
+    sender = FakeSender()
+    bot, _ = _bot(tmp_path, MORNING, sender)  # CNC
+    bot.cycle(MORNING)
+    _refresh_screen(tmp_path, AFTER)
+    bot.cycle(AFTER)
+    assert not _exits(sender), "CNC position must not be flattened at the cutoff"
+
+
+def test_cnc_refuses_short_entries(tmp_path):
+    sender = FakeSender()
+    bot, audit = _bot(tmp_path, MORNING, sender, strategies=[FixedSignal(time="T1", side="SELL")])
+    bot.cycle(MORNING)
+    assert not sender.sent, "no short order may be sent"
+    # The bot is long-only already (long_only_refused); the CNC guard is a second line.
+    assert any(k in ("long_only_refused", "parent_skipped") for k in audit.kinds())
+
+
+# --- the order client sends the product it is given --------------------------
+
+from quant.execution.openalgo_client import _order_product  # noqa: E402
+
+
+@pytest.mark.parametrize("given, sent", [("CNC", "CNC"), ("mis", "MIS"), (" Cnc ", "CNC")])
+def test_order_client_sends_cnc_or_mis(given, sent):
+    assert _order_product(given) == sent
+
+
+@pytest.mark.parametrize("bad", ["NRML", "", None, "MTF"])
+def test_order_client_refuses_unknown_product(bad):
+    # Fail closed: an unknown product is never sent to the broker.
+    with pytest.raises(ValueError, match="MIS or CNC"):
+        _order_product(bad)

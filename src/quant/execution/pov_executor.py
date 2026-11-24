@@ -97,6 +97,7 @@ class PovExecutor:
             adv_shares=parent.adv_shares,
             asm_gsm=parent.asm_gsm,
             trade_day=parent.trade_day,
+            product=parent.product,
         )
 
     def submit_child(

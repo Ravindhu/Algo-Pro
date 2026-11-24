@@ -188,7 +188,7 @@ class BotConfig:
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
-    product: str = "MIS"           # order product. Only MIS is sent today (CNC needs order plumbing)
+    product: str = "CNC"           # order product sent to the broker: CNC (delivery, default) or MIS (intraday)
     square_off_time: str = "15:15"  # HH:MM IST. From here: no new entries; MIS positions are flattened
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
@@ -198,8 +198,8 @@ class BotConfig:
     exits: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.product != "MIS":
-            raise ValueError("product must be MIS: CNC is not wired to the order client yet")
+        if self.product not in ("MIS", "CNC"):
+            raise ValueError(f"product must be MIS or CNC, got {self.product!r}")
         try:
             hh, mm = (int(x) for x in str(self.square_off_time).split(":"))
             assert 0 <= hh <= 23 and 0 <= mm <= 59
@@ -730,6 +730,10 @@ class StrategyBot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym,
                       reason=f"at or after square-off {self._square_off_at.isoformat()}: no new entries")
             return None
+        if self.cfg.product == "CNC" and str(sig.get("side", "")).upper() == "SELL":
+            self._log("parent_skipped", strategy=strat.name, symbol=sym,
+                      reason="CNC is delivery: no short (SELL) entries")
+            return None
         lot = stats.get("lot_size", 1)
         if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
@@ -740,7 +744,7 @@ class StrategyBot:
         pre = self._pre_gate.check(
             TradeIntent(intent_id=f"{key}-PRE", strategy_id=strat.name, symbol=sym,
                         side="BUY", qty=1, ref_price=ref_price, kind="entry",
-                        prev_close=None, trade_day=now.date()),
+                        prev_close=None, trade_day=now.date(), product=self.cfg.product),
             now=now, feed_book=self.feed_health,
         )
         if not pre.ok:
@@ -755,6 +759,7 @@ class StrategyBot:
             adv_shares=stats["adv_shares"], prev_close=stats["prev_close"],
             circuit_pct=circuit_pct, asm_gsm=False, trade_day=now.date(), lot_size=int(lot),
             pre_gate=self._pre_gate, now=now, feed_book=self.feed_health,
+            product=self.cfg.product,
         )
         self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
         if not res.ok or res.intent is None:
@@ -1311,7 +1316,7 @@ class StrategyBot:
             intent_id=f"{key}-EXIT", strategy_id=pos.strategy, symbol=pos.symbol,
             side=pos.exit_side, qty=pos.qty, ref_price=float(price), kind="exit",
             prev_close=pos.prev_close, circuit_pct=pos.circuit_pct, adv_shares=pos.adv_shares,
-            trade_day=now.date(),
+            trade_day=now.date(), product=self.cfg.product,
         )
         self._exit_held_qty = pos.qty  # the gate refuses a SELL larger than this
         try:
@@ -1404,10 +1409,11 @@ class StrategyBot:
         return d
 
     @staticmethod
-    def _parent_from_doc(d: Dict[str, Any]) -> "_Parent":
+    def _parent_from_doc(d: Dict[str, Any], default_product: str = "MIS") -> "_Parent":
         from datetime import date as _date
         from dataclasses import fields as _fields
         intent = dict(d["intent"])
+        intent.setdefault("product", default_product)  # docs saved before the product field: use config
         if intent.get("trade_day") is not None:
             intent["trade_day"] = _date.fromisoformat(intent["trade_day"])
         from quant.engines.alpha.strategies.risk_ladder import RiskLadder as _RiskLadder
@@ -1461,7 +1467,7 @@ class StrategyBot:
         self._mtf_carry = {str(k): int(v) for k, v in (doc.get("mtf_carry") or {}).items()}
         for d in doc.get("cycle_parents", []):
             try:
-                parent = self._parent_from_doc(d)
+                parent = self._parent_from_doc(d, self.cfg.product)
             except (TypeError, ValueError, KeyError) as exc:
                 self._log("cycle_parent_restore_refused", error=repr(exc))
                 self._alert("CRITICAL", "a saved cycle could not be read; check the broker before entries")
@@ -1501,7 +1507,8 @@ class StrategyBot:
                 return
         exit_side = "SELL" if pos.side == "BUY" else "BUY"
         try:
-            res = self._stops.place_stop(pos.symbol, exit_side, pos.qty, pos.stop, pos.strategy)
+            res = self._stops.place_stop(pos.symbol, exit_side, pos.qty, pos.stop, pos.strategy,
+                                         product=self.cfg.product)
         except Exception as exc:
             res = {"status": "error", "reason": repr(exc)}
         order_id = str(res.get("orderid", "")) if str(res.get("status", "")).lower() == "success" else ""
