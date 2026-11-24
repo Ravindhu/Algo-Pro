@@ -1,5 +1,7 @@
 """Broker login after a dashboard sign-in (owner decision 2026-11-24).
 
+Status: PHASE 1 IMPLEMENTED (sign-in triggered login; tests in tests/unit/test_broker_signin.py)
+
 A successful dashboard sign-in also logs in OpenAlgo and the broker. The login
 runs in a background thread so the sign-in reply is not delayed. Live mode is
 included. The broker login cooldown still applies. Only the result is audited:

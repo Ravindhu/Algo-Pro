@@ -1,5 +1,7 @@
 """Save the broker and OpenAlgo secrets from the dashboard, encrypted at rest.
 
+Status: PHASE 1 IMPLEMENTED (secrets store; tests in tests/unit/test_dotenv_secrets_editor.py)
+
 Owner decision 2026-11-24 (item 3, with encryption as recommended): the owner
 enters the broker password and TOTP secret once in the dashboard.
 
