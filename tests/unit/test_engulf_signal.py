@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytest
 
-from quant.strategies import owner_patterns as op
-from quant.strategies.engulf_sequence_strategy import EngulfSequenceStrategy
+from quant.engines.alpha.strategies import owner_patterns as op
+from quant.engines.alpha.strategies.engulf_sequence_strategy import EngulfSequenceStrategy
 
 
 def _ltf(n=30):
@@ -86,7 +86,7 @@ def test_strategy_passes_closed_frames_to_signal(monkeypatch):
         seen["kind"] = kind
         return None
 
-    import quant.strategies.engulf_sequence_strategy as mod
+    import quant.engines.alpha.strategies.engulf_sequence_strategy as mod
     monkeypatch.setattr(mod, "sequence_signal", fake)
     feed = _FakeFeed({"mtf": "M", "htf": "H", "ltf": "L"})
     strat = EngulfSequenceStrategy(feed)

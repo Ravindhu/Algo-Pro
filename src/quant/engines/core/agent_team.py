@@ -81,7 +81,6 @@ STATION_DEFINITIONS: Dict[str, Dict[str, str]] = {
     "valuation": {"title": "Valuation desk", "produces": "assumption bounds"},
     "sector": {"title": "Sector desk", "produces": "sector stances"},
     "portfolio": {"title": "Allocation desk", "produces": "portfolio constraints"},
-    "alpha": {"title": "Signal desk", "produces": "regime conflict flags"},
     "risk": {"title": "Risk desk", "produces": "veto decision"},
     "backtest": {"title": "Evidence desk", "produces": "honest window + costs"},
     "optimization": {"title": "Tuning desk", "produces": "search bounds"},
@@ -93,7 +92,7 @@ STATION_DEFINITIONS: Dict[str, Dict[str, str]] = {
 #: are research stations: they run off the daily line, before risk sizing.
 STATION_ORDER: tuple = (
     "economic", "market", "screener", "valuation",
-    "portfolio", "alpha", "risk", "backtest", "optimization",
+    "portfolio", "risk", "backtest", "optimization",
 )
 
 #: States one station can be in at the end of its step.

@@ -12,8 +12,8 @@ EQUITY = 1_000_000.0  # paper capital, same as the bot's read_funds
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from quant.strategies import cycle  # noqa: E402
-from quant.strategies.engulf_sequence_strategy import EngulfSequenceStrategy  # noqa: E402
+from quant.engines.alpha.strategies import cycle  # noqa: E402
+from quant.engines.alpha.strategies.engulf_sequence_strategy import EngulfSequenceStrategy  # noqa: E402
 
 RED = (10.0, 10.2, 8.0, 8.2)
 GREEN_ENGULF = (8.0, 11.0, 7.9, 10.8)

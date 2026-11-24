@@ -35,8 +35,8 @@ import yaml
 from quant.core.config import RiskLimits
 from quant.core.limits_store import apply_limit_updates
 from quant.core import broker_costs
-from quant.strategies.owner_patterns import SEQUENCE_KINDS
-from quant.strategies.risk_tree import validate_share
+from quant.engines.alpha.strategies.owner_patterns import SEQUENCE_KINDS
+from quant.engines.alpha.strategies.risk_tree import validate_share
 
 HEADER = (
     "# Global settings. sizing, trade_setup and live are set through the dashboard API (owner sign-in).\n"

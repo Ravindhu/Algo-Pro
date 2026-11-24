@@ -303,7 +303,7 @@ def test_auto_tune_fails_closed_on_missing_statistics():
 # 8. STRATEGIES
 # --------------------------------------------------------------------------- #
 def test_a_live_signal_class_cannot_be_used_as_a_return_function():
-    from quant.strategies import resolve_signal_fn
+    from quant.engines.alpha.strategies import resolve_signal_fn
 
     class Fake:
         """Stands in for an OCL-style live signal class."""
@@ -314,7 +314,7 @@ def test_a_live_signal_class_cannot_be_used_as_a_return_function():
 
 @BLUE_ALPHA
 def test_registry_lists_strategies_and_resolves_both_shapes():
-    from quant.strategies import list_strategies, resolve_signal_fn
+    from quant.engines.alpha.strategies import list_strategies, resolve_signal_fn
 
     rows = list_strategies()
     assert rows, "the alpha registry must report at least one strategy"
@@ -375,7 +375,7 @@ def test_backtest_refuses_to_score_a_short_book():
 
 
 def test_signal_intent_guard_allows_buys_and_exits_only():
-    from quant.strategies import guard_intent
+    from quant.engines.alpha.strategies import guard_intent
 
     assert guard_intent(None) == (True, "no action")
     assert guard_intent({})[0] is True

@@ -17,7 +17,7 @@ so a "least discounted" ranking can never be polluted by, say, INDIA VIX.
 
 THE HM SCORE
 ------------
-"Hilega-Milega" is the indicator in ``alpha/indicators/hilega_milega.py``:
+"Hilega-Milega" is the indicator in ``indicators/hilega_milega.py``:
 RSI(9) with an EMA(3) drawn over it. Two distinct readings matter:
 
   * ``rsi``            - how depressed the sector is (lower = more beaten down)

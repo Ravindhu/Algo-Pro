@@ -7,7 +7,7 @@ import math
 
 import pytest
 
-from quant.strategies.risk_tree import (AGGRESSIVE, CONSERVATIVE, SlotGate, plan, stage_slot, tree_budgets,
+from quant.engines.alpha.strategies.risk_tree import (AGGRESSIVE, CONSERVATIVE, SlotGate, plan, stage_slot, tree_budgets,
                                         validate_share)
 
 STAGES = (AGGRESSIVE, CONSERVATIVE)

@@ -26,7 +26,7 @@ from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.pre_gate import PreGate
-from quant.strategies.signals.base import check_signal
+from quant.engines.alpha.strategies.signals.base import check_signal
 
 
 @dataclass(frozen=True)

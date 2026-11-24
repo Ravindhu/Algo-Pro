@@ -84,7 +84,7 @@ __all__ = [
 #: ``alpha`` which have their own engines.
 AGENT_STAGES: Tuple[str, ...] = (
     "economic", "market", "screener", "valuation",
-    "sector", "portfolio", "alpha", "backtest", "optimization", "risk",
+    "sector", "portfolio", "backtest", "optimization", "risk",
 )
 
 #: Stages the prompt-model agent (``frontline_agent._SCHEMAS``) currently keys.
@@ -296,19 +296,9 @@ DEFAULT_SKILLS: Dict[str, StageSkill] = {
             "rationale": ("text", 15),
         },
         data_needs=(
-            {"path": "alpha.data.selected", "check": "present",
-             "note": "at least one selected signal is required"},
+            {"path": "strategy.intent", "check": "present",
+             "note": "a strategy signal intent is required"},
         ),
-    ),
-    "alpha": _skill(
-        "alpha",
-        "Flag signals whose setup looks inconsistent with the current regime "
-        "so the deterministic scoring can weight them.",
-        {
-            "regime_conflicts": ("tickers",),
-            "rationale": ("text", 15),
-        },
-        data_needs=(),
     ),
     "backtest": _skill(
         "backtest",

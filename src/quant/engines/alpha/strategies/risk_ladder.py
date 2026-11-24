@@ -90,7 +90,7 @@ def load_cycle_settings(path) -> Dict[str, float]:
         if out[key] is not None and out[key] > 0.2:
             raise ValueError(f"cycle.{key} is a fraction of equity; 0.03 means 3 %")
     # Owner tree (2026-11-20): share bounds are refused, never clamped (risk_tree.validate_share).
-    from quant.strategies.risk_tree import validate_share
+    from quant.engines.alpha.strategies.risk_tree import validate_share
     if sec.get("aggressive_share") is not None:
         out["aggressive_share"] = validate_share(sec["aggressive_share"])
     if sec.get("symbol_allocation_pct") is not None:

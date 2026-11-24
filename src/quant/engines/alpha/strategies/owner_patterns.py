@@ -1,6 +1,7 @@
 """Owner pattern checks and the five sequence strategies.
 
 Flow stage: Strategy, Engulf sequence, Engulf signal, Engulfing fail, OCL strategy (RRG), OCL sell-fail top, OCL sell-fail bottom
+Flow stage: Alpha engine (strategy patterns the bot runs; legacy signals parked in Temp/Stag)
 Status: PHASE 1 IMPLEMENTED (2026-11-19). Plan: docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md
 
 Detection only. No orders, sizing, entries, stops or exits here.
@@ -15,7 +16,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from quant.indicators.indicators import atr as atr_series
+from quant.engines.alpha.indicators.indicators import atr as atr_series
 
 BODY_MIN = 0.5
 

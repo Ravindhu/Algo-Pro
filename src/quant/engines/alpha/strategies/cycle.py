@@ -21,11 +21,11 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from quant.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _mtf_conservative, _newest_setup,
+from quant.engines.alpha.strategies.owner_patterns import (NO_SWEEP_KINDS, _arrays, _mtf_conservative, _newest_setup,
                                             _ocl_start, find_ltf_patterns, find_ocl_rrg, first_sweep_after,
                                             setup_low, setup_touch_from)
-from quant.strategies.risk_ladder import RiskLadder, sizing_stop
-from quant.strategies.risk_tree import plan as tree_plan
+from quant.engines.alpha.strategies.risk_ladder import RiskLadder, sizing_stop
+from quant.engines.alpha.strategies.risk_tree import plan as tree_plan
 
 
 @dataclass

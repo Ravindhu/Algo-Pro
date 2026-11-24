@@ -113,8 +113,8 @@ DEFAULT_REQUIREMENTS: Dict[str, List[Dict[str, Any]]] = {
          "note": "market snapshot: index quote + volatility state"},
     ],
     "portfolio": [
-        {"path": "alpha.data.selected", "check": "present",
-         "note": "selecting a portfolio needs at least one signal"},
+        {"path": "strategy.intent", "check": "present",
+         "note": "selecting a portfolio needs a strategy signal from the caller"},
     ],
     "risk": [
         {"path": "portfolio.data", "check": "present",

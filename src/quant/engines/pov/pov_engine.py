@@ -8,7 +8,7 @@ analysis on top.
 
 Two responsibilities:
 
-  1. slice      - build a POVSlicer config from the upstream Alpha/Portfolio
+  1. slice      - build a POVSlicer config from the upstream strategy/Portfolio
                   decisions and run it against the OpenAlgo SDK client. The
                   client is passed through ``context['client']``; when it is
                   absent the engine reports ``skipped`` rather than touching
@@ -170,39 +170,40 @@ class PovEngine(BaseEngine):
             nested = context["portfolio"].get("data")
             portfolio = nested if isinstance(nested, dict) else context["portfolio"]
 
-        # Choose the symbol/exchange: explicit order in the context wins,
-        # else the first ALPHA-eligible candidate. The old fallback used
-        # ``selected[0]`` blindly, so if the alpha stage
-        # produced nothing the slicer still opened a random position with the
-        # configured default BUY.
+        # Choose symbol/exchange/action/quantity from the STRATEGY intent that
+        # the caller supplies (owner decision 2026-11-24). An explicit order in
+        # the context still wins. With neither, POV fails closed: it never
+        # picks a symbol and never assumes a default BUY.
         symbol = context.get("symbol")
         exchange = context.get("exchange")
         action = context.get("action")
         quantity = context.get("quantity")
 
-        alpha: Dict[str, Any] = {}
-        if isinstance(context.get("alpha"), dict):
-            nested = context["alpha"].get("data")
-            alpha = nested if isinstance(nested, dict) else context["alpha"]
+        intent: Dict[str, Any] = {}
+        if isinstance(context.get("strategy"), dict):
+            nested = context["strategy"].get("intent")
+            intent = nested if isinstance(nested, dict) else {}
         if not symbol:
-            selected = alpha.get("selected") or []
-            if not selected:
+            symbol = intent.get("symbol")
+            if not symbol:
                 warnings.append(
-                    "POV not executed: alpha selected no eligible candidate "
-                    "(fail-closed; buy the default symbol is not a substitute "
-                    "for a signal)")
+                    "POV not executed: no strategy intent supplied "
+                    "(fail-closed; a default symbol is not a substitute for a signal)")
                 return {"status": "skipped",
-                        "reason": "no alpha-selected symbol",
-                        "alpha_candidates": len(alpha.get("candidates") or [])}, warnings
-            symbol = selected[0]
+                        "reason": "no strategy intent"}, warnings
+            action = action or intent.get("action")
+            quantity = quantity if quantity is not None else intent.get("quantity")
+            exchange = exchange or intent.get("exchange")
+        if not action:
+            # The operator's explicit POV config may name the action; a default
+            # BUY is never assumed.
+            action = self._get_pov_config().get("action")
+        if not action:
+            warnings.append("POV not executed: no action (BUY/SELL) supplied (fail-closed)")
+            return {"status": "skipped", "reason": "no action",
+                    "symbol": symbol}, warnings
         if not exchange:
             exchange = self.config.get("exchange", "NSE")
-        if not action:
-            signals = alpha.get("signals") or {}
-            action = signals.get(symbol, "BUY") if symbol else "BUY"
-
-        if not symbol:
-            return {"status": "skipped", "reason": "no symbol selected"}, warnings
 
         pov_cfg = self._get_pov_config()
         if quantity is None:

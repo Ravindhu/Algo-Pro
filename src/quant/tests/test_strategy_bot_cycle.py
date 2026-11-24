@@ -26,8 +26,8 @@ from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.gate import RiskState
 from quant.risk.kill_switch import KillSwitch
-from quant.strategies.cycle import CycleResult
-from quant.strategies.engulf_sequence_strategy import CycleView
+from quant.engines.alpha.strategies.cycle import CycleResult
+from quant.engines.alpha.strategies.engulf_sequence_strategy import CycleView
 
 
 @pytest.fixture(autouse=True)
@@ -418,7 +418,7 @@ def test_adv_cap_is_one_percent_of_average_daily_volume_and_fails_safe():
 # ---- owner tree (2026-11-20): budgets come from risk_tree.plan, not the old ladder -----------------
 def _tree_result(events, decision_events):
     """A replay result whose tree decisions come from risk_tree.plan over decision_events (4 % allocation)."""
-    from quant.strategies.risk_tree import plan
+    from quant.engines.alpha.strategies.risk_tree import plan
     r = _result(events)
     r.tree_decisions = plan(decision_events, 4.0)
     return r
@@ -460,8 +460,8 @@ def test_unfilled_shares_carry_from_a_closed_htf_ocl_into_the_next_one(tmp_path)
     """Owner tree: unfilled shares roll forward to the next HTF OCL of the same MTF setup.
     HTF OCL 1: leaf budget 960 INR -> 468 sh; 100 fill, then the HTF OCL is invalidated -> 368 carried.
     HTF OCL 2: leaf budget 960 INR at stop 1.0495 -> 914 sh; order = 914 + 368 carried = 1282 sh."""
-    from quant.strategies.risk_tree import plan
-    from quant.strategies.cycle import CycleResult
+    from quant.engines.alpha.strategies.risk_tree import plan
+    from quant.engines.alpha.strategies.cycle import CycleResult
     K2 = pd.Timestamp("2026-11-16 17:00")
     decisions = plan([
         ("htf_ocl", str(HTF_KEY), HTF_KEY), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW),
@@ -496,8 +496,8 @@ def test_unfilled_shares_carry_from_a_closed_htf_ocl_into_the_next_one(tmp_path)
 
 def test_carry_is_not_consumed_when_the_new_touch_is_refused(tmp_path):
     """No budget on the next touch: the carried shares stay in the pool, not lost."""
-    from quant.strategies.risk_tree import plan
-    from quant.strategies.cycle import CycleResult
+    from quant.engines.alpha.strategies.risk_tree import plan
+    from quant.engines.alpha.strategies.cycle import CycleResult
     K2 = pd.Timestamp("2026-11-16 17:00")
     decisions = plan([
         ("htf_ocl", str(HTF_KEY), HTF_KEY), ("ltf_ocl", "A", T_NEW), ("ltf_agg_touch", "A", T_NEW),

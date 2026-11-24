@@ -62,7 +62,7 @@ The only non-smooth point is the HALT boundary, which is intentional.
 ================================================================================
 USAGE
 ================================================================================
-    from quant.indicators.vwap_band import BandConfig, compute_target_pov_rate
+    from quant.engines.alpha.indicators.vwap_band import BandConfig, compute_target_pov_rate
 
     cfg = BandConfig(
         vwap=1000.0,

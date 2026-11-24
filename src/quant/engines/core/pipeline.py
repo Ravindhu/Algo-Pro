@@ -32,7 +32,6 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from ..alpha import AlphaEngine
 from .base import EngineResult, EngineStage
 from ..economics import EconomicEngine
 from ..infrastructure import InfrastructureEngine
@@ -112,8 +111,6 @@ class MacroPipeline:
         self.engines.extend([
             PortfolioEngine(engines_cfg.get("portfolio", {}),
                             provider=self._provider("portfolio"), log=log),
-            AlphaEngine(engines_cfg.get("alpha", {}),
-                        provider=self._provider("alpha"), log=log),
             RiskEngine(engines_cfg.get("risk", {}),
                        provider=self._provider("risk"), log=log),
             PovEngine(engines_cfg.get("pov", {}),
@@ -521,8 +518,10 @@ class MacroPipeline:
                     report["warnings"].append(
                         "POV blocked by risk veto or failed risk assessment")
 
-        report["alpha_selected"] = (
-            report["stages"].get("alpha", {}).get("data", {}).get("selected"))
+        # The strategy intent comes from the caller (the live strategy), never
+        # from a macro-pipeline scoring stage. Echoed here for the audit trail.
+        report["strategy_intent"] = ctx.get("strategy", {}).get("intent") if isinstance(
+            ctx.get("strategy"), dict) else None
         # The factory's work-in-progress record for this run. One row per
         # station in line order: who worked, with what evidence, what it
         # produced, where the JSON went, and what is still missing.
