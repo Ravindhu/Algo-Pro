@@ -369,8 +369,8 @@
         <input type="number" id="su-symbols" min="1" max="100" step="1" placeholder="1"></div>
       <div><label for="su-cap">Live capital cap (₹, fixed)</label>
         <input type="number" id="su-cap" min="1" step="1" placeholder="not set"></div>
-      <div><label for="su-strategy">Strategy</label>
-        <select id="su-strategy"></select></div>
+      <div><label>Strategies (the bot runs the ticked ones)</label>
+        <div id="su-strategies"></div></div>
       <div><label for="su-product">Broker product</label>
         <select id="su-product">
           <option value="delivery">Delivery (STT 0.1% both sides)</option>
@@ -408,7 +408,7 @@
       <div id="livestatus" class="muted"></div>
     </div>
     <p class="d" id="brokerage-example"></p>
-    <p class="d">Loss caps are a percent of the capital base. Saving them also sets the rupee caps the Risk gate reads (max daily loss, max strategy loss). Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Strategy is saved only: no engine stage uses it yet.</p>
+    <p class="d">Loss caps are a percent of the capital base. Saving them also sets the rupee caps the Risk gate reads (max daily loss, max strategy loss). Max symbols is a risk limit: the Risk gate blocks a new symbol at the cap, and blocks all new entries while it is not set. Ticked strategies are written to config/bot.yaml. The bot reads that list when it starts, so a change applies at the next start.</p>
   </form>
 <div class="one">
   <section class="panel">
@@ -1032,10 +1032,13 @@
     updateBudgetHint();
     $("su-symbols").value = s.max_symbols_per_portfolio == null ? "" : String(s.max_symbols_per_portfolio);
     $("su-cap").value = s.live_max_capital_inr == null ? "" : String(s.live_max_capital_inr);
-    const sel = $("su-strategy");
-    const notSet = Object.assign(document.createElement("option"), {value: "", textContent: "not set"});
-    sel.replaceChildren(notSet, ...s.strategies.map(n => Object.assign(document.createElement("option"), {value: n, textContent: n})));
-    sel.value = s.strategy || "";
+    const ticked = s.bot_strategies || [];
+    $("su-strategies").replaceChildren(...(s.available_bot_strategies || []).map(n => {
+      const box = Object.assign(document.createElement("input"), {type: "checkbox", value: n, checked: ticked.includes(n)});
+      const row = Object.assign(document.createElement("label"), {textContent: " " + n});
+      row.prepend(box);
+      return row;
+    }));
     const b = s.brokerage || {};
     $("su-product").value = b.product || "delivery";
     $("su-method").value = b.method || "bps";
@@ -1081,9 +1084,9 @@
   async function saveSetup(ev) {
     ev.preventDefault();
     if (!Number.isInteger(symbols) || symbols < 1 || symbols > 100) return setSetupMsg("Max symbols per portfolio must be a whole number 1-100.", "r");
-    const strategy = $("su-strategy").value;
-    if (!strategy) return setSetupMsg("Choose a strategy.", "r");
-    const payload = {max_symbols_per_portfolio: symbols, strategy};
+    const strategies = [...document.querySelectorAll("#su-strategies input:checked")].map(c => c.value);
+    if (!strategies.length) return setSetupMsg("Tick at least one strategy.", "r");
+    const payload = {max_symbols_per_portfolio: symbols, strategies};
     const method = $("su-method").value;
     const brokerage = {product: $("su-product").value, method};
     if (method === "fixed") {
