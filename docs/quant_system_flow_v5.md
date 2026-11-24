@@ -242,7 +242,7 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-**47** distinct Blue modules are loaded through the bridge (verified 2026-11-14 by
+**46** distinct Blue modules are loaded through the bridge (verified 2026-11-24 by
 counting `load("...")` calls across the `src/quant/` lanes, excluding the one
 deliberately missing module the bridge test uses). The table below names the
 wrapper rows; a row can cover more than one engine module, and a few engine
@@ -292,7 +292,7 @@ hard boundary (advice only, or plan only - never an order).
 | `core/broker_auth.py` | `execution/broker_auth_status.py` | Broker auth | Read-only login status (autologin flag and cooldown). Never logs in, never reads credentials |
 | `core/lot.py` | `execution/lot_size.py` | Lot accounting | Floors a quantity to whole lots. An unknown lot size sends nothing; Blue would pass the quantity through |
 | `ml/data_sources/base.py` | `data/data_source_contract.py` | Data sources | Provenance hashes (rows hash, schema). Network adapters (OpenAlgo, yfinance) are not built here |
-| `alpha/alpha_engine.py` | `models/alpha_engine.py` | Alpha engine | Candidate signals from inputs passed in. Advice only, never an order |
+| (retired) | (retired) | Alpha engine | Retired 2026-11-24 and parked in Temp/Stag/alpha_engine. The live strategy is the bot's five sequence strategies (owner_patterns) |
 | `portfolio/portfolio_engine.py` | `portfolio/portfolio_targets.py` | Portfolio engine | Target weights and rebalance advice. Persistence forced OFF. Long-only. Trades are advice, not orders |
 | `valuation_engine.py` | `data/valuation.py` | Valuation engine | Conservative valuations from snapshots passed in. Loads `screener` first (Blue circular import) |
 | `jobs/daily_portfolio.py` | `execution/job_status.py` | Scheduled jobs | Read-only: post-close window and last status. The job runners stay in Blue |

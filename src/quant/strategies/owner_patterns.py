@@ -1,6 +1,7 @@
 """Owner pattern checks and the five sequence strategies.
 
 Flow stage: Strategy, Engulf sequence, Engulf signal, Engulfing fail, OCL strategy (RRG), OCL sell-fail top, OCL sell-fail bottom
+Flow stage: Alpha engine (strategy patterns the bot runs; legacy signals parked in Temp/Stag)
 Status: PHASE 1 IMPLEMENTED (2026-11-19). Plan: docs/IMPLEMENTATION_PLAN_2026-11-18_STRATEGY_SPEC.md
 
 Detection only. No orders, sizing, entries, stops or exits here.

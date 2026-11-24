@@ -50,3 +50,22 @@ B. **Optimizer** (`engines/optimizer/spaces.py`, `data_cache.py`) imports alpha 
 
 ## Rollback
 Move files back from `Temp/Stag/` to their original paths (git revert of the commit).
+
+## 9. Result (implemented on the same branch)
+
+- Kept: `execution/strategy_bot.py`, `scripts/run/run_strategy_bot.py` (paper),
+  `scripts/run/run_strategy_bot_live.py` (live), and the five sequence strategies in
+  `strategies/owner_patterns.py` (with cycle, risk_ladder, risk_tree, engulf_sequence_strategy,
+  signals/base, signals/risk_adapter, indicators/indicators).
+- Parked in `Temp/Stag/`: old runner (`engines/core/runner.py`, `screener_bridge.py`,
+  run_pov, run_real, engine_entry, run_supervised, run_screener_bridge, the old shims);
+  `engines/alpha/signals`, `Statergy`, `confirm`, `registry.py`; `strategies/engulfing`,
+  `sample_strategy.py`, `confirm_state.py`; `indicators/engulfing.py`; research scripts;
+  tests that exercised parked code (engulfing, signals base/engulfing/roc_state, engine_entry).
+- Moved and kept live: `alpha/indicators/hilega_milega.py` -> `src/quant/indicators/` (sector engine).
+- Dead import removed: `run_strategy_bot.py` (legacy Engulfing).
+- Optimizer: parked signal listing now returns an empty list (broad except); no change to its logic.
+- Doc: wrapped-module count **46** (verified 2026-11-24); retired wrapper row marked.
+- Test result: quant suite and tests/ folder: 2372 passed, 2 skipped, 1 xfailed.
+  Skipped: one Blue-alpha-registry test in test_phase5_wraps (registry parked). Coverage lost: the
+  parked tests above; the live-gate tests for the kept live runner are still in place.

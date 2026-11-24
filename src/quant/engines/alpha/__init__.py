@@ -1,9 +1,7 @@
-"""alpha - strategy package (signal strategies that decide WHEN to trade).
+"""alpha - package kept as a placeholder after the strategy move (2026-11-24).
 
-The ``AlphaEngine`` scoring stage was retired on 2026-11-24 and parked in
-``Temp/Stag/alpha_engine``. The strategy signals below are the live trading
-strategy and stay here. See docs/IMPLEMENTATION_PLAN_2026-11-24_RETIRE_ALPHA.md.
+The signal strategies, the registry and the Statergy/confirm code were parked in
+Temp/Stag/alpha_strategies. The live strategies are in src/quant/strategies.
+See docs/IMPLEMENTATION_PLAN_2026-11-24_FIVE_STRATEGIES.md.
 """
-from . import signals
-
-__all__ = ["signals"]
+__all__ = []

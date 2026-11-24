@@ -3,8 +3,11 @@
 
 Reference: the "HILEGA_MILEGA" TradingView indicator (Nitish Kumar):
 RSI (default 9) with an EMA (default 3) plotted over it. This module
-provides the series math only; the BUY-only gate lives in
-``quant.engines.alpha.Statergy.ocl_keylevel.OCLKeylevelSignal``.
+provides the series math only. Moved from alpha/indicators on 2026-11-24
+(used by the sector engine). The legacy BUY-only gate that used it is parked in
+Temp/Stag/alpha_strategies/Statergy/ocl_keylevel.py.
+
+Status: PHASE 2 IMPLEMENTED (indicator math; unchanged by the move).
 
 Simplified operator rule: the WMA(RSI) leg is NOT required. Bullish is
 RSI above EMA(RSI) AND RSI at/below the oversold level (default 30) -

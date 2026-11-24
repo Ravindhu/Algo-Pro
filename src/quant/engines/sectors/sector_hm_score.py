@@ -17,7 +17,7 @@ so a "least discounted" ranking can never be polluted by, say, INDIA VIX.
 
 THE HM SCORE
 ------------
-"Hilega-Milega" is the indicator in ``alpha/indicators/hilega_milega.py``:
+"Hilega-Milega" is the indicator in ``indicators/hilega_milega.py``:
 RSI(9) with an EMA(3) drawn over it. Two distinct readings matter:
 
   * ``rsi``            - how depressed the sector is (lower = more beaten down)
@@ -161,7 +161,7 @@ class SectorHMScorer:
     # ---- scoring ---------------------------------------------------------- #
     def score_one(self, stem: str, as_of: date) -> Dict[str, Any]:
         """HM reading for one sector. Always returns a dict."""
-        from ..alpha.indicators.hilega_milega import ema, hilega_milega_rsi
+        from ...indicators.hilega_milega import ema, hilega_milega_rsi
 
         out: Dict[str, Any] = {
             "stem": stem,

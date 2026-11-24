@@ -17,7 +17,7 @@ def test_pipeline_has_no_alpha_stage():
 def test_alpha_engine_is_parked_not_importable_from_package():
     import quant.engines.alpha as alpha_pkg
     assert not hasattr(alpha_pkg, "AlphaEngine")
-    assert hasattr(alpha_pkg, "signals")
+    assert not hasattr(alpha_pkg, "signals")  # signals parked 2026-11-24 (Temp/Stag)
 
 
 def test_pov_without_strategy_intent_fails_closed():

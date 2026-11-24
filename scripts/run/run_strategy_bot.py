@@ -40,7 +40,6 @@ from quant.notify.alerts import Alerts  # noqa: E402
 from quant.risk.controls import HaltHandler  # noqa: E402
 from quant.risk.gate import RiskState  # noqa: E402
 from quant.risk.kill_switch import KillSwitch  # noqa: E402
-from quant.strategies.engulfing.engulfing import Engulfing  # noqa: E402
 
 STOP_FLAG = "stop.flag"
 
