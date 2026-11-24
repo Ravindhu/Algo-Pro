@@ -1,7 +1,7 @@
 """Price band + surveillance for the screener rows (circuit_pct and asm_gsm).
 
 Flow stage: Liquidity screener -> screen file (input enrichment)
-Status: IMPLEMENTED 2026-11-24 (reuses execution/pov_guards, no order path)
+Status: PHASE 1 IMPLEMENTED (2026-11-24; reuses execution/pov_guards, no order path)
 
 THE GAP THIS CLOSES
 -------------------
