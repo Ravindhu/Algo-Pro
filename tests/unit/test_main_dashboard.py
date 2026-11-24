@@ -21,7 +21,7 @@ def test_ui_serves_the_main_dashboard():
 
 def test_page_has_trade_setup_panel():
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("setupbtn", "setup", "setupform", "su-symbols", "su-strategy", "setupsave",
+    for element_id in ("setupbtn", "setup", "setupform", "su-symbols", "su-strategies", "setupsave",
                        "su-capital", "su-daily", "su-strat-loss"):
         assert f'id="{element_id}"' in text, element_id
 
