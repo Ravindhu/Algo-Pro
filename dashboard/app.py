@@ -198,6 +198,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     from fastapi.responses import FileResponse, JSONResponse
 
     load_env_file()  # reads the repo-root .env without overriding shell variables
+    env_editor.load_saved_secrets()  # encrypted secrets saved from Settings (owner decision 2026-11-24)
     paths = {**DEFAULT_PATHS, **(paths or {})}
     app = FastAPI(title="Algo-Pro dashboard", version="0.1.0")
     # Read-only holdings. mode is not used: get_holdings sends no order.

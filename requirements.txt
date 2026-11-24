@@ -43,6 +43,8 @@ openalgo==2.0.3
 
 # Config loading: start_openalgo.py, scheduled_login.py, secrets resolver.
 python-dotenv==1.2.4
+# Encrypts the dashboard secrets store (data/secrets.enc). Owner decision 2026-11-24.
+cryptography==50.0.1
 
 # HTTP for headline/macro providers and the smoke tests.
 requests==2.34.2
