@@ -1467,3 +1467,14 @@ gated (no real order leaves the machine).
 - Paper runner (`scripts/run_paper.py`) passes `held_qty` for exit intents, so a SELL exit larger than the ledger position is refused.
 - Open: `tests/unit/test_upgrade_pin.py` fails. The vendored OpenAlgo tree fingerprints to `8885432395b2`, but `openalgo.UPSTREAM_PIN` says `df6ca31e5c95`. Commit a8de573 changed the watched files. Re-pin with `scripts/verify/upgrade_check.py --update-pin` only after reviewing the upstream changelog.
 - Book-level caps in `config/risk_limits.yaml` (sector, beta, CVaR, drawdown) are still null by design. A live start stays refused until the owner sets them.
+
+## Feed card is live (2026-11-25, decision 0033)
+
+The dashboard feed card reads a real probe: reporting/feed_status.py checks the
+owner-approved live source (config/data_sources.yaml live_feed.live_allowed) and
+makes ONE cached (30 s) quote call for NSE:INFY through OpenAlgo. Statuses:
+connected / stale / api key missing / openalgo down / auth failed / blocked by policy.
+It never raises, never places an order. Old hard-coded 'not connected' line removed
+from dashboard/app.py (load_state). monitor/feed_health.py is still bot-side and
+unwired.
+
