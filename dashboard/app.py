@@ -614,6 +614,26 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             return JSONResponse({"error": str(exc)}, status_code=404)
         return JSONResponse({"secret": secret, "otpauth_uri": uri})
 
+    @app.get("/api/account/totp/qr")
+    def totp_qr(request: Request):
+        """Owner-only: the otpauth:// URI as a QR PNG. Built in memory; never written to disk."""
+        import io
+
+        name = signed_in(request)
+        if not accounts.is_owner(name, paths["users"]):
+            return JSONResponse({"error": "owner account required"}, status_code=403)
+        try:
+            _, uri = accounts.totp_provision(name, paths["users"])
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=404)
+        import segno
+
+        buf = io.BytesIO()
+        segno.make(uri, error="h").save(buf, kind="png", scale=6, border=2)
+        from fastapi.responses import Response
+
+        return Response(content=buf.getvalue(), media_type="image/png")
+
     @app.post("/api/account/totp/remove")
     async def totp_remove_route(request: Request):
         name = signed_in(request)
