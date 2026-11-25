@@ -49,3 +49,11 @@ Live gate: unchanged. Each slice is reviewed by the owner before it is merged.
 ## 5. Owner input needed
 * Approve the slice order above.
 * Confirm that slice 6 (dry run on real quotes) must be reviewed before live BSE orders are allowed.
+
+## 6. Slice status
+* Slice 6 (dry run): IMPLEMENTED. `src/quant/execution/exchange_dry_run.py` (pure decision, read-only
+  reads) and `scripts/ops/dry_run_exchange.py` (prints one row per screen symbol: listing, buy exchange
+  and price, exit exchange and bid, lot size; writes nothing). Tests: `tests/unit/test_exchange_dry_run.py`
+  (10 tests, including a check that no order code is referenced). Cost rule unchanged for both exchanges.
+  The BSE entry refusal in `_gate_entry` remains in force; lifting it is an owner decision.
+  Run after the broker login is renewed: `python scripts/ops/dry_run_exchange.py`.
