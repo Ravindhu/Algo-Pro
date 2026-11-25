@@ -4,7 +4,7 @@ Status: PHASE 2 IMPLEMENTED (budget module and stateless planner; not yet wired 
 
 Every level splits its budget into 5 equal-count stages: 3 AGGRESSIVE slots, then a WAIT for the
 matching conservative touch, then 2 CONSERVATIVE slots. The split is set by `aggressive_share`
-(default 0.60). Owner-confirmed bounds: 0.50 to 0.80, so neither stage can be starved.
+(default 0.60). Owner-confirmed bounds: 0.30 to 0.80 (owner 2026-11-26 lowered the floor from 0.50), so neither stage can be starved.
 
 Levels, all as fractions of the symbol allocation (reference 4 % = 1.0):
     symbol (MTF cycle)  -> 5 HTF OCL slots
@@ -21,7 +21,7 @@ from typing import Dict, Optional
 
 AGGRESSIVE_COUNT = 3
 CONSERVATIVE_COUNT = 2
-SHARE_MIN = 0.50
+SHARE_MIN = 0.30
 SHARE_MAX = 0.80
 DEFAULT_AGGRESSIVE_SHARE = 0.60
 REFERENCE_SYMBOL_PCT = 0.04  # 4 % = the reference the fractions were derived from

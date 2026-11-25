@@ -237,9 +237,9 @@ def validate_setup_updates(updates: Mapping[str, Any], strategies: List[str]) ->
             else:
                 clean[key] = float(value)
         elif key == "aggressive_share":
-            # Owner tree (2026-11-20): 50 % to 80 % only. Refused outside, never clamped.
+            # Owner tree (2026-11-20; floor lowered to 30 % on 2026-11-26): 30 % to 80 % only. Refused outside, never clamped.
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError("aggressive_share must be a fraction between 0.50 and 0.80, e.g. 0.60 for 60 %")
+                raise ValueError("aggressive_share must be a fraction between 0.30 and 0.80, e.g. 0.60 for 60 %")
             clean[key] = validate_share(value)
         elif key == "brokerage":
             clean[key] = broker_costs.validate_brokerage(value)

@@ -44,15 +44,15 @@ def test_every_level_splits_exactly_into_its_five_slots(share):
             assert total_entry == pytest.approx(t.ltf_slot[(h, l)])
 
 
-@pytest.mark.parametrize("bad", [0.0, 0.10, 0.49, 0.81, 0.95, 1.0, -0.2, float("nan")])
-def test_ratio_outside_50_to_80_is_refused_not_clamped(bad):
+@pytest.mark.parametrize("bad", [0.0, 0.10, 0.29, 0.81, 0.95, 1.0, -0.2, float("nan")])
+def test_ratio_outside_30_to_80_is_refused_not_clamped(bad):
     with pytest.raises(ValueError):
         validate_share(bad)
     with pytest.raises(ValueError):
         tree_budgets(4.0, bad)
 
 
-@pytest.mark.parametrize("good", [0.50, 0.60, 0.80])
+@pytest.mark.parametrize("good", [0.30, 0.50, 0.60, 0.80])
 def test_ratio_bounds_are_inclusive(good):
     assert validate_share(good) == good
 
