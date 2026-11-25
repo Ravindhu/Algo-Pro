@@ -14,13 +14,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-#: Short labels the owner reads in the Execution log. Unknown strategy names are shown as they are.
+#: Short names the owner reads in the Execution log. Unknown strategy names are shown as they are.
 STRATEGY_LABEL = {
-    "engulfing": "EG-engulfing",
+    "engulfing": "EG",
     "ocl_keylevel": "OCL-OCL",
-    "engulfing_fail": "EGF-engulfing fail",
-    "ocl_sell_fail_top_seq": "FOCL-T sell fail ocl top",
-    "ocl_sell_fail_bottom_seq": "FOCL-B sell fail ocl bottom",
+    "engulfing_fail": "EGF",
+    "ocl_sell_fail_top_seq": "FOCL-T",
+    "ocl_sell_fail_bottom_seq": "FOCL-B",
 }
 
 _LEAF = {"leaf_aggressive": "agg", "leaf_conservative": "con"}

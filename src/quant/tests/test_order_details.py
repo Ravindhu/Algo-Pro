@@ -55,7 +55,7 @@ def test_level_text_and_details_shape():
                       ltf_budget=0.00096)
     assert d == {"strategy": "OCL-OCL", "risk_pct": 0.791, "mtf": "agg 2", "mtf_risk": 0.8, "htf": "con 1",
                  "htf_risk": 0.16, "ltf": "agg", "ltf_risk": 0.096}
-    assert build_details("engulfing_fail", 0.5, ())["strategy"] == "EGF-engulfing fail"
+    assert build_details("engulfing_fail", 0.5, ())["strategy"] == "EGF"
     assert build_details("engulfing_fail", 0.5, ())["mtf_risk"] is None
     assert build_details("unknown_strategy", 0.5, ())["strategy"] == "unknown_strategy"
 

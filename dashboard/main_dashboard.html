@@ -1368,12 +1368,14 @@
   }
 
   // Our record of the order behind a fill: strategy, risk %, and the MTF/HTF/LTF level of each. A dash when unknown.
+  // Fixed order: Strategy, Risk, MTF, HTF, LTF (each level with its risk), Total, POV, Slicer.
   function fillDetails(d) {
     if (!d) return "—";
     const q = v => (v == null ? "—" : String(v));
-    return d.strategy + " · risk " + d.risk_pct + "% · MTF " + d.mtf + " · HTF " + d.htf + " · LTF " + d.ltf
-      + " · MTF risk " + q(d.mtf_risk) + "% · HTF risk " + q(d.htf_risk) + "% · LTF risk " + q(d.ltf_risk) + "%"
-      + " · total " + q(d.total_qty) + " · POV " + q(d.pov_qty) + " · slicer " + q(d.slicer_qty);
+    const lvl = (name, level, risk) => name + ": " + level + " (" + q(risk) + "%)";
+    return ["Strategy: " + d.strategy, "Risk: " + d.risk_pct + "%",
+      lvl("MTF", d.mtf, d.mtf_risk), lvl("HTF", d.htf, d.htf_risk), lvl("LTF", d.ltf, d.ltf_risk),
+      "Total: " + q(d.total_qty), "POV: " + q(d.pov_qty), "Slicer: " + q(d.slicer_qty)].join(" · ");
   }
 
   function renderPortfolio(p) {
