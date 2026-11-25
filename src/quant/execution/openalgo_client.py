@@ -194,7 +194,7 @@ class OpenAlgoClient:
             raise PermissionError("order refused: empty API key")
         payload = {
             "apikey": api_key,
-            "exchange": self.exchange,
+            "exchange": intent.exchange,
             "symbol": intent.symbol,
             "action": intent.side,
             "quantity": intent.qty,
@@ -227,7 +227,7 @@ class OpenAlgoClient:
             raise PermissionError("order refused: empty API key")
         payload = {
             "apikey": api_key,
-            "exchange": self.exchange,
+            "exchange": intent.exchange,
             "symbol": intent.symbol,
             "action": intent.side,
             "quantity": intent.qty,
