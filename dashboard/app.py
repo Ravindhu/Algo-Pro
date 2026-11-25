@@ -49,6 +49,7 @@ from quant.monitor.paper_loop import loop_status, now_ist, session_reason, spawn
 from quant.core import dashboard_accounts as accounts  # noqa: E402
 from quant.core import engine_control  # noqa: E402
 from quant.core import env_editor  # noqa: E402
+from quant.core import key_rotation  # noqa: E402
 from quant.core.broker_signin import login_after_signin  # noqa: E402
 from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
@@ -423,11 +424,34 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     # ---------------- accounts, schedule, engine, infrastructure ----------------
     SESSION_COOKIE = "algo_session"
 
-    # Env DASHBOARD_SESSION_SECRET wins; otherwise the key is created once in data/ and reused.
-    SESSION_KEY = os.environ.get("DASHBOARD_SESSION_SECRET", "") or load_or_create_secret(paths["session_secret"])
+    # Env DASHBOARD_SESSION_SECRET wins and is never rotated (an explicit pin).
+    # Otherwise the key lives in data/session_secret.key and is rotated automatically
+    # once older than DASHBOARD_KEY_MAX_AGE_DAYS (default 30). Plan: KEY_ROTATION 2026-11-25.
+    ENV_PIN = os.environ.get("DASHBOARD_SESSION_SECRET", "")
+    key_holder = {"value": ENV_PIN or load_or_create_secret(paths["session_secret"])}
 
     def session_secret() -> str:
-        return SESSION_KEY
+        return key_holder["value"]
+
+    def check_key_rotation() -> None:
+        """Rotate the login key when due and audit it (no key value). Never raises."""
+        try:
+            rotated, reason = key_rotation.rotate_if_due(
+                paths["session_secret"], key_rotation.max_age_seconds(), env_pinned=bool(ENV_PIN))
+            if rotated:
+                key_holder["value"] = paths["session_secret"].read_text(encoding="utf-8").strip()
+                AuditLog(paths["audit"]).append("session_key_rotated", {"reason": reason, "actor": ACTOR})
+        except Exception as exc:  # a failed check must never stop the dashboard
+            print(f"[dashboard] login key rotation check failed: {type(exc).__name__}", flush=True)
+
+    def _rotation_loop() -> None:
+        while True:
+            time.sleep(3600)  # hourly; a due key is only rotated once its age passes the limit
+            check_key_rotation()
+
+    check_key_rotation()  # at start: a key already past its age is replaced before any sign-in
+    if not ENV_PIN:
+        threading.Thread(target=_rotation_loop, daemon=True, name="login-key-rotation").start()
 
     def signed_in(request: Request) -> Optional[str]:
         return accounts.read_session(request.cookies.get(SESSION_COOKIE, ""), session_secret())
@@ -778,6 +802,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             {"name": "Dashboard accounts", "ok": users_present, "detail": "data/dashboard_users.json"},
             {"name": "Login key", "ok": True,
              "detail": "auto-created in data/session_secret.key (or DASHBOARD_SESSION_SECRET)"},
+            {"name": "Login key rotation", "ok": (not ENV_PIN) and key_rotation.max_age_seconds() > 0,
+             "detail": ("pinned by DASHBOARD_SESSION_SECRET: rotation off" if ENV_PIN else
+                        "off (DASHBOARD_KEY_MAX_AGE_DAYS = 0)" if key_rotation.max_age_seconds() <= 0 else
+                        f"automatic every {int(key_rotation.max_age_seconds() // 86400)} days")},
         ]
         return JSONResponse({"items": items})
 
