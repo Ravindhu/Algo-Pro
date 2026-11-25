@@ -83,8 +83,11 @@ def test_insight_flags_kill_switch_and_unset_limits():
     assert "kill switch" in joined and "max_daily_loss" in joined and "Profit factor" in joined
 
 
-def test_load_state_reads_files_and_missing_files_are_safe(tmp_path):
+def test_load_state_reads_files_and_missing_files_are_safe(tmp_path, monkeypatch):
     from app import load_state  # dashboard/app.py
+
+    # Feed card status is "api key missing" when no key is set (feed_status.py).
+    monkeypatch.delenv("OPENALGO_API_KEY", raising=False)
 
     paths = {
         "ledger": tmp_path / "ledger.jsonl",
@@ -105,7 +108,7 @@ def test_load_state_reads_files_and_missing_files_are_safe(tmp_path):
     s = load_state(paths, last_prices={"INFY": 103.0})
     assert s["positions"][0]["symbol"] == "INFY"
     assert s["positions"][0]["unrealized_pnl"] == pytest.approx(30.0)
-    assert s["feed"]["status"] == "not connected"
+    assert s["feed"]["status"] == "api key missing"
 
 
 def test_overview_with_closed_trade_needs_blue_profit_factor():
