@@ -53,6 +53,7 @@ from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.margin_daily import DailyMarginStore
+from quant.execution.order_details import OrderDetailStore, build_details
 from quant.risk.margin_entry import MTF, MarginSettings, choose_product, funded_share, mtf_daily_interest, settings_from_path
 from quant.risk.margin_sync import parse_mtf_rows, reconcile_mtf
 from quant.risk.gate import RiskState, check_intent
@@ -456,6 +457,7 @@ class StrategyBot:
         cycle_symbol_allocation_pct: Optional[float] = None,
         margin_check: Optional[Callable[[TradeIntent], Any]] = None,
         margin_store: Optional[Any] = None,
+        order_details: Optional[Any] = None,
         mtf_holdings: Optional[Callable[[], Any]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
@@ -526,6 +528,7 @@ class StrategyBot:
         self._stops = stops                        # broker SL-M stops: place / status / cancel (None = paper)
         self._margin_check = margin_check          # broker margin for a 1-share order, read once a day per stock
         self._margin_store = margin_store if margin_store is not None else DailyMarginStore(None)
+        self._order_details = order_details if order_details is not None else OrderDetailStore(None)
         self._mtf_holdings = mtf_holdings          # broker position book reader for the MTF holdings sync
         self._mtf_synced_day = None                # trade day of the last sync that matched the broker
         self._mtf_issues: List[str] = []           # mismatches from the last sync; any issue blocks MTF
@@ -1126,7 +1129,9 @@ class StrategyBot:
             if intent is None or intent.qty < 1:
                 continue
             if tree_idx is not None:
-                order = ladder.tree_order(ocl_id, price, fraction, view.atr, dec.stage)
+                # Owner log details: strategy, the risk % this order was sized on, and its MTF/HTF/LTF levels.
+                details = build_details(strat.name, risk_frac * 100.0, dec.context)
+                order = ladder.tree_order(ocl_id, price, fraction, view.atr, dec.stage, details=details)
                 if order is not None and order.carry and parent is None and mtf_id:
                     self._mtf_carry.pop(mtf_id, None)  # the pool is now inside an order, so it is consumed
             else:
@@ -1387,6 +1392,8 @@ class StrategyBot:
             p.peg.spent += qty  # shares filled from this cycle's peg allotment
         if active is not None:
             p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
+            if active.details and response.get("orderid"):
+                self._order_details.put(str(response["orderid"]), {**active.details, "qty": int(qty)})
         added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
         self.state.open_notional += added
         self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit

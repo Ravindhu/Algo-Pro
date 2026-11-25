@@ -113,6 +113,7 @@ class Order:
     carry: int = 0  # carried shares included in qty (already counted in the parent's remaining)
     closed: bool = False  # its OCL was invalidated: the unfilled part now travels with the next order
     stop: Optional[float] = None  # sizing stop distance (price per share) this order was sized on
+    details: dict = field(default_factory=dict)  # owner log details: strategy, risk %, MTF/HTF/LTF levels
 
     @property
     def unfilled(self) -> int:
@@ -121,14 +122,15 @@ class Order:
     def to_doc(self) -> Dict:
         return {"ocl_id": self.ocl_id, "price": self.price, "qty": self.qty, "risk": self.risk,
                 "reason": self.reason, "filled": self.filled, "carry": self.carry,
-                "closed": self.closed, "stop": self.stop}
+                "closed": self.closed, "stop": self.stop, "details": dict(self.details)}
 
     @staticmethod
     def from_doc(d: Dict) -> "Order":
         return Order(ocl_id=str(d["ocl_id"]), price=float(d["price"]), qty=int(d["qty"]),
                      risk=float(d["risk"]), reason=str(d["reason"]), filled=int(d["filled"]),
                      carry=int(d.get("carry", 0)), closed=bool(d.get("closed", False)),
-                     stop=(None if d.get("stop") is None else float(d["stop"])))
+                     stop=(None if d.get("stop") is None else float(d["stop"])),
+                     details=dict(d.get("details") or {}))
 
 
 @dataclass
@@ -236,7 +238,7 @@ class RiskLadder:
         return None
 
     def tree_order(self, ocl_id: str, price: float, fraction: float, atr: Optional[float],
-                   reason: str) -> Optional[Order]:
+                   reason: str, details: Optional[dict] = None) -> Optional[Order]:
         """Owner tree (2026-11-20): an order whose budget comes from risk_tree.plan (fraction of equity).
         qty = floor(equity x fraction / sizing stop) + carry. Stop = sizing_stop (HTF L, ATR floor, buffer).
         The tree budget already bounds the risk, so this does not apply the old per-cycle ceiling.
@@ -254,7 +256,7 @@ class RiskLadder:
             self.last_refused = "under_one_share"
             return None
         order = Order(ocl_id=ocl_id, price=float(price), qty=qty, risk=float(fraction), reason=reason,
-                      carry=carry, stop=stop)
+                      carry=carry, stop=stop, details=dict(details or {}))
         self.orders.append(order)
         self.carry = 0  # carried shares are now inside this order
         return order

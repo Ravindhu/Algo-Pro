@@ -238,6 +238,7 @@ def fill_log(trades, limit: int = 50) -> list:
             "quantity": abs(qty),
             "price": _trade_price(item),
             "product": str(item.get("product") or "")[:10],
+            "orderid": str(item.get("orderid") or "")[:40],
         }))
     rows.sort(key=lambda r: r[0], reverse=True)
     return [row for _, row in rows[:limit]]
@@ -285,9 +286,11 @@ class HoldingsReader:
 
     def __init__(self, fetch: Callable[[str], Dict], key_source: Callable[[], str],
                  clock: Callable[[], float], ttl_s: float = CACHE_TTL_S,
-                 trades: Optional[Callable[[str], Dict]] = None) -> None:
+                 trades: Optional[Callable[[str], Dict]] = None,
+                 details: Optional[Callable[[str], Optional[Dict]]] = None) -> None:
         self._fetch = fetch
         self._trades = trades
+        self._details = details  # order id -> our record of the order (strategy, risk %, levels); None if unknown
         self._key_source = key_source
         self._clock = clock
         self._ttl = ttl_s
@@ -312,6 +315,17 @@ class HoldingsReader:
         self._cache, self._at = result, now
         return result
 
+    def _attach_details(self, fills: list) -> None:
+        """Add our record of each fill's order. A missing record or a failed lookup leaves the fill without one."""
+        for f in fills:
+            f["details"] = None
+            if self._details is None or not f.get("orderid"):
+                continue
+            try:
+                f["details"] = self._details(f["orderid"])
+            except Exception:  # the record is optional: never let it hide the fills
+                f["details"] = None
+
     def _add_hold_days(self, key: str, result: Dict, now: float) -> None:
         """Fill hold_days and today's estimated trade cost from the tradebook. Any failure leaves them blank."""
         result["fills"] = []
@@ -328,6 +342,7 @@ class HoldingsReader:
                         and str(t.get("product", "")).upper() == "MTF" and str(t.get("action", "")).upper() == "BUY"}
             costs = trade_costs(trades)
             result["fills"] = fill_log(trades)
+            self._attach_details(result["fills"])
         except Exception:  # name nothing: the tradebook is optional
             result["trade_cost"] = None
             return

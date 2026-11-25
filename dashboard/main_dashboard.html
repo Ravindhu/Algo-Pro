@@ -351,7 +351,7 @@
     <section class="panel">
       <div class="ph">Execution log <span>today's broker fills, newest first</span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>Symbol</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th></tr></thead>
+        <thead><tr><th>Time</th><th>Symbol</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th><th>Details</th></tr></thead>
         <tbody id="rk-fills-rows"></tbody>
       </table></div>
     </section>
@@ -1350,7 +1350,7 @@
       // Side is shown by the colour of the quantity: green = BUY, red = SELL.
       tr.append(cell(f.time || "—"), cell(f.symbol || "—"),
         cell(f.quantity == null ? "—" : String(f.quantity), (f.action === "BUY" ? "g" : "r") + " n"),
-        cell(inr(f.price), "n"), cell(f.product || "—"));
+        cell(inr(f.price), "n"), cell(f.product || "—"), cell(fillDetails(f.details)));
       return tr;
     }), p.error || (known ? "No fills today." : "Not available."), 6);
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
@@ -1365,6 +1365,12 @@
         cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
     }), p.error || (known ? "No positions opened today." : "Not available."), 5);
+  }
+
+  // Our record of the order behind a fill: strategy, risk %, and the MTF/HTF/LTF level of each. A dash when unknown.
+  function fillDetails(d) {
+    if (!d) return "—";
+    return d.strategy + " · risk " + d.risk_pct + "% · MTF " + d.mtf + " · HTF " + d.htf + " · LTF " + d.ltf;
   }
 
   function renderPortfolio(p) {

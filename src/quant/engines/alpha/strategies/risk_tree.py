@@ -150,6 +150,14 @@ class Decision:
     stage: Optional[str]       # aggressive | conservative | leaf_aggressive | leaf_conservative | None
     fraction: float            # budget as a fraction of equity (0 when refused)
     refused: Optional[str]     # None, or why nothing was allocated
+    slot: Optional[int] = None  # slot number at its level: aggressive 1-3, conservative 1-2 (None when refused)
+    # LTF touches only: ((mtf stage, mtf slot) or None, (htf stage, htf slot) or None, leaf stage) of the OCL's chain
+    context: tuple = ()
+
+
+def _slot_no(gate: "SlotGate", stage: str) -> int:
+    """Slot number a stage just took from its gate (call right after on_new_ocl)."""
+    return gate.aggressive_used if stage == AGGRESSIVE else gate.conservative_used
 
 
 def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRESSIVE_SHARE) -> list:
@@ -161,7 +169,9 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
     mtf = SlotGate()
     htf = None                 # SlotGate of the current HTF OCL (its LTF slots)
     htf_stage = None           # stage the current HTF OCL took from the MTF gate
-    ltf = {}                   # open LTF OCLs: id -> {"budget", "agg", "cons", "open"}
+    mtf_ctx = None             # (stage, slot) the current MTF OCL took
+    htf_ctx = None             # (stage, slot) the current HTF OCL's LTF OCL took (set per LTF OCL)
+    ltf = {}                   # open LTF OCLs: id -> {"budget", "agg", "cons", "open", "ctx"}
     out = []
     for ev in events:
         kind = ev[0]
@@ -172,11 +182,13 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
             stage = mtf.on_new_ocl()
             if stage is None:
                 out.append(Decision(ev, "mtf", None, 0.0, "mtf_slots_used_or_not_armed"))
-                htf, htf_stage = None, None
+                htf, htf_stage, mtf_ctx = None, None, None
                 continue
             htf_stage = stage
             htf = SlotGate()
-            out.append(Decision(ev, "mtf", stage, t.htf_slot[stage], None))
+            htf_ctx = None
+            mtf_ctx = (stage, _slot_no(mtf, stage))
+            out.append(Decision(ev, "mtf", stage, t.htf_slot[stage], None, slot=mtf_ctx[1]))
         elif kind == "htf_cons_touch":
             if htf is None:
                 out.append(Decision(ev, "htf", None, 0.0, "no_open_htf_ocl"))
@@ -192,8 +204,10 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
                 out.append(Decision(ev, "ltf", None, 0.0, "htf_slots_used_or_not_armed"))
                 continue
             budget = stage_slot(t.htf_slot[htf_stage], stage, share)
-            ltf[ev[1]] = {"budget": budget, "stage": stage, "agg": False, "cons": False, "open": True}
-            out.append(Decision(ev, "htf", stage, budget, None))
+            htf_ctx = (stage, _slot_no(htf, stage))
+            ltf[ev[1]] = {"budget": budget, "stage": stage, "agg": False, "cons": False, "open": True,
+                          "ctx": (mtf_ctx, htf_ctx)}
+            out.append(Decision(ev, "htf", stage, budget, None, slot=htf_ctx[1]))
         elif kind == "ltf_agg_touch":
             o = ltf.get(ev[1])
             if o is None or not o["open"]:
@@ -202,7 +216,8 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
                 out.append(Decision(ev, "ltf", None, 0.0, "already_used"))
             else:
                 o["agg"] = True
-                out.append(Decision(ev, "ltf", "leaf_aggressive", o["budget"] * share, None))
+                out.append(Decision(ev, "ltf", "leaf_aggressive", o["budget"] * share, None,
+                                    context=(o["ctx"][0], o["ctx"][1], "leaf_aggressive")))
         elif kind == "ltf_cons_touch":
             o = ltf.get(ev[1])
             if o is None or not o["open"]:
@@ -211,7 +226,8 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
                 out.append(Decision(ev, "ltf", None, 0.0, "already_used"))
             else:
                 o["cons"] = True
-                out.append(Decision(ev, "ltf", "leaf_conservative", o["budget"] * (1.0 - share), None))
+                out.append(Decision(ev, "ltf", "leaf_conservative", o["budget"] * (1.0 - share), None,
+                                    context=(o["ctx"][0], o["ctx"][1], "leaf_conservative")))
         elif kind == "ltf_invalidated":
             o = ltf.get(ev[1])
             if o is not None:
