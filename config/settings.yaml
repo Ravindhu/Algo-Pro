@@ -41,6 +41,8 @@ margin:
   mtf_enabled: false
   mtf_borrow_pct: 0.30
   mtf_max_leverage: 5.0
+  # Interest on the borrowed amount, per year (owner 2026-11-25: 12%). Charged per day held.
+  mtf_annual_rate: 0.12
 
 # PAPER trading (2026-11-08). Paper only; no broker orders.
 risk_budget:

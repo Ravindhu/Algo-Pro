@@ -12,7 +12,8 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 from quant.risk.margin_entry import (  # noqa: E402
-    MTF, MarginSettings, choose_product, settings_from_dict, settings_from_path, verify_leverage,
+    DEFAULT_ANNUAL_RATE, MTF, MarginSettings, choose_product, funded_share, mtf_daily_interest,
+    settings_from_dict, settings_from_path, verify_leverage,
 )
 
 ON = MarginSettings(enabled=True, limit_inr=500_000.0, max_leverage=5.0)
@@ -108,11 +109,11 @@ def test_negative_borrowed_amount_refused_as_cnc():
 
 def test_margin_at_fifth_of_value_is_five_x_and_allowed():
     ok, reason = verify_leverage(_reply(20_000.0), 100_000.0, 5.0)
-    assert ok is True and "5.00x" in reason
+    assert ok is True and "80%" in reason
 
 
 def test_margin_below_fifth_implies_leverage_above_max_refused():
-    ok, reason = verify_leverage(_reply(10_000.0), 100_000.0, 5.0)   # 10x
+    ok, reason = verify_leverage(_reply(10_000.0), 100_000.0, 5.0)   # 10x: funded 90%
     assert ok is False and "above the maximum" in reason
 
 
@@ -143,3 +144,39 @@ def test_no_max_leverage_refuses_everything():
 @pytest.mark.parametrize("value", [0, -1, float("nan"), None])
 def test_unusable_order_value_refused(value):
     assert verify_leverage(_reply(20_000.0), value, 5.0)[0] is False
+
+
+# --- annual rate (owner 2026-11-25: 12%) and interest ----------------------------
+
+def test_annual_rate_defaults_to_twelve_percent():
+    assert settings_from_dict({"margin": {"mtf_enabled": True}}).annual_rate == pytest.approx(0.12)
+    assert DEFAULT_ANNUAL_RATE == pytest.approx(0.12)
+
+
+@pytest.mark.parametrize("rate, expected", [(0.0899, 0.0899), (0, None), (0.6, None), (True, None), ("0.12", None)])
+def test_annual_rate_validated(rate, expected):
+    s = settings_from_dict({"margin": {"mtf_enabled": True, "mtf_annual_rate": rate}})
+    assert s.annual_rate == (pytest.approx(expected) if expected is not None else None)
+
+
+def test_daily_interest_is_borrowed_times_rate_over_365():
+    assert mtf_daily_interest(80_000.0, 0.12) == pytest.approx(80_000.0 * 0.12 / 365.0)
+
+
+@pytest.mark.parametrize("borrowed, rate", [(0, 0.12), (-5, 0.12), (1000, None), (1000, 0), (float("nan"), 0.12)])
+def test_daily_interest_zero_for_unusable_inputs(borrowed, rate):
+    assert mtf_daily_interest(borrowed, rate) == 0.0
+
+
+# --- the day's funded share --------------------------------------------------------
+
+def test_funded_share_from_margin_and_value():
+    funded, _ = funded_share(_reply(20_000.0), 100_000.0, 5.0)
+    assert funded == pytest.approx(0.8)
+
+
+def test_funded_share_refused_when_above_cap_or_unusable():
+    assert funded_share(_reply(10_000.0), 100_000.0, 5.0)[0] is None      # 90% funded
+    assert funded_share(_reply(100_000.0), 100_000.0, 5.0)[0] is None     # no funding
+    assert funded_share(_reply(20_000.0), 100_000.0, None)[0] is None
+    assert funded_share({"status": "error"}, 100_000.0, 5.0)[0] is None

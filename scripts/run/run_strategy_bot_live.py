@@ -37,6 +37,7 @@ from quant.audit.log import AuditLog  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.data.live_bars import LiveBars  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
+from quant.risk.margin_daily import DailyMarginStore  # noqa: E402
 from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
 from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused, LiveSender, StrategyBot  # noqa: E402
 from quant.execution.pnl_store import PnlStore  # noqa: E402
@@ -206,6 +207,10 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         # MTF leverage check: the broker's margin reply for the order, read-only (margin_entry.verify_leverage).
         margin_check=lambda intent: readonly.margin_for_order(
             api_key, intent.symbol, "NSE", intent.side, intent.qty, intent.product, "MARKET", intent.ref_price),
+        # One broker reading per stock per day, kept in state (margin_daily.py). Cleared each trade day.
+        margin_store=DailyMarginStore(state_dir / "margin_daily.json"),
+        # Broker MTF holdings for the daily sync (margin_sync.py); a read error blocks MTF entries.
+        mtf_holdings=lambda: readonly.positionbook(api_key),
         # Sizing equity is the fixed live cap, or the broker's cash when that is smaller.
         read_funds=lambda: min(available_cash(readonly, api_key), float(cap)),
         limits=RiskLimits.from_yaml(limits_path),

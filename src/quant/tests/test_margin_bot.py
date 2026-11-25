@@ -25,7 +25,7 @@ from quant.risk.kill_switch import KillSwitch  # noqa: E402
 from quant.risk.margin_entry import MarginSettings  # noqa: E402
 
 NOW = datetime(2026, 11, 25, 10, 0)
-MARGIN = MarginSettings(enabled=True, limit_inr=500_000.0, max_leverage=5.0)
+MARGIN = MarginSettings(enabled=True, limit_inr=500_000.0, max_leverage=5.0, annual_rate=0.12)
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,12 @@ def _honest_margin(intent):
     return {"status": "success", "data": {"total_margin_required": intent.qty * intent.ref_price / 5.0}}
 
 
-def _bot(tmp_path, margin=MARGIN, product="CNC", margin_check=_honest_margin):
+def _no_mtf_holdings():
+    return {"status": "success", "data": []}
+
+
+def _bot(tmp_path, margin=MARGIN, product="CNC", margin_check=_honest_margin, mtf_holdings=_no_mtf_holdings,
+         margin_store=None):
     screen = _write_screen(tmp_path, as_of=NOW)
     sources = _write_sources(tmp_path, True)
     cfg = BotConfig(screen_path=str(screen), data_sources_path=str(sources), product=product, margin=margin)
@@ -53,7 +58,7 @@ def _bot(tmp_path, margin=MARGIN, product="CNC", margin_check=_honest_margin):
         cfg=cfg, strategies=[FixedSignal(time="T1")], bars=FakeBars(), sender=FakeSender(),
         audit=FakeAudit(), api_key="KEY", read_funds=lambda: 1_000_000.0, limits=_limits(),
         kill=KillSwitch(tmp_path / "kill.json"), safe=SafeMode(), halt=HaltHandler(), state=RiskState(),
-        margin_check=margin_check,
+        margin_check=margin_check, mtf_holdings=mtf_holdings, margin_store=margin_store,
     )
     bot.run_startup_recon(None)
     return bot
@@ -81,8 +86,9 @@ def test_broker_margin_equal_to_value_keeps_cnc(tmp_path):
 
 
 def test_broker_margin_implying_high_leverage_keeps_cnc(tmp_path):
-    bot = _bot(tmp_path, margin_check=lambda i: {"status": "success", "data": {"total_margin_required": 1000.0}})
-    product, reason = bot._entry_product(_intent())
+    # 1-share reading: margin 100 on a 1000 share = 90% funded, above the 80% cap
+    bot = _bot(tmp_path, margin_check=lambda i: {"status": "success", "data": {"total_margin_required": 100.0}})
+    product, reason, _ = bot._entry_product(_intent())
     assert product == "CNC" and "above the maximum" in reason
 
 
@@ -95,7 +101,7 @@ def test_broker_check_exception_keeps_cnc_and_names_no_secret(tmp_path):
     def boom(i):
         raise RuntimeError("secret-token-value")
     bot = _bot(tmp_path, margin_check=boom)
-    product, reason = bot._entry_product(_intent())
+    product, reason, _ = bot._entry_product(_intent())
     assert product == "CNC" and "RuntimeError" in reason and "secret-token-value" not in reason
 
 
@@ -137,8 +143,13 @@ def test_intraday_bot_never_calls_broker(tmp_path):
 
 # --- borrowed tally ----------------------------------------------------------
 
+def _holdings(symbol, qty, avg):
+    return lambda: {"status": "success", "data": [{"symbol": symbol, "exchange": "NSE", "product": "MTF",
+                                                  "netqty": qty, "average_price": avg}]}
+
+
 def test_open_mtf_position_counts_toward_limit(tmp_path):
-    bot = _bot(tmp_path)
+    bot = _bot(tmp_path, mtf_holdings=_holdings("INFY", 400, 1000.0))
     bot._positions["INFY|s"] = _pos(qty=400, entry=1000.0, product="MTF")   # 400,000 borrowed
     assert bot._mtf_borrowed_inr() == pytest.approx(400_000.0)
     assert bot._entry_product(_intent(qty=100))[0] == "MTF"                 # 500,000 is exactly the limit

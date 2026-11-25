@@ -52,7 +52,9 @@ from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
-from quant.risk.margin_entry import MTF, MarginSettings, choose_product, settings_from_path, verify_leverage
+from quant.risk.margin_daily import DailyMarginStore
+from quant.risk.margin_entry import MTF, MarginSettings, choose_product, funded_share, mtf_daily_interest, settings_from_path
+from quant.risk.margin_sync import parse_mtf_rows, reconcile_mtf
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.squareoff import session_policy
@@ -453,6 +455,8 @@ class StrategyBot:
         cycle_portfolio_loss_ceiling: Optional[float] = None,
         cycle_symbol_allocation_pct: Optional[float] = None,
         margin_check: Optional[Callable[[TradeIntent], Any]] = None,
+        margin_store: Optional[Any] = None,
+        mtf_holdings: Optional[Callable[[], Any]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -520,7 +524,13 @@ class StrategyBot:
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
         self._stops = stops                        # broker SL-M stops: place / status / cancel (None = paper)
-        self._margin_check = margin_check          # broker margin for an MTF order (None = MTF refused)
+        self._margin_check = margin_check          # broker margin for a 1-share order, read once a day per stock
+        self._margin_store = margin_store if margin_store is not None else DailyMarginStore(None)
+        self._mtf_holdings = mtf_holdings          # broker position book reader for the MTF holdings sync
+        self._mtf_synced_day = None                # trade day of the last sync that matched the broker
+        self._mtf_issues: List[str] = []           # mismatches from the last sync; any issue blocks MTF
+        self._mtf_pct: Optional[float] = None      # borrowed / MTF holdings value, from the last sync
+        self._mtf_held_value = 0.0
         self._pos_store = position_store           # restart-safe position book (None = in-memory only)
         self._entry_guard = entry_guard            # re-checked every cycle in live
         self._faults: set = set()                  # ("stop"|"partial", key): entries and slicing blocked while any exists
@@ -589,6 +599,8 @@ class StrategyBot:
             self._marks = {}
             self._done.clear()
         self._restore_counters(now)
+        if not keep:  # a restart on the same day must not charge the same day twice
+            self._accrue_mtf_interest()
         self._persist_positions()
         self._log("pnl_day_reset", day=now.date().isoformat(), restored=keep)
 
@@ -793,32 +805,104 @@ class StrategyBot:
         self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
         if not res.ok or res.intent is None:
             return None
-        product, why = self._entry_product(res.intent)
+        product, why, funded = self._entry_product(res.intent)
         if self.cfg.margin is not None and self.cfg.margin.enabled:
             self._log("margin_choice", key=key, symbol=sym, product=product, reason=why)
-        if product != res.intent.product:
-            return _dc_replace(res.intent, product=product)
+        if product != res.intent.product or funded != res.intent.funded_pct:
+            return _dc_replace(res.intent, product=product, funded_pct=funded)
         return res.intent
 
-    def _entry_product(self, intent: TradeIntent) -> Tuple[str, str]:
-        """Delivery entries become MTF only when the limit and the broker leverage check pass (margin_entry.py)."""
+    def _entry_product(self, intent: TradeIntent) -> Tuple[str, str, float]:
+        """(product, reason, funded share). MTF only when the limit and today's broker reading pass (margin_entry.py)."""
         notional = float(intent.qty) * float(intent.ref_price)
         product, why = choose_product(intent.product, intent.side, notional, self._mtf_borrowed_inr(), self.cfg.margin)
         if product != MTF:
-            return product, why
+            return product, why, 0.0
         return self._verify_margin(intent)
 
-    def _verify_margin(self, intent: TradeIntent) -> Tuple[str, str]:
-        """Verify leverage before an MTF order: the broker's returned margin against the full value. Any failure keeps CNC."""
+    def _verify_margin(self, intent: TradeIntent) -> Tuple[str, str, float]:
+        """MTF only with a holdings sync that matches the broker today and a funded reading stored for today."""
+        day = intent.trade_day
+        if day is None:
+            return "CNC", "margin not used: no trade day on the order", 0.0
+        if self._mtf_synced_day != day and self._mtf_holdings is not None:
+            self.sync_mtf_holdings(day)
+        if self._mtf_synced_day != day:
+            return "CNC", "margin not used: MTF holdings not synced today", 0.0
+        if self._mtf_issues:
+            return "CNC", f"margin not used: MTF holdings differ from the broker ({self._mtf_issues[0]})", 0.0
+        rec = self._margin_record(intent, day)
+        if not rec.get("available"):
+            return "CNC", f"margin not used: {rec.get('reason', 'not available')}", 0.0
+        funded = float(rec["funded_pct"])
+        return MTF, f"margin funded {funded:.0%} (today's broker reading)", funded
+
+    def _margin_record(self, intent: TradeIntent, day) -> Dict[str, Any]:
+        """Today's broker reading for this stock. Fetched at most once per trade day, then stored."""
+        rec = self._margin_store.get(intent.symbol, day)
+        if rec is not None:
+            return rec
+        rec = self._fetch_margin_record(intent)
+        self._margin_store.put(intent.symbol, day, rec)
+        self._log("margin_reading", symbol=intent.symbol, available=rec["available"],
+                  funded=rec["funded_pct"], reason=rec["reason"])
+        return rec
+
+    def _fetch_margin_record(self, intent: TradeIntent) -> Dict[str, Any]:
         if self._margin_check is None:
-            return "CNC", "margin not used: no broker margin check configured"
-        full = float(intent.qty) * float(intent.ref_price)
+            return {"available": False, "funded_pct": 0.0, "reason": "no broker margin check configured"}
+        one = _dc_replace(intent, qty=1, product=MTF)
         try:
-            reply = self._margin_check(_dc_replace(intent, product=MTF))
-        except Exception as exc:  # noqa: BLE001 - a failed check must never reach the order path
-            return "CNC", f"margin not used: broker margin check failed ({type(exc).__name__})"
-        ok, reason = verify_leverage(reply, full, self.cfg.margin.max_leverage)
-        return (MTF, reason) if ok else ("CNC", f"margin not used: {reason}")
+            reply = self._margin_check(one)
+        except Exception as exc:  # noqa: BLE001 - a failed reading must never reach the order path
+            return {"available": False, "funded_pct": 0.0, "reason": f"broker margin check failed ({type(exc).__name__})"}
+        funded, reason = funded_share(reply, float(intent.ref_price), self.cfg.margin.max_leverage)
+        if funded is None:
+            return {"available": False, "funded_pct": 0.0, "reason": reason}
+        return {"available": True, "funded_pct": round(funded, 6), "reason": reason}
+
+    def sync_mtf_holdings(self, day) -> None:
+        """Compare our MTF book with the broker's MTF holdings. Any mismatch or read error blocks MTF entries."""
+        self._mtf_synced_day = day
+        try:
+            broker = parse_mtf_rows(self._mtf_holdings())
+        except Exception as exc:  # noqa: BLE001 - an unreadable book blocks MTF; it never guesses
+            self._mtf_issues = [f"broker holdings unreadable ({type(exc).__name__})"]
+            self._log("mtf_sync", ok=False, issues=self._mtf_issues)
+            self._alert("CRITICAL", "MTF holdings could not be read from the broker: MTF entries blocked")
+            return
+        ours: Dict[str, int] = {}
+        for pos in self._positions.values():
+            if pos.product == MTF:
+                ours[pos.symbol] = ours.get(pos.symbol, 0) + int(pos.qty)
+        ok, issues, value = reconcile_mtf(ours, broker)
+        borrowed = self._mtf_borrowed_actual()
+        self._mtf_issues = issues
+        self._mtf_held_value = value
+        self._mtf_pct = (borrowed / value) if value > 0 else None
+        self._log("mtf_sync", ok=ok, issues=issues, borrowed=round(borrowed, 2), held_value=round(value, 2),
+                  mtf_pct=None if self._mtf_pct is None else round(self._mtf_pct, 4))
+        if not ok:
+            self._alert("CRITICAL", "MTF holdings differ from the broker: MTF entries blocked until they match")
+
+    def _mtf_borrowed_actual(self) -> float:
+        """Borrowed amount of the open MTF positions: quantity x entry x funded share."""
+        return float(sum(p.qty * p.entry * p.funded_pct for p in self._positions.values() if p.product == MTF))
+
+    def _accrue_mtf_interest(self) -> float:
+        """Charge one day of interest on each open MTF position's borrowed amount (12% a year, margin_entry.py)."""
+        m = self.cfg.margin
+        if m is None or m.annual_rate is None:
+            return 0.0
+        total = 0.0
+        for pos in self._positions.values():
+            if pos.product != MTF or pos.funded_pct <= 0:
+                continue
+            interest = mtf_daily_interest(pos.qty * pos.entry * pos.funded_pct, m.annual_rate)
+            if interest > 0:
+                self._record_pnl(pos.strategy, -interest)
+                total += interest
+        return total
 
     def _mtf_borrowed_inr(self) -> float:
         """Borrowed total at full notional: open MTF positions plus unfilled MTF parents."""
@@ -1290,7 +1374,7 @@ class StrategyBot:
                 prev_close=p.prev_close, circuit_pct=p.circuit_pct, strategy=p.strategy,
                 # cycle positions: no breakeven (owner 11.9); ATR trail from entry after a conservative touch
                 breakeven_enabled=not p.cycle, trail_from_start=bool(p.cycle and p.trail),
-                product=p.intent.product,
+                product=p.intent.product, funded_pct=p.intent.funded_pct,
             )
             self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
         else:

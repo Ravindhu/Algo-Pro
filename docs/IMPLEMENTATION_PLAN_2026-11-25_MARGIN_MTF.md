@@ -1,45 +1,60 @@
 # Implementation plan: margin-funded delivery (MTF), 2026-11-25
 
-Status: PHASE 2 implemented and tested. Live stays off. Margin stays OFF until the owner sets
-`margin.mtf_enabled: true` in config/settings.yaml, then restarts the bot.
+Status: PHASE 3 implemented and tested (2609 passed). Live stays off. MTF stays OFF until the owner sets
+`margin.mtf_enabled: true` in config/settings.yaml and restarts the bot.
 
 ## Owner decisions (2026-11-25)
-- The mStock margin-delivery list is scrapped. Eligibility is not checked against a list.
-- Vendored OpenAlgo change approved (MTF product through placeorder, the margin calculator and the mStock adapter).
+- No eligibility list. The broker decides per stock, once a day.
+- Vendored OpenAlgo change approved (MTF through the order, margin and mStock paths).
 - Borrowed limit = 30% of capital (`margin.mtf_borrow_pct: 0.30` x `risk_budget.capital_inr`).
-- Verify leverage before firing: compare the broker's returned margin with the full value of the order.
+- Interest = 12% a year on the borrowed amount (`margin.mtf_annual_rate: 0.12`), charged per day held.
 
-## Rules
-- Only BUY delivery entries may become MTF. Held overnight like CNC: same stop, target and trail; no MIS flatten.
-- Borrowed total (open MTF positions plus unfilled MTF parents, at full notional) must stay within the limit.
-- Leverage check, per new entry, before the parent is created: the broker's `total_margin_required` (from
-  OpenAlgo `/api/v1/margin`, read only) must be above zero, below the full value, and imply a leverage of at
-  most `margin.mtf_max_leverage` (5.0 = 80% funding, the broker maximum).
-- Any failed check, a broker error, or an exception keeps the entry as CNC. The margin path never blocks a CNC entry.
-- Exits and broker stops use the position's own product (`MTF` or `CNC`).
+## Daily facility reading (margin_daily.py, bot._margin_record)
+- The first MTF candidate of a stock each trade day makes one broker margin call for a 1-share order at the
+  reference price. The result is stored per stock for that day: available or not, and the funded share.
+- Funded share = 1 - margin / full value. Available only if above 0 and at most 1 - 1/5 = 80% (5x).
+- Every MTF entry in that stock that day uses the stored reading. A failed reading is stored as unavailable and is
+  not retried that day. A new trade day clears the readings. An unreadable file means readings are fetched again.
+
+## Holdings sync (margin_sync.py, bot.sync_mtf_holdings)
+- Once a day, before the first MTF decision, the bot reads the broker position book (product MTF/MARGIN) and
+  compares quantities per symbol with its own MTF positions. Any mismatch or read error blocks MTF entries; CNC continues.
+- MTF % = borrowed (quantity x entry x funded share) / value of the MTF holdings at the broker.
+
+## Interest (bot._accrue_mtf_interest, run at the day roll)
+- Borrowed x 12% / 365 per open MTF position, booked as a realized cost. Skipped on a same-day restart so a day is never charged twice.
+- Charged per trade day, not per calendar day: a weekend hold is charged once. Note this if the broker charges weekends.
 
 ## Where it lives
-- `src/quant/risk/margin_entry.py`: settings, limit choice, `verify_leverage` (pure).
-- `src/quant/risk/margin_funding.py`: borrowed-limit check.
-- `src/quant/execution/strategy_bot.py`: `_entry_product`, `_verify_margin`, `_mtf_borrowed_inr`, `_product_of`.
-- `src/quant/execution/readonly_client.py`: `margin_for_order` (read only; the read-only guard test forbids order verbs).
-- `scripts/run/run_strategy_bot_live.py`: passes the broker margin check into the bot.
+- `risk/margin_entry.py`: settings, limit, funded share, interest (pure).
+- `risk/margin_daily.py`: the day's stored readings.
+- `risk/margin_sync.py`: broker MTF holdings and reconciliation (pure).
+- `execution/strategy_bot.py`: `_entry_product`, `_verify_margin`, `_margin_record`, `sync_mtf_holdings`, `_accrue_mtf_interest`.
+- `execution/readonly_client.py`: `margin_for_order` (read only).
+- `scripts/run/run_strategy_bot_live.py`: wires the margin reading, daily store and holdings reader.
+
+## mStock documentation: what the docs do and do not say (checked 2026-11-25)
+- Product type MARGIN is described only as "Margin Delivery". The docs do not say it is limited to MTF or to eligible stocks.
+- The Modification section lists both MARGIN and MTF as product types. The docs do not explain how they differ. Our mapping
+  sends MTF as MARGIN. This is unverified.
+- The margin calculator examples use DELIVERY only. The response's total_charges is not defined as margin required or
+  as full value. The calculator has no funding % or "margin allowed" flag.
+- Conclusion: the daily reading is only as good as the calculator's answer for MARGIN. It must be confirmed on the real
+  account before MTF is enabled (run one read-only reading for a small order and compare with the broker's app).
 
 ## Vendored OpenAlgo changes (local patch, NOT upstream)
-These edits live in `src/quant/openalgo_platform`. The upgrade pin (`openalgo.UPSTREAM_PIN`) fingerprints only
-`requirements.txt`, `pyproject.toml`, `.gitignore` and `install/`, so it does NOT detect these edits and was not re-pinned.
-A future upstream upgrade will drop them silently unless they are re-applied. Re-apply and re-test when upgrading:
-1. `restx_api/schemas.py`: `OrderSchema.product` and `MarginPositionSchema.product` accept `MTF`.
-2. `broker/mstock/mapping/transform_data.py`: `map_product_type` maps `MTF`→`MARGIN` and refuses unknown products
-   (was: silent INTRADAY); `reverse_map_product_type` maps `MARGIN`→`MTF` (was: `MIS`).
-3. `broker/mstock/mapping/margin_data.py`: `map_product_type` maps `MTF`→`MARGIN` and refuses unknown products.
-4. `broker/mstock/mapping/order_data.py`: trade and position mapping turn `MARGIN` into `MTF`.
+The upgrade pin (`openalgo.UPSTREAM_PIN`) fingerprints only `requirements.txt`, `pyproject.toml`, `.gitignore` and `install/`.
+It does not cover these files, so an upstream upgrade drops the patch silently. The guard test
+`src/quant/tests/test_vendored_margin_patch.py` fails if a marker is missing. Re-apply and re-test on upgrade:
+1. `restx_api/schemas.py`: OrderSchema.product and MarginPositionSchema.product accept MTF.
+2. `broker/mstock/mapping/transform_data.py`: map_product_type MTF to MARGIN, refuses unknown; reverse MARGIN to MTF.
+3. `broker/mstock/mapping/margin_data.py`: map_product_type MTF to MARGIN, refuses unknown.
+4. `broker/mstock/mapping/order_data.py`: trade and position books map MARGIN to MTF.
 
 ## Known limits (open)
-- The leverage check uses the reference price (last close), not the live limit price. The order price can differ slightly.
-- The leverage check runs once per new entry. A later change in broker margin is not re-checked.
-- Interest in P&L: the cost model uses 12%/yr; mStock quotes 6.99–9.49%. Not changed.
-- Holdings and positions sync for MTF positions from the broker: not verified against a live account.
-- Account terms (pledge, forced sale, eligibility per stock) are not confirmed in writing; the broker check decides per order.
+- The daily reading uses the reference price (last close). The order price can differ slightly.
+- The leverage cap check uses the reading; a change in broker margin during the day is not seen until the next day.
+- Holdings: positions are checked; the broker's MTF pledged holdings in the holdings book are not read.
+- Account terms (pledge, forced sale) are not confirmed in writing.
 - Settings and the enable flag are read at bot start: restart after any change.
 - Live trading is still off. Owner-run checks are still pending.
