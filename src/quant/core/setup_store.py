@@ -165,6 +165,12 @@ def read_setup(settings_path, strategies_dir, limits_path) -> Dict[str, Any]:
     }
 
 
+def load_mtf_enabled(settings_path) -> bool:
+    """Margin funding switch (margin.mtf_enabled). Only the boolean true turns it on; anything else is off."""
+    value = (_load(Path(settings_path)).get("margin") or {}).get("mtf_enabled")
+    return value is True
+
+
 def load_mtf_borrowed(settings_path) -> float:
     """Saved MTF (margin trading facility) borrowed amount in rupees. Missing or bad values give 0."""
     value = (_load(Path(settings_path)).get("margin") or {}).get("mtf_borrowed_inr")
