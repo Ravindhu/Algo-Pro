@@ -353,7 +353,7 @@
     <section class="panel">
       <div class="ph">Execution log <span>today's broker fills, newest first</span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th></tr></thead>
+        <thead><tr><th>Time</th><th>Symbol</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th><th>Details</th></tr></thead>
         <tbody id="rk-fills-rows"></tbody>
       </table></div>
     </section>
@@ -1341,8 +1341,10 @@
     $("rk-mtm").className = all.length ? sign(mtm) : "";
     renderTable($("rk-fills-rows"), (p.fills || []).slice(0, 20).map(f => {
       const tr = document.createElement("tr");
-      tr.append(cell(f.time || "—"), cell(f.symbol || "—"), cell(f.action || "—", f.action === "BUY" ? "g" : "r"),
-        cell(f.quantity == null ? "—" : String(f.quantity), "n"), cell(inr(f.price), "n"), cell(f.product || "—"));
+      // Side is shown by the colour of the quantity: green = BUY, red = SELL.
+      tr.append(cell(f.time || "—"), cell(f.symbol || "—"),
+        cell(f.quantity == null ? "—" : String(f.quantity), (f.action === "BUY" ? "g" : "r") + " n"),
+        cell(inr(f.price), "n"), cell(f.product || "—"), cell(fillDetails(f.details)));
       return tr;
     }), p.error || (known ? "No fills today." : "Not available."), 6);
     renderTable($("rk-pos-rows"), all.slice(0, 10).map(h => {
@@ -1357,6 +1359,17 @@
         cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
     }), p.error || (p.state === "broker_read" ? "No open positions." : "Not available."), 5);
+  }
+
+  // Our record of the order behind a fill: strategy, risk %, and the MTF/HTF/LTF level of each. A dash when unknown.
+  // Fixed order: Strategy, Risk, MTF, HTF, LTF (each level with its risk), Total, POV, Slicer.
+  function fillDetails(d) {
+    if (!d) return "—";
+    const q = v => (v == null ? "—" : String(v));
+    const lvl = (name, level, risk) => name + ": " + level + " (" + q(risk) + "%)";
+    return ["Strategy: " + d.strategy, "Risk: " + d.risk_pct + "%",
+      lvl("MTF", d.mtf, d.mtf_risk), lvl("HTF", d.htf, d.htf_risk), lvl("LTF", d.ltf, d.ltf_risk),
+      "Total: " + q(d.total_qty), "POV: " + q(d.pov_qty), "Slicer: " + q(d.slicer_qty)].join(" · ");
   }
 
   function renderPortfolio(p) {

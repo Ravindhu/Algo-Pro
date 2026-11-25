@@ -55,6 +55,7 @@ from quant.reporting.feed_status import FeedProbeCache  # noqa: E402
 from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
+from quant.execution.order_details import OrderDetailStore  # noqa: E402
 from quant.reporting import home_view  # noqa: E402
 
 REASON_MAX = 200
@@ -66,6 +67,7 @@ DEFAULT_PATHS = {
     "kill": ROOT / "data" / "paper" / "kill_switch.json",
     "bot_kill": ROOT / "data" / "bot" / "kill.json",          # paper strategy bot (run_strategy_bot.py)
     "live_kill": ROOT / "data" / "bot_live" / "kill.json",    # live strategy bot (run_strategy_bot_live.py)
+    "order_details": ROOT / "data" / "bot_live" / "order_details.json",  # per-order strategy/risk/levels (live bot)
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
     "strategies": ROOT / "config" / "strategies",
@@ -209,8 +211,11 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     # Read-only holdings. mode is not used: get_holdings sends no order.
     openalgo = OpenAlgoClient(os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"),
                               transport=http_transport, mode="analyze")
+    order_details_path = Path(paths["order_details"])
+    # Read the file on each lookup: the live bot writes it while this dashboard runs.
     portfolio = HoldingsReader(openalgo.get_holdings, OpenAlgoClient.api_key_from_env, time.time,
-                               trades=openalgo.get_tradebook)
+                               trades=openalgo.get_tradebook,
+                               details=lambda orderid: OrderDetailStore(order_details_path).get(orderid))
 
     async def reason_from(request: Request):
         """(reason, None) when valid, else (None, 422 response)."""

@@ -53,6 +53,7 @@ from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
 from quant.risk.margin_daily import DailyMarginStore
+from quant.execution.order_details import OrderDetailStore, build_details
 from quant.risk.margin_entry import MTF, MarginSettings, choose_product, funded_share, mtf_daily_interest, settings_from_path
 from quant.risk.margin_sync import parse_mtf_rows, reconcile_mtf
 from quant.risk.gate import RiskState, check_intent
@@ -456,6 +457,7 @@ class StrategyBot:
         cycle_symbol_allocation_pct: Optional[float] = None,
         margin_check: Optional[Callable[[TradeIntent], Any]] = None,
         margin_store: Optional[Any] = None,
+        order_details: Optional[Any] = None,
         mtf_holdings: Optional[Callable[[], Any]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
@@ -526,6 +528,7 @@ class StrategyBot:
         self._stops = stops                        # broker SL-M stops: place / status / cancel (None = paper)
         self._margin_check = margin_check          # broker margin for a 1-share order, read once a day per stock
         self._margin_store = margin_store if margin_store is not None else DailyMarginStore(None)
+        self._order_details = order_details if order_details is not None else OrderDetailStore(None)
         self._mtf_holdings = mtf_holdings          # broker position book reader for the MTF holdings sync
         self._mtf_synced_day = None                # trade day of the last sync that matched the broker
         self._mtf_issues: List[str] = []           # mismatches from the last sync; any issue blocks MTF
@@ -1126,7 +1129,9 @@ class StrategyBot:
             if intent is None or intent.qty < 1:
                 continue
             if tree_idx is not None:
-                order = ladder.tree_order(ocl_id, price, fraction, view.atr, dec.stage)
+                # Owner log details: strategy, the risk % this order was sized on, and its MTF/HTF/LTF levels.
+                details = build_details(strat.name, risk_frac * 100.0, dec.context, ltf_budget=dec.fraction)
+                order = ladder.tree_order(ocl_id, price, fraction, view.atr, dec.stage, details=details)
                 if order is not None and order.carry and parent is None and mtf_id:
                     self._mtf_carry.pop(mtf_id, None)  # the pool is now inside an order, so it is consumed
             else:
@@ -1323,6 +1328,7 @@ class StrategyBot:
                     bar_volume = raw_volume
                     peg_px = None
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
+            pov_qty = qty  # POV size of this slice, before the ladder and peg caps below (owner log details)
             if self._peg_on(p):
                 self._peg.arm(p, cap, qty)  # this cycle's allotment; the 15 s tick spends what is left of it
             if active is not None:
@@ -1361,7 +1367,8 @@ class StrategyBot:
                     # Fix 2026-11-20: book the shares that filled; the rest is cancelled (or flagged below).
                     filled = min(filled, qty)
                     self._book_child(p, key, active, filled, ref_px,
-                                     {"avg_price": resp.get("avg_price")}, report)
+                                     {"avg_price": resp.get("avg_price")}, report,
+                                     sent_qty=qty, pov_qty=pov_qty)
                     if resp.get("cancel_failed"):
                         self._faults.add(("partial", key))
                         self._alert("CRITICAL", f"{p.intent.symbol}: {filled} booked; the unfilled rest could not be "
@@ -1377,16 +1384,24 @@ class StrategyBot:
                     self._alert("CRITICAL", f"{p.intent.symbol}: unfilled entry could not be cancelled; check the broker")
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
-            self._book_child(p, key, active, qty, ref_px, outcome.response or {}, report)
+            self._book_child(p, key, active, qty, ref_px, outcome.response or {}, report,
+                             sent_qty=qty, pov_qty=pov_qty)
 
     def _book_child(self, p: _Parent, key: str, active, qty: int, ref_px: float,
-                    response: Dict[str, Any], report: Dict[str, Any]) -> None:
+                    response: Dict[str, Any], report: Dict[str, Any], sent_qty: Optional[int] = None,
+                    pov_qty: Optional[int] = None) -> None:
         """Book shares that filled on one child: parent remaining, ladder order, exposure and position."""
         p.remaining -= qty
         if p.peg is not None:
             p.peg.spent += qty  # shares filled from this cycle's peg allotment
         if active is not None:
             p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
+            if active.details and response.get("orderid"):
+                # Sizes for the log: whole ladder order, the POV slice, the slice sent, and what filled.
+                self._order_details.put(str(response["orderid"]), {
+                    **active.details, "qty": int(qty), "total_qty": int(active.qty),
+                    "pov_qty": None if pov_qty is None else int(pov_qty),
+                    "slicer_qty": int(sent_qty if sent_qty is not None else qty)})
         added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
         self.state.open_notional += added
         self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit
