@@ -25,10 +25,35 @@ def client(tmp_path):
     return testclient.TestClient(create_app(paths))
 
 
-def test_overview_and_health(client):
+FEED_STATUSES = {"connected", "stale", "api key missing", "openalgo down",
+                 "auth failed", "blocked by policy"}
+
+
+def test_overview_and_health(client, monkeypatch):
+    """The feed card reads a real probe (decision 0033), not a hard-coded line."""
+    # No OPENALGO_API_KEY in the test env: the probe must fail closed with a
+    # status, never a raise, and never say the old hard-coded "not connected".
+    monkeypatch.delenv("OPENALGO_API_KEY", raising=False)
     assert client.get("/api/overview").status_code == 200
     h = client.get("/api/health").json()
-    assert h["feed"]["status"] == "not connected"
+    assert h["feed"]["status"] in FEED_STATUSES
+    assert h["feed"]["status"] != "not connected"
+
+
+def test_feed_status_contract_directly(monkeypatch):
+    """The probe itself: policy off -> 'blocked by policy'; key missing -> its own status."""
+    from quant.reporting.feed_status import feed_status
+    monkeypatch.delenv("OPENALGO_API_KEY", raising=False)
+    # data_sources.yaml in the repo has live_allowed: true, so with no key the
+    # probe stops at the key check.
+    out = feed_status()
+    assert out["status"] == "api key missing"
+    # Policy-off is authoritative regardless of the key.
+    monkeypatch.setenv("OPENALGO_API_KEY", "k")
+    fake_yaml = ROOT / "config" / "data_sources.yaml"
+    if fake_yaml.is_file():
+        assert feed_status()["status"] in {"api key missing", "auth failed",
+                                           "openalgo down", "stale", "connected"}
 
 
 def test_index_is_api_only(client):

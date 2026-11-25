@@ -50,6 +50,7 @@ from quant.core import dashboard_accounts as accounts  # noqa: E402
 from quant.core import engine_control  # noqa: E402
 from quant.core import env_editor  # noqa: E402
 from quant.core.broker_signin import login_after_signin  # noqa: E402
+from quant.reporting.feed_status import FeedProbeCache  # noqa: E402
 from quant.core import schedule_settings as sched  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
@@ -79,6 +80,8 @@ DEFAULT_PATHS = {
     "session_secret": ROOT / "data" / "session_secret.key",  # login signing key, created on first start
 }
 LOOP_INTERVAL_S = 60  # paper loop cycle (decision 0029)
+#: Feed card probe (decision 0033): one quote call cached for 30 s.
+FEED_PROBE = FeedProbeCache()
 
 API_INDEX = {
     "service": "Algo-Pro dashboard",
@@ -169,7 +172,9 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
         last_prices=last_prices or {},
     )
     overview["settings"] = read_settings(paths["settings"])
-    overview["feed"] = {"status": "not connected", "note": "No live feed exists yet (paper data only)."}
+    # The feed card reads a real probe (decision 0033): owner-approved source +
+    # one cached quote call. Used to be a hard-coded "not connected".
+    overview["feed"] = FEED_PROBE.get()
     overview["trading_mode"] = trading_mode_status()
     holidays = Path(paths.get("holidays", DEFAULT_PATHS["holidays"]))
     cal = TradingCalendar.from_csv(holidays) if holidays.exists() else TradingCalendar(set(), verified=False)
