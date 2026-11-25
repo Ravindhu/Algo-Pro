@@ -345,3 +345,22 @@ def test_fill_log_is_newest_first_in_ist_and_skips_bad_rows():
     assert rows[0]["action"] == "SELL" and rows[0]["quantity"] == 2 and rows[0]["price"] == 12.5
     assert len(rows[0]["time"]) == 8 and rows[0]["time"].count(":") == 2
     assert fill_log(None) == []
+
+
+def test_reader_marks_rows_bought_on_mtf_today():
+    def fetch(key):
+        return {"status": "success", "data": {"holdings": [
+            {"symbol": "MTFX", "exchange": "NSE", "quantity": 5, "average_price": 100.0, "ltp": 101.0, "pnl": 5.0},
+            {"symbol": "CNCY", "exchange": "NSE", "quantity": 5, "average_price": 100.0, "ltp": 101.0, "pnl": 5.0}],
+            "statistics": {}}}
+
+    def trades(key):
+        return {"status": "success", "data": [
+            {"symbol": "MTFX", "exchange": "NSE", "action": "BUY", "quantity": 5, "product": "MTF",
+             "timestamp": _ts(2)},
+            {"symbol": "CNCY", "exchange": "NSE", "action": "BUY", "quantity": 5, "product": "CNC",
+             "timestamp": _ts(2)}]}
+
+    rows = {r["symbol"]: r for r in HoldingsReader(fetch, lambda: "k", lambda: _ts(20), trades=trades).read()["holdings"]}
+    assert rows["MTFX"]["mtf"] is True
+    assert rows["CNCY"]["mtf"] is False

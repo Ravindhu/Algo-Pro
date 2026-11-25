@@ -1353,7 +1353,13 @@
     }), p.error || (known ? "No fills today." : "Trade history unavailable."), 6);
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
-      tr.append(cell(h.symbol), cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
+      const sym = cell(h.symbol);
+      if (h.mtf) {  // bought on MTF today: small star before the symbol
+        const star = document.createElement("span");
+        star.textContent = "⭐ "; star.title = "Bought on MTF (margin funded) today"; star.style.fontSize = "0.7em";
+        sym.prepend(star);
+      }
+      tr.append(sym, cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
         cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
     }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 5);

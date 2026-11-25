@@ -46,6 +46,7 @@ def _row(item: Dict) -> Dict:
         "pnl": _num(item.get("pnl")),
         "pnlpercent": _num(item.get("pnlpercent")),
         "hold_days": None,
+        "mtf": False,       # bought on MTF today, per the tradebook (holdings book does not carry the product)
     }
 
 
@@ -323,6 +324,8 @@ class HoldingsReader:
                 result["trade_cost"] = None
                 return
             starts = open_since(trades)
+            mtf_keys = {(t.get("symbol"), t.get("exchange")) for t in trades if isinstance(t, dict)
+                        and str(t.get("product", "")).upper() == "MTF" and str(t.get("action", "")).upper() == "BUY"}
             costs = trade_costs(trades)
             result["fills"] = fill_log(trades)
         except Exception:  # name nothing: the tradebook is optional
@@ -331,6 +334,7 @@ class HoldingsReader:
         for row in result["holdings"]:
             start = starts.get((row["symbol"], row["exchange"]))
             row["hold_days"] = hold_days(start, now)
+            row["mtf"] = (row["symbol"], row["exchange"]) in mtf_keys
         invested = (result.get("summary") or {}).get("invested")
         costs["pct_of_invested"] = round(costs["total_inr"] / invested * 100, 4) if invested else None
         result["trade_cost"] = costs
