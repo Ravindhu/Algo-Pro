@@ -771,6 +771,12 @@ class StrategyBot:
         except Exception:
             return 0.0  # no funds known: entries are refused
 
+    def _read_bars(self, sym: str, now, exchange: str):
+        """Bars for a position or pending entry on its own exchange. NSE keeps the old call."""
+        if exchange == "NSE":
+            return self._bars.bars(sym, now)
+        return self._bars.bars(sym, now, exchange=exchange)
+
     def _entry_exchange(self, sym: str):
         """Best-quote exchange for a new long entry (owner rule, 2026-11-25). Never raises."""
         quotes = {}
@@ -1314,7 +1320,7 @@ class StrategyBot:
                 slice_intent = _dc_replace(p.intent, ref_price=ref_px)
             df = bars_cache.get(p.intent.symbol)
             if df is None:
-                df = self._bars.bars(p.intent.symbol, now)
+                df = self._read_bars(p.intent.symbol, now, p.intent.exchange)
             if df is None:
                 report["skipped"].append(f"{p.intent.symbol}: no bars for slice")
                 continue
@@ -1471,7 +1477,7 @@ class StrategyBot:
                 continue
             df = bars_cache.get(pos.symbol)
             if df is None:
-                df = self._bars.bars(pos.symbol, now)
+                df = self._read_bars(pos.symbol, now, pos.exchange)
             if df is not None:
                 bar = self._remember_bar(pos.symbol, df)
             else:

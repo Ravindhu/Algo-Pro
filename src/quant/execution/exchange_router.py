@@ -94,3 +94,13 @@ def exit_price(held_exchange: str, quotes: dict) -> Choice:
     if bid is None or ask is None or bid > ask:
         return Choice(None, None, f"no usable bid on {held_exchange}")
     return Choice(held_exchange, bid, f"best bid on {held_exchange}")
+
+
+def listing_exchange(nse: Optional[Quote], bse: Optional[Quote]) -> Optional[str]:
+    """Where a stock is listed for the signal (owner rule 2026-11-25): NSE if NSE has a
+    usable quote, else BSE if BSE has one, else None (no signal data)."""
+    if _usable_ask(nse) is not None:
+        return NSE
+    if _usable_ask(bse) is not None:
+        return BSE
+    return None
