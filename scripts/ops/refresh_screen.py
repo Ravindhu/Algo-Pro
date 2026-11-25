@@ -116,6 +116,12 @@ def main() -> int:
     for row in doc["results"][:20]:
         print(f"  keep {row['symbol']:<14} circuit {row['circuit_pct']:.4f}")
 
+    # Read-only report: BSE codes -> OpenAlgo symbol -> broker check. Never changes the file.
+    from quant.data.bse_symbol import bse_report, openalgo_bse_lookup  # noqa: E402
+    for row in bse_report(candidates, openalgo_bse_lookup, quote):
+        print(f"  bse  {row['code']:<8} -> {str(row['symbol']):<14} "
+              f"broker={'yes' if row['broker_match'] else 'no'}  {row['reason']}")
+
     if args.dry_run:
         print("[dry-run] nothing written")
         return 0 if doc["results"] else 2
