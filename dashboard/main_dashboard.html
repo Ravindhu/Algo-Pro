@@ -1370,7 +1370,9 @@
   // Our record of the order behind a fill: strategy, risk %, and the MTF/HTF/LTF level of each. A dash when unknown.
   function fillDetails(d) {
     if (!d) return "—";
-    return d.strategy + " · risk " + d.risk_pct + "% · MTF " + d.mtf + " · HTF " + d.htf + " · LTF " + d.ltf;
+    const q = v => (v == null ? "—" : String(v));
+    return d.strategy + " · risk " + d.risk_pct + "% · MTF " + d.mtf + " · HTF " + d.htf + " · LTF " + d.ltf
+      + " · total " + q(d.total_qty) + " · POV " + q(d.pov_qty) + " · slicer " + q(d.slicer_qty);
   }
 
   function renderPortfolio(p) {

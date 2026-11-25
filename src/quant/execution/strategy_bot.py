@@ -1328,6 +1328,7 @@ class StrategyBot:
                     bar_volume = raw_volume
                     peg_px = None
             qty = self._executor.child_qty(p.remaining, bar_volume, pov)
+            pov_qty = qty  # POV size of this slice, before the ladder and peg caps below (owner log details)
             if self._peg_on(p):
                 self._peg.arm(p, cap, qty)  # this cycle's allotment; the 15 s tick spends what is left of it
             if active is not None:
@@ -1366,7 +1367,8 @@ class StrategyBot:
                     # Fix 2026-11-20: book the shares that filled; the rest is cancelled (or flagged below).
                     filled = min(filled, qty)
                     self._book_child(p, key, active, filled, ref_px,
-                                     {"avg_price": resp.get("avg_price")}, report)
+                                     {"avg_price": resp.get("avg_price")}, report,
+                                     sent_qty=qty, pov_qty=pov_qty)
                     if resp.get("cancel_failed"):
                         self._faults.add(("partial", key))
                         self._alert("CRITICAL", f"{p.intent.symbol}: {filled} booked; the unfilled rest could not be "
@@ -1382,10 +1384,12 @@ class StrategyBot:
                     self._alert("CRITICAL", f"{p.intent.symbol}: unfilled entry could not be cancelled; check the broker")
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
-            self._book_child(p, key, active, qty, ref_px, outcome.response or {}, report)
+            self._book_child(p, key, active, qty, ref_px, outcome.response or {}, report,
+                             sent_qty=qty, pov_qty=pov_qty)
 
     def _book_child(self, p: _Parent, key: str, active, qty: int, ref_px: float,
-                    response: Dict[str, Any], report: Dict[str, Any]) -> None:
+                    response: Dict[str, Any], report: Dict[str, Any], sent_qty: Optional[int] = None,
+                    pov_qty: Optional[int] = None) -> None:
         """Book shares that filled on one child: parent remaining, ladder order, exposure and position."""
         p.remaining -= qty
         if p.peg is not None:
@@ -1393,7 +1397,11 @@ class StrategyBot:
         if active is not None:
             p.ladder.record_fill(active, qty)  # FIFO: this child filled the oldest open ladder order
             if active.details and response.get("orderid"):
-                self._order_details.put(str(response["orderid"]), {**active.details, "qty": int(qty)})
+                # Sizes for the log: whole ladder order, the POV slice, the slice sent, and what filled.
+                self._order_details.put(str(response["orderid"]), {
+                    **active.details, "qty": int(qty), "total_qty": int(active.qty),
+                    "pov_qty": None if pov_qty is None else int(pov_qty),
+                    "slicer_qty": int(sent_qty if sent_qty is not None else qty)})
         added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
         self.state.open_notional += added
         self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit

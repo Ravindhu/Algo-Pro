@@ -121,6 +121,8 @@ def test_child_fill_saves_the_active_orders_details(tmp_path):
     active = Order(ocl_id="H1", price=100.0, qty=10, risk=0.01, reason="aggressive",
                    details={"strategy": "OCL-OCL", "risk_pct": 0.79, "mtf": "agg 1", "htf": "—", "ltf": "agg"})
     report = {"children_sent": 0}
-    bot._book_child(parent, parent.key, active, 10, 100.0, {"status": "success", "orderid": "BROKER-7"}, report)
+    bot._book_child(parent, parent.key, active, 10, 100.0, {"status": "success", "orderid": "BROKER-7"}, report,
+                    sent_qty=8, pov_qty=12)
     saved = store.get("BROKER-7")
     assert saved["strategy"] == "OCL-OCL" and saved["qty"] == 10 and saved["ltf"] == "agg"
+    assert (saved["total_qty"], saved["pov_qty"], saved["slicer_qty"]) == (10, 12, 8)
