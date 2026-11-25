@@ -1,5 +1,7 @@
 """Pick the exchange (NSE or BSE) for an entry, and the exit price on the held exchange.
 
+Status: PHASE 3 IMPLEMENTED (exchange routing)
+
 Status: IMPLEMENTED as pure logic (tests in tests/unit/test_exchange_router.py).
 Plan: docs/IMPLEMENTATION_PLAN_2026-11-25_EXCHANGE_ROUTING.md
 

@@ -1,5 +1,7 @@
 """Route bar and daily-stat reads to the exchange a stock is listed on (slice 4, 2026-11-25).
 
+Status: PHASE 3 IMPLEMENTED (exchange routing, slice 4)
+
 Owner rule: the signal uses NSE bars for an NSE-listed stock, and BSE bars only for a
 BSE-only stock. A position's exit checks use the exchange it is held on.
 

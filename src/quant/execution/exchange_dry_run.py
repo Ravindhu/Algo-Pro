@@ -1,5 +1,7 @@
 """Dry run of the exchange decision on real quotes. Reads only; never places an order.
 
+Status: PHASE 3 IMPLEMENTED (exchange routing)
+
 Status: IMPLEMENTED (tests in tests/unit/test_exchange_dry_run.py). Plan:
 docs/IMPLEMENTATION_PLAN_2026-11-25_BOT_EXCHANGE_CARRY.md (slice 6)
 
