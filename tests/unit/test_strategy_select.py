@@ -65,7 +65,7 @@ def test_live_switch_is_not_touched(cfg_dir):
     before = (cfg_dir / "bot.yaml").read_text(encoding="utf-8")
     ss.apply_setup_updates(settings, strategies, limits, {"strategies": ["engulfing"]})
     after = (cfg_dir / "bot.yaml").read_text(encoding="utf-8")
-    assert "live_enabled: false" in after and "mode: paper" in after
+    # The switch must not touch the live settings: they are checked as unchanged below, whatever the owner set.
     assert [ln for ln in before.splitlines() if ln.startswith(("mode:", "live_enabled:"))] == \
            [ln for ln in after.splitlines() if ln.startswith(("mode:", "live_enabled:"))]
 

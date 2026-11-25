@@ -1,7 +1,7 @@
 """Live feed status for the dashboard feed card. Read-only probe.
 
 Flow stage: Data and features (feed health read-side)
-Status: IMPLEMENTED (decision 0033; wraps quant.data.live_bars + data_sources.yaml)
+Status: PHASE 3 IMPLEMENTED (decision 0033; wraps quant.data.live_bars + data_sources.yaml)
 
 WHAT THIS DOES
 --------------

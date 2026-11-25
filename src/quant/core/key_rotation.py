@@ -1,6 +1,6 @@
 """Automatic rotation of the dashboard login (session) key.
 
-Status: IMPLEMENTED (tests in tests/unit/test_key_rotation.py). Plan:
+Status: PHASE 3 IMPLEMENTED (tests in tests/unit/test_key_rotation.py). Plan:
 docs/IMPLEMENTATION_PLAN_2026-11-25_KEY_ROTATION.md
 
 * The key file (data/session_secret.key) keeps its plain text format. Its

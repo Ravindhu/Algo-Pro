@@ -1,6 +1,6 @@
 """Map a 6-digit BSE code to its OpenAlgo symbol, then check the broker knows it.
 
-Status: IMPLEMENTED read-only (tests in tests/unit/test_bse_symbol.py). Plan:
+Status: PHASE 3 IMPLEMENTED read-only (tests in tests/unit/test_bse_symbol.py). Plan:
 docs/IMPLEMENTATION_PLAN_2026-11-25_BSE_SYMBOL_MAP.md
 
 Read only. Nothing here places, cancels or modifies an order, and the screen
