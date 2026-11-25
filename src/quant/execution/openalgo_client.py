@@ -6,29 +6,25 @@ Existing code to reuse or wrap (do not copy): src/quant/blue_engine/core/client.
 Kept local on purpose: the injected-transport order path and PaperBroker. See docs/audits/PHASE0_REUSE_AUDIT.md step 6.
 
 Modes (decision 0026, docs/ANALYZER_MODE_PLAN.md):
-  "live"    Live order guard (decision 0017, docs/HARDENING_PLAN_2026-11-06.md):
-    1. A LiveApproval object must exist. Only a person creates it, with the approver,
-       the date, and the SHA-256 of risk_limits.yaml the approver reviewed.
-    2. The approval must match the limits file on disk right now. Changing the limits
-       cancels the approval.
-  "analyze" OpenAlgo analyzer (sandbox). No real money, so no LiveApproval. Before every
-    send the client asks OpenAlgo whether analyze mode is on. If it is not on (or the
-    answer is unclear), the send is refused, because the order could reach the broker.
+  "live"    Live order guard. OpenAlgo's analyzer must be OFF (2026-11-25: the OpenAlgo
+    switch is the live control; LiveApproval was removed). While the analyzer is on
+    (sandbox), live orders are refused even when the bot is set to live. Unclear
+    answers are refused. The compliance gate must also pass.
+  "analyze" OpenAlgo analyzer (sandbox). Before every send the client asks OpenAlgo
+    whether analyze mode is on. If it is not on (or the answer is unclear), the send
+    is refused, because the order could reach the broker.
   Both modes:
-    3. A GateDecision that is approved and has the same intent_id must be passed in.
+    1. A GateDecision that is approved and has the same intent_id must be passed in.
        A string or a missing decision is refused.
   "paper" is refused here. Paper fills use PaperBroker, which never calls this client.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
@@ -38,20 +34,6 @@ from quant.monitor.throttle import TokenBucket, acquire
 
 Transport = Callable[[str, Dict], Dict]
 MODES = ("live", "analyze")
-
-
-@dataclass(frozen=True)
-class LiveApproval:
-    """Human sign-off for live trading. Created by a person, never by code paths in the trade flow."""
-
-    approver: str
-    approved_on: date
-    limits_sha256: str
-
-
-def file_sha256(path: Path) -> str:
-    """SHA-256 of a file as hex. Used to tie an approval to one exact limits file."""
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def http_transport(url: str, payload: Dict, timeout: float = 10.0) -> Dict:
@@ -109,8 +91,6 @@ class OpenAlgoClient:
         base_url: str,
         transport: Transport,
         mode: str,
-        live_approval: Optional[LiveApproval] = None,
-        limits_path: Optional[Path] = None,
         compliance: Optional[object] = None,
         exchange: str = "NSE",
     ) -> None:
@@ -121,8 +101,6 @@ class OpenAlgoClient:
         self.base_url = base_url.rstrip("/")
         self._transport = transport
         self.mode = mode
-        self.live_approval = live_approval
-        self.limits_path = Path(limits_path) if limits_path is not None else None
         # Live-only compliance gate (audit storage, NTP clock; owner removed the algo-ID
         # ID/registration fields, 2026-11-11). None means "not configured", which refuses
         # live orders (fail closed).
@@ -146,14 +124,26 @@ class OpenAlgoClient:
         if self.mode not in MODES:
             raise PermissionError("OpenAlgoClient refuses to send orders unless mode is live or analyze")
 
-    def _check_live_session(self) -> None:
-        """Live only: human approval and an unchanged limits file."""
-        if not isinstance(self.live_approval, LiveApproval) or not self.live_approval.approver.strip():
-            raise PermissionError("live trading needs a recorded human approval (LiveApproval)")
-        if self.limits_path is None:
-            raise PermissionError("live trading needs the limits file path to check the approval")
-        if file_sha256(self.limits_path) != self.live_approval.limits_sha256:
-            raise PermissionError("risk_limits.yaml changed since approval; approval is void")
+    def _require_analyzer_off(self, api_key: str) -> None:
+        """Live only: OpenAlgo's analyzer (sandbox) must be OFF. Anything unclear is refused.
+
+        The OpenAlgo analyzer switch is the live control (2026-11-25). While the sandbox is on,
+        no live order may reach the broker, even when the bot is set to live.
+        """
+        if not api_key:
+            raise PermissionError("live refused: empty API key")
+        resp = self._transport(self.base_url + self.ANALYZER_PATH, {"apikey": api_key})
+        data = resp.get("data") if isinstance(resp, dict) else None
+        known = (isinstance(resp, dict) and resp.get("status") == "success"
+                 and isinstance(data, dict) and isinstance(data.get("analyze_mode"), bool))
+        if not known:
+            raise PermissionError("live refused: OpenAlgo analyzer status is unclear")
+        if data["analyze_mode"] is True:
+            raise PermissionError("live refused: OpenAlgo analyzer (sandbox) is on; orders stay in the sandbox")
+
+    def _check_live_session(self, api_key: str = "") -> None:
+        """Live only: OpenAlgo analyzer must be off, and the compliance gate must pass."""
+        self._require_analyzer_off(api_key)
         # Compliance: audit-log storage, NTP clock sync. Fail closed.
         if self.compliance is None:
             raise PermissionError("live refused: compliance gate not configured")
@@ -176,7 +166,7 @@ class OpenAlgoClient:
         """Mode checks shared by every send. No intent needed."""
         self._check_mode()
         if self.mode == "live":
-            self._check_live_session()
+            self._check_live_session(api_key)
         else:
             self._require_analyzer_on(api_key)
 
@@ -245,7 +235,7 @@ class OpenAlgoClient:
         """Place a broker-side stop-loss (SL-M, market after trigger) for an open position.
 
         Protective order: it only reduces risk, so there is no GateDecision here. The same session
-        guard as cancel() applies (live approval and unchanged limits, or analyzer on). Refused
+        guard as cancel() applies (live: analyzer off and compliance; analyze: analyzer on). Refused
         when the trigger is not a finite positive number.
         """
         if action not in ("BUY", "SELL"):
@@ -275,8 +265,7 @@ class OpenAlgoClient:
         """Cancel one child order (decision 0021).
 
         Cancels reduce risk, so there is no GateDecision here. The session guard still applies:
-        live mode with a recorded approval and an unchanged limits file, or analyze mode with the
-        sandbox confirmed on. Owner to confirm this choice.
+        live mode with the OpenAlgo analyzer off, or analyze mode with the sandbox confirmed on.
         """
         self._check_session_guard(api_key)
         if not api_key:
@@ -388,8 +377,8 @@ class AnalyzeBroker:
 # Engine code (POV slicer, exit engine) is injected with a client and never
 # imports this module. The caller builds an EngineOrderGateway, which:
 #   * runs the same mode guard as OpenAlgoClient before every send and cancel
-#     (live: LiveApproval + unchanged limits file + compliance; analyze: OpenAlgo
-#     analyzer confirmed on), and refuses an empty API key;
+#     (live: OpenAlgo analyzer off + compliance; analyze: OpenAlgo analyzer
+#     confirmed on), and refuses an empty API key;
 #   * lets reads (quotes, orderbook, positionbook, analyzer status) pass through
 #     to the SDK client unchanged;
 #   * refuses every other order-writing method by name (WRITE_NAMES).
@@ -428,7 +417,7 @@ class EngineOrderGateway:
     def _guarded(self, names, kwargs):
         if not self._api_key:
             raise PermissionError("engine order refused: empty API key")
-        self._guard._check_session_guard(self._api_key)  # live approval or analyzer on
+        self._guard._check_session_guard(self._api_key)  # live: analyzer off; analyze: analyzer on
         fn = _find_method(self._sdk, names)
         if fn is None:
             raise RuntimeError("engine order refused: SDK client has no such method")

@@ -1,4 +1,6 @@
-"""Live runner: the paper pipeline with a live broker and the full approval gate.
+"""Live runner: the paper pipeline with a live broker and the live start gates.
+
+Note (2026-11-25): LiveApproval was removed. Live orders follow the OpenAlgo analyzer switch.
 
 Flow stage: Live execution
 Status: PHASE 4 IMPLEMENTED (decision 0030: armed but disarmed)
@@ -15,7 +17,7 @@ checks a paper order passes, plus the ones below.
 THE GATE (decision 0030), in order. ALL of these must pass to start:
   1. mode.json says "live"            - the operator switched the dashboard over
   2. a valid LiveApproval exists      - a person signed off, via
-                                        scripts/ops/approve_live.py
+                                        (removed 2026-11-25)
   3. the approval's limits hash still matches risk_limits.yaml
                                         - edited limits void the approval
   4. risk_limits.yaml has no null and is not blocked
@@ -52,14 +54,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from quant.audit.log import AuditLog  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
-from quant.core.live_approval import check_approval  # noqa: E402
 from quant.core.trading_mode import trading_mode_status  # noqa: E402
-from quant.execution.openalgo_client import (  # noqa: E402
-    LiveApproval, OpenAlgoClient, http_transport,
-)
+from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 
 MODE_FILE = ROOT / "data" / "mode.json"
-APPROVAL_FILE = ROOT / "data" / "live_approval.json"
 LIMITS_FILE = ROOT / "config" / "risk_limits.yaml"
 HOLIDAYS_FILE = ROOT / "config" / "calendar" / "holidays.csv"
 SETTINGS_FILE = ROOT / "config" / "settings.yaml"
@@ -82,10 +80,11 @@ def _live_settings(settings_path=SETTINGS_FILE) -> dict:
 
 
 def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
-                   mode_file=MODE_FILE, approval_file=APPROVAL_FILE,
+                   mode_file=MODE_FILE,
                    holidays_file=HOLIDAYS_FILE, audit: Optional[AuditLog] = None,
                    kill_path=None, settings_path=SETTINGS_FILE) -> dict:
-    """Every start gate, evaluated in order. Returns {ok, reasons, approval, capital_cap}.
+    """Every start gate, evaluated in order. Returns {ok, reasons, capital_cap}.
+    No LiveApproval (removed 2026-11-25). The OpenAlgo analyzer is checked on every order.
 
     Pure checks: no orders and no network calls. kill_path must be the file the live bot's KillSwitch uses.
     A missing or null setting refuses the start (fail closed).
@@ -94,25 +93,9 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     kill_file = pathlib.Path(kill_path) if kill_path is not None else LIVE_BOT_KILL_FILE
 
     # 1. the operator switched the mode to live
-    status = trading_mode_status(state_path=mode_file, approval_path=approval_file,
-                                 limits_path=limits_path)
+    status = trading_mode_status(state_path=mode_file)
     if status["mode"] != "live":
         reasons.append(f"dashboard mode is {status['mode']!r}, not live; switch it first")
-    elif status["effective_mode"] != "live":
-        reasons.append(f"live mode is not armed: {status.get('reason')}")
-
-    # 2+3. a person's approval, still matching today's limits file
-    ok, why = check_approval(approval_file, limits_path)
-    if not ok:
-        reasons.append(f"live approval: {why}")
-        approval = None
-    else:
-        approval_data = json.loads(approval_file.read_text(encoding="utf-8"))
-        approval = LiveApproval(
-            approver=approval_data["approver"],
-            approved_on=__import__("datetime").date.fromisoformat(approval_data["approved_on"]),
-            limits_sha256=approval_data["limits_sha256"],
-        )
 
     # 4. the limits themselves must be complete and not blocked
     try:
@@ -166,7 +149,7 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     if audit is not None and reasons:
         audit.append("live_start_refused", {"reasons": reasons})
 
-    return {"ok": not reasons, "reasons": reasons, "approval": approval, "capital_cap": capital_cap}
+    return {"ok": not reasons, "reasons": reasons, "capital_cap": capital_cap}
 
 
 def out_dir_default() -> str:

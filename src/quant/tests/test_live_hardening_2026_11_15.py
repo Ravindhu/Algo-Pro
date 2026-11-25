@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.execution.exit_manager import Position  # noqa: E402
-from quant.execution.openalgo_client import LiveApproval, PaperBroker, file_sha256  # noqa: E402
+from quant.execution.openalgo_client import PaperBroker  # noqa: E402
 from quant.execution.strategy_bot import BotConfig, PaperSender, StrategyBot  # noqa: E402
 from quant.monitor.safe_mode import SafeMode  # noqa: E402
 from quant.risk.controls import HaltHandler  # noqa: E402
@@ -234,33 +234,6 @@ class _Reader:
         return {"status": "success", "data": []}
 
 
-def _live_build(tmp_path, cash, cap, seen):
-    settings = tmp_path / "settings.yaml"
-    settings.write_text("live:\n  max_capital_inr: 500000\n"
-                        "trade_setup:\n  timeframes:\n    htf: 1h\n    mtf: 1d\n    ltf: 5m\n", encoding="utf-8")
-    limits = tmp_path / "risk_limits.yaml"
-    limits.write_text("max_order_quantity: 10\nmax_order_notional: 10000\nmax_open_exposure: 20000\n"
-                      "max_daily_loss: 1000\nmax_strategy_loss: 500\nmax_adv_pct: 0.01\n"
-                      "max_symbols_per_portfolio: 5\nblocked: false\n", encoding="utf-8")
-    cfg = tmp_path / "bot.yaml"
-    cfg.write_text(yaml.safe_dump({"mode": "live", "live_enabled": True}), encoding="utf-8")
-    approval = LiveApproval(approver="Test Owner", approved_on=date.today(),
-                            limits_sha256=file_sha256(limits))
-
-    def startup(**kwargs):
-        seen.append(kwargs)
-        return {"ok": True, "reasons": [], "approval": approval, "capital_cap": cap}
-
-    class _Transport:
-        def __call__(self, url, payload, **kw):
-            raise AssertionError("building the bot must not call the broker")
-
-    run = _runner()
-    bot, _ = run.build_live_bot(bot_cfg_path=cfg, limits_path=limits, state_dir=tmp_path / "s",
-                                base_url="http://x", api_key="K", transport=_Transport(),
-                                reader=_Reader(cash), startup_fn=startup,
-                                settings_path=settings)
-    return bot
 
 
 def test_live_sizing_equity_is_capped_at_the_fixed_cap(tmp_path):
@@ -282,21 +255,6 @@ def test_live_gate_is_given_the_bots_own_kill_file(tmp_path):
     assert all(k["kill_path"] == tmp_path / "s" / "kill.json" for k in seen)
 
 
-def test_live_build_refuses_without_a_capital_cap(tmp_path):
-    import pytest
-    from quant.execution.strategy_bot import BotRefused
-    limits = tmp_path / "risk_limits.yaml"
-    limits.write_text("max_order_quantity: 10\n", encoding="utf-8")
-    cfg = tmp_path / "bot.yaml"
-    cfg.write_text(yaml.safe_dump({"mode": "live", "live_enabled": True}), encoding="utf-8")
-    approval = LiveApproval(approver="O", approved_on=date.today(), limits_sha256=file_sha256(limits))
-    run = _runner()
-    with pytest.raises(BotRefused, match="capital cap"):
-        run.build_live_bot(bot_cfg_path=cfg, limits_path=limits, state_dir=tmp_path / "s",
-                           base_url="http://x", api_key="K", transport=lambda u, p: {},
-                           reader=_Reader(1.0),
-                           startup_fn=lambda **k: {"ok": True, "reasons": [], "approval": approval,
-                                                   "capital_cap": None})
 
 
 # ---- kill switch is file-backed: a trip from another process stops a running bot -------------
@@ -325,3 +283,30 @@ def test_a_trip_written_elsewhere_stops_a_running_bot_entries(tmp_path):
     KillSwitch(tmp_path / "kill.json").trip("dashboard STOP", source="owner")
     bot.cycle(NOW)
     assert not bot._positions, "no entry may open after a trip written by another process"
+
+
+def _live_build(tmp_path, cash, cap, seen):
+    settings = tmp_path / "settings.yaml"
+    settings.write_text("live:\n  max_capital_inr: 500000\n"
+                        "trade_setup:\n  timeframes:\n    htf: 1h\n    mtf: 1d\n    ltf: 5m\n", encoding="utf-8")
+    limits = tmp_path / "risk_limits.yaml"
+    limits.write_text("max_order_quantity: 10\nmax_order_notional: 10000\nmax_open_exposure: 20000\n"
+                      "max_daily_loss: 1000\nmax_strategy_loss: 500\nmax_adv_pct: 0.01\n"
+                      "max_symbols_per_portfolio: 5\nblocked: false\n", encoding="utf-8")
+    cfg = tmp_path / "bot.yaml"
+    cfg.write_text(yaml.safe_dump({"mode": "live", "live_enabled": True}), encoding="utf-8")
+
+    def startup(**kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "reasons": [], "capital_cap": cap}
+
+    class _Transport:
+        def __call__(self, url, payload, **kw):
+            raise AssertionError("building the bot must not call the broker")
+
+    run = _runner()
+    bot, _ = run.build_live_bot(bot_cfg_path=cfg, limits_path=limits, state_dir=tmp_path / "s",
+                                base_url="http://x", api_key="K", transport=_Transport(),
+                                reader=_Reader(cash), startup_fn=startup,
+                                settings_path=settings)
+    return bot

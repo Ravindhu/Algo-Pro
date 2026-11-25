@@ -2,7 +2,7 @@
 # Live runs ONLY through scripts/run/run_strategy_bot_live.py. Live needs mode: live AND
 # live_enabled: true here, plus every start gate. The committed value is paper and live_enabled
 # stays false. The live data source must be approved in config/data_sources.yaml.
-# Real-money trading needs a recorded human LiveApproval (execution/openalgo_client.py). Not set here.
+# Live orders are sent only while the OpenAlgo analyzer (sandbox) is OFF (2026-11-25; LiveApproval removed).
 mode: live                   # paper | analyze | live (live also needs live_enabled and the live runner)
 live_enabled: true
 # Entries are LIMIT orders this many basis points above the last close (audit fix 6, 2026-11-15).

@@ -19,7 +19,7 @@ import pytest
 
 from quant.core.types import GateDecision, TradeIntent
 from quant.execution.openalgo_client import (
-    AnalyzeBroker, LiveApproval, OpenAlgoClient, file_sha256, http_transport,
+    AnalyzeBroker, OpenAlgoClient, http_transport,
 )
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -121,13 +121,6 @@ def test_analyze_refused_when_decision_is_for_another_intent():
     assert fake.sent() == []
 
 
-def test_analyze_needs_no_live_approval(tmp_path):
-    fake = Fake()
-    limits = tmp_path / "risk_limits.yaml"
-    limits.write_text("max_order_quantity: 10\n", encoding="utf-8")
-    client = OpenAlgoClient("http://x", fake, mode="analyze", live_approval=None, limits_path=limits)
-    client.place(intent(), "key", APPROVED)
-    assert fake.sent()
 
 
 def test_analyze_place_child_limit_and_market():
@@ -155,21 +148,6 @@ def test_paper_mode_still_refused_by_client():
         OpenAlgoClient("http://x", Fake(), mode="paper").place(intent(), "key", APPROVED)
 
 
-def test_live_mode_unchanged_by_analyze_path(tmp_path):
-    """Live still needs a LiveApproval; the analyzer query is never used in live mode."""
-    fake = Fake()
-    limits = tmp_path / "risk_limits.yaml"
-    limits.write_text("max_order_quantity: 10\n", encoding="utf-8")
-    client = OpenAlgoClient("http://x", fake, mode="live", live_approval=None, limits_path=limits,
-                            compliance=_ok_gate())
-    with pytest.raises(PermissionError, match="human approval"):
-        client.place(intent(), "key", APPROVED)
-    assert fake.calls == []
-    approval = LiveApproval("owner", date(2026, 11, 6), file_sha256(limits))
-    OpenAlgoClient("http://x", fake, mode="live", live_approval=approval, limits_path=limits,
-                   compliance=_ok_gate()).place(
-        intent(), "key", APPROVED)
-    assert [c[0] for c in fake.calls] == ["placeorder"]
 
 
 def test_get_order_status_payload():

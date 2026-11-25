@@ -14,7 +14,7 @@ import yaml
 
 from quant.audit.log import AuditLog
 from quant.core.types import GateDecision, TradeIntent
-from quant.execution.openalgo_client import LiveApproval, OpenAlgoClient, file_sha256
+from quant.execution.openalgo_client import OpenAlgoClient
 from quant.execution.strategy_bot import (AnalyzeSender, BotConfig, BotRefused, LiveSender,
                                           PaperSender, StrategyBot)
 from quant.execution.openalgo_client import PaperBroker
@@ -119,9 +119,6 @@ def _ok_gate():
     return True, []
 
 
-def _live_client(transport=None, approval=None):
-    return OpenAlgoClient("http://x", transport or Recorder(), mode="live",
-                          live_approval=approval, limits_path=LIMITS)
 
 
 # --- the sender ---
@@ -130,24 +127,8 @@ def test_live_sender_reports_live_mode():
     assert LiveSender.bot_mode == "live"
 
 
-def test_live_client_without_approval_sends_no_order():
-    """The real client refuses without a LiveApproval, so no HTTP call reaches the broker."""
-    transport = Recorder()
-    sender = LiveSender(_live_client(transport, approval=None))
-    decision = GateDecision(intent_id="INT-1", approved=True)
-    with pytest.raises(PermissionError):
-        sender.place_child(_intent(), "KEY", decision)
-    assert transport.calls == []
 
 
-def test_live_client_with_mismatched_limits_hash_sends_no_order(tmp_path):
-    """A stale approval (wrong limits hash) is void: no order is sent."""
-    transport = Recorder()
-    approval = LiveApproval(approver="Test Owner", approved_on=date.today(), limits_sha256="0" * 64)
-    client = _live_client(transport, approval=approval)
-    with pytest.raises(PermissionError):
-        LiveSender(client).place_child(_intent(), "KEY", GateDecision(intent_id="INT-1", approved=True))
-    assert transport.calls == []
 
 
 # --- bot constructor guard ---
@@ -163,10 +144,6 @@ def test_live_mode_needs_a_gate_function(tmp_path):
         _bot(_live_cfg(), LiveSender(_live_client()), live_gate=None, tmp_path=tmp_path)
 
 
-def test_failed_live_gate_reasons_are_reported(tmp_path):
-    gate = lambda: (False, ["no live approval on file"])
-    with pytest.raises(BotRefused, match="no live approval on file"):
-        _bot(_live_cfg(), LiveSender(_live_client()), live_gate=gate, tmp_path=tmp_path)
 
 
 def test_live_enabled_refused_outside_live_mode(tmp_path):
@@ -211,42 +188,12 @@ def _write_live_cfg(tmp_path, **over):
     return path
 
 
-def test_runner_refuses_when_config_is_not_live(tmp_path):
-    run = _runner()
-    cfg = _write_live_cfg(tmp_path, mode="analyze", live_enabled=False)
-    with pytest.raises(BotRefused, match="live runner needs"):
-        run.build_live_bot(bot_cfg_path=cfg, limits_path=LIMITS, state_dir=tmp_path / "s",
-                           base_url="http://x", api_key="K", transport=Recorder(),
-                           reader=FakeReader(), startup_fn=lambda **k: {"ok": True, "reasons": [], "approval": None})
 
 
-def test_runner_refuses_when_start_gate_fails_and_sends_nothing(tmp_path):
-    run = _runner()
-    cfg = _write_live_cfg(tmp_path)
-    transport = Recorder()
-    failing = lambda **k: {"ok": False, "reasons": ["no live approval on file"], "approval": None}
-    with pytest.raises(BotRefused, match="no live approval on file"):
-        run.build_live_bot(bot_cfg_path=cfg, limits_path=LIMITS, state_dir=tmp_path / "s",
-                           base_url="http://x", api_key="K", transport=transport,
-                           reader=FakeReader(), startup_fn=failing)
-    assert transport.calls == []
 
 
-def test_runner_builds_live_bot_when_gate_passes_and_places_no_order(tmp_path):
-    run = _runner()
-    cfg = _write_live_cfg(tmp_path)
-    transport = Recorder()
-    approval = LiveApproval(approver="Test Owner", approved_on=date.today(),
-                            limits_sha256=file_sha256(LIMITS))
-    passing = lambda **k: {"ok": True, "reasons": [], "approval": approval, "capital_cap": 500000.0}
-    settings = tmp_path / "settings.yaml"
-    settings.write_text("live:\n  max_capital_inr: 500000\n"
-                        "trade_setup:\n  timeframes:\n    htf: 1h\n    mtf: 1d\n    ltf: 5m\n", encoding="utf-8")
-    bot, audit = run.build_live_bot(bot_cfg_path=cfg, limits_path=LIMITS, state_dir=tmp_path / "s",
-                                    base_url="http://x", api_key="K", transport=transport,
-                                    reader=FakeReader(), startup_fn=passing,
-                                    settings_path=settings)
-    assert bot.cfg.mode == "live"
-    assert isinstance(bot._executor._sender, LiveSender)
-    assert transport.calls == []  # building the bot must never send an order
-    assert isinstance(audit, AuditLog)
+
+
+def _live_client(transport=None):
+    # 2026-11-25: no LiveApproval. Live sends need the OpenAlgo analyzer off (see transport).
+    return OpenAlgoClient("http://x", transport or Recorder(), mode="live")

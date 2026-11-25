@@ -1,16 +1,16 @@
 """Live runner for the strategy bot. Refuses to start unless every live gate passes.
 
-Usage (owner only; after scripts/ops/approve_live.py and mode: live + live_enabled: true
-in config/bot.yaml):
+Usage (owner only; mode: live + live_enabled: true in config/bot.yaml, and the OpenAlgo
+analyzer switched OFF; while it is on, no live order is sent):
   python scripts/run/run_strategy_bot_live.py --base-url http://127.0.0.1:5000
 
 Gates, in order. Each one must pass before any order can be sent:
   1. config/bot.yaml: mode is "live" and live_enabled is true.
-  2. scripts/run/run_live.startup_checks: approval on file, limits hash unchanged,
-     limits complete, kill switch off, holiday calendar verified, API key present,
+  2. scripts/run/run_live.startup_checks: limits complete, kill switch off, holiday calendar
+     verified, API key present, live.max_capital_inr set,
   3. StrategyBot start: the same gate is run again inside the bot.
   4. Startup reconciliation with the broker position book. No match = no entries.
-  5. OpenAlgoClient live guard on EVERY order: approval, limits hash, compliance
+  5. OpenAlgoClient live guard on EVERY order: OpenAlgo analyzer must be off, compliance
      gate (audit storage and clock), and an approved GateDecision for the same intent.
 
 Stop: create the file <state-dir>/stop.flag (the loop checks it every second).
@@ -155,17 +155,16 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         res = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)
         return bool(res.get("ok")), list(res.get("reasons", []))
 
-    # Gate 1+2: run the start checks now. The approval they return is needed for the client.
+    # Gate 1+2: run the start checks now.
     checks = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)
-    if not checks.get("ok") or checks.get("approval") is None:
-        raise BotRefused("live startup gate refused: " + "; ".join(checks.get("reasons", ["no approval"])))
+    if not checks.get("ok"):
+        raise BotRefused("live startup gate refused: " + "; ".join(checks.get("reasons", ["unknown"])))
     cap = checks.get("capital_cap")
     if not isinstance(cap, (int, float)) or isinstance(cap, bool) or cap <= 0:
         raise BotRefused("live startup gate gave no fixed capital cap (live.max_capital_inr)")
 
     client = OpenAlgoClient(
-        base_url, transport, mode="live", live_approval=checks["approval"],
-        limits_path=limits_path,
+        base_url, transport, mode="live",
         compliance=ComplianceGate(ComplianceConfig(audit_dir=str(state_dir))),
     )
     readonly = reader if reader is not None else OpenAlgoReadOnly(base_url, transport)
@@ -225,6 +224,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         position_store=PositionStore(state_dir / "positions.json"),
         stops=LiveStops(client, api_key),
         # No extra per-cycle check: the egress IP check was removed (owner, 2026-11-23).
+        # The OpenAlgo analyzer switch is checked on every order (2026-11-25).
         # The bot still requires a guard object; this one always passes. The live gate and
         # OpenAlgoClient's live guard still run on every order.
         entry_guard=lambda: (True, []),

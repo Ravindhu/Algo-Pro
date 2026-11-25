@@ -73,7 +73,6 @@ DEFAULT_PATHS = {
     "loop": ROOT / "data" / "paper" / "loop",
     "holidays": ROOT / "config" / "calendar" / "holidays.csv",
     "mode_state": ROOT / "data" / "mode.json",          # requested mode (decision 0030)
-    "live_approval": ROOT / "data" / "live_approval.json",  # human sign-off; written only by scripts/ops/approve_live.py
     "schedule": ROOT / "data" / "schedule_settings.json",
     "users": ROOT / "data" / "dashboard_users.json",
     "recs": ROOT / "data" / "paper" / "recommendations.json",  # agent recommendations (Part B 1)
@@ -87,7 +86,7 @@ API_INDEX = {
     "endpoints": [
         "/api/overview", "/api/positions", "/api/events", "/api/health", "/api/kill", "/api/setup",
         "POST /api/limits (token)", "POST /api/kill/trip (token)", "POST /api/kill/reset (token)",
-        "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token; live needs approval)",
+        "POST /api/setup (token)", "/api/trading-mode", "POST /api/trading-mode (token)",
         "/api/loop", "POST /api/loop/start (token)", "POST /api/loop/stop (token)",
         "/api/portfolio", "/api/infrastructure", "/api/account",
         "POST /api/account/login", "POST /api/account/signup", "POST /api/account/logout",
@@ -325,7 +324,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             spec.loader.exec_module(mod)
             checks = mod.startup_checks(
                 limits_path=paths["limits"], mode_file=paths["mode_state"],
-                approval_file=paths["live_approval"], holidays_file=paths["holidays"],
+                holidays_file=paths["holidays"],
                 kill_path=paths["live_kill"], settings_path=paths["settings"])
         except Exception as exc:  # any failure means not ready (fail closed)
             return JSONResponse({"ready": False, "reasons": [f"status check failed: {exc}"],
@@ -361,16 +360,15 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.get("/api/trading-mode")
     def trading_mode():
         return JSONResponse(trading_mode_status(
-            state_path=paths.get("mode_state"), approval_path=paths.get("live_approval"),
+            state_path=paths.get("mode_state"),
             limits_path=paths.get("limits")))
 
     @app.post("/api/trading-mode")
     async def set_trading_mode(request: Request):
-        """Select paper or live (decision 0030). Live needs a valid LiveApproval. Needs the token.
+        """Select paper or live. Needs the token.
 
-        The mode is a REQUEST, never authority: authority is the approval file plus the
-        risk gate. A live request without a valid approval is refused with 409 and audited,
-        so a mis-click writes one audit row and nothing else.
+        The mode is a REQUEST. Live orders are sent only while OpenAlgo's analyzer is off
+        (2026-11-25: LiveApproval removed). Each request is audited.
         """
         denied = owner_denied(request)
         if denied is not None:
@@ -383,14 +381,14 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         audit = AuditLog(paths["audit"])
         accepted, message = request_mode(
             mode,
-            state_path=paths.get("mode_state"), approval_path=paths.get("live_approval"),
+            state_path=paths.get("mode_state"),
             limits_path=paths.get("limits"), audit=audit)
         audit.append("trading_mode_requested",
                      {"requested": mode, "accepted": accepted, "message": message, "actor": ACTOR})
         if not accepted:
             return JSONResponse({"error": message}, status_code=409 if mode == "live" else 422)
         return JSONResponse(trading_mode_status(
-            state_path=paths.get("mode_state"), approval_path=paths.get("live_approval"),
+            state_path=paths.get("mode_state"),
             limits_path=paths.get("limits")))
 
     @app.get("/api/loop")
@@ -896,7 +894,6 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
                                 status_code=422)
         loosening = _loosens(stored_current, recommended, parameter)
         mode = trading_mode_status(state_path=paths.get("mode_state"),
-                                   approval_path=paths.get("live_approval"),
                                    limits_path=paths.get("limits")).get("mode", "paper")
         needed = (LOOSEN_PHRASE_LIVE if mode == "live" else LOOSEN_PHRASE_PAPER) if loosening else None
         phrase = body.get("phrase") if isinstance(body.get("phrase"), str) else ""

@@ -36,19 +36,8 @@ def test_paper_is_accepted(tmp_path):
     assert ok is True and msg == "Paper mode selected."
 
 
-def test_live_is_refused_without_an_approval(tmp_path):
-    ok, msg = request_mode("live", state_path=tmp_path / "mode.json",
-                           approval_path=tmp_path / "nope.json",
-                           limits_path=tmp_path / "l.yaml")
-    assert ok is False
-    assert "approval" in msg
 
 
-def test_live_mode_is_not_created_by_a_refusal(tmp_path):
-    state = tmp_path / "mode.json"
-    request_mode("live", state_path=state, approval_path=tmp_path / "nope.json",
-                 limits_path=tmp_path / "l.yaml")
-    assert not state.exists()
 
 
 def test_invalid_mode_is_refused(tmp_path):
