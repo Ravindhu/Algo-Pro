@@ -165,8 +165,12 @@ def map_product_type(product):
         "CNC": "DELIVERY",
         "NRML": "CARRYFORWARD",
         "MIS": "INTRADAY",
+        "MTF": "MARGIN",
     }
-    return product_type_mapping.get(product, "INTRADAY")
+    # Unknown products are refused. A silent fallback to INTRADAY once turned a margin order into an intraday one.
+    if product not in product_type_mapping:
+        raise ValueError(f"unknown order product {product!r}: refused, no fallback")
+    return product_type_mapping[product]
 
 
 def map_variety(pricetype):
@@ -187,6 +191,6 @@ def reverse_map_product_type(product):
         "DELIVERY": "CNC",
         "CARRYFORWARD": "NRML",
         "INTRADAY": "MIS",
-        "MARGIN": "MIS",
+        "MARGIN": "MTF",
     }
     return reverse_product_type_mapping.get(product)

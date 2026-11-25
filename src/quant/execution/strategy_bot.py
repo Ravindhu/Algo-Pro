@@ -52,6 +52,7 @@ from quant.monitor.broker_recon import ReconGate, startup_reconcile
 from quant.monitor.feed_health import FeedHealthBook
 from quant.monitor.safe_mode import SafeMode
 from quant.risk.controls import HaltHandler
+from quant.risk.margin_entry import MTF, MarginSettings, choose_product, settings_from_path, verify_leverage
 from quant.risk.gate import RiskState, check_intent
 from quant.risk.kill_switch import KillSwitch
 from quant.risk.squareoff import session_policy
@@ -197,6 +198,8 @@ class BotConfig:
     # Per-strategy breakeven and trail. Only breakeven_r and trail_mult may be set; a strategy
     # not listed here uses the global values above. Example: {engulfing: {trail_mult: 1.5}}.
     exits: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    # Margin settings (owner 2026-11-25). Set only by load_bot_config from settings.yaml, never from bot.yaml.
+    margin: Optional[MarginSettings] = None
 
     def __post_init__(self) -> None:
         def _hhmm(text, name):
@@ -282,6 +285,8 @@ class BotConfig:
             raise ValueError(f"unknown bot keys: {sorted(unknown)}")
         if "risk_per_trade" in data:
             raise ValueError("risk_per_trade is set in config/settings.yaml (sizing), not in bot.yaml")
+        if "margin" in data:
+            raise ValueError("margin is set in config/settings.yaml, not in bot.yaml")
         if "strategies" in data:
             data["strategies"] = tuple(data["strategies"])
         return cls(**data)
@@ -302,6 +307,8 @@ def load_bot_config(path, settings_path=None) -> BotConfig:
         from quant.core.setup_store import load_timeframes
         from quant.risk.squareoff import product_for_mtf
         cfg = replace(cfg, product=product_for_mtf(load_timeframes(settings).get("mtf")))
+    # Margin funding: off unless settings.yaml says mtf_enabled: true. Read errors mean off.
+    cfg = replace(cfg, margin=settings_from_path(settings))
     return cfg
 
 
@@ -445,6 +452,7 @@ class StrategyBot:
         cycle_loss_ceiling: Optional[float] = None,
         cycle_portfolio_loss_ceiling: Optional[float] = None,
         cycle_symbol_allocation_pct: Optional[float] = None,
+        margin_check: Optional[Callable[[TradeIntent], Any]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -512,6 +520,7 @@ class StrategyBot:
         self._pnl_store = pnl_store               # persists counters across restarts; None = in-memory only
         self._exit_held_qty: Optional[int] = None  # held qty of the exit being sent (read by _child_gate)
         self._stops = stops                        # broker SL-M stops: place / status / cancel (None = paper)
+        self._margin_check = margin_check          # broker margin for an MTF order (None = MTF refused)
         self._pos_store = position_store           # restart-safe position book (None = in-memory only)
         self._entry_guard = entry_guard            # re-checked every cycle in live
         self._faults: set = set()                  # ("stop"|"partial", key): entries and slicing blocked while any exists
@@ -784,7 +793,43 @@ class StrategyBot:
         self._log("parent_gate", key=key, approved=res.ok, reason=res.reason)
         if not res.ok or res.intent is None:
             return None
+        product, why = self._entry_product(res.intent)
+        if self.cfg.margin is not None and self.cfg.margin.enabled:
+            self._log("margin_choice", key=key, symbol=sym, product=product, reason=why)
+        if product != res.intent.product:
+            return _dc_replace(res.intent, product=product)
         return res.intent
+
+    def _entry_product(self, intent: TradeIntent) -> Tuple[str, str]:
+        """Delivery entries become MTF only when the limit and the broker leverage check pass (margin_entry.py)."""
+        notional = float(intent.qty) * float(intent.ref_price)
+        product, why = choose_product(intent.product, intent.side, notional, self._mtf_borrowed_inr(), self.cfg.margin)
+        if product != MTF:
+            return product, why
+        return self._verify_margin(intent)
+
+    def _verify_margin(self, intent: TradeIntent) -> Tuple[str, str]:
+        """Verify leverage before an MTF order: the broker's returned margin against the full value. Any failure keeps CNC."""
+        if self._margin_check is None:
+            return "CNC", "margin not used: no broker margin check configured"
+        full = float(intent.qty) * float(intent.ref_price)
+        try:
+            reply = self._margin_check(_dc_replace(intent, product=MTF))
+        except Exception as exc:  # noqa: BLE001 - a failed check must never reach the order path
+            return "CNC", f"margin not used: broker margin check failed ({type(exc).__name__})"
+        ok, reason = verify_leverage(reply, full, self.cfg.margin.max_leverage)
+        return (MTF, reason) if ok else ("CNC", f"margin not used: {reason}")
+
+    def _mtf_borrowed_inr(self) -> float:
+        """Borrowed total at full notional: open MTF positions plus unfilled MTF parents."""
+        open_ = sum(p.qty * p.entry for p in self._positions.values() if p.product == MTF)
+        pending = sum(p.remaining * float(p.intent.ref_price)
+                      for p in self._parents.values() if p.intent.product == MTF)
+        return float(open_ + pending)
+
+    def _product_of(self, pos: Position) -> str:
+        """A position's own order product. Positions saved before the field existed use the bot's product."""
+        return pos.product or self.cfg.product
 
     def _scan(self, strat, sym, df, circuit_pct, stats, now, report) -> None:
         if getattr(strat, "is_cycle", False):
@@ -1245,6 +1290,7 @@ class StrategyBot:
                 prev_close=p.prev_close, circuit_pct=p.circuit_pct, strategy=p.strategy,
                 # cycle positions: no breakeven (owner 11.9); ATR trail from entry after a conservative touch
                 breakeven_enabled=not p.cycle, trail_from_start=bool(p.cycle and p.trail),
+                product=p.intent.product,
             )
             self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
         else:
@@ -1336,7 +1382,7 @@ class StrategyBot:
             intent_id=f"{key}-EXIT", strategy_id=pos.strategy, symbol=pos.symbol,
             side=pos.exit_side, qty=pos.qty, ref_price=float(price), kind="exit",
             prev_close=pos.prev_close, circuit_pct=pos.circuit_pct, adv_shares=pos.adv_shares,
-            trade_day=now.date(), product=self.cfg.product,
+            trade_day=now.date(), product=self._product_of(pos),
         )
         self._exit_held_qty = pos.qty  # the gate refuses a SELL larger than this
         try:
@@ -1528,7 +1574,7 @@ class StrategyBot:
         exit_side = "SELL" if pos.side == "BUY" else "BUY"
         try:
             res = self._stops.place_stop(pos.symbol, exit_side, pos.qty, pos.stop, pos.strategy,
-                                         product=self.cfg.product)
+                                         product=self._product_of(pos))
         except Exception as exc:
             res = {"status": "error", "reason": repr(exc)}
         order_id = str(res.get("orderid", "")) if str(res.get("status", "")).lower() == "success" else ""

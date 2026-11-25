@@ -24,6 +24,7 @@ class OpenAlgoReadOnly:
     POSITIONBOOK_PATH = "/api/v1/positionbook"
     HISTORY_PATH = "/api/v1/history"
     SEARCH_PATH = "/api/v1/search"
+    MARGIN_PATH = "/api/v1/margin"
 
     def __init__(self, base_url: str, transport: Transport) -> None:
         self.base_url = base_url.rstrip("/")
@@ -63,6 +64,17 @@ class OpenAlgoReadOnly:
         payload = {"apikey": api_key, "symbol": symbol, "exchange": exchange, "interval": interval,
                    "start_date": start_date, "end_date": end_date, "source": "api"}
         return self._transport(self.base_url + self.HISTORY_PATH, payload)
+
+    def margin_for_order(self, api_key: str, symbol: str, exchange: str, action: str, quantity: int,
+                     product: str, pricetype: str = "MARKET", price: float = 0.0) -> Dict:
+        """Broker margin for one order (OpenAlgo /margin). Read only: the broker prices it, nothing is placed.
+
+        The reply is checked against the order's full value before any MTF order (margin_entry.verify_leverage).
+        """
+        self._need_key(api_key)
+        position = {"symbol": symbol, "exchange": exchange, "action": action, "quantity": str(int(quantity)),
+                    "product": product, "pricetype": pricetype, "price": str(price)}
+        return self._transport(self.base_url + self.MARGIN_PATH, {"apikey": api_key, "positions": [position]})
 
     def search_symbol(self, api_key: str, symbol: str, exchange: str = "NSE") -> Dict:
         """Instrument-master lookup (OpenAlgo /search). Read only; raw reply.

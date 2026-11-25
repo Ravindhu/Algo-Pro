@@ -32,8 +32,8 @@ def kill_exit_intents(
 ) -> Tuple[List[TradeIntent], List[Tuple[str, str]]]:
     """Return (exit intents, skipped). positions: symbol -> signed qty. ref_prices: symbol -> last price."""
     code = str(product or "").strip().upper()
-    if code and code not in ("MIS", "CNC"):
-        raise ValueError(f"kill close product must be MIS or CNC, got {product!r}")
+    if code and code not in ("MIS", "CNC", "MTF"):
+        raise ValueError(f"kill close product must be MIS, CNC or MTF, got {product!r}")
     taken = set(ledger_intent_ids)
     intents: List[TradeIntent] = []
     skipped: List[Tuple[str, str]] = []

@@ -87,10 +87,10 @@ class PaperBroker:
 
 
 def _order_product(value) -> str:
-    """MIS or CNC, upper-cased. Anything else is refused: never send an unknown product to the broker."""
+    """MIS, CNC or MTF (margin-funded delivery), upper-cased. Anything else is refused: never send an unknown product."""
     code = str(value or "").strip().upper()
-    if code not in ("MIS", "CNC"):
-        raise ValueError(f"order product must be MIS or CNC, got {value!r}")
+    if code not in ("MIS", "CNC", "MTF"):
+        raise ValueError(f"order product must be MIS, CNC or MTF, got {value!r}")
     return code
 
 

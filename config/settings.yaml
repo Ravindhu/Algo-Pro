@@ -33,6 +33,15 @@ live:
   # this and the broker's available cash.
   max_capital_inr: null
 
+# MARGIN-FUNDED DELIVERY (MTF). Owner 2026-11-25. Off until the owner sets mtf_enabled: true.
+# BUY delivery entries may use it while the borrowed total stays within mtf_borrow_pct of
+# risk_budget.capital_inr. Before each MTF order the broker's returned margin must imply a leverage
+# above 1 and at most mtf_max_leverage (5 = 80% funding, the broker maximum). Read at bot start.
+margin:
+  mtf_enabled: false
+  mtf_borrow_pct: 0.30
+  mtf_max_leverage: 5.0
+
 # PAPER trading (2026-11-08). Paper only; no broker orders.
 risk_budget:
   # Owner 2026-11-19. Loss caps as a share of capital. Set from dashboard Trade setup.

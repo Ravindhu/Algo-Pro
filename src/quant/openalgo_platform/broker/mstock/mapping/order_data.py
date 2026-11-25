@@ -350,6 +350,8 @@ def map_trade_data(trade_data):
             trade["producttype"] = "CNC"
         elif producttype == "INTRADAY":
             trade["producttype"] = "MIS"
+        elif producttype == "MARGIN":
+            trade["producttype"] = "MTF"
         elif lookup_exchange in ["NFO", "MCX", "BFO", "CDS"] and producttype == "CARRYFORWARD":
             trade["producttype"] = "NRML"
         else:
@@ -476,6 +478,8 @@ def map_position_data(position_data):
                 position["producttype"] = "CNC"
             elif producttype == "INTRADAY":
                 position["producttype"] = "MIS"
+            elif producttype == "MARGIN":
+                position["producttype"] = "MTF"
             elif exchange in ["NFO", "MCX", "BFO", "CDS"] and producttype == "CARRYFORWARD":
                 position["producttype"] = "NRML"
 

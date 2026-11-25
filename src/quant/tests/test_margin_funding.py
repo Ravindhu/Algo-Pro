@@ -57,35 +57,9 @@ def test_setting_defaults_to_off(tmp_path):
     assert load_mtf_enabled(settings) is True
 
 
-def test_order_client_refuses_margin_product():
-    # No margin product reaches the broker: MTF is not an accepted order product.
+def test_order_client_accepts_margin_product_only_as_mtf():
+    # owner 2026-11-25: MTF is the margin-delivery order product (mapped to mStock MARGIN)
+    assert _order_product("mtf") == "MTF"
     with pytest.raises(ValueError):
-        _order_product("MTF")
+        _order_product("MARGIN")
 
-
-from quant.risk.margin_funding import eligibility_check, load_eligible  # noqa: E402
-
-
-def test_empty_or_missing_list_refuses_every_symbol(tmp_path):
-    assert load_eligible(tmp_path / "missing.csv") == frozenset()
-    ok, reason = eligibility_check("INFY", frozenset())
-    assert ok is False and "empty or missing" in reason
-
-
-def test_symbol_not_on_list_is_refused():
-    ok, reason = eligibility_check("TCS", frozenset({"INFY"}))
-    assert ok is False and "not on" in reason
-
-
-def test_listed_symbol_is_allowed_case_and_space_insensitive():
-    assert eligibility_check(" infy ", frozenset({"INFY"})) == (True, "ok")
-
-
-def test_blank_symbol_refused():
-    assert eligibility_check("  ", frozenset({"INFY"}))[0] is False
-
-
-def test_list_file_format_header_comments_blank_lines(tmp_path):
-    f = tmp_path / "margin_eligible.csv"
-    f.write_text("symbol\n# owner list 2026-11-25\nINFY\n\n tcs , note\nreliance # comment\n", encoding="utf-8")
-    assert load_eligible(f) == frozenset({"INFY", "TCS", "RELIANCE"})

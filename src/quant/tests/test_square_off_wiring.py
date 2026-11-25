@@ -178,10 +178,10 @@ def test_order_client_sends_cnc_or_mis(given, sent):
     assert _order_product(given) == sent
 
 
-@pytest.mark.parametrize("bad", ["NRML", "", None, "MTF"])
+@pytest.mark.parametrize("bad", ["NRML", "", None, "MARGIN"])
 def test_order_client_refuses_unknown_product(bad):
     # Fail closed: an unknown product is never sent to the broker.
-    with pytest.raises(ValueError, match="MIS or CNC"):
+    with pytest.raises(ValueError, match="MIS, CNC or MTF"):
         _order_product(bad)
 
 

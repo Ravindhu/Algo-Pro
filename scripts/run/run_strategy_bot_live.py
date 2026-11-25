@@ -203,6 +203,9 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         sender=_live_sender(client, cfg),
         audit=audit,
         api_key=api_key,
+        # MTF leverage check: the broker's margin reply for the order, read-only (margin_entry.verify_leverage).
+        margin_check=lambda intent: readonly.margin_for_order(
+            api_key, intent.symbol, "NSE", intent.side, intent.qty, intent.product, "MARKET", intent.ref_price),
         # Sizing equity is the fixed live cap, or the broker's cash when that is smaller.
         read_funds=lambda: min(available_cash(readonly, api_key), float(cap)),
         limits=RiskLimits.from_yaml(limits_path),

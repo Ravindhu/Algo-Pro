@@ -91,8 +91,12 @@ def map_product_type(product):
         "CNC": "DELIVERY",
         "NRML": "CARRYFORWARD",
         "MIS": "INTRADAY",
+        "MTF": "MARGIN",
     }
-    return product_type_mapping.get(product, "INTRADAY")
+    # Unknown products are refused: a silent INTRADAY would price a margin order as an intraday one.
+    if product not in product_type_mapping:
+        raise ValueError(f"unknown order product {product!r}: refused, no fallback")
+    return product_type_mapping[product]
 
 
 def parse_margin_response(response_data):

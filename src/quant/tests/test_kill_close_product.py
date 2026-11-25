@@ -30,10 +30,16 @@ def test_no_product_means_no_close_regression():
     assert skipped and "product unknown" in skipped[0][1]
 
 
-@pytest.mark.parametrize("bad", ["NRML", "MTF"])
+@pytest.mark.parametrize("bad", ["NRML", "SELL"])
 def test_unknown_product_refused(bad):
-    with pytest.raises(ValueError, match="MIS or CNC"):
+    with pytest.raises(ValueError, match="MIS, CNC or MTF"):
         kill_exit_intents({"TCS": 5}, {"TCS": 100.0}, [], product=bad)
+
+
+def test_margin_product_accepted_for_kill_close():
+    # owner 2026-11-25: MTF (margin-funded delivery) is a valid kill-close product
+    intents, _ = kill_exit_intents({"TCS": 5}, {"TCS": 100.0}, [], product="MTF")
+    assert len(intents) == 1 and intents[0].product == "MTF"
 
 
 def test_no_reference_price_still_skipped_with_product():

@@ -56,6 +56,7 @@ class Position:
     broker_stop_id: str = ""          # OpenAlgo SL-M stop order at the broker ("" = none placed)
     broker_stop_qty: int = 0           # quantity that the broker stop covers
     broker_stop_trigger: float = 0.0   # trigger price the broker stop was placed at
+    product: str = ""                 # order product of the entry: MIS, CNC or MTF ("" = saved before this field)
     risk_r: float = field(init=False)
 
     def __post_init__(self) -> None:
