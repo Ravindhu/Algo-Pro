@@ -91,10 +91,10 @@ class LiveStops:
         self._client = client
         self._key = api_key
 
-    def place_stop(self, symbol, action, qty, trigger_price, strategy, product="MIS"):
+    def place_stop(self, symbol, action, qty, trigger_price, strategy, product="MIS", exchange="NSE"):
         try:
             r = self._client.place_stop(symbol, action, qty, trigger_price, strategy, self._key,
-                                        product=product)
+                                        product=product, exchange=exchange)
         except Exception as exc:  # PermissionError (guard) or network: no stop, the bot blocks entries
             return {"status": "error", "reason": repr(exc)}
         order_id = str(r.get("orderid", "")) if isinstance(r, dict) else ""

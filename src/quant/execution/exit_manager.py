@@ -58,9 +58,12 @@ class Position:
     broker_stop_trigger: float = 0.0   # trigger price the broker stop was placed at
     product: str = ""                 # order product of the entry: MIS, CNC or MTF ("" = saved before this field)
     funded_pct: float = 0.0           # MTF only: funded share at entry (borrowed = qty x entry x funded_pct)
+    exchange: str = "NSE"             # exchange the position is held on: NSE or BSE (slice 3, 2026-11-25)
     risk_r: float = field(init=False)
 
     def __post_init__(self) -> None:
+        if self.exchange not in ("NSE", "BSE"):
+            raise ValueError(f"bad exchange {self.exchange!r}")
         self.side = self.side.upper()
         if self.side not in ("BUY", "SELL"):
             raise ValueError(f"bad side {self.side!r}")

@@ -1434,7 +1434,7 @@ class StrategyBot:
                 prev_close=p.prev_close, circuit_pct=p.circuit_pct, strategy=p.strategy,
                 # cycle positions: no breakeven (owner 11.9); ATR trail from entry after a conservative touch
                 breakeven_enabled=not p.cycle, trail_from_start=bool(p.cycle and p.trail),
-                product=p.intent.product, funded_pct=p.intent.funded_pct,
+                product=p.intent.product, funded_pct=p.intent.funded_pct, exchange=p.intent.exchange,
             )
             self._log("position_open", key=p.key, qty=qty, entry=fill, stop=p.stop, target=p.target)
         else:
@@ -1526,7 +1526,7 @@ class StrategyBot:
             intent_id=f"{key}-EXIT", strategy_id=pos.strategy, symbol=pos.symbol,
             side=pos.exit_side, qty=pos.qty, ref_price=float(price), kind="exit",
             prev_close=pos.prev_close, circuit_pct=pos.circuit_pct, adv_shares=pos.adv_shares,
-            trade_day=now.date(), product=self._product_of(pos),
+            trade_day=now.date(), product=self._product_of(pos), exchange=pos.exchange,
         )
         self._exit_held_qty = pos.qty  # the gate refuses a SELL larger than this
         try:
@@ -1719,8 +1719,10 @@ class StrategyBot:
                 return
         exit_side = "SELL" if pos.side == "BUY" else "BUY"
         try:
+            # NSE keeps the call exactly as before; other exchanges name theirs.
+            extra = {} if pos.exchange == "NSE" else {"exchange": pos.exchange}
             res = self._stops.place_stop(pos.symbol, exit_side, pos.qty, pos.stop, pos.strategy,
-                                         product=self._product_of(pos))
+                                         product=self._product_of(pos), **extra)
         except Exception as exc:
             res = {"status": "error", "reason": repr(exc)}
         order_id = str(res.get("orderid", "")) if str(res.get("status", "")).lower() == "success" else ""

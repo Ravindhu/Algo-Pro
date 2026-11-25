@@ -241,7 +241,7 @@ class OpenAlgoClient:
         return self._transport(self.base_url + self.PLACE_PATH, payload)
 
     def place_stop(self, symbol: str, action: str, qty: int, trigger_price: float,
-                   strategy: str, api_key: str, product: str = "MIS") -> Dict:
+                   strategy: str, api_key: str, product: str = "MIS", exchange: str = "NSE") -> Dict:
         """Place a broker-side stop-loss (SL-M, market after trigger) for an open position.
 
         Protective order: it only reduces risk, so there is no GateDecision here. The same session
@@ -257,9 +257,11 @@ class OpenAlgoClient:
         self._check_session_guard(api_key)
         if not api_key:
             raise PermissionError("stop refused: empty API key")
+        if exchange not in ("NSE", "BSE"):
+            raise ValueError(f"bad stop exchange: {exchange!r}")
         payload = {
             "apikey": api_key,
-            "exchange": self.exchange,
+            "exchange": exchange,
             "symbol": symbol,
             "action": action,
             "quantity": qty,
