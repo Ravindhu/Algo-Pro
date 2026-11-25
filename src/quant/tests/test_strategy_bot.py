@@ -155,11 +155,15 @@ def test_analyze_mode_accepted(tmp_path):
     assert bot.cfg.mode == "analyze"
 
 
-def test_repo_bot_config_loads_and_is_paper_or_analyze():
+def test_repo_bot_config_loads_and_live_is_only_the_owner_setting():
+    """Owner enabled live on 2026-11-25 (commit c818caa). Live needs live_enabled true, and paper or analyze
+    must always be set with live_enabled false. Any other combination is a config error."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[3]
     cfg = BotConfig.from_yaml(root / "config" / "bot.yaml")
-    assert cfg.mode in ("paper", "analyze") and cfg.live_enabled is False and cfg.interval_minutes == 5
+    assert cfg.mode in ("paper", "analyze", "live")
+    assert cfg.live_enabled is (cfg.mode == "live")
+    assert cfg.interval_minutes == 5
 
 
 def test_repo_data_source_is_approved_for_live():

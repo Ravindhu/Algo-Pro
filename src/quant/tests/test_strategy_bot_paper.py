@@ -200,5 +200,5 @@ def test_repo_config_mode_is_one_of_allowed(tmp_path):
     from pathlib import Path
     root = Path(__file__).resolve().parents[3]
     cfg = BotConfig.from_yaml(root / "config" / "bot.yaml")
-    assert cfg.mode in ("paper", "analyze")
-    assert cfg.live_enabled is False
+    assert cfg.mode in ("paper", "analyze", "live")
+    assert cfg.live_enabled is (cfg.mode == "live")  # live only when the owner has enabled it
