@@ -252,7 +252,6 @@
           <p class="d">Two-factor (TOTP / Google Authenticator)</p>
           <button type="button" id="totp-gen">Create TOTP key</button>
           <button type="button" id="totp-remove" hidden>Remove TOTP</button>
-          <pre id="totp-key" class="d" style="white-space:pre-wrap;word-break:break-all"></pre>
           <img id="totp-qr" alt="Scan with Google Authenticator" hidden
                style="width:180px;height:180px;background:#fff;padding:6px;border-radius:8px">
         </div>
@@ -1636,7 +1635,6 @@
     if (who && avatarUrl) { pimg.src = avatarUrl; pimg.hidden = false; pinit.hidden = true; }
     else { pimg.hidden = true; pinit.hidden = false; }
     $("totp-remove").hidden = !res.j.totp_enabled;
-    $("totp-key").textContent = "";
     if (res.j.login_enabled === false) sMsg("acct-msg", "Account login is off: set DASHBOARD_SESSION_SECRET on the server.", "r");
     else sMsg("acct-msg", "");
   }
@@ -1720,7 +1718,6 @@
   $("totp-gen").onclick = async () => {
     const res = await jpost("/api/account/totp/enroll", {});
     if (res.ok) {
-      $("totp-key").textContent = res.j.secret + "\n" + res.j.otpauth_uri;
       $("totp-qr").src = "/api/account/totp/qr?ts=" + Date.now();
       $("totp-qr").hidden = false;
       sMsg("acct-msg", "Key created - scan the QR with Google Authenticator NOW (shown once per enrolment).", "g");
@@ -1729,7 +1726,7 @@
   };
   $("totp-remove").onclick = async () => {
     const res = await jpost("/api/account/totp/remove", {});
-    if (res.ok) { $("totp-key").textContent = ""; $("totp-qr").hidden = true; $("totp-remove").hidden = true; sMsg("acct-msg", "TOTP removed.", "g"); }
+    if (res.ok) { $("totp-qr").hidden = true; $("totp-remove").hidden = true; sMsg("acct-msg", "TOTP removed.", "g"); }
     else sMsg("acct-msg", res.j.error || "Failed.", "r");
   };
 
