@@ -1344,13 +1344,13 @@
     $("rk-mtm").textContent = p.state === "broker_read" && today.length ? money(mtm) : "—";
     $("rk-mtm").className = today.length ? sign(mtm) : "";
     $("rk-poscount").textContent = p.state !== "broker_read" ? (PF_STATE[p.state] ? PF_STATE[p.state][0] : "")
-      : known ? today.length + " opened today" : "trade history unavailable";
+      : known ? today.length + " opened today" : "";
     renderTable($("rk-fills-rows"), (p.fills || []).slice(0, 20).map(f => {
       const tr = document.createElement("tr");
       tr.append(cell(f.time || "—"), cell(f.symbol || "—"), cell(f.action || "—", f.action === "BUY" ? "g" : "r"),
         cell(f.quantity == null ? "—" : String(f.quantity), "n"), cell(inr(f.price), "n"), cell(f.product || "—"));
       return tr;
-    }), p.error || (known ? "No fills today." : "Trade history unavailable."), 6);
+    }), p.error || (known ? "No fills today." : "Not available."), 6);
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       const sym = cell(h.symbol);
@@ -1362,7 +1362,7 @@
       tr.append(sym, cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
         cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
-    }), p.error || (known ? "No positions opened today." : "Trade history unavailable, so today's positions cannot be picked out."), 5);
+    }), p.error || (known ? "No positions opened today." : "Not available."), 5);
   }
 
   function renderPortfolio(p) {
