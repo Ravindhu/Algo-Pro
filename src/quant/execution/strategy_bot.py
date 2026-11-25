@@ -1130,7 +1130,7 @@ class StrategyBot:
                 continue
             if tree_idx is not None:
                 # Owner log details: strategy, the risk % this order was sized on, and its MTF/HTF/LTF levels.
-                details = build_details(strat.name, risk_frac * 100.0, dec.context)
+                details = build_details(strat.name, risk_frac * 100.0, dec.context, ltf_budget=dec.fraction)
                 order = ladder.tree_order(ocl_id, price, fraction, view.atr, dec.stage, details=details)
                 if order is not None and order.carry and parent is None and mtf_id:
                     self._mtf_carry.pop(mtf_id, None)  # the pool is now inside an order, so it is consumed

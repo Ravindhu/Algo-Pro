@@ -151,7 +151,8 @@ class Decision:
     fraction: float            # budget as a fraction of equity (0 when refused)
     refused: Optional[str]     # None, or why nothing was allocated
     slot: Optional[int] = None  # slot number at its level: aggressive 1-3, conservative 1-2 (None when refused)
-    # LTF touches only: ((mtf stage, mtf slot) or None, (htf stage, htf slot) or None, leaf stage) of the OCL's chain
+    # LTF touches only: ((mtf stage, mtf slot, mtf budget) or None, (htf stage, htf slot, htf budget) or None,
+    # leaf stage) of the OCL's chain. Budgets are fractions of equity, as in `fraction`.
     context: tuple = ()
 
 
@@ -187,7 +188,7 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
             htf_stage = stage
             htf = SlotGate()
             htf_ctx = None
-            mtf_ctx = (stage, _slot_no(mtf, stage))
+            mtf_ctx = (stage, _slot_no(mtf, stage), t.htf_slot[stage])
             out.append(Decision(ev, "mtf", stage, t.htf_slot[stage], None, slot=mtf_ctx[1]))
         elif kind == "htf_cons_touch":
             if htf is None:
@@ -204,7 +205,7 @@ def plan(events, allocation_pct: float, aggressive_share: float = DEFAULT_AGGRES
                 out.append(Decision(ev, "ltf", None, 0.0, "htf_slots_used_or_not_armed"))
                 continue
             budget = stage_slot(t.htf_slot[htf_stage], stage, share)
-            htf_ctx = (stage, _slot_no(htf, stage))
+            htf_ctx = (stage, _slot_no(htf, stage), budget)
             ltf[ev[1]] = {"budget": budget, "stage": stage, "agg": False, "cons": False, "open": True,
                           "ctx": (mtf_ctx, htf_ctx)}
             out.append(Decision(ev, "htf", stage, budget, None, slot=htf_ctx[1]))

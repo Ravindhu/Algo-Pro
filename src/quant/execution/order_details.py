@@ -38,17 +38,25 @@ def level_text(stage: Optional[str], slot: Optional[int]) -> str:
     return "—"
 
 
-def build_details(strategy_id: str, risk_pct: float, context: tuple) -> Dict[str, Any]:
-    """context = (mtf (stage, slot) or None, htf (stage, slot) or None, leaf stage) from risk_tree.Decision.context."""
+def _pct(fraction: Optional[float]) -> Optional[float]:
+    return None if fraction is None else round(float(fraction) * 100.0, 3)
+
+
+def build_details(strategy_id: str, risk_pct: float, context: tuple,
+                  ltf_budget: Optional[float] = None) -> Dict[str, Any]:
+    """context = (mtf (stage, slot, budget) or None, htf (stage, slot, budget) or None, leaf stage), from
+    risk_tree.Decision.context. risk_pct is the order's own sized risk; the level risks are the tree budgets
+    (fractions of equity). ltf_budget is the LTF touch's budget."""
     mtf, htf, leaf = (tuple(context) + (None, None, None))[:3] if context else (None, None, None)
-    mtf_txt = level_text(*mtf) if mtf else "—"
-    htf_txt = level_text(*htf) if htf else "—"
     return {
         "strategy": STRATEGY_LABEL.get(strategy_id, strategy_id),
         "risk_pct": round(float(risk_pct), 3),
-        "mtf": mtf_txt,
-        "htf": htf_txt,
+        "mtf": level_text(mtf[0], mtf[1]) if mtf else "—",
+        "mtf_risk": _pct(mtf[2]) if mtf else None,
+        "htf": level_text(htf[0], htf[1]) if htf else "—",
+        "htf_risk": _pct(htf[2]) if htf else None,
         "ltf": level_text(leaf, None),
+        "ltf_risk": _pct(ltf_budget),
     }
 
 

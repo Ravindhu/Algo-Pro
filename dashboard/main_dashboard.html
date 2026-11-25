@@ -1372,6 +1372,7 @@
     if (!d) return "—";
     const q = v => (v == null ? "—" : String(v));
     return d.strategy + " · risk " + d.risk_pct + "% · MTF " + d.mtf + " · HTF " + d.htf + " · LTF " + d.ltf
+      + " · MTF risk " + q(d.mtf_risk) + "% · HTF risk " + q(d.htf_risk) + "% · LTF risk " + q(d.ltf_risk) + "%"
       + " · total " + q(d.total_qty) + " · POV " + q(d.pov_qty) + " · slicer " + q(d.slicer_qty);
   }
 

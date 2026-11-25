@@ -26,7 +26,12 @@ def test_mtf_and_htf_aggressive_slots_are_numbered_and_the_leaf_carries_both():
     assert (mtf.level, mtf.stage, mtf.slot) == ("mtf", "aggressive", 1)
     leaf = _decision(events, "ltf_agg_touch", "L1")[0]
     assert leaf.stage == "leaf_aggressive"
-    assert leaf.context == (("aggressive", 1), ("aggressive", 1), "leaf_aggressive")
+    assert leaf.context == (("aggressive", 1, 0.008), ("aggressive", 1, mtf_htf_budget(events)), "leaf_aggressive")
+
+
+def mtf_htf_budget(events):
+    """HTF budget the planner gives the first aggressive LTF OCL (for the context check)."""
+    return [d for d in plan(events, 4.0) if d.event[0] == "ltf_ocl"][0].fraction
 
 
 def test_third_aggressive_then_conservative_slot_one_after_the_cons_touch():
@@ -46,9 +51,12 @@ def test_level_text_and_details_shape():
     assert level_text("conservative", 1) == "con 1"
     assert level_text("leaf_conservative", None) == "con"
     assert level_text(None, None) == "—"
-    d = build_details("ocl_keylevel", 0.79123, (("aggressive", 2), ("conservative", 1), "leaf_aggressive"))
-    assert d == {"strategy": "OCL-OCL", "risk_pct": 0.791, "mtf": "agg 2", "htf": "con 1", "ltf": "agg"}
+    d = build_details("ocl_keylevel", 0.79123, (("aggressive", 2, 0.008), ("conservative", 1, 0.0016), "leaf_aggressive"),
+                      ltf_budget=0.00096)
+    assert d == {"strategy": "OCL-OCL", "risk_pct": 0.791, "mtf": "agg 2", "mtf_risk": 0.8, "htf": "con 1",
+                 "htf_risk": 0.16, "ltf": "agg", "ltf_risk": 0.096}
     assert build_details("engulfing_fail", 0.5, ())["strategy"] == "EGF-engulfing fail"
+    assert build_details("engulfing_fail", 0.5, ())["mtf_risk"] is None
     assert build_details("unknown_strategy", 0.5, ())["strategy"] == "unknown_strategy"
 
 
