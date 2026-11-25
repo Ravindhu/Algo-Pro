@@ -31,7 +31,8 @@ dashboard:
 live:
   # Fixed INR cap on the capital the live bot may size against. Sizing uses the lower of
   # this and the broker's available cash.
-  max_capital_inr: null
+  # Owner 2026-11-25: 10,00,000 INR cap, matching risk_budget.capital_inr.
+  max_capital_inr: 1000000
 
 # MARGIN-FUNDED DELIVERY (MTF). Owner 2026-11-25. Off until the owner sets mtf_enabled: true.
 # BUY delivery entries may use it while the borrowed total stays within mtf_borrow_pct of
@@ -57,3 +58,11 @@ paper:
   capital: 1000000
   # Dates when the scanner does not enter trades. 2026-11-08 = Muhurat session (owner: skip).
   skip_dates: ["2026-11-08"]
+
+# Trade setup timeframes. Owner 2026-11-25: 5m LTF, 15m HTF, 75m MTF (sequence strategies).
+# MTF below 1d makes the bot's product MIS (intraday, square-off at the broker cutoff).
+trade_setup:
+  timeframes:
+    ltf: 5m
+    htf: 15m
+    mtf: 75m

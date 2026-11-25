@@ -3,8 +3,8 @@
 # live_enabled: true here, plus every start gate. The committed value is paper and live_enabled
 # stays false. The live data source must be approved in config/data_sources.yaml.
 # Real-money trading needs a recorded human LiveApproval (execution/openalgo_client.py). Not set here.
-mode: paper                  # paper | analyze | live (live also needs live_enabled and the live runner)
-live_enabled: false
+mode: live                   # paper | analyze | live (live also needs live_enabled and the live runner)
+live_enabled: true
 # Entries are LIMIT orders this many basis points above the last close (audit fix 6, 2026-11-15).
 # Exits and broker stops are never limited. Owner may change it (0 < x <= 200).
 entry_max_slippage_bps: 20

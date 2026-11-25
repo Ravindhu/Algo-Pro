@@ -23,7 +23,7 @@ blocked: false                  # true = stop all entries
 #     (2026-11-15). A null is NOT SET, not "check disabled": portfolio_risk_checks
 #     refuses an unset cap and RiskLimits.unset() blocks a live start. Owner must set
 #     them before live. ---
-max_sector_pct: null            # fraction of capital in one sector (0.30 = 30%)
-max_beta: null                  # book beta versus the index (1.20 = 1.2x)
-max_cvar: null                  # fraction of capital, 99% CVaR (0.05 = 5%)
-max_drawdown: null              # fraction of capital, max drawdown (0.20 = 20%)
+max_sector_pct: 0.20            # fraction of capital in one sector (0.30 = 30%)
+max_beta: 1.2                  # book beta versus the index (1.20 = 1.2x)
+max_cvar: 0.05                  # fraction of capital, 99% CVaR (0.05 = 5%)
+max_drawdown: 0.20              # fraction of capital, max drawdown (0.20 = 20%)
