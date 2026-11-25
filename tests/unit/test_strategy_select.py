@@ -40,7 +40,8 @@ def test_saving_a_subset_writes_bot_yaml_and_keeps_comments(cfg_dir):
     assert ss.read_bot_strategies(cfg_dir / "bot.yaml") == ["engulfing", "ocl_seq"]
     assert "# Strategy list." in text and "exits: {}" in text
     assert text.count("  - ") == before.count("  - ") - 3  # five names became two
-    assert load_bot_config(cfg_dir / "bot.yaml").strategies == ("engulfing", "ocl_seq")
+    from quant.execution.strategy_bot import BotConfig
+    assert BotConfig.from_yaml(cfg_dir / "bot.yaml").strategies == ("engulfing", "ocl_seq")
 
 
 def test_read_setup_reports_selection_and_available(cfg_dir):

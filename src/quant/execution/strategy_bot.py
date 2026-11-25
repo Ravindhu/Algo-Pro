@@ -188,7 +188,7 @@ class BotConfig:
     vwap_poll_seconds: float = 15.0   # how often the live runner polls quotes for buyer VWAP (band mode only)
     entry_max_slippage_bps: float = 20.0   # entries are LIMIT orders this far above the last close (audit fix 6)
     max_screen_age_minutes: float = 10.0
-    product: str = "CNC"           # order product sent to the broker: CNC (delivery, default) or MIS (intraday)
+    product: str = "CNC"           # MIS, CNC, or "auto" (from the MTF timeframe: below 1d -> MIS, else CNC)
     square_off_time: str = "15:15"  # HH:MM IST. From here: no new entries (all products)
     mis_flatten_time: str = "15:10"  # HH:MM IST. MIS positions are squared off from here, before 15:15
     screen_path: str = "data/screened/latest.json"
@@ -208,8 +208,8 @@ class BotConfig:
                 raise ValueError(f"{name} must be HH:MM, got {text!r}")
         if _hhmm(self.mis_flatten_time, "mis_flatten_time") > _hhmm(self.square_off_time, "square_off_time"):
             raise ValueError("mis_flatten_time must not be later than square_off_time")
-        if self.product not in ("MIS", "CNC"):
-            raise ValueError(f"product must be MIS or CNC, got {self.product!r}")
+        if self.product not in ("MIS", "CNC", "auto"):
+            raise ValueError(f"product must be MIS, CNC or auto, got {self.product!r}")
         try:
             hh, mm = (int(x) for x in str(self.square_off_time).split(":"))
             assert 0 <= hh <= 23 and 0 <= mm <= 59
@@ -296,7 +296,13 @@ def load_bot_config(path, settings_path=None) -> BotConfig:
 
     cfg = BotConfig.from_yaml(path)
     settings = Path(settings_path) if settings_path is not None else Path(path).parent / "settings.yaml"
-    return replace(cfg, risk_per_trade=RiskLimits.risk_per_trade(settings))
+    cfg = replace(cfg, risk_per_trade=RiskLimits.risk_per_trade(settings))
+    if cfg.product == "auto":
+        # Owner 2026-11-25: product follows the MTF timeframe. Missing MTF refuses the load.
+        from quant.core.setup_store import load_timeframes
+        from quant.risk.squareoff import product_for_mtf
+        cfg = replace(cfg, product=product_for_mtf(load_timeframes(settings).get("mtf")))
+    return cfg
 
 
 def live_feed_approved(path) -> bool:
@@ -464,6 +470,8 @@ class StrategyBot:
         if not api_key:
             raise ValueError("bot needs an API key")
         self.cfg = cfg
+        if cfg.product == "auto":
+            raise BotRefused("product is 'auto' and was not resolved: load the config with load_bot_config")
         self._vwap_provider = vwap_provider  # buyer-initiated VWAP per symbol; None = not available
         self.vwap_tick = vwap_tick           # called by the runner between cycles to poll quotes
         self._buyer_share_provider = buyer_share_provider  # buyer share of volume per symbol (buyer mode)

@@ -33,6 +33,9 @@ data_sources_path: config/data_sources.yaml
 #     - ocl_sell_fail_top_seq
 #     - ocl_sell_fail_bottom_seq
 # (The legacy OCL classes ocl, ocl_sell_fail_top and ocl_sell_fail_bottom were retired 2026-11-20.)
+# Order product: auto = MIS if the MTF timeframe is below 1d, else CNC (from settings trade_setup).
+product: auto
+
 strategies:
   - engulfing
   - engulfing_fail

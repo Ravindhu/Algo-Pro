@@ -118,3 +118,13 @@ daily loss limit in `strategy_bot.py`.
 - **Entries:** no new entry from `square_off_time` (15:15) for either product.
 - Tests: 35 in `test_square_off_wiring.py`. Full suite: 2432 passed, 2 skipped, 1 xfailed.
 - Choice made by me, to confirm: 15:10 for the MIS flatten (owner said "before 15:15").
+
+## 12. Product from the MTF timeframe (2026-11-25, owner)
+
+- `config/bot.yaml` sets `product: auto`. At load, the product comes from the saved MTF
+  (`trade_setup.timeframes.mtf` in settings): below 1d -> MIS, 1d or longer -> CNC.
+- A missing or unknown MTF refuses the load (fail closed). The bot will not start until the MTF
+  is saved in the dashboard Trade setup. The repo's settings file has no MTF saved today.
+- An unresolved `auto` is refused by the bot constructor, so it can never reach the broker.
+- MIS from an intraday MTF gets the 15:10 flatten and the entry stop at 15:10.
+- Tests: `test_product_from_mtf.py`. Full suite: 2453 passed, 2 skipped, 1 xfailed.

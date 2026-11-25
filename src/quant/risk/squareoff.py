@@ -32,6 +32,7 @@ through ``risk/gate.py`` like every other order.
 from __future__ import annotations
 
 from datetime import date, time
+import re
 from typing import Any, Dict
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "MIS_PRODUCTS",
     "should_square_off",
     "session_policy",
+    "product_for_mtf",
     "roll_due",
     "roll_urgency",
 ]
@@ -96,6 +98,20 @@ def roll_urgency(expiry: date, today: date, roll_days: int = 3) -> Dict[str, Any
     return {"due": due, "days_left": days_left, "expired": False,
             "detail": (f"roll due: {days_left} day(s) to expiry"
                        if due else f"{days_left} day(s) to expiry")}
+
+
+def product_for_mtf(mtf) -> str:
+    """Order product from the MTF timeframe (owner 2026-11-25): below daily -> MIS, daily or longer -> CNC.
+
+    Fails closed: a missing or unknown MTF raises, so the bot never picks a product by guess.
+    """
+    if not isinstance(mtf, str):
+        raise ValueError("MTF timeframe is not set in the trade setup: product cannot be chosen")
+    m = re.fullmatch(r"(\d+)([mhdwM])", mtf.strip())
+    if not m:
+        raise ValueError(f"MTF timeframe {mtf!r} is not a known interval")
+    minutes = int(m.group(1)) * {"m": 1, "h": 60, "d": 1440, "w": 10080, "M": 43200}[m.group(2)]
+    return "MIS" if minutes < 1440 else "CNC"
 
 
 def session_policy(now: time, product: str, cutoff: time = DEFAULT_MIS_CUTOFF,

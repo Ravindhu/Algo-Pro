@@ -197,7 +197,11 @@ def test_bot_yaml_does_not_set_risk_per_trade_and_the_bot_reads_settings():
     bot = yaml.safe_load((ROOT / "config" / "bot.yaml").read_text(encoding="utf-8"))
     settings = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
     assert "risk_per_trade" not in bot
-    assert load_bot_config(ROOT / "config" / "bot.yaml").risk_per_trade == settings["sizing"]["risk_per_trade"]
+    from quant.core.config import RiskLimits
+    assert RiskLimits.risk_per_trade(ROOT / "config" / "settings.yaml") == settings["sizing"]["risk_per_trade"]
+    # product "auto" is resolved from the saved MTF at load time; the bot file itself only sets the mode
+    from quant.execution.strategy_bot import BotConfig
+    assert BotConfig.from_yaml(ROOT / "config" / "bot.yaml").product == "auto"
 
 
 def test_bot_yaml_refuses_its_own_risk_per_trade(tmp_path):

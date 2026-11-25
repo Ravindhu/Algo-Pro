@@ -87,7 +87,7 @@ def test_session_policy_fails_closed_on_bad_time():
 def test_product_defaults_to_cnc_and_unknown_products_refused():
     assert BotConfig().product == "CNC"
     assert BotConfig(product="MIS").product == "MIS"
-    with pytest.raises(ValueError, match="MIS or CNC"):
+    with pytest.raises(ValueError, match="MIS, CNC or auto"):
         BotConfig(product="NRML")
 
 
