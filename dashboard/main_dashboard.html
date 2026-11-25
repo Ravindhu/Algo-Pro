@@ -351,7 +351,7 @@
     <section class="panel">
       <div class="ph">Execution log <span>today's broker fills, newest first</span></div>
       <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th></tr></thead>
+        <thead><tr><th>Time</th><th>Symbol</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th></tr></thead>
         <tbody id="rk-fills-rows"></tbody>
       </table></div>
     </section>
@@ -1347,8 +1347,10 @@
       : known ? today.length + " opened today" : "";
     renderTable($("rk-fills-rows"), (p.fills || []).slice(0, 20).map(f => {
       const tr = document.createElement("tr");
-      tr.append(cell(f.time || "—"), cell(f.symbol || "—"), cell(f.action || "—", f.action === "BUY" ? "g" : "r"),
-        cell(f.quantity == null ? "—" : String(f.quantity), "n"), cell(inr(f.price), "n"), cell(f.product || "—"));
+      // Side is shown by the colour of the quantity: green = BUY, red = SELL.
+      tr.append(cell(f.time || "—"), cell(f.symbol || "—"),
+        cell(f.quantity == null ? "—" : String(f.quantity), (f.action === "BUY" ? "g" : "r") + " n"),
+        cell(inr(f.price), "n"), cell(f.product || "—"));
       return tr;
     }), p.error || (known ? "No fills today." : "Not available."), 6);
     renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
