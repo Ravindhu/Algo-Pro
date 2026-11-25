@@ -30,6 +30,8 @@ def test_mstock_order_product_map_has_mtf_and_refuses_unknown():
 def test_mstock_margin_calculator_maps_mtf_and_refuses_unknown():
     text = _text("broker/mstock/mapping/margin_data.py")
     assert '"MTF": "MARGIN"' in text and "refused, no fallback" in text
+    # The broker's order value rides with the margin: the bot cross-checks it against its own order value.
+    assert '"trade_value": trade_value' in text
 
 
 def test_mstock_trade_and_position_books_map_margin_to_mtf():

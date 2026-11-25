@@ -19,8 +19,9 @@ from quant.risk.margin_entry import (  # noqa: E402
 ON = MarginSettings(enabled=True, limit_inr=500_000.0, max_leverage=5.0)
 
 
-def _reply(margin):
-    return {"status": "success", "data": {"total_margin_required": margin}}
+def _reply(margin, value=100_000.0):
+    """Broker reply; trade_value is the order value the broker priced the margin on."""
+    return {"status": "success", "data": {"total_margin_required": margin, "trade_value": value}}
 
 
 # --- settings ----------------------------------------------------------------
@@ -180,3 +181,20 @@ def test_funded_share_refused_when_above_cap_or_unusable():
     assert funded_share(_reply(100_000.0), 100_000.0, 5.0)[0] is None     # no funding
     assert funded_share(_reply(20_000.0), 100_000.0, None)[0] is None
     assert funded_share({"status": "error"}, 100_000.0, 5.0)[0] is None
+
+
+# --- broker order value must match ours (owner 2026-11-25) ---------------------
+
+def test_reply_without_order_value_is_refused():
+    reply = {"status": "success", "data": {"total_margin_required": 20_000.0}}
+    ok, reason = verify_leverage(reply, 100_000.0, 5.0)
+    assert ok is False and "order value" in reason
+
+
+def test_order_value_six_percent_off_is_refused():
+    ok, reason = verify_leverage(_reply(20_000.0, value=106_000.0), 100_000.0, 5.0)
+    assert ok is False and "differs" in reason
+
+
+def test_order_value_four_percent_off_is_accepted():
+    assert funded_share(_reply(20_000.0, value=104_000.0), 100_000.0, 5.0)[0] is not None

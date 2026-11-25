@@ -532,6 +532,7 @@ class StrategyBot:
         self._mtf_pct: Optional[float] = None      # borrowed / MTF holdings value, from the last sync
         self._mtf_held_value = 0.0
         self._book_day = None                      # trade day of the saved book: interest days owed after a restart
+        self._mtf_read_ok = False                  # the last broker holdings read succeeded today
         self._pos_store = position_store           # restart-safe position book (None = in-memory only)
         self._entry_guard = entry_guard            # re-checked every cycle in live
         self._faults: set = set()                  # ("stop"|"partial", key): entries and slicing blocked while any exists
@@ -816,7 +817,9 @@ class StrategyBot:
         return res.intent
 
     def _entry_product(self, intent: TradeIntent) -> Tuple[str, str, float]:
-        """(product, reason, funded share). MTF only when the limit and today's broker reading pass (margin_entry.py)."""
+        """(product, reason, funded share). MTF only with a broker sync today, the limit, and today's stored reading."""
+        if intent.trade_day is not None:
+            self._ensure_mtf_sync(intent.trade_day)   # the broker's MTF amount counts toward the limit, so sync first
         notional = float(intent.qty) * float(intent.ref_price)
         product, why = choose_product(intent.product, intent.side, notional, self._mtf_borrowed_inr(), self.cfg.margin)
         if product != MTF:
@@ -824,69 +827,91 @@ class StrategyBot:
         return self._verify_margin(intent)
 
     def _verify_margin(self, intent: TradeIntent) -> Tuple[str, str, float]:
-        """MTF only with a holdings sync that matches the broker today and a funded reading stored for today."""
+        """MTF only with a readable broker holdings book today and a stored reading for this stock today."""
         day = intent.trade_day
         if day is None:
             return "CNC", "margin not used: no trade day on the order", 0.0
-        if self._mtf_synced_day != day and self._mtf_holdings is not None:
-            self.sync_mtf_holdings(day)
         if self._mtf_synced_day != day:
             return "CNC", "margin not used: MTF holdings not synced today", 0.0
-        if self._mtf_issues:
-            return "CNC", f"margin not used: MTF holdings differ from the broker ({self._mtf_issues[0]})", 0.0
-        rec = self._margin_record(intent, day)
+        if not self._mtf_read_ok:
+            return "CNC", "margin not used: MTF holdings could not be read from the broker today", 0.0
+        rec = self._margin_record(intent.symbol, float(intent.ref_price), day)
         if not rec.get("available"):
             return "CNC", f"margin not used: {rec.get('reason', 'not available')}", 0.0
         funded = float(rec["funded_pct"])
         return MTF, f"margin funded {funded:.0%} (today's broker reading)", funded
 
-    def _margin_record(self, intent: TradeIntent, day) -> Dict[str, Any]:
+    def _ensure_mtf_sync(self, day) -> None:
+        """Sync with the broker's MTF holdings once per trade day, before any MTF decision."""
+        if self._mtf_synced_day == day or self._mtf_holdings is None:
+            return
+        self.sync_mtf_holdings(day)
+
+    def _prefetch_margin(self, sym: str, df, day) -> None:
+        """Every screened stock gets today's reading, not only the stocks that produce a signal."""
+        m = self.cfg.margin
+        if m is None or not m.enabled or self.cfg.product != "CNC" or self._margin_check is None:
+            return
+        try:
+            ref = float(df["close"].iloc[-2])
+        except Exception:  # noqa: BLE001 - no usable price means no reading today; the stock is simply not funded
+            return
+        if math.isfinite(ref) and ref > 0:
+            self._margin_record(sym, ref, day)
+
+    def _margin_record(self, symbol: str, ref_price: float, day) -> Dict[str, Any]:
         """Today's broker reading for this stock. Fetched at most once per trade day, then stored."""
-        rec = self._margin_store.get(intent.symbol, day)
+        rec = self._margin_store.get(symbol, day)
         if rec is not None:
             return rec
-        rec = self._fetch_margin_record(intent)
-        self._margin_store.put(intent.symbol, day, rec)
-        self._log("margin_reading", symbol=intent.symbol, available=rec["available"],
+        rec = self._fetch_margin_record(symbol, ref_price, day)
+        self._margin_store.put(symbol, day, rec)
+        self._log("margin_reading", symbol=symbol, available=rec["available"],
                   funded=rec["funded_pct"], reason=rec["reason"])
         return rec
 
-    def _fetch_margin_record(self, intent: TradeIntent) -> Dict[str, Any]:
+    def _fetch_margin_record(self, symbol: str, ref_price: float, day) -> Dict[str, Any]:
         if self._margin_check is None:
             return {"available": False, "funded_pct": 0.0, "reason": "no broker margin check configured"}
-        one = _dc_replace(intent, qty=1, product=MTF)
+        one = TradeIntent(intent_id=f"MARGIN-{symbol}-{day.isoformat()}", strategy_id="margin_reading",
+                          symbol=symbol, side="BUY", qty=1, ref_price=ref_price, kind="entry",
+                          prev_close=None, trade_day=day, product=MTF)
         try:
             reply = self._margin_check(one)
         except Exception as exc:  # noqa: BLE001 - a failed reading must never reach the order path
             return {"available": False, "funded_pct": 0.0, "reason": f"broker margin check failed ({type(exc).__name__})"}
-        funded, reason = funded_share(reply, float(intent.ref_price), self.cfg.margin.max_leverage)
+        funded, reason = funded_share(reply, ref_price, self.cfg.margin.max_leverage)
         if funded is None:
             return {"available": False, "funded_pct": 0.0, "reason": reason}
         return {"available": True, "funded_pct": round(funded, 6), "reason": reason}
 
     def sync_mtf_holdings(self, day) -> None:
-        """Compare our MTF book with the broker's MTF holdings. Any mismatch or read error blocks MTF entries."""
+        """Read the broker's MTF holdings for this day. A mismatch is reported and the broker's amount is used.
+        Only a holdings book that cannot be read blocks MTF."""
         self._mtf_synced_day = day
         try:
             broker = parse_mtf_rows(self._mtf_holdings())
         except Exception as exc:  # noqa: BLE001 - an unreadable book blocks MTF; it never guesses
+            self._mtf_read_ok = False
             self._mtf_issues = [f"broker holdings unreadable ({type(exc).__name__})"]
             self._log("mtf_sync", ok=False, issues=self._mtf_issues)
-            self._alert("CRITICAL", "MTF holdings could not be read from the broker: MTF entries blocked")
+            self._alert("CRITICAL", "MTF holdings could not be read from the broker: MTF entries blocked today")
             return
+        self._mtf_read_ok = True
         ours: Dict[str, int] = {}
         for pos in self._positions.values():
             if pos.product == MTF:
                 ours[pos.symbol] = ours.get(pos.symbol, 0) + int(pos.qty)
-        ok, issues, value = reconcile_mtf(ours, broker)
+        _ok, issues, value = reconcile_mtf(ours, broker)
         borrowed = self._mtf_borrowed_actual()
         self._mtf_issues = issues
         self._mtf_held_value = value
         self._mtf_pct = (borrowed / value) if value > 0 else None
-        self._log("mtf_sync", ok=ok, issues=issues, borrowed=round(borrowed, 2), held_value=round(value, 2),
+        self._log("mtf_sync", ok=_ok, issues=issues, borrowed=round(borrowed, 2), held_value=round(value, 2),
                   mtf_pct=None if self._mtf_pct is None else round(self._mtf_pct, 4))
-        if not ok:
-            self._alert("CRITICAL", "MTF holdings differ from the broker: MTF entries blocked until they match")
+        if issues:
+            self._alert("WARNING", "MTF holdings differ from the broker (" + "; ".join(issues[:3])
+                        + "): MTF continues on the broker's amount; check unmanaged positions")
 
     def _mtf_borrowed_actual(self) -> float:
         """Borrowed amount of the open MTF positions: quantity x entry x funded share."""
@@ -914,13 +939,16 @@ class StrategyBot:
         open_ = sum(p.qty * p.entry for p in self._positions.values() if p.product == MTF)
         pending = sum(p.remaining * float(p.intent.ref_price)
                       for p in self._parents.values() if p.intent.product == MTF)
-        return float(open_ + pending)
+        # The broker's MTF amount counts too: unmanaged MTF stock at the broker uses the same limit.
+        held = self._mtf_held_value if self._mtf_read_ok else 0.0
+        return float(max(open_ + pending, held))
 
     def _product_of(self, pos: Position) -> str:
         """A position's own order product. Positions saved before the field existed use the bot's product."""
         return pos.product or self.cfg.product
 
     def _scan(self, strat, sym, df, circuit_pct, stats, now, report) -> None:
+        self._prefetch_margin(sym, df, now.date())
         if getattr(strat, "is_cycle", False):
             self._scan_cycle(strat, sym, df, circuit_pct, stats, now, report)
             return

@@ -42,7 +42,8 @@ def _owner_caps_for_tests(tmp_path, monkeypatch):
 
 def _honest_margin(intent):
     """Broker reply at 5x leverage: margin is a fifth of the full value."""
-    return {"status": "success", "data": {"total_margin_required": intent.qty * intent.ref_price / 5.0}}
+    return {"status": "success", "data": {"total_margin_required": intent.qty * intent.ref_price / 5.0,
+                                          "trade_value": intent.qty * intent.ref_price}}
 
 
 def _no_mtf_holdings():
@@ -87,7 +88,8 @@ def test_broker_margin_equal_to_value_keeps_cnc(tmp_path):
 
 def test_broker_margin_implying_high_leverage_keeps_cnc(tmp_path):
     # 1-share reading: margin 100 on a 1000 share = 90% funded, above the 80% cap
-    bot = _bot(tmp_path, margin_check=lambda i: {"status": "success", "data": {"total_margin_required": 100.0}})
+    bot = _bot(tmp_path, margin_check=lambda i: {"status": "success", "data": {"total_margin_required": 100.0,
+                                                                              "trade_value": 1000.0}})
     product, reason, _ = bot._entry_product(_intent())
     assert product == "CNC" and "above the maximum" in reason
 
@@ -220,7 +222,8 @@ def test_gate_entry_returns_mtf_intent_when_leverage_verified(tmp_path):
 
 def test_gate_entry_returns_cnc_intent_when_leverage_refused(tmp_path):
     # the broker reports margin equal to the full value of the order the gate actually sized
-    bot = _bot(tmp_path, margin_check=lambda i: {"status": "success", "data": {"total_margin_required": i.qty * i.ref_price}})
+    bot = _bot(tmp_path, margin_check=lambda i: {"status": "success", "data": {"total_margin_required": i.qty * i.ref_price,
+                                                                              "trade_value": i.qty * i.ref_price}})
     bot._funds = 1_000_000.0
     sig = {"side": "BUY", "entry": 1000.0, "sl_dist": 10.0, "tp_dist": 20.0, "time": "T1", "atr": 10.0}
     stats = {"lot_size": 1, "adv_shares": 1_000_000.0, "prev_close": 999.0}

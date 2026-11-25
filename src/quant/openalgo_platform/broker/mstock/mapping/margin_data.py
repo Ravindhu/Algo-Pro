@@ -127,6 +127,8 @@ def parse_margin_response(response_data):
 
         # Get total charges (total margin required)
         total_margin_required = summary.get("total_charges", 0)
+        # Order value the broker priced the margin on. The bot checks it against its own order value (margin_entry).
+        trade_value = summary.get("trade_value")
 
         # Extract SPAN and exposure margins from breakup
         span_margin = 0
@@ -144,6 +146,7 @@ def parse_margin_response(response_data):
             "status": "success",
             "data": {
                 "total_margin_required": total_margin_required,
+                "trade_value": trade_value,
                 "span_margin": span_margin,
                 "exposure_margin": exposure_margin,
             },

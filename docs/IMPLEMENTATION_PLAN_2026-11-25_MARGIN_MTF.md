@@ -58,3 +58,29 @@ It does not cover these files, so an upstream upgrade drops the patch silently. 
 - Account terms (pledge, forced sale) are not confirmed in writing.
 - Settings and the enable flag are read at bot start: restart after any change.
 - Live trading is still off. Owner-run checks are still pending.
+
+## Update: owner round 5 (2026-11-25)
+
+Plain-English summary of what changed and what is still open.
+
+1. **Every screened stock gets today's broker reading.** The bot asks the broker once per stock per trade day for every
+   stock in the screen, not only the first MTF candidate. The reading is stored, and the rest of the day uses it.
+   A stock with no usable price today gets no reading and stays CNC.
+2. **Broker MTF amount is the truth for the limit.** The bot syncs with the broker's MTF holdings before any MTF
+   decision. The limit tally uses the larger of our own open MTF amount and the broker's MTF amount.
+   A mismatch is raised as a WARNING alert and does NOT block new MTF entries. Only a holdings book that cannot be read
+   blocks MTF (fail closed); the alert text carries the exception class only, never its message.
+3. **Pledged MTF stock from the holdings book: NOT DONE, blocked.** The holdings mapping forces every holding to
+   `product = "CNC"` and drops any pledge field. We need one raw mStock holdings response (with any pledge or MTF
+   field) before we can map it. Owner action: send one redacted sample.
+4. **Field names and reply checks.**
+   - Position book: `quantity`, `average_price` (vendored mapping; MTF product mapped).
+   - Holdings: `quantity`, `averageprice`; product forced to CNC (see item 3).
+   - Margin reply: `total_charges` (margin, still unverified against the live API), `trade_value` (order value the
+     broker priced the margin on). A reading is refused when `trade_value` is missing or more than 5% away from our
+     own order value.
+   - Upgrade safety: the four patched vendored files are watched and the pin is `30b48379254b`. Open decision: the
+     startup pin check looks at `openalgo/`, which does not exist in this repo, so it does not cover the vendored tree.
+
+Still required before MTF is switched on: one read-only margin query on the real account (owner), and the redacted
+holdings sample for item 3. `mtf_enabled` stays `false`.

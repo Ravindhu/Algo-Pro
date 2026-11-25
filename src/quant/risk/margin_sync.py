@@ -37,7 +37,7 @@ def parse_mtf_rows(body: Any, exchange: str = "NSE") -> Dict[str, Dict[str, floa
             continue
         if str(row.get("product", "")).upper() not in MTF_PRODUCTS:
             continue
-        qty = _num(row.get("netqty", row.get("quantity", 0)))
+        qty = _num(row.get("quantity", row.get("netqty", 0)))
         avg = _num(row.get("average_price", row.get("avgprice", 0)))
         if math.isnan(qty) or math.isnan(avg):
             raise ValueError(f"MTF row with unreadable quantity or price for {row.get('symbol')!r}")

@@ -24,6 +24,7 @@ MAX_BORROW_PCT = 1.0       # a share of capital above 100% is refused
 MAX_LEVERAGE_CAP = 5.0     # 5x = 80% funding, the broker's stated maximum
 DEFAULT_ANNUAL_RATE = 0.12  # owner 2026-11-25: 12% a year on the borrowed amount
 MAX_ANNUAL_RATE = 0.5
+ORDER_VALUE_TOLERANCE = 0.05  # the broker's order value may differ from ours by at most 5%
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,12 @@ def funded_share(reply: Any, full_value: float, max_leverage: Optional[float]) -
     margin = _num(data.get("total_margin_required")) if isinstance(data, dict) else None
     if margin is None or margin <= 0:
         return None, "broker returned no usable margin: refused"
+    # The broker must price the same order value we do, or its margin figure is not comparable to ours.
+    order_value = _num(data.get("trade_value")) if isinstance(data, dict) else None
+    if order_value is None or order_value <= 0:
+        return None, "broker reply has no order value to check against: refused"
+    if abs(order_value - full) / full > ORDER_VALUE_TOLERANCE:
+        return None, f"broker order value {order_value:.0f} differs from ours {full:.0f}: refused"
     if margin >= full:
         return None, "broker margin equals the full value: no funding applied, refused"
     funded = 1.0 - margin / full

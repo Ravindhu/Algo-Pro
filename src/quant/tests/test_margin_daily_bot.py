@@ -17,7 +17,8 @@ from quant.risk.margin_daily import DailyMarginStore  # noqa: E402
 
 def _reading(margin_per_share_ratio):
     """Broker reply: margin = ratio x full value of the order (ratio 0.2 = 80% funded)."""
-    return lambda i: {"status": "success", "data": {"total_margin_required": i.qty * i.ref_price * margin_per_share_ratio}}
+    return lambda i: {"status": "success", "data": {"total_margin_required": i.qty * i.ref_price * margin_per_share_ratio,
+                                                    "trade_value": i.qty * i.ref_price}}
 
 
 def _holdings(rows):
@@ -93,10 +94,19 @@ def test_no_sync_today_keeps_cnc(tmp_path):
     assert product == "CNC" and "not synced" in reason
 
 
-def test_sync_mismatch_blocks_mtf_but_not_cnc(tmp_path):
+def test_sync_mismatch_still_allows_mtf_on_the_broker_amount(tmp_path):
+    # Owner 2026-11-25: a mismatch is reported, never a reason to block. Broker holds 50 INFY we do not track.
     bot = _bot(tmp_path, mtf_holdings=_holdings([_row("INFY", 50, 1000.0)]), margin_store=DailyMarginStore(None))
     product, reason, _ = bot._entry_product(_intent())
-    assert product == "CNC" and "differ from the broker" in reason
+    assert product == "MTF"
+    assert bot._mtf_issues and bot._mtf_read_ok is True
+
+
+def test_broker_mtf_amount_counts_toward_the_limit(tmp_path):
+    # Broker already holds 500 x 1000 = 500,000 on MTF: the 500,000 limit is full, so a new MTF buy is refused.
+    bot = _bot(tmp_path, mtf_holdings=_holdings([_row("INFY", 500, 1000.0)]), margin_store=DailyMarginStore(None))
+    product, reason, _ = bot._entry_product(_intent(symbol="TCS"))
+    assert product == "CNC" and "limit" in reason
 
 
 def test_unreadable_broker_holdings_block_mtf(tmp_path):
@@ -104,7 +114,7 @@ def test_unreadable_broker_holdings_block_mtf(tmp_path):
         raise RuntimeError("secret detail")
     bot = _bot(tmp_path, mtf_holdings=broken, margin_store=DailyMarginStore(None))
     product, reason, _ = bot._entry_product(_intent())
-    assert product == "CNC" and "unreadable" in reason and "secret detail" not in reason
+    assert product == "CNC" and "could not be read" in reason and "secret detail" not in reason
 
 
 def test_sync_sets_mtf_percentage_from_borrowed_and_held_value(tmp_path):
@@ -190,3 +200,18 @@ def test_accrual_with_zero_days_charges_nothing(tmp_path):
     bot = _bot(tmp_path)
     _mtf_book(bot)
     assert bot._accrue_mtf_interest(0) == 0.0
+
+
+def test_every_screened_stock_gets_one_reading_a_day(tmp_path):
+    import pandas as pd
+    calls = []
+
+    def check(i):
+        calls.append(i.symbol)
+        return {"status": "success", "data": {"total_margin_required": 200.0, "trade_value": i.ref_price}}
+    bot = _bot(tmp_path, margin_check=check, margin_store=DailyMarginStore(None))
+    df = pd.DataFrame({"close": [99.0, 100.0]})
+    bot._prefetch_margin("INFY", df, NOW.date())
+    bot._prefetch_margin("INFY", df, NOW.date())     # same day: stored, no second call
+    bot._prefetch_margin("TCS", df, NOW.date())
+    assert calls == ["INFY", "TCS"]

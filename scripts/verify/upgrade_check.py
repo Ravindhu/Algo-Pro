@@ -54,6 +54,11 @@ WATCHED = (
     "requirements.txt",
     "pyproject.toml",
     ".gitignore",
+    # Local MTF patch (not upstream). An upstream upgrade overwrites these, so the pin must change and start refuses.
+    "restx_api/schemas.py",
+    "broker/mstock/mapping/transform_data.py",
+    "broker/mstock/mapping/margin_data.py",
+    "broker/mstock/mapping/order_data.py",
 )
 WATCHED_DIRS = ("install",)
 
