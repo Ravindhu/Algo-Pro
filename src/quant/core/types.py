@@ -34,6 +34,11 @@ class TradeIntent:
     algo_id: Optional[str] = None  # exchange-approved algo ID, when one is configured
     product: str = "MIS"  # order product sent to the broker: MIS, CNC or MTF. Bot sets it from config.
     funded_pct: float = 0.0  # MTF only: funded share from today's broker reading (0 = not funded)
+    exchange: str = "NSE"  # exchange the order is sent to: NSE or BSE (slice 1, 2026-11-25)
+
+    def __post_init__(self) -> None:
+        if self.exchange not in ("NSE", "BSE"):
+            raise ValueError(f"unsupported exchange: {self.exchange!r}")
 
     @property
     def notional(self) -> float:

@@ -36,6 +36,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from quant.audit.log import AuditLog  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.data.live_bars import LiveBars  # noqa: E402
+from quant.data.exchange_bars import ExchangeBars  # noqa: E402
+from quant.execution.exchange_router import listing_exchange, quote_from_reply  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.risk.margin_daily import DailyMarginStore  # noqa: E402
 from quant.execution.order_details import OrderDetailStore  # noqa: E402
@@ -92,10 +94,10 @@ class LiveStops:
         self._client = client
         self._key = api_key
 
-    def place_stop(self, symbol, action, qty, trigger_price, strategy, product="MIS"):
+    def place_stop(self, symbol, action, qty, trigger_price, strategy, product="MIS", exchange="NSE"):
         try:
             r = self._client.place_stop(symbol, action, qty, trigger_price, strategy, self._key,
-                                        product=product)
+                                        product=product, exchange=exchange)
         except Exception as exc:  # PermissionError (guard) or network: no stop, the bot blocks entries
             return {"status": "error", "reason": repr(exc)}
         order_id = str(r.get("orderid", "")) if isinstance(r, dict) else ""
@@ -197,10 +199,17 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         vwap_provider=vwap_book.vwap,
         buyer_share_provider=vwap_book.buyer_share,
         depth_provider=lambda sym: readonly.depth(api_key, sym, "NSE"),
+        quote_provider=lambda sym, exchange: readonly.quotes(api_key, sym, exchange),  # slice 2: exchange choice
         peg_verifier=peg_verifier,
         vwap_tick=vwap_tick if cfg.pov_mode == "peg_band_buyer" else None,
         strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path), feed) for n in cfg.strategies],
-        bars=LiveBars(readonly, api_key),
+        bars=ExchangeBars(
+            {"NSE": LiveBars(readonly, api_key),
+             "BSE": LiveBars(readonly, api_key, exchange="BSE")},
+            listing=lambda sym: listing_exchange(
+                quote_from_reply(readonly.quotes(api_key, sym, "NSE")),
+                quote_from_reply(readonly.quotes(api_key, sym, "BSE"))),  # slice 4: NSE-listed first
+        ),
         sender=_live_sender(client, cfg),
         audit=audit,
         api_key=api_key,

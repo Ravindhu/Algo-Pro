@@ -76,3 +76,31 @@ def bse_report(candidates: Iterable[Dict[str, Any]], lookup: CodeLookup,
                                 if matched else "broker did not return a BSE quote"),
                      "tradable": False})
     return rows
+
+
+def split_for_screen(candidates: Iterable[Dict[str, Any]], lookup: CodeLookup):
+    """Screen input: (nse_candidates, bse_candidates, unresolved).
+
+    A 6-digit BSE code that OpenAlgo's symbol master resolves becomes a BSE candidate under
+    the OpenAlgo symbol, so its circuit band is read on BSE. Other codes stay as NSE candidates
+    (they fail the NSE band and are dropped with a reason). Unresolved codes are returned
+    separately so the caller can report them. Lookup errors count as unresolved.
+    """
+    nse, bse, unresolved = [], [], []
+    seen = set()
+    for cand in candidates or []:
+        row = dict(cand or {})
+        code = str(row.get("symbol") or "").strip()
+        if not is_bse_code(code):
+            nse.append(row)
+            continue
+        try:
+            symbol = lookup(code)
+        except Exception:  # noqa: BLE001
+            symbol = None
+        if not symbol or symbol in seen:
+            unresolved.append({"code": code, "symbol": symbol})
+            continue
+        seen.add(symbol)
+        bse.append({**row, "symbol": symbol, "bse_code": code, "exchange": "BSE"})
+    return nse, bse, unresolved
