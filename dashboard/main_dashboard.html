@@ -344,7 +344,7 @@
   </div>
   <div class="home-row4">
     <section class="panel">
-      <div class="ph">Open positions <span>MTM ₹ <b id="rk-mtm">—</b> · <span id="rk-poscount"></span></span></div>
+      <div class="ph">Open positions <span>MTM ₹ <b id="rk-mtm">—</b></span></div>
       <div class="scroll"><table>
         <thead><tr><th>Symbol</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">P&amp;L ₹</th></tr></thead>
         <tbody id="rk-pos-rows"></tbody>
@@ -1334,21 +1334,18 @@
     if ($("eq-cost")) $("eq-cost").title = tc ? "Charges ₹" + Number(tc.inr).toFixed(2) + " + STCG ₹" + Number(tc.stcg_tax_inr || 0).toFixed(2)
       + " + LTCG ₹" + Number(tc.ltcg_tax_inr || 0).toFixed(2) + " + MTF interest ₹" + Number(tc.interest_inr || 0).toFixed(2)
       + " · " + tc.fills + " fills (" + tc.skipped + " skipped)" : "";
-    // Open positions: only holdings opened today (hold days = 0, from the tradebook).
+    // Open positions: every broker holding (no hold-days filter).
     const known = all.some(h => h.hold_days != null);
-    const today = all.filter(h => h.hold_days === 0);
-    const mtm = today.reduce((acc, h) => acc + (h.pnl == null ? 0 : Number(h.pnl)), 0);
-    $("rk-mtm").textContent = p.state === "broker_read" && today.length ? money(mtm) : "—";
-    $("rk-mtm").className = today.length ? sign(mtm) : "";
-    $("rk-poscount").textContent = p.state !== "broker_read" ? (PF_STATE[p.state] ? PF_STATE[p.state][0] : "")
-      : known ? today.length + " opened today" : "";
+    const mtm = all.reduce((acc, h) => acc + (h.pnl == null ? 0 : Number(h.pnl)), 0);
+    $("rk-mtm").textContent = p.state === "broker_read" && all.length ? money(mtm) : "—";
+    $("rk-mtm").className = all.length ? sign(mtm) : "";
     renderTable($("rk-fills-rows"), (p.fills || []).slice(0, 20).map(f => {
       const tr = document.createElement("tr");
       tr.append(cell(f.time || "—"), cell(f.symbol || "—"), cell(f.action || "—", f.action === "BUY" ? "g" : "r"),
         cell(f.quantity == null ? "—" : String(f.quantity), "n"), cell(inr(f.price), "n"), cell(f.product || "—"));
       return tr;
     }), p.error || (known ? "No fills today." : "Not available."), 6);
-    renderTable($("rk-pos-rows"), today.slice(0, 10).map(h => {
+    renderTable($("rk-pos-rows"), all.slice(0, 10).map(h => {
       const tr = document.createElement("tr");
       const sym = cell(h.symbol);
       if (h.mtf) {  // bought on MTF today: small star before the symbol
@@ -1359,7 +1356,7 @@
       tr.append(sym, cell(h.quantity == null ? "—" : String(h.quantity), "n"), cell(inr(h.average_price), "n"),
         cell(inr(h.ltp), "n"), cell(money(h.pnl), "n " + sign(h.pnl)));
       return tr;
-    }), p.error || (known ? "No positions opened today." : "Not available."), 5);
+    }), p.error || (p.state === "broker_read" ? "No open positions." : "Not available."), 5);
   }
 
   function renderPortfolio(p) {
