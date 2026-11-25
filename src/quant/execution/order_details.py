@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 #: Short names the owner reads in the Execution log. Unknown strategy names are shown as they are.
 STRATEGY_LABEL = {
     "engulfing": "EG",
-    "ocl_keylevel": "OCL-OCL",
+    "ocl_keylevel": "OCL",
     "engulfing_fail": "EGF",
     "ocl_sell_fail_top_seq": "FOCL-T",
     "ocl_sell_fail_bottom_seq": "FOCL-B",

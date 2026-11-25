@@ -6,7 +6,7 @@ Shown per fill: strategy (short label), risk % the order was sized on, and the l
 - MTF, HTF: `agg 1-3` (aggressive slot) or `con 1-2` (conservative slot)
 - LTF: `agg` or `con` (the touch)
 
-Short strategy names: engulfing = EG, ocl_keylevel = OCL-OCL, engulfing_fail = EGF,
+Short strategy names: engulfing = EG, ocl_keylevel = OCL, engulfing_fail = EGF,
 ocl_sell_fail_top_seq = FOCL-T, ocl_sell_fail_bottom_seq = FOCL-B.
 
 Details text order: Strategy, Risk, MTF, HTF, LTF (each with its risk), Total, POV, Slicer.

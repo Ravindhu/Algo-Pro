@@ -53,7 +53,7 @@ def test_level_text_and_details_shape():
     assert level_text(None, None) == "—"
     d = build_details("ocl_keylevel", 0.79123, (("aggressive", 2, 0.008), ("conservative", 1, 0.0016), "leaf_aggressive"),
                       ltf_budget=0.00096)
-    assert d == {"strategy": "OCL-OCL", "risk_pct": 0.791, "mtf": "agg 2", "mtf_risk": 0.8, "htf": "con 1",
+    assert d == {"strategy": "OCL", "risk_pct": 0.791, "mtf": "agg 2", "mtf_risk": 0.8, "htf": "con 1",
                  "htf_risk": 0.16, "ltf": "agg", "ltf_risk": 0.096}
     assert build_details("engulfing_fail", 0.5, ())["strategy"] == "EGF"
     assert build_details("engulfing_fail", 0.5, ())["mtf_risk"] is None
