@@ -402,8 +402,8 @@
         <input type="number" id="su-daily" min="0.01" max="10" step="0.01" placeholder="e.g. 2"><span class="d" id="su-daily-inr"></span></div>
       <div><label for="su-strat-loss">Max strategy loss (% of capital)</label>
         <input type="number" id="su-strat-loss" min="0.01" max="10" step="0.01" placeholder="e.g. 1.5"><span class="d" id="su-strat-inr"></span></div>
-      <div><label for="su-aggr">Aggressive share of each level (%, 50 to 80)</label>
-        <input type="number" id="su-aggr" min="50" max="80" step="1" placeholder="60"><span class="d">rest is conservative (2 OCL slots); 60 = 3 aggressive / 2 conservative</span></div>
+      <div><label for="su-aggr">Aggressive share of each level (%, 30 to 80)</label>
+        <input type="number" id="su-aggr" min="30" max="80" step="1" placeholder="60"><span class="d">rest is conservative (2 OCL slots); 60 = 3 aggressive / 2 conservative</span></div>
     </div>
     <div class="actions">
       <button class="go" id="setupsave" type="submit">Save setup</button>
@@ -1127,7 +1127,7 @@
     const aggr = $("su-aggr").value.trim();
     if (aggr) {
       const v = Number(aggr);
-      if (!Number.isFinite(v) || v < 50 || v > 80) return setSetupMsg("Aggressive share must be between 50 and 80 %.", "r");
+      if (!Number.isFinite(v) || v < 30 || v > 80) return setSetupMsg("Aggressive share must be between 30 and 80 %.", "r");
       payload.aggressive_share = v / 100;
     }
     const cap = $("su-cap").value.trim();

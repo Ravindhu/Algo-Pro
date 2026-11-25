@@ -406,7 +406,7 @@ sections 11.3 and 11.10. The ceilings are replaced by the symbol allocation and 
   (settings.yaml cycle.symbol_allocation_pct). Every budget below scales from it: at 1 %, each value is a quarter.
 - **Split of every level:** 5 equal slots of 20 % each: 3 AGGRESSIVE, then WAIT for the conservative touch,
   then 2 CONSERVATIVE. The aggressive share is settings.yaml cycle.aggressive_share, default 0.60, allowed
-  0.50 to 0.80 (refused outside). Dashboard Trade setup popup: "Aggressive share" field, 50 to 80 %.
+  0.30 to 0.80 (refused outside; floor lowered from 0.50 by owner 2026-11-26). Dashboard Trade setup popup: "Aggressive share" field, 30 to 80 %.
 - **MTF level:** 5 HTF OCL slots of 0.8 % (symbol 4 %): 3 aggressive, wait for the MTF conservative key-level
   touch, then 2 conservative. A slot fires when a new HTF OCL forms (a conservative touch arms the next one).
 - **HTF level (inside each HTF OCL):** 5 LTF OCL slots of 0.16 %: 3 aggressive, wait for the HTF conservative
