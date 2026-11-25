@@ -23,7 +23,8 @@ Status: PHASE 3 implemented and tested (2609 passed). Live stays off. MTF stays 
 
 ## Interest (bot._accrue_mtf_interest, run at the day roll)
 - Borrowed x 12% / 365 per open MTF position, booked as a realized cost. Skipped on a same-day restart so a day is never charged twice.
-- Charged per trade day, not per calendar day: a weekend hold is charged once. Note this if the broker charges weekends.
+- Charged per calendar day. The broker charges weekends too (owner 2026-11-25), so Friday to Monday is three days.
+- A restart uses the day the saved book was last accounted for, so days owed are not lost. A same-day restart charges nothing.
 
 ## Where it lives
 - `risk/margin_entry.py`: settings, limit, funded share, interest (pure).
@@ -34,9 +35,8 @@ Status: PHASE 3 implemented and tested (2609 passed). Live stays off. MTF stays 
 - `scripts/run/run_strategy_bot_live.py`: wires the margin reading, daily store and holdings reader.
 
 ## mStock documentation: what the docs do and do not say (checked 2026-11-25)
-- Product type MARGIN is described only as "Margin Delivery". The docs do not say it is limited to MTF or to eligible stocks.
-- The Modification section lists both MARGIN and MTF as product types. The docs do not explain how they differ. Our mapping
-  sends MTF as MARGIN. This is unverified.
+- Product type MARGIN is described only as "Margin Delivery". Owner (2026-11-25): MTF is the same as margin delivery, so MTF maps to MARGIN.
+- The Modification section lists both MARGIN and MTF as product types. Resolved by the owner: they are the same product.
 - The margin calculator examples use DELIVERY only. The response's total_charges is not defined as margin required or
   as full value. The calculator has no funding % or "margin allowed" flag.
 - Conclusion: the daily reading is only as good as the calculator's answer for MARGIN. It must be confirmed on the real

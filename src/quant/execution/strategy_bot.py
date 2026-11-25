@@ -531,6 +531,7 @@ class StrategyBot:
         self._mtf_issues: List[str] = []           # mismatches from the last sync; any issue blocks MTF
         self._mtf_pct: Optional[float] = None      # borrowed / MTF holdings value, from the last sync
         self._mtf_held_value = 0.0
+        self._book_day = None                      # trade day of the saved book: interest days owed after a restart
         self._pos_store = position_store           # restart-safe position book (None = in-memory only)
         self._entry_guard = entry_guard            # re-checked every cycle in live
         self._faults: set = set()                  # ("stop"|"partial", key): entries and slicing blocked while any exists
@@ -592,6 +593,7 @@ class StrategyBot:
         if self._pnl_day == now.date():
             return
         keep = self._pnl_day is None and self._restored_day == now.date()
+        prev_day = self._pnl_day or self._book_day  # the last day the book was accounted for
         self._pnl_day = now.date()
         self.state.daily_pnl = 0.0
         self.state.strategy_pnl = {}
@@ -599,8 +601,9 @@ class StrategyBot:
             self._marks = {}
             self._done.clear()
         self._restore_counters(now)
-        if not keep:  # a restart on the same day must not charge the same day twice
-            self._accrue_mtf_interest()
+        if not keep:  # a restart on the same day must not charge the same days twice
+            # Brokers charge weekends too: Friday to Monday is three calendar days of interest.
+            self._accrue_mtf_interest((now.date() - prev_day).days if prev_day else 0)
         self._persist_positions()
         self._log("pnl_day_reset", day=now.date().isoformat(), restored=keep)
 
@@ -889,8 +892,10 @@ class StrategyBot:
         """Borrowed amount of the open MTF positions: quantity x entry x funded share."""
         return float(sum(p.qty * p.entry * p.funded_pct for p in self._positions.values() if p.product == MTF))
 
-    def _accrue_mtf_interest(self) -> float:
-        """Charge one day of interest on each open MTF position's borrowed amount (12% a year, margin_entry.py)."""
+    def _accrue_mtf_interest(self, days: int = 1) -> float:
+        """Charge interest for `days` calendar days on each open MTF position's borrowed amount (12% a year)."""
+        if days <= 0:
+            return 0.0
         m = self.cfg.margin
         if m is None or m.annual_rate is None:
             return 0.0
@@ -898,7 +903,7 @@ class StrategyBot:
         for pos in self._positions.values():
             if pos.product != MTF or pos.funded_pct <= 0:
                 continue
-            interest = mtf_daily_interest(pos.qty * pos.entry * pos.funded_pct, m.annual_rate)
+            interest = mtf_daily_interest(pos.qty * pos.entry * pos.funded_pct, m.annual_rate) * days
             if interest > 0:
                 self._record_pnl(pos.strategy, -interest)
                 total += interest
@@ -1614,6 +1619,8 @@ class StrategyBot:
         self.state.open_notional = float(doc.get("open_notional", 0.0))
         self._booked = {str(k): float(v) for k, v in doc.get("booked", {}).items()}
         self._cycle_done = set(str(k) for k in doc.get("cycle_done", []))  # all days, not only today
+        from datetime import date as _date
+        self._book_day = _date.fromisoformat(doc["day"]) if doc.get("day") else None
         self._mtf_carry = {str(k): int(v) for k, v in (doc.get("mtf_carry") or {}).items()}
         for d in doc.get("cycle_parents", []):
             try:
