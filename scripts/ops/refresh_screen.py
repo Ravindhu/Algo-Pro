@@ -102,10 +102,16 @@ def main() -> int:
     def quote(symbol: str, exchange: str):
         return reader.quotes(api_key, symbol, exchange)
 
-    result = enrich_candidates(candidates, quote, exchange=args.exchange)
-    payload = {"candidates": result["candidates"],
-               "symbols": [c["symbol"] for c in result["candidates"]]}
-    doc = screener_engine.screen_rows(payload, max_symbols=len(candidates))
+    from quant.data.bse_symbol import openalgo_bse_lookup, split_for_screen  # noqa: E402
+
+    nse_list, bse_list, unresolved = split_for_screen(candidates, openalgo_bse_lookup)
+    result = enrich_candidates(nse_list, quote, exchange=args.exchange)
+    bse_result = enrich_candidates(bse_list, lambda s, _e: quote(s, "BSE"), exchange="BSE")
+    merged = result["candidates"] + bse_result["candidates"]
+    payload = {"candidates": merged, "symbols": [c["symbol"] for c in merged]}
+    doc = screener_engine.screen_rows(payload, max_symbols=len(merged) or 1)
+    for item in unresolved:  # a BSE code the OpenAlgo master does not know: reported, never traded
+        print(f"  unresolved BSE code {item['code']} (OpenAlgo symbol: {item['symbol']})")
 
     print(f"candidates : {len(candidates)}")
     print(f"enriched   : {result['enriched']}")
@@ -115,12 +121,6 @@ def main() -> int:
         print(f"  drop {row['symbol']:<14} {row['reason']}")
     for row in doc["results"][:20]:
         print(f"  keep {row['symbol']:<14} circuit {row['circuit_pct']:.4f}")
-
-    # Read-only report: BSE codes -> OpenAlgo symbol -> broker check. Never changes the file.
-    from quant.data.bse_symbol import bse_report, openalgo_bse_lookup  # noqa: E402
-    for row in bse_report(candidates, openalgo_bse_lookup, quote):
-        print(f"  bse  {row['code']:<8} -> {str(row['symbol']):<14} "
-              f"broker={'yes' if row['broker_match'] else 'no'}  {row['reason']}")
 
     if args.dry_run:
         print("[dry-run] nothing written")

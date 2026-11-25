@@ -111,7 +111,7 @@ class LiveBars:
     def _lot_size(self, symbol: str) -> int:
         """Broker instrument-master lot size for this symbol, minimum 1. Fails to 1."""
         try:
-            reply = self._reader.search_symbol(self._key, symbol)
+            reply = self._reader.search_symbol(self._key, symbol, self.exchange)
         except Exception:
             return 1
         if not isinstance(reply, dict) or reply.get("status") != "success":
