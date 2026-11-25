@@ -84,3 +84,16 @@ Plain-English summary of what changed and what is still open.
 
 Still required before MTF is switched on: one read-only margin query on the real account (owner), and the redacted
 holdings sample for item 3. `mtf_enabled` stays `false`.
+
+## Close-out of the three open items (2026-11-25)
+
+- **Item 3, pledged MTF in holdings: partly answered, still not mapped.** The mStock Type B holdings page
+  (tradingapi.mstock.com/docs/v1/typeB/Portfolio) lists `collateralquantity`, `collateraltype` and `haircut`, and a
+  `product` field that is null in its sample with no documented values. The page does not say that any field means
+  pledged MTF, so we do not map one on a guess. The owner probe (below) prints the holding field names and how many
+  rows carry collateral. Mapping waits for that output.
+- **Live margin check: built, owner to run.** `scripts/verify/mtf_live_probe.py` makes three read-only calls
+  (positionbook, holdings, one MTF margin quote) and places nothing. It prints field names, counts and the margin
+  verdict; it never prints the API key or holding values.
+- **Pin coverage in CI: closed.** `src/quant/tests/test_vendored_pin.py` fails CI if the vendored OpenAlgo tree changes
+  without a pin update. Startup still checks a folder that does not exist here; changing startup is the owner's call.
