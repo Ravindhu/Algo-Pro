@@ -619,7 +619,7 @@
       <section class="panel">
         <div class="ph">Holdings <span id="pf-rowsnote"></span></div>
         <div class="scroll"><table>
-          <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Value ₹</th><th class="n">Hold days</th><th class="n">P&amp;L ₹</th><th class="n">P&amp;L %</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Exch</th><th class="n">Qty</th><th class="n">Avg ₹</th><th class="n">LTP ₹</th><th class="n">Value ₹</th><th class="n">P&amp;L ₹</th><th class="n">P&amp;L %</th></tr></thead>
           <tbody id="pf-rows"></tbody>
         </table></div>
       </section>
@@ -1399,10 +1399,10 @@
         mini.append(fill); pctCell.append(mini);
       }
       tr.append(cell(h.symbol), cell(h.exchange || "—"), cell(h.quantity == null ? "—" : String(h.quantity), "n"),
-        cell(inr(h.average_price), "n"), cell(inr(h.ltp), "n"), cell(money(val), "n"), cell(h.hold_days == null ? "—" : String(h.hold_days), "n"),
+        cell(inr(h.average_price), "n"), cell(inr(h.ltp), "n"), cell(money(val), "n"),
         cell(money(h.pnl), "n " + sign(h.pnl)), pctCell);
       return tr;
-    }), p.state === "broker_read" ? "No holdings in the broker account." : "No holdings to show.", 9);
+    }), p.state === "broker_read" ? "No holdings in the broker account." : "No holdings to show.", 8);
     $("pf-rowsnote").textContent = p.truncated ? "first " + holdings.length + " of " + s.count : (holdings.length ? holdings.length + " shown" : "");
   }
 

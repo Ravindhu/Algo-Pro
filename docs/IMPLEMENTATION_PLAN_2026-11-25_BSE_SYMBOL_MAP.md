@@ -53,3 +53,5 @@ the owner wants to know the correct symbol and whether the broker knows it.
 * Caveat: the dashboard process needs the OpenAlgo symbol master to translate codes. Outside the OpenAlgo
   runtime, BSE rows show a dash until that is available.
 * Tests: `src/quant/tests/test_home_view.py` (ticker translation, unknown code, lookup failure).
+* Portfolio popup: the "Hold days" column is removed from the Holdings table (display only). The `hold_days`
+  data is still used to pick today's open positions.
