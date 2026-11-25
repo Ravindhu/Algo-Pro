@@ -44,6 +44,7 @@ import yaml
 
 from quant.core.config import RiskLimits
 from quant.core.types import TradeIntent
+from quant.execution.exchange_router import choose_entry, quote_from_reply
 from quant.execution.pnl_store import PnlStore
 from quant.execution.pov_executor import PovExecutor
 from quant.execution.pov_band import BandConfig, compute_target_pov_rate
@@ -457,6 +458,7 @@ class StrategyBot:
         margin_check: Optional[Callable[[TradeIntent], Any]] = None,
         margin_store: Optional[Any] = None,
         mtf_holdings: Optional[Callable[[], Any]] = None,
+        quote_provider: Optional[Callable[[str, str], Any]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -527,6 +529,8 @@ class StrategyBot:
         self._margin_check = margin_check          # broker margin for a 1-share order, read once a day per stock
         self._margin_store = margin_store if margin_store is not None else DailyMarginStore(None)
         self._mtf_holdings = mtf_holdings          # broker position book reader for the MTF holdings sync
+        # (symbol, exchange) -> broker quote reply. None = no exchange choice (NSE, as before).
+        self._quote_provider = quote_provider
         self._mtf_synced_day = None                # trade day of the last sync that matched the broker
         self._mtf_issues: List[str] = []           # mismatches from the last sync; any issue blocks MTF
         self._mtf_pct: Optional[float] = None      # borrowed / MTF holdings value, from the last sync
@@ -767,6 +771,16 @@ class StrategyBot:
         except Exception:
             return 0.0  # no funds known: entries are refused
 
+    def _entry_exchange(self, sym: str):
+        """Best-quote exchange for a new long entry (owner rule, 2026-11-25). Never raises."""
+        quotes = {}
+        for exchange in ("NSE", "BSE"):
+            try:
+                quotes[exchange] = quote_from_reply(self._quote_provider(sym, exchange))
+            except Exception:  # noqa: BLE001 - one failed quote must not stop the bot
+                quotes[exchange] = quote_from_reply(None)
+        return choose_entry(quotes["NSE"], quotes["BSE"])
+
     def _gate_entry(self, key: str, sig: dict, strat, sym: str, circuit_pct: float, stats, now,
                     ref_price: float, risk_fraction: Optional[float] = None,
                     equity: Optional[float] = None) -> Optional[TradeIntent]:
@@ -783,6 +797,19 @@ class StrategyBot:
         if not isinstance(lot, (int, float)) or lot < 1 or int(lot) != lot:
             self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=f"bad lot size {lot!r}")
             return None
+        if self._quote_provider is not None:
+            choice = self._entry_exchange(sym)
+            self._log("exchange_choice", strategy=strat.name, symbol=sym, exchange=choice.exchange,
+                      price=choice.price, reason=choice.reason)
+            if choice.exchange is None:
+                self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=choice.reason)
+                return None
+            if choice.exchange != "NSE":
+                # Stops and exits still use the NSE client (slice 3). A BSE entry would be
+                # protected and exited on the wrong exchange, so it is refused here.
+                self._log("parent_skipped", strategy=strat.name, symbol=sym,
+                          reason="BSE entry waits for slice 3 (stops and exits per exchange)")
+                return None
         # Pre-gate (capital protection): calendar, handoff contract, auction window and
         # feed health. The overnight gap and stress/VaR checks run inside gate_signal on
         # the real intent (proper ref price + size).

@@ -197,6 +197,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         vwap_provider=vwap_book.vwap,
         buyer_share_provider=vwap_book.buyer_share,
         depth_provider=lambda sym: readonly.depth(api_key, sym, "NSE"),
+        quote_provider=lambda sym, exchange: readonly.quotes(api_key, sym, exchange),  # slice 2: exchange choice
         peg_verifier=peg_verifier,
         vwap_tick=vwap_tick if cfg.pov_mode == "peg_band_buyer" else None,
         strategies=[_paper._make_strategy(n, _paper._strategy_params(bot_cfg_path), feed) for n in cfg.strategies],

@@ -48,6 +48,16 @@ def _pos(value) -> Optional[float]:
     return out if math.isfinite(out) and out > 0 else None
 
 
+def quote_from_reply(reply) -> Quote:
+    """Quote from one OpenAlgo /quotes reply. Anything unexpected = no quote (fail closed)."""
+    if not isinstance(reply, dict) or reply.get("status") != "success":
+        return Quote(bid=None, ask=None)
+    data = reply.get("data")
+    if not isinstance(data, dict):
+        return Quote(bid=None, ask=None)
+    return Quote(bid=data.get("bid"), ask=data.get("ask"))
+
+
 def _usable_ask(q: Optional[Quote]) -> Optional[float]:
     if q is None:
         return None
