@@ -44,3 +44,12 @@ the owner wants to know the correct symbol and whether the broker knows it.
 ## 7. Done criteria
 * Unit suite: same results as master (only the known `test_live_switch_is_not_touched` failure).
 * Branch pushed; master untouched.
+
+## 8. Dashboard screener block (2026-11-25)
+* The Screener stocks panel shows only Ticker and Price. The Name column is removed.
+* Ticker is the broker's own symbol. NSE symbols pass through. A 6-digit BSE code is translated with
+  `openalgo_bse_lookup` (OpenAlgo symbol master). If the translation fails, the ticker is a dash, never the number.
+* The translation runs on the server in `home_view.read_screener` (`_ticker_for`). Read only.
+* Caveat: the dashboard process needs the OpenAlgo symbol master to translate codes. Outside the OpenAlgo
+  runtime, BSE rows show a dash until that is available.
+* Tests: `src/quant/tests/test_home_view.py` (ticker translation, unknown code, lookup failure).

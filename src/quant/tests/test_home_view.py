@@ -24,16 +24,25 @@ def test_screener_lists_only_selected_names(tmp_path: Path):
     assert [r["symbol"] for r in out["rows"]] == ["AAA"]
 
 
-def test_bse_code_without_name_is_looked_up(tmp_path: Path):
-    """A BSE-only row carries a bare security code; the name comes from the master."""
+def test_bse_code_is_shown_as_the_broker_ticker(tmp_path: Path):
+    """A BSE row shows the OpenAlgo symbol, never the 6-digit code and never a name."""
     path = tmp_path / "last_screen.json"
     path.write_text(json.dumps({"as_of": "x", "source": "s", "results": [
-        {"symbol": "500319", "selected": True, "reason": "r"},
-        {"symbol": "522650", "name": "Known Ltd", "selected": True, "reason": "r"},
+        {"symbol": "500325", "selected": True, "reason": "r"},
+        {"symbol": "infy", "selected": True, "reason": "r"},
     ]}), encoding="utf-8")
-    out = home_view.read_screener(path, name_fn=lambda s: {"500319": "ISPAT Industries"}.get(s, ""))
-    names = {r["symbol"]: r["name"] for r in out["rows"]}
-    assert names == {"500319": "ISPAT Industries", "522650": "Known Ltd"}
+    out = home_view.read_screener(path, ticker_fn=lambda code: {"500325": "RELIANCE"}.get(code))
+    assert [r["symbol"] for r in out["rows"]] == ["RELIANCE", "INFY"]
+    assert all("name" not in r for r in out["rows"])
+
+
+def test_unknown_bse_code_gives_empty_ticker_not_the_number(tmp_path: Path):
+    path = tmp_path / "last_screen.json"
+    path.write_text(json.dumps({"as_of": "x", "source": "s", "results": [
+        {"symbol": "999999", "selected": True, "reason": "r"},
+    ]}), encoding="utf-8")
+    out = home_view.read_screener(path, ticker_fn=lambda _c: None)
+    assert out["rows"][0]["symbol"] == ""
 
 
 def test_default_paths_include_the_data_screened_dir(tmp_path: Path, monkeypatch):
@@ -63,17 +72,17 @@ def test_no_screen_file_anywhere_is_not_run(tmp_path: Path, monkeypatch):
     assert out["state"] == "not_run" and out["rows"] == []
 
 
-def test_name_lookup_failure_is_blank_not_fatal(tmp_path: Path):
+def test_ticker_lookup_failure_is_blank_not_fatal(tmp_path: Path):
     path = tmp_path / "last_screen.json"
     path.write_text(json.dumps({"as_of": "x", "source": "s", "results": [
-        {"symbol": "500319", "selected": True, "reason": "r"},
+        {"symbol": "500325", "selected": True, "reason": "r", "metrics": {"current_price": 10}},
     ]}), encoding="utf-8")
 
-    def boom(_s):
-        raise RuntimeError("no master")
+    def boom(_c):
+        raise RuntimeError("no OpenAlgo master")
 
-    out = home_view.read_screener(path, name_fn=boom)
-    assert out["state"] == "ok" and out["rows"][0]["name"] == ""
+    out = home_view.read_screener(path, ticker_fn=boom)
+    assert out["state"] == "ok" and out["rows"][0]["symbol"] == "" and out["rows"][0]["price"] == 10.0
 
 
 def test_broken_screener_file_is_an_error_state(tmp_path: Path):

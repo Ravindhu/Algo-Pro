@@ -46,15 +46,17 @@ def _latest_screen_path() -> Path:
 
 
 def read_screener(path: Optional[Path] = None, *,
-                  name_fn: Optional[Callable[[str], str]] = None) -> Dict[str, Any]:
+                  ticker_fn: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
     """The selected names from the last screener run, or an empty state.
 
-    A BSE-linked company reaches us as a bare 6-digit security code; ``name_fn``
-    fills the display name from the BSE/NSE master when the row has none. Default
-    is ``_resolve_name``; pass ``None`` to skip the lookup. A lookup failure is
-    ignored - the code still shows, so the row is never blank.
+    Each row shows the broker's own ticker (the OpenAlgo symbol) and the price. A
+    6-digit BSE code is translated with the OpenAlgo symbol module (``ticker_fn``,
+    default ``openalgo_bse_lookup``). A code the module cannot translate gives an
+    empty ticker, so the dashboard never shows a bare number. Company names are not shown.
     """
-    lookup = _resolve_name if name_fn is None else name_fn
+    _ensure_engines_path()
+    from quant.data.bse_symbol import openalgo_bse_lookup
+    lookup = openalgo_bse_lookup if ticker_fn is None else ticker_fn
     path = _latest_screen_path() if path is None else Path(path)
     if not path.is_file():
         return {"state": "not_run", "as_of": None, "source": None, "count": 0, "rows": [],
@@ -68,8 +70,7 @@ def read_screener(path: Optional[Path] = None, *,
     results = results if isinstance(results, list) else []
     selected = [r for r in results if isinstance(r, dict) and r.get("selected")]
     rows: List[Dict[str, Any]] = [{
-        "symbol": str(r.get("symbol") or "")[:20],
-        "name": _name_for(str(r.get("symbol") or ""), r.get("name"), lookup),
+        "symbol": _ticker_for(str(r.get("symbol") or ""), lookup),
         "status": "selected",
         "reason": str(r.get("reason") or "")[:120],
         "price": _price(r),
@@ -81,32 +82,23 @@ def read_screener(path: Optional[Path] = None, *,
             "note": "" if rows else "The last screener run selected no names."}
 
 
-def _resolve_name(symbol: str) -> str:
-    """Company name for a screener symbol from the Blue symbol master; "" if unknown.
+def _ticker_for(symbol: str, lookup: Callable[[str], Optional[str]]) -> str:
+    """Broker ticker for a screener symbol. NSE symbols pass through unchanged.
 
-    The master lists are optional local data, so a missing list resolves to ""
-    rather than raising into the dashboard poll.
+    A 6-digit BSE code goes through ``lookup`` (OpenAlgo symbol master). Any failure or
+    unknown code gives "" (fail closed): the row shows a dash, never the number.
     """
-    if not symbol:
+    from quant.data.bse_symbol import is_bse_code
+    text = (symbol or "").strip().upper()[:20]
+    if not text:
         return ""
+    if not is_bse_code(text):
+        return text
     try:
-        _ensure_engines_path()
-        from quant.engines.screener.symbol_map import resolve_symbol
-        resolved = resolve_symbol(symbol).name
-    except Exception:  # noqa: BLE001 - display only; a lookup failure is not an error
+        resolved = lookup(text)
+    except Exception:  # noqa: BLE001 - display only; a failed lookup is not an error
         return ""
-    return str(resolved or "").strip()[:40]
-
-
-def _name_for(symbol: str, stored: Any, name_fn: Optional[Callable[[str], str]]) -> str:
-    """Name already in the row wins; otherwise look it up (bounded); else ""."""
-    text = str(stored or "").strip()
-    if text:
-        return text[:40]
-    try:
-        return str(name_fn(symbol) or "").strip()[:40]
-    except Exception:  # noqa: BLE001 - display only
-        return ""
+    return str(resolved or "").strip().upper()[:20]
 
 
 def _price(row: Dict[str, Any]) -> Optional[float]:
