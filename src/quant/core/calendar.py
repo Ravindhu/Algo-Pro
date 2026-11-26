@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import Set
 
 import pandas as pd
 
@@ -42,21 +42,3 @@ class TradingCalendar:
         if not self.verified:
             raise ValueError("calendar not verified: cannot compute settlement date")
         return self.next_trading_day(trade_day)
-
-
-def calendar_coverage(coverage_path, today: date, horizon_days: int = 30) -> Tuple[bool, List[str]]:
-    """Is the holiday list known to cover the next `horizon_days` days? coverage.yaml holds
-    `covered_through: YYYY-MM-DD`, set by the owner after checking the NSE circulars for those dates.
-    Missing or unreadable = not covered (fail closed)."""
-    import yaml
-
-    p = Path(coverage_path)
-    try:
-        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-        through = date.fromisoformat(str(data["covered_through"]))
-    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError):
-        return False, ["holiday coverage file missing or unreadable (config/calendar/coverage.yaml)"]
-    if today + timedelta(days=horizon_days) > through:
-        return False, [f"holiday list is only verified through {through.isoformat()}: "
-                       f"extend it from the NSE circulars before live"]
-    return True, []

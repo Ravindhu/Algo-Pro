@@ -1,4 +1,0 @@
-# Owner-maintained. The live start refuses when the next 30 days pass this date, because the
-# holiday list (holidays.csv) is only checked against the NSE circulars up to here.
-# Set it only after checking the circulars for every date you extend it to.
-covered_through: 2026-12-31

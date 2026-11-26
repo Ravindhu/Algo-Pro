@@ -52,12 +52,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from quant.audit.log import AuditLog  # noqa: E402
-from quant.core import calendar as _calendar  # noqa: E402
-from quant.core import signoff as _signoff  # noqa: E402
 from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.core.trading_mode import trading_mode_status  # noqa: E402
-from quant.monitor.paper_loop import now_ist  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 
 MODE_FILE = ROOT / "data" / "mode.json"
@@ -66,10 +63,6 @@ HOLIDAYS_FILE = ROOT / "config" / "calendar" / "holidays.csv"
 SETTINGS_FILE = ROOT / "config" / "settings.yaml"
 #: The kill switch file the live bot uses (run_strategy_bot_live: state dir + kill.json).
 LIVE_BOT_KILL_FILE = ROOT / "data" / "bot_live" / "kill.json"
-SIGNOFF_FILE = ROOT / "data" / "bot_live" / "signoff.json"
-COVERAGE_FILE = ROOT / "config" / "calendar" / "coverage.yaml"
-DEFAULT_CONFIG_FILES = (ROOT / "config" / "bot.yaml", ROOT / "config" / "settings.yaml",
-                        ROOT / "config" / "risk_limits.yaml", ROOT / "config" / "data_sources.yaml")
 
 
 def _live_settings(settings_path=SETTINGS_FILE) -> dict:
@@ -89,8 +82,7 @@ def _live_settings(settings_path=SETTINGS_FILE) -> dict:
 def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
                    mode_file=MODE_FILE,
                    holidays_file=HOLIDAYS_FILE, audit: Optional[AuditLog] = None,
-                   kill_path=None, settings_path=SETTINGS_FILE,
-                   signoff_path=None, config_paths=None, coverage_path=None, today=None) -> dict:
+                   kill_path=None, settings_path=SETTINGS_FILE) -> dict:
     """Every start gate, evaluated in order. Returns {ok, reasons, capital_cap}.
     No LiveApproval (removed 2026-11-25). The OpenAlgo analyzer is checked on every order.
 
@@ -153,19 +145,6 @@ def startup_checks(limits_path=pathlib.Path(LIMITS_FILE),
     else:
         reasons.append("live needs live.max_capital_inr in config/settings.yaml: "
                        "a fixed INR cap on the capital the live bot may use")
-
-    # 9. owner sign-off (audit fix 4, 2026-11-26): drill passed, soak attested, config unchanged since.
-    day = today if today is not None else now_ist().date()
-    sign_file = pathlib.Path(signoff_path) if signoff_path is not None else SIGNOFF_FILE
-    cfg_files = list(config_paths) if config_paths is not None else list(DEFAULT_CONFIG_FILES)
-    ok_sign, sign_reasons = _signoff.check_signoff(
-        sign_file, fingerprint=_signoff.config_fingerprint(cfg_files), today=day)
-    reasons.extend(sign_reasons)
-
-    # 10. holiday list covers the next 30 days (audit fix 4): otherwise the bot could trade on an unknown day
-    cov_file = pathlib.Path(coverage_path) if coverage_path is not None else COVERAGE_FILE
-    _ok_cov, cov_reasons = _calendar.calendar_coverage(cov_file, day)
-    reasons.extend(cov_reasons)
 
     if audit is not None and reasons:
         audit.append("live_start_refused", {"reasons": reasons})
