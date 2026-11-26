@@ -5,7 +5,6 @@ import pandas as pd
 from quant.models.calibration import platt_fit, predict_proba, reliability
 from quant.models.events import EventAdvice, score_filing
 from quant.models.factors import composite, momentum_12_1
-from quant.models.meta_label import MetaLabeler
 from quant.models.regime import regime_states
 from quant.models.signal import make_signal
 
@@ -61,14 +60,3 @@ def test_platt_scaling_separates_classes():
     assert ((p > 0.5) == (y == 1)).mean() > 0.8
     rows = reliability(p, y, bins=5)
     assert sum(r[2] for r in rows) == len(y)
-
-
-def test_meta_labeler_skips_low_confidence_and_caps_bet():
-    rng = np.random.default_rng(5)
-    X = rng.normal(0, 1, (400, 2))
-    y = (X[:, 0] > 0).astype(float)
-    ml = MetaLabeler.fit(X, y, take_threshold=0.6, max_bet=0.05)
-    take_hi, bet_hi = ml.decide([3.0, 0.0])
-    take_lo, bet_lo = ml.decide([-3.0, 0.0])
-    assert take_hi and bet_hi <= 0.05
-    assert not take_lo and bet_lo == 0.0

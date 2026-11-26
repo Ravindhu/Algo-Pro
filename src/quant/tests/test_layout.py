@@ -74,7 +74,8 @@ def test_only_openalgo_client_names_the_order_client():
 
 
 # SVG blocks with no module yet. Shrink this list as each gap gets a home. Empty = no gaps.
-KNOWN_GAPS: set = set()
+# Meta-labeler: moved to Temp/Stag/meta_label on 2026-11-26 (staged, not wired into the bot).
+KNOWN_GAPS: set = {"Meta-labeler"}
 
 
 def _svg_block_titles():
