@@ -51,6 +51,8 @@ def rows_to_frame(rows: Any) -> Optional[pd.DataFrame]:
 
 def is_fresh(df: pd.DataFrame, now: datetime, max_age_minutes: float) -> bool:
     """True when the last bar is not older than max_age_minutes at `now` (naive IST)."""
+    from quant.core.time_ist import naive_ist  # audit 2026-11-26: an aware clock is converted, never compared raw
+    now = naive_ist(now)
     last = df.index[-1]
     return (now - last.to_pydatetime()) <= timedelta(minutes=max_age_minutes) and last <= pd.Timestamp(now)
 

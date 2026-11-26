@@ -43,6 +43,7 @@ import time
 import yaml
 
 from quant.core.config import RiskLimits
+from quant.core.time_ist import naive_ist
 from quant.core.types import TradeIntent
 from quant.execution.exchange_router import choose_entry, quote_from_reply
 from quant.execution.pnl_store import PnlStore
@@ -337,7 +338,8 @@ def read_screen(path, now: datetime, max_age_minutes: float) -> List[Dict[str, A
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        as_of = datetime.fromisoformat(str(data["as_of"]))
+        as_of = naive_ist(datetime.fromisoformat(str(data["as_of"])))
+        now = naive_ist(now)
         if (now - as_of).total_seconds() > max_age_minutes * 60 or as_of > now:
             return []
         out = []
@@ -695,10 +697,12 @@ class StrategyBot:
 
     # --- one cycle ---
     def cycle(self, now: datetime) -> Dict[str, Any]:
+        epoch = now.timestamp()          # true epoch, for the peg timing (an aware clock keeps it exact)
+        now = naive_ist(now)             # naive IST for the bars and the screen (audit 2026-11-26)
         report: Dict[str, Any] = {"time": now.isoformat(), "parents_opened": 0, "children_sent": 0,
                                   "skipped": []}
         self._cycle_no += 1
-        self._peg.start_cycle(now.timestamp())
+        self._peg.start_cycle(epoch)
         self._roll_day(now)
         self._refresh_limits(now, report)
         self._update_session_policy(now, report)

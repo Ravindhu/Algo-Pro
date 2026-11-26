@@ -94,7 +94,7 @@ class Rule:
         # Audit fix 8 (2026-11-26): a NEGATIVE ratio is not a pass for an upper
         # bound. A company with negative net worth reports debt/equity < 0, which
         # satisfies "< 1" while being the worst solvency signal there is.
-        if self.op in ("<", "<=") and value < 0 and not _NEGATIVE_OK.get(self.metric, False):
+        if self.op in ("<", "<=") and value < 0 and self.metric not in _NEGATIVE_OK:
             return RuleResult(
                 self.metric, FAIL, value, self.label,
                 f"{value:g} is negative: a negative {self.metric} (negative net worth) "

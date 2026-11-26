@@ -179,7 +179,9 @@ def screen_rows(payload: Dict[str, Any], *, as_of=None, max_symbols: int = 50) -
     for sym in ordered[:max_symbols]:
         c = candidates.get(sym) or {}
         circuit = c.get("circuit_pct")
-        asm_gsm = bool(c.get("asm_gsm") or c.get("asm") or c.get("gsm"))
+        # Audit 2026-11-26: a surveillance flag the broker did not send is UNKNOWN, not clean.
+        known = [c[k] for k in ("asm_gsm", "asm", "gsm") if c.get(k) is not None]
+        asm_gsm = any(bool(v) for v in known)
         if not isinstance(circuit, (int, float)) or not 0 < float(circuit) <= 1:
             # Record WHY. Without this, a payload that never carried a circuit limit
             # produced {"results": []} and read exactly like a clean empty screen.
@@ -189,6 +191,9 @@ def screen_rows(payload: Dict[str, Any], *, as_of=None, max_symbols: int = 50) -
             continue
         if asm_gsm:
             dropped.append({"symbol": str(sym), "reason": "ASM/GSM flag"})
+            continue
+        if not known:
+            dropped.append({"symbol": str(sym), "reason": "ASM/GSM status unknown"})
             continue
         results.append({"symbol": str(sym).upper(), "selected": True,
                         "asm_gsm": False, "circuit_pct": float(circuit)})
