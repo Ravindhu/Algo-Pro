@@ -6,20 +6,25 @@ analyzer switched OFF; while it is on, no live order is sent):
 
 Gates, in order. Each one must pass before any order can be sent:
   1. config/bot.yaml: mode is "live" and live_enabled is true.
-  2. scripts/run/run_live.startup_checks: limits complete, kill switch off, holiday calendar
-     verified, API key present, live.max_capital_inr set,
+  2. scripts/run/run_live.startup_checks: limits complete, kill switch off, holiday file parses,
+     API key present, live.max_capital_inr set. (No LiveApproval since 2026-11-25.)
   3. StrategyBot start: the same gate is run again inside the bot.
-  4. Startup reconciliation with the broker position book. No match = no entries.
-  5. OpenAlgoClient live guard on EVERY order: OpenAlgo analyzer must be off, compliance
+  4. OpenAlgo funds reply carries a numeric availablecash (audit fix 7, 2026-11-26).
+  5. Startup reconciliation with the broker position book. No match = no entries.
+  6. OpenAlgoClient live guard on EVERY order: OpenAlgo analyzer must be OFF, compliance
      gate (audit storage and clock), and an approved GateDecision for the same intent.
+
+Not enforced by code (owner checks, before the analyzer is switched off): the analyze-mode soak,
+the kill-switch drill, and the holiday calendar for the trade day.
 
 Stop: create the file <state-dir>/stop.flag (the loop checks it every second).
 Exits are never blocked by the startup reconciliation; entries are.
 
 Flow stage: Algo router, Risk gate, Approved order queue, OpenAlgo, Audit log
-Status: PHASE 1 IMPLEMENTED (live sender wired behind the gates). NOT RUN. Still open:
-  owner sign-off, the holiday/calendar check (run_live check 6), kill-switch drill (check 4),
-  and the analyze-mode soak test (phase 2).
+Status: PHASE 1 IMPLEMENTED (live sender wired behind the gates). NOT RUN on a live account.
+  Audit fixes 1, 2, 3, 7 (2026-11-26, branch fix/live-path-audit-2026-11-26): stop moves are
+  modified in place, MIS square-off does not need bars, repeated cycle errors alert and block
+  entries, funds field is checked at start.
 """
 from __future__ import annotations
 
@@ -67,6 +72,20 @@ _paper = _load("run_strategy_bot_paper", "scripts/run/run_strategy_bot.py")
 _live_checks = _load("run_live_checks", "scripts/run/run_live.py")
 
 
+def funds_reply_has_cash(body: Any) -> bool:
+    """True when the funds reply carries a finite number in data.availablecash (a numeric string is accepted)."""
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, dict) or "availablecash" not in data:
+        return False
+    raw = data.get("availablecash")
+    if isinstance(raw, bool):
+        return False
+    try:
+        return math.isfinite(float(raw))
+    except (TypeError, ValueError):
+        return False
+
+
 def available_cash(reader: Any, api_key: str) -> float:
     """Sizing equity = available cash from OpenAlgo funds. Any doubt gives 0 (no entries).
 
@@ -104,6 +123,17 @@ class LiveStops:
         ok = isinstance(r, dict) and str(r.get("status", "")).lower() == "success" and bool(order_id)
         return {"status": "success" if ok else "error", "orderid": order_id,
                 "reason": "" if ok else str(r.get("message", "no order id")) if isinstance(r, dict) else "bad reply"}
+
+    def modify_stop(self, order_id, symbol, action, qty, trigger_price, strategy, product="MIS", exchange="NSE"):
+        """Move the open stop in one broker request. A refusal keeps the old stop in place (never cancelled first)."""
+        try:
+            r = self._client.modify_stop(order_id, symbol, action, qty, trigger_price, strategy, self._key,
+                                         product=product, exchange=exchange)
+        except Exception as exc:
+            return {"status": "error", "reason": repr(exc)}
+        ok = isinstance(r, dict) and str(r.get("status", "")).lower() == "success"
+        return {"status": "success" if ok else "error",
+                "reason": "" if ok else str(r.get("message", "bad reply")) if isinstance(r, dict) else "bad reply"}
 
     def stop_status(self, order_id, strategy):
         try:
@@ -171,6 +201,15 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         compliance=ComplianceGate(ComplianceConfig(audit_dir=str(state_dir))),
     )
     readonly = reader if reader is not None else OpenAlgoReadOnly(base_url, transport)
+    # Audit fix 7 (2026-11-26): sizing reads 'availablecash'. A missing or non-numeric field means the bot
+    # would silently take no entries, so the start is refused and the owner is told why.
+    try:
+        funds_ok = funds_reply_has_cash(readonly.funds(api_key))
+    except Exception as exc:  # noqa: BLE001 - an unreadable funds reply refuses the start
+        raise BotRefused(f"live startup gate refused: OpenAlgo funds could not be read ({exc!r})")
+    if not funds_ok:
+        raise BotRefused("live startup gate refused: OpenAlgo funds reply has no numeric 'availablecash' "
+                         "(check the field name on the live account)")
     alerts = alerts or Alerts(on_critical=on_critical)
 
     # Buyer-initiated VWAP per screened symbol, from quote polls. Only used in band mode.

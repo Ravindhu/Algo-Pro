@@ -128,21 +128,40 @@ def build_bot(*, bot_cfg_path, limits_path, state_dir, reader, api_key: str,
     return bot, audit
 
 
+CYCLE_ERROR_ALERT_AFTER = 3
+
+
+def _escalate_cycle_failures(bot, failures: int, exc: Exception) -> None:
+    """Repeated cycle errors: CRITICAL alert, and entries blocked by the kill switch. Exits still run each cycle."""
+    msg = f"{failures} cycles in a row failed ({exc!r}); new entries blocked, check exits and positions"
+    alert = getattr(bot, "_alert", None)
+    if callable(alert):
+        alert("CRITICAL", msg)
+    kill = getattr(bot, "_kill", None)
+    if kill is not None and not kill.active:
+        kill.trip(f"repeated cycle failures: {failures}", source="automatic")
+
+
 def run(bot: StrategyBot, audit: AuditLog, *, state_dir, clock: Callable[[], datetime] = now_ist,
         sleep: Callable[[float], None] = time.sleep, max_cycles: Optional[int] = None) -> int:
     """Run cycles until max_cycles or the stop flag. An error in one cycle is logged; the loop goes on."""
     stop = pathlib.Path(state_dir) / STOP_FLAG
     done = 0
+    failures = 0  # consecutive cycles that raised (audit fix 3, 2026-11-26)
     while max_cycles is None or done < max_cycles:
         if stop.exists():
             audit.append("runner_stopped", {"reason": "stop flag", "cycles": done})
             break
         try:
             bot.cycle(clock())
+            failures = 0
         except BotRefused:
             raise
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the runner
-            audit.append("cycle_error", {"error": repr(exc)})
+            failures += 1
+            audit.append("cycle_error", {"error": repr(exc), "consecutive": failures})
+            if failures % CYCLE_ERROR_ALERT_AFTER == 0:
+                _escalate_cycle_failures(bot, failures, exc)
         done += 1
         if max_cycles is not None and done >= max_cycles:
             break

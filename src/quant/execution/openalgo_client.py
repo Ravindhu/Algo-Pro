@@ -81,6 +81,7 @@ class OpenAlgoClient:
 
     PLACE_PATH = "/api/v1/placeorder"
     CANCEL_PATH = "/api/v1/cancelorder"
+    MODIFY_PATH = "/api/v1/modifyorder"
     ANALYZER_PATH = "/api/v1/analyzer"
     ORDERSTATUS_PATH = "/api/v1/orderstatus"
     HOLDINGS_PATH = "/api/v1/holdings"
@@ -262,6 +263,41 @@ class OpenAlgoClient:
             "strategy": strategy,
         }
         return self._transport(self.base_url + self.PLACE_PATH, payload)
+
+    def modify_stop(self, order_id: str, symbol: str, action: str, qty: int, trigger_price: float,
+                    strategy: str, api_key: str, product: str = "MIS", exchange: str = "NSE") -> Dict:
+        """Move an open broker SL-M stop to a new trigger and quantity in ONE request (audit fix 1, 2026-11-26).
+
+        Used for trailing and breakeven moves. The old stop stays live until the broker accepts the
+        change, so a position is never without a broker stop. Same session guard as place_stop.
+        """
+        if not order_id:
+            raise ValueError("modify needs the stop's order_id")
+        if action not in ("BUY", "SELL"):
+            raise ValueError(f"bad stop action: {action!r}")
+        if not isinstance(qty, int) or qty < 1:
+            raise ValueError("stop needs a whole quantity of at least 1")
+        if not isinstance(trigger_price, (int, float)) or not math.isfinite(trigger_price) or trigger_price <= 0:
+            raise ValueError("stop needs a finite, positive trigger price")
+        if exchange not in ("NSE", "BSE"):
+            raise ValueError(f"bad stop exchange: {exchange!r}")
+        self._check_session_guard(api_key)
+        if not api_key:
+            raise PermissionError("stop modify refused: empty API key")
+        payload = {
+            "apikey": api_key,
+            "orderid": str(order_id),
+            "strategy": strategy,
+            "symbol": symbol,
+            "exchange": exchange,
+            "action": action,
+            "product": _order_product(product),
+            "pricetype": "SL-M",
+            "price": "0",
+            "quantity": qty,
+            "trigger_price": round(float(trigger_price), 2),
+        }
+        return self._transport(self.base_url + self.MODIFY_PATH, payload)
 
     def cancel(self, order_id: str, strategy: str, api_key: str) -> Dict:
         """Cancel one child order (decision 0021).

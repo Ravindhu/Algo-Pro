@@ -1498,13 +1498,20 @@ class StrategyBot:
             else:
                 # Feed outage: manage the position on the last known closed bar (owner decision 2026-11-10).
                 bar = self._last_bar.get(pos.symbol)
+                if self._policy["flatten"]:
+                    # Audit fix 2 (2026-11-26): MIS square-off must not depend on bars. With no bar at all,
+                    # send the market exit at the entry price (MARKET orders do not use it as a limit).
+                    if bar is None:
+                        self._log("flatten_no_bars", key=key, symbol=pos.symbol)
+                        self._send_exit(key, pos, float(pos.entry), "square_off", now, report)
+                        continue
                 if bar is None:
                     self._log("exit_no_bars", key=key, symbol=pos.symbol, note="no bar ever seen; held")
                     self._alert("WARNING", f"{pos.symbol}: no bar seen; position held")
                     report["skipped"].append(f"{pos.symbol}: no bars to manage position")
                     continue
                 age = self._cycle_no - int(bar.get("cycle", self._cycle_no))
-                if age > self.cfg.max_outage_cycles:
+                if age > self.cfg.max_outage_cycles and not self._policy["flatten"]:  # fix 2: flatten is not held
                     # Old prices are not used for a stop. The position is held and a person is alerted.
                     self._log("exit_held_stale_bar", key=key, symbol=pos.symbol, bar_time=bar["time"],
                               age_cycles=age, max_outage_cycles=self.cfg.max_outage_cycles)
@@ -1720,7 +1727,11 @@ class StrategyBot:
         return len(restored)
 
     def _sync_broker_stop(self, key: str) -> None:
-        """Make the broker stop cover the position's full quantity at the bot's stop price."""
+        """Make the broker stop cover the position's full quantity at the bot's stop price.
+
+        Audit fix 1 (2026-11-26): an existing stop is MODIFIED in place, never cancelled first, so a
+        position is not left without a broker stop during a trail or breakeven move.
+        """
         if self._stops is None:
             return
         pos = self._positions.get(key)
@@ -1729,6 +1740,9 @@ class StrategyBot:
         if (pos.broker_stop_id and pos.broker_stop_qty == pos.qty
                 and round(pos.broker_stop_trigger, 2) == round(pos.stop, 2)):
             self._faults.discard(("stop", key))
+            return
+        if pos.broker_stop_id and hasattr(self._stops, "modify_stop"):
+            self._modify_broker_stop(key, pos)
             return
         if pos.broker_stop_id:
             res = self._cancel_stop(key, pos)
@@ -1757,6 +1771,29 @@ class StrategyBot:
             self._faults.add(("stop", key))
             self._alert("CRITICAL", f"{pos.symbol}: broker stop not placed ({res.get('reason', 'no order id')}); "
                                     "new entries blocked; bot-side stop still active")
+        self._persist_positions()
+
+    def _modify_broker_stop(self, key: str, pos: Position) -> None:
+        """Move the live broker stop to the bot's stop price and quantity. On refusal the OLD stop stays live
+        (it is never cancelled first) and entries are blocked until a later cycle gets the modify through."""
+        exit_side = "SELL" if pos.side == "BUY" else "BUY"
+        extra = {} if pos.exchange == "NSE" else {"exchange": pos.exchange}
+        try:
+            res = self._stops.modify_stop(pos.broker_stop_id, pos.symbol, exit_side, pos.qty, pos.stop,
+                                          pos.strategy, product=self._product_of(pos), **extra)
+        except Exception as exc:
+            res = {"status": "error", "reason": repr(exc)}
+        if str(res.get("status", "")).lower() == "success":
+            pos.broker_stop_qty = pos.qty
+            pos.broker_stop_trigger = round(pos.stop, 2)
+            self._faults.discard(("stop", key))
+            self._log("stop_modified", key=key, order_id=pos.broker_stop_id, qty=pos.qty, trigger=pos.stop)
+        else:
+            self._faults.add(("stop", key))
+            self._log("stop_modify_failed", key=key, order_id=pos.broker_stop_id, qty=pos.qty,
+                      trigger=pos.stop, reason=res.get("reason"))
+            self._alert("CRITICAL", f"{pos.symbol}: broker stop could not be moved to {round(pos.stop, 2)}; "
+                                    "old stop kept, new entries blocked, retrying next cycle")
         self._persist_positions()
 
     def _cancel_stop(self, key: str, pos: Position) -> str:
