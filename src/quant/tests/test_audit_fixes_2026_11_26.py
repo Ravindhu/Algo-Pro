@@ -270,3 +270,24 @@ def test_funds_reply_check_accepts_numbers_and_numeric_strings_only():
     assert not ok({"status": "success", "data": {"availablecash": True}})
     assert not ok({"status": "error", "message": "bad key"})
     assert not ok(None)
+
+
+# ---- stop modify payload matches the OpenAlgo SDK modifyorder shape -------------------------
+
+def test_modify_stop_payload_matches_the_openalgo_sdk_shape():
+    from quant.execution.openalgo_client import OpenAlgoClient
+    sent = []
+
+    def transport(url, payload):
+        sent.append((url, payload))
+        return {"status": "success", "orderid": "S1"}
+
+    client = OpenAlgoClient("http://x", transport, mode="analyze")
+    client._require_analyzer_on = lambda key: None   # the analyzer check is tested elsewhere
+    client.modify_stop("S1", "INFY", "SELL", 10, 101.5, "s", "KEY", product="MIS", exchange="NSE")
+    url, body = sent[0]
+    assert url.endswith("/api/v1/modifyorder")
+    assert set(body) == {"apikey", "orderid", "strategy", "symbol", "exchange", "action", "product",
+                         "pricetype", "price", "quantity", "disclosed_quantity", "trigger_price"}
+    assert body["pricetype"] == "SL-M" and body["quantity"] == "10" and body["trigger_price"] == "101.5"
+    assert body["orderid"] == "S1" and body["disclosed_quantity"] == "0"

@@ -294,9 +294,11 @@ class OpenAlgoClient:
             "product": _order_product(product),
             "pricetype": "SL-M",
             "price": "0",
-            "quantity": qty,
-            "trigger_price": round(float(trigger_price), 2),
+            "quantity": str(qty),
+            "disclosed_quantity": "0",
+            "trigger_price": str(round(float(trigger_price), 2)),
         }
+        # Field names and string types match the vendored OpenAlgo SDK (Temp/openalgo/orders.py modifyorder).
         return self._transport(self.base_url + self.MODIFY_PATH, payload)
 
     def cancel(self, order_id: str, strategy: str, api_key: str) -> Dict:
