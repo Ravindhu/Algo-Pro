@@ -123,6 +123,11 @@ def test_api_token_header_alone_is_refused(write_client):
 def test_limits_write_saves_and_audits(write_client):
     client, limits, audit = write_client
     sign_in(client, "Owner", "owner-password-1")
+    # join the sign-in's background broker-login thread: its audit append must
+    # land BEFORE the test reads the audit file (2026-11-26 flake)
+    import quant.core.broker_signin as signin_mod
+    if signin_mod.last_thread is not None:
+        signin_mod.last_thread.join(timeout=10)
     # max_daily_loss is budget-owned (set as % of capital in Trade setup) and
     # refused here; a share-count cap is still a valid direct write.
     r = client.post("/api/limits", json={"max_order_quantity": 500})

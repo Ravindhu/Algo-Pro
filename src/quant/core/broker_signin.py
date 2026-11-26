@@ -9,6 +9,7 @@ no secret and no TOTP code.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -20,6 +21,11 @@ REASON_MAX = 200
 def _default_runner(**kwargs: Any) -> Dict[str, Any]:
     from quant.engines.core import broker_auth  # imported late: keeps this module light
     return broker_auth.run_scheduled_login(**kwargs)
+
+
+# The most recent login-after-signin thread. Tests join it so the audit append
+# cannot race the test's read of the audit file (2026-11-26 flake).
+last_thread: Optional["threading.Thread"] = None
 
 
 def login_after_signin(actor: str, audit_path: Path,

@@ -507,8 +507,11 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             status = 401 if reason != "totp_required" else 403
             return JSONResponse({"error": reason, "totp_required": reason == "totp_required"},
                                 status_code=status)
-        threading.Thread(target=login_after_signin, args=(name[:32], paths["audit"]),
-                         daemon=True).start()
+        thread = threading.Thread(target=login_after_signin, args=(name[:32], paths["audit"]),
+                                 daemon=True)
+        import quant.core.broker_signin as signin_mod
+        signin_mod.last_thread = thread
+        thread.start()
         response = JSONResponse({"signed_in": name,
                                  "role": accounts.account_role(name, paths["users"]),
                                  "avatar": (accounts.avatar_file(name) is not None)})
