@@ -1,7 +1,8 @@
 """Refresh data/screened/latest.json - the bot's screen - with verified price bands.
 
-Run this on a schedule during the session (every 5-10 minutes) and before the
-bot's first cycle. The bot itself never refreshes the screen; it only reads it.
+The bot refreshes this file itself every 5 minutes while it runs (paper and live loops,
+scripts/run/run_strategy_bot.py and run_strategy_bot_live.py). Run this script by hand only for a
+one-off refresh, for example to check the band source before starting the bot.
 
 Why it exists
 -------------
@@ -25,9 +26,8 @@ Safety
 Usage
 -----
     python scripts/ops/refresh_screen.py
-    python scripts/ops/refresh_screen.py --dry-run        # report, write nothing
     python scripts/ops/refresh_screen.py --source data/screened/last_screen.json
-    python scripts/ops/refresh_screen.py --symbols INFY,TCS --dry-run
+    python scripts/ops/refresh_screen.py --symbols INFY,TCS
 
 Exit codes
 ----------
@@ -82,7 +82,6 @@ def main() -> int:
                     help="comma list, overrides --source")
     ap.add_argument("--exchange", default="NSE")
     ap.add_argument("--base-url", default=os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000"))
-    ap.add_argument("--dry-run", action="store_true", help="report only; write nothing")
     args = ap.parse_args()
 
     candidates = load_candidates(args.source, args.symbols)
@@ -98,17 +97,6 @@ def main() -> int:
 
     reader = OpenAlgoReadOnly(args.base_url, http_transport)
     from quant.data.bse_symbol import openalgo_bse_lookup
-
-    if args.dry_run:
-        from quant.data.bse_symbol import split_for_screen
-        from quant.data.screen_refresh import enrich_parallel
-        nse_list, bse_list, unresolved = split_for_screen(candidates, openalgo_bse_lookup)
-        rows = enrich_parallel(nse_list, lambda s, e: reader.quotes(api_key, s, e), args.exchange)
-        rows += enrich_parallel(bse_list, lambda s, e: reader.quotes(api_key, s, "BSE"), "BSE")
-        print(f"candidates : {len(candidates)}  (dry run: nothing written)")
-        for item in unresolved:
-            print(f"  unresolved BSE code {item['code']} (OpenAlgo symbol: {item['symbol']})")
-        return 0
 
     result = refresh_once(candidates, lambda s, e: reader.quotes(api_key, s, e), args.target,
                           lookup_bse=openalgo_bse_lookup)

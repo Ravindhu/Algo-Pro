@@ -223,7 +223,13 @@ def main(argv=None) -> int:
         timeframes=load_timeframes(args.settings),
         on_critical=lambda msg: print(f"CRITICAL: {msg}", flush=True),
     )
-    run(bot, audit, state_dir=args.state_dir, max_cycles=args.max_cycles)
+    from quant.data.screen_refresh import make_screen_refresher
+    refresh = make_screen_refresher(
+        reader, api_key,
+        source=ROOT / "data" / "screened" / "last_screen.json",
+        target=ROOT / bot.cfg.screen_path,
+    )
+    run(bot, audit, state_dir=args.state_dir, max_cycles=args.max_cycles, refresh=refresh)
     return 0
 
 
