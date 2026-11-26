@@ -1,6 +1,6 @@
 # OpenAlgo upstream fingerprint pin
 #
-# Pinned content: a55fe4262ad3
+# Pinned content: 30b48379254b
 # Upstream: https://github.com/marketcalls/openalgo
 # Vendored copy: src/quant/openalgo_platform (decision 0013) -- the COMPLETE
 # upstream repo, tracked in git. This pin describes that tree.
@@ -10,19 +10,21 @@
 # 2026-11-09). It covers the WATCHED files only (requirements.txt, pyproject.toml,
 # .gitignore, restx_api/schemas.py, the three broker/mstock/mapping files, install/).
 #
-# 2026-11-26: re-pinned (owner confirmed the review). Delta vs the last valid
-# pin (8885432395b2 at ea9635d) is exactly the four watched mstock/restx_api
-# files carrying the local margin/MTF patch (commits 9800ab6, fca6316):
+# 2026-11-26: pin set to 30b48379254b, the fingerprint of the vendored tree as committed
+# (reproduced at commit fca6316 and on master). Delta vs the last pin before the local MTF
+# patch (8885432395b2 at ea9635d / 9800ab6) is the four watched mstock/restx_api files that
+# carry the margin/MTF patch (commits 9800ab6, fca6316):
 #   - restx_api/schemas.py: MTF added to product OneOf (order + margin-position)
 #   - transform_data.py: MTF->MARGIN mapping; unknown products REFUSED (no
 #     silent INTRADAY fallback); MARGIN reverse-maps to MTF
 #   - margin_data.py: MTF->MARGIN; unknown products refused; trade_value
 #     extracted from the broker margin response (used by risk/margin_entry)
 #   - order_data.py: MARGIN -> MTF on trades and positions
-# The in-between pin 30b48379254b (commit fca6316) never reproduced from any
-# committed tree and is retired.
+# a55fe4262ad3 was set in bea3dc6 (2026-11-26) but is not reproduced by any commit in this
+# repo's vendored history; it is retired. If another machine shows a different fingerprint,
+# check its git status for uncommitted vendored changes before re-pinning.
 #
 # Regenerate from the tracked tree (never from a Windows clone of openalgo/):
 #   python scripts/verify/upgrade_check.py
 #          --openalgo-dir src/quant/openalgo_platform --update-pin
-a55fe4262ad3
+30b48379254b
