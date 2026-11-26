@@ -461,6 +461,7 @@ class StrategyBot:
         order_details: Optional[Any] = None,
         mtf_holdings: Optional[Callable[[], Any]] = None,
         quote_provider: Optional[Callable[[str, str], Any]] = None,
+        day_is_trading: Optional[Callable[[Any], bool]] = None,
     ) -> None:
         if cfg.mode not in ALLOWED_MODES:
             raise BotRefused(f"bot refuses mode {cfg.mode!r}; only {ALLOWED_MODES} is allowed")
@@ -534,6 +535,8 @@ class StrategyBot:
         self._mtf_holdings = mtf_holdings          # broker position book reader for the MTF holdings sync
         # (symbol, exchange) -> broker quote reply. None = no exchange choice (NSE, as before).
         self._quote_provider = quote_provider
+        # Audit fix 4 (2026-11-26): no new entries on a weekend or holiday. Exits still run.
+        self._day_is_trading = day_is_trading
         self._mtf_synced_day = None                # trade day of the last sync that matched the broker
         self._mtf_issues: List[str] = []           # mismatches from the last sync; any issue blocks MTF
         self._mtf_pct: Optional[float] = None      # borrowed / MTF holdings value, from the last sync
@@ -697,10 +700,13 @@ class StrategyBot:
 
         bars_cache: Dict[str, Any] = {}
         guard_ok = self._run_entry_guard()
-        entries_ok = self._entries_allowed() and guard_ok and not self._faults
+        day_ok = self._trading_day_ok(now)
+        entries_ok = self._entries_allowed() and guard_ok and day_ok and not self._faults
         self._entries_ok_last = entries_ok  # the peg tick places nothing unless entries are open
         if not entries_ok:
-            if not self._entries_allowed():
+            if not day_ok:
+                reason = "non-trading day (weekend or holiday)"
+            elif not self._entries_allowed():
                 reason = "startup recon not allowed entries"
             elif not guard_ok:
                 reason = "entry guard refused"
@@ -735,6 +741,16 @@ class StrategyBot:
         report["peg_15s"] = self._peg.drain_report()  # what the 15 s pegs did since the last cycle
         self._mark_positions_to_market(bars_cache, now, report)
         return report
+
+    def _trading_day_ok(self, now: datetime) -> bool:
+        """True when the day is a trading day. No calendar injected = True (paper). A calendar error = False."""
+        if self._day_is_trading is None:
+            return True
+        try:
+            return bool(self._day_is_trading(now.date()))
+        except Exception as exc:  # noqa: BLE001 - an unknown day means no entries
+            self._log("calendar_error", error=repr(exc))
+            return False
 
     def _mark_positions_to_market(self, bars_cache: Dict[str, Any], now: datetime,
                                   report: Dict[str, Any]) -> None:

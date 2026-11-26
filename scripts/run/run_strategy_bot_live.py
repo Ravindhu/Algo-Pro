@@ -39,6 +39,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from quant.audit.log import AuditLog  # noqa: E402
+from quant.core.calendar import TradingCalendar  # noqa: E402
 from quant.core.config import RiskLimits  # noqa: E402
 from quant.data.live_bars import LiveBars  # noqa: E402
 from quant.data.exchange_bars import ExchangeBars  # noqa: E402
@@ -184,12 +185,14 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
     limits_path = pathlib.Path(limits_path)
     kill_path = state_dir / "kill.json"  # the file this bot's KillSwitch uses (2026-11-15 fix)
 
+    signoff_path = state_dir / "signoff.json"  # audit fix 4: owner sign-off lives with the live state
+
     def gate() -> tuple:
-        res = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)
+        res = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path, signoff_path=signoff_path)
         return bool(res.get("ok")), list(res.get("reasons", []))
 
     # Gate 1+2: run the start checks now.
-    checks = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)
+    checks = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path, signoff_path=signoff_path)
     if not checks.get("ok"):
         raise BotRefused("live startup gate refused: " + "; ".join(checks.get("reasons", ["unknown"])))
     cap = checks.get("capital_cap")
@@ -278,6 +281,8 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         # The bot still requires a guard object; this one always passes. The live gate and
         # OpenAlgoClient's live guard still run on every order.
         entry_guard=lambda: (True, []),
+        # Audit fix 4: weekends and holidays from config/calendar/holidays.csv. No entries on those days.
+        day_is_trading=TradingCalendar.from_csv(_live_checks.HOLIDAYS_FILE).is_trading_day,
     )
     # Restore the saved book first, then reconcile it with the broker. Entries stay blocked
     # unless the two match. require_broker: no reader means "unavailable", which blocks entries.
