@@ -1,5 +1,28 @@
 # OpenAlgo upstream fingerprint pin
 #
-# Previous pin: 8885432395b2
-# Regenerate with: python scripts/upgrade_check.py --update-pin
-30b48379254b
+# Pinned content: a55fe4262ad3
+# Upstream: https://github.com/marketcalls/openalgo
+# Vendored copy: src/quant/openalgo_platform (decision 0013) -- the COMPLETE
+# upstream repo, tracked in git. This pin describes that tree.
+#
+# The hash folds CRLF to LF, so it is the same value on a Linux CI checkout and
+# on a Windows clone made with core.autocrlf=true (scripts/verify/upgrade_check.py,
+# 2026-11-09). It covers the WATCHED files only (requirements.txt, pyproject.toml,
+# .gitignore, restx_api/schemas.py, the three broker/mstock/mapping files, install/).
+#
+# 2026-11-26: re-pinned (owner confirmed the review). Delta vs the last valid
+# pin (8885432395b2 at ea9635d) is exactly the four watched mstock/restx_api
+# files carrying the local margin/MTF patch (commits 9800ab6, fca6316):
+#   - restx_api/schemas.py: MTF added to product OneOf (order + margin-position)
+#   - transform_data.py: MTF->MARGIN mapping; unknown products REFUSED (no
+#     silent INTRADAY fallback); MARGIN reverse-maps to MTF
+#   - margin_data.py: MTF->MARGIN; unknown products refused; trade_value
+#     extracted from the broker margin response (used by risk/margin_entry)
+#   - order_data.py: MARGIN -> MTF on trades and positions
+# The in-between pin 30b48379254b (commit fca6316) never reproduced from any
+# committed tree and is retired.
+#
+# Regenerate from the tracked tree (never from a Windows clone of openalgo/):
+#   python scripts/verify/upgrade_check.py
+#          --openalgo-dir src/quant/openalgo_platform --update-pin
+a55fe4262ad3
