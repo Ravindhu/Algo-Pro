@@ -404,8 +404,10 @@ def symbol_allocations(symbols, portfolio_pct: float, symbol_cap_pct: float) -> 
     return {s: float(v) for s, v in rep["allocated"].items() if v > 0}
 
 
-def _cap_to_owner_order(qty: int, price: float) -> int:
-    """Largest order the owner's per-order caps allow: max_order_quantity and max_order_notional / price.
+def _cap_to_owner_order(qty: int, price: float, limits=None) -> int:
+    """Largest order the per-order caps allow: max_order_quantity and max_order_notional / price.
+    Both the owner-cap file and the bot's own limits (limits) are applied, the same two sources the
+    gate checks, so sizing never asks the gate for an order it will refuse (review S-1, 2026-11-26).
     No cap set = no clamp here (the gate's own pre-trade check still refuses unset caps)."""
     from quant.core import owner_limits_store as _ols
     owner = _ols.load()
@@ -416,6 +418,13 @@ def _cap_to_owner_order(qty: int, price: float) -> int:
     cap_notional = owner.get("max_order_notional")
     if cap_notional is not None and price > 0:
         limit = min(limit, int(math.floor(float(cap_notional) / price)))
+    if limits is not None:
+        bot_qty = getattr(limits, "max_order_quantity", None)
+        if bot_qty is not None:
+            limit = min(limit, int(float(bot_qty)))
+        bot_notional = getattr(limits, "max_order_notional", None)
+        if bot_notional is not None and price > 0:
+            limit = min(limit, int(math.floor(float(bot_notional) / price)))
     return max(0, limit)
 
 
@@ -1177,7 +1186,7 @@ class StrategyBot:
             # fraction makes the gate size exactly `total` shares (tiny margin for float rounding).
             # Owner 2026-11-19 (rule 26): per-order caps CLAMP the child; the rest is carried below.
             # The gate is asked for the capped size, so it approves that size instead of refusing.
-            sized = _cap_to_owner_order(total, float(price))
+            sized = _cap_to_owner_order(total, float(price), self._limits)
             # Liquidity (owner 2026-11-20): at most max_adv_pct of the average daily volume, clamped the same way.
             sized = min(sized, _adv_cap_qty(self._limits.max_adv_pct, stats.get("adv_shares")))
             risk_frac = sized * sl_dist / float(ladder.equity) * (1.0 + 1e-9)
@@ -1325,7 +1334,11 @@ class StrategyBot:
         allotment for this cycle."""
         if self.cfg.pov_mode != "peg_band_buyer" or not self._entries_ok_last or self._faults:
             return
-        policy = getattr(self, "_policy", None) or {"block_entries": False}
+        # Review W-1 (2026-11-26): decide from the clock now. The saved _policy is set once per cycle,
+        # so it could lag the cut-off by a whole cycle (5 min).
+        from quant.risk.squareoff import DEFAULT_MIS_CUTOFF
+        policy = session_policy(naive_ist(now).time(), getattr(self.cfg, "product", "MIS"),
+                                getattr(self, "_square_off_at", DEFAULT_MIS_CUTOFF), getattr(self, "_flatten_at", None))
         if policy.get("block_entries"):  # audit fix 4: no peg buys after the cut-off
             return
         self._peg.tick(self._parents, now)
@@ -1473,7 +1486,14 @@ class StrategyBot:
                     **active.details, "qty": int(qty), "total_qty": int(active.qty),
                     "pov_qty": None if pov_qty is None else int(pov_qty),
                     "slicer_qty": int(sent_qty if sent_qty is not None else qty)})
-        added = qty * ref_px  # sent counts as exposure (conservative), at the order's own price
+        # Review P-1 (2026-11-26): book at the worse of the reference and the fill price, so a buy that
+        # fills above the reference is not understated. Sent shares count as exposure (conservative).
+        try:
+            fill_px = float(response.get("avg_price") or 0.0)
+        except (TypeError, ValueError):
+            fill_px = 0.0
+        px = max(float(ref_px), fill_px) if fill_px > 0 else float(ref_px)
+        added = qty * px
         self.state.open_notional += added
         self._booked[key] = self._booked.get(key, 0.0) + added  # released by the same amount on exit
         self._record_fill(p, qty, response)

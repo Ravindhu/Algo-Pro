@@ -194,7 +194,8 @@ def test_exit_releases_exposure_booked_at_entry(tmp_path):
     bars = TimedBars()
     bot, _, _ = _bot(tmp_path, PaperBroker(), bars)
     bot.cycle(NOW)
-    assert bot.state.open_notional == pytest.approx(1250 * 100.0)
+    # Booked at the worse of the reference (100) and the fill price (P-1, review 2026-11-26): never below ref.
+    assert bot.state.open_notional >= 1250 * 100.0 - 1e-6
     bars.step(low=97.0)
     bot.cycle(NOW)
     assert bot.state.open_notional == pytest.approx(0.0, abs=1e-6)
