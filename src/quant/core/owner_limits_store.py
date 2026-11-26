@@ -30,6 +30,16 @@ DEFAULT_PATH = REPO_ROOT / "config" / "risk_limits.yaml"
 
 _cached: Dict[str, Any] = {}
 _loaded_from: Optional[str] = None
+_loaded_stamp: Optional[tuple] = None
+
+
+def _stamp(target: pathlib.Path) -> Optional[tuple]:
+    """(mtime_ns, size) of the limits file, or None when it cannot be statted."""
+    try:
+        st = target.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
 
 #: Keys the gate enforces directly. They mirror RiskLimits' monetary caps.
 GATE_KEYS = ("max_order_quantity", "max_order_notional",
@@ -37,15 +47,18 @@ GATE_KEYS = ("max_order_quantity", "max_order_notional",
 
 
 def load(path: Optional[pathlib.Path] = None) -> Dict[str, Any]:
-    """The owner's limits, read once and cached. Never raises.
+    """The owner's limits, re-read when the file changes. Never raises.
 
-    A caller can pass ``path`` (tests do). The first successful read is cached
-    for the process; a failed read is NOT cached, so a file fixed at runtime is
-    picked up on the next intent without a restart.
+    A caller can pass ``path`` (tests do). The read is cached but keyed on the
+    file's mtime and size, so a dashboard write to risk_limits.yaml reaches a
+    running bot on its next intent (audit fix 5, 2026-11-26). A failed read is
+    NOT cached: a file fixed at runtime is picked up on the next intent.
     """
-    global _cached, _loaded_from
+    global _cached, _loaded_from, _loaded_stamp
     target = pathlib.Path(path) if path is not None else DEFAULT_PATH
-    if _loaded_from == str(target) and _cached is not BLOCKED:
+    stamp = _stamp(target)
+    if _loaded_from == str(target) and _cached is not BLOCKED and stamp is not None \
+            and stamp == _loaded_stamp:
         return _cached
     try:
         data = yaml.safe_load(target.read_text(encoding="utf-8"))
@@ -56,11 +69,13 @@ def load(path: Optional[pathlib.Path] = None) -> Dict[str, Any]:
     _cached = {k: data.get(k) for k in GATE_KEYS if data.get(k) is not None}
     _cached["blocked"] = bool(data.get("blocked", False))
     _loaded_from = str(target)
+    _loaded_stamp = stamp
     return copy.deepcopy(_cached)
 
 
 def reset() -> None:
     """Drop the cache (tests, and a config change that must be re-read)."""
-    global _cached, _loaded_from
+    global _cached, _loaded_from, _loaded_stamp
     _cached = {}
     _loaded_from = None
+    _loaded_stamp = None

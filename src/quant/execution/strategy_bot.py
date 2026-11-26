@@ -198,6 +198,7 @@ class BotConfig:
     mis_flatten_time: str = "15:10"  # HH:MM IST. MIS positions are squared off from here, before 15:15
     screen_path: str = "data/screened/latest.json"
     data_sources_path: str = "config/data_sources.yaml"
+    limits_path: Optional[str] = None  # set by the live runner; None = the injected limits are trusted (tests)
     strategies: tuple = field(default_factory=lambda: ("engulfing",))
     # Per-strategy breakeven and trail. Only breakeven_r and trail_mult may be set; a strategy
     # not listed here uses the global values above. Example: {engulfing: {trail_mult: 1.5}}.
@@ -670,6 +671,28 @@ class StrategyBot:
     def _entries_allowed(self) -> bool:
         return self.recon is not None and self.recon.entries_allowed
 
+    def _refresh_limits(self, now: datetime, report: Dict[str, Any]) -> None:
+        """Re-read config/risk_limits.yaml each cycle (audit fix 5, 2026-11-26).
+
+        The dashboard writes the owner's caps to that file; a running bot must
+        see them on the next cycle, not after a restart. Only the live runner
+        sets cfg.limits_path; without it the injected limits are trusted (tests,
+        paper mode). A change is logged; an unreadable file leaves the limits
+        as they were (the gate's own owner-limits read still fails closed)."""
+        if not self.cfg.limits_path:
+            return
+        try:
+            fresh = RiskLimits.from_yaml(self.cfg.limits_path)
+        except Exception as exc:
+            self._log("limits_refresh_failed", error=repr(exc))
+            return
+        if fresh != self._limits:
+            self._log("limits_refreshed", new={k: getattr(fresh, k) for k in
+                                              ("max_order_quantity", "max_daily_loss",
+                                               "max_open_exposure", "blocked")
+                                              if getattr(fresh, k, None) is not None})
+            self._limits = fresh
+
     # --- one cycle ---
     def cycle(self, now: datetime) -> Dict[str, Any]:
         report: Dict[str, Any] = {"time": now.isoformat(), "parents_opened": 0, "children_sent": 0,
@@ -677,6 +700,7 @@ class StrategyBot:
         self._cycle_no += 1
         self._peg.start_cycle(now.timestamp())
         self._roll_day(now)
+        self._refresh_limits(now, report)
         self._update_session_policy(now, report)
         self._check_broker_stops()
         self._resync_stops()
@@ -1289,14 +1313,28 @@ class StrategyBot:
         """Peg applies to BUY entries only. Exits stay MARKET so they always try to fill."""
         return self.cfg.pov_mode == "peg_band_buyer" and p.intent.kind == "entry" and p.intent.side == "BUY"
 
+    def _peg_clear_allotments(self) -> None:
+        """Drop every parent's peg allotment: after the cut-off no peg child may be placed."""
+        for p in self._parents.values():
+            if p.peg is not None:
+                p.peg = None
+
     def peg_slicer_tick(self, now: datetime) -> None:
         """15 s tick between cycles (runner). The PegSlicer places pegs only when entries are open, nothing is
-        faulted and the mode is peg; it spends only each parent's allotment for this cycle."""
+        faulted, the mode is peg and the square-off cut-off has not passed; it spends only each parent's
+        allotment for this cycle."""
         if self.cfg.pov_mode != "peg_band_buyer" or not self._entries_ok_last or self._faults:
+            return
+        policy = getattr(self, "_policy", None) or {"block_entries": False}
+        if policy.get("block_entries"):  # audit fix 4: no peg buys after the cut-off
             return
         self._peg.tick(self._parents, now)
 
     def _slice_parents(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
+        if self._policy["block_entries"]:
+            # Audit fix 4 (2026-11-26): entry parents keep slicing only BEFORE the cut-off.
+            # Exits never go through here, so the flatten path is unaffected.
+            return
         for key, p in list(self._parents.items()):
             if self._faults:
                 report["skipped"].append("slicing paused: open fault")
@@ -1377,7 +1415,7 @@ class StrategyBot:
             p.seq += 1
             try:
                 if peg_px is not None:
-                    outcome, child = self._peg.submit(p, qty, peg_px, cap)
+                    outcome, child, sent_qty = self._peg.submit(p, qty, peg_px, cap)
                 else:
                     child = PovExecutor.make_child(slice_intent, qty, p.seq)
                     price_type, limit_px = self._entry_price(p, df)
@@ -1418,7 +1456,7 @@ class StrategyBot:
                 self._close(key, f"order reply not success: {status or 'missing'}; parent halted")
                 continue
             self._book_child(p, key, active, qty, ref_px, outcome.response or {}, report,
-                             sent_qty=qty, pov_qty=pov_qty)
+                             sent_qty=sent_qty if peg_px is not None else qty, pov_qty=pov_qty)
 
     def _book_child(self, p: _Parent, key: str, active, qty: int, ref_px: float,
                     response: Dict[str, Any], report: Dict[str, Any], sent_qty: Optional[int] = None,
@@ -1483,7 +1521,10 @@ class StrategyBot:
                 self._alert("WARNING", f"square-off {self._square_off_at.isoformat()} reached: flattening MIS positions")
         self._policy = policy
         if policy["block_entries"]:
-            report["skipped"].append("entries blocked: at or after square-off time")
+            # Audit fix 4 (2026-11-26): the cut-off applies to EVERY new buy, not only new parents.
+            # Slicing open entry parents and the 15 s peg tick are new exposure, so they stop too.
+            self._peg_clear_allotments()
+            report["skipped"].append("entries blocked: at or after square-off time (slicing and peg stopped)")
 
     def _manage_exits(self, bars_cache: Dict[str, Any], now: datetime, report: Dict[str, Any]) -> None:
         """Check each open position on its last closed bar. Stop, target, breakeven and trail."""
@@ -1540,16 +1581,6 @@ class StrategyBot:
 
     def _send_exit(self, key: str, pos: Position, price: float, reason: str,
                    now: datetime, report: Dict[str, Any]) -> None:
-        if pos.broker_stop_id:
-            # The broker stop must go before the bot sells, or the two could both fill.
-            res = self._cancel_stop(key, pos)
-            if res == "closed":
-                return  # the broker stop had already filled: the position is closed
-            if res == "failed":
-                self._log("exit_held_stop_cancel", key=key, reason=reason)
-                self._alert("CRITICAL", f"{pos.symbol}: broker stop could not be cancelled; exit held, check the broker")
-                report["skipped"].append(f"{pos.symbol}: stop cancel unclear, exit held")
-                return
         intent = TradeIntent(
             intent_id=f"{key}-EXIT", strategy_id=pos.strategy, symbol=pos.symbol,
             side=pos.exit_side, qty=pos.qty, ref_price=float(price), kind="exit",
@@ -1558,7 +1589,27 @@ class StrategyBot:
         )
         self._exit_held_qty = pos.qty  # the gate refuses a SELL larger than this
         try:
-            outcome = self._executor.submit_child(intent)
+            # Audit fix 6 (2026-11-26): run the gate BEFORE cancelling the broker stop.
+            # A refusal (unreadable limits, kill switch, funds) must leave the stop in place,
+            # so the position stays protected instead of sitting bare for up to one cycle.
+            decision = self._child_gate(intent)
+            self._log("gate", intent_id=intent.intent_id, approved=decision.approved,
+                      reasons=list(decision.reasons))
+            if not decision.approved:
+                self._log("exit_not_sent", key=key, reason=reason, reasons=list(decision.reasons),
+                          note="gate refused BEFORE the broker stop was touched; stop still active")
+                return
+            if pos.broker_stop_id:
+                # The broker stop must go before the bot sells, or the two could both fill.
+                res = self._cancel_stop(key, pos)
+                if res == "closed":
+                    return  # the broker stop had already filled: the position is closed
+                if res == "failed":
+                    self._log("exit_held_stop_cancel", key=key, reason=reason)
+                    self._alert("CRITICAL", f"{pos.symbol}: broker stop could not be cancelled; exit held, check the broker")
+                    report["skipped"].append(f"{pos.symbol}: stop cancel unclear, exit held")
+                    return
+            outcome = self._executor.submit_child(intent, decision=decision)
         except Exception as exc:
             pos.exit_halted = True
             self._restore_stop_fault(key, pos)

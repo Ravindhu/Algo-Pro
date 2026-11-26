@@ -22,23 +22,32 @@ Listing = Callable[[str], Optional[str]]
 class ExchangeBars:
     """Wraps one bar reader per exchange, e.g. ``{"NSE": LiveBars(..), "BSE": LiveBars(.., exchange="BSE")}``."""
 
+    # audit fix 7 (2026-11-26): listing is held for a SHORT window, not all day.
+    # A one-sided book at the open used to lock the symbol to one exchange for the day.
+    LISTING_TTL_SECONDS = 300.0
+
     def __init__(self, bars_by_exchange: Dict[str, object], listing: Listing) -> None:
         self._by_exchange = dict(bars_by_exchange)
         self._listing = listing
-        self._day: Optional[object] = None
-        self._cache: Dict[str, Optional[str]] = {}
+        self._cache: Dict[str, tuple] = {}  # symbol -> (listing, epoch when recorded)
 
     def _exchange_for(self, symbol: str, now: datetime, exchange: Optional[str]) -> Optional[str]:
         if exchange is not None:
             return exchange if exchange in self._by_exchange else None
-        if self._day != now.date():  # listing is re-checked once per trading day
-            self._cache, self._day = {}, now.date()
-        if symbol not in self._cache:
+        stamp = now.timestamp()
+        hit = self._cache.get(symbol)
+        if hit is None or stamp - hit[1] > self.LISTING_TTL_SECONDS:
             try:
-                self._cache[symbol] = self._listing(symbol)
+                value = self._listing(symbol)
             except Exception:  # noqa: BLE001 - no listing = no signal data (fail closed)
-                self._cache[symbol] = None
-        return self._cache[symbol] if self._cache[symbol] in self._by_exchange else None
+                value = None
+            # A failed check is retried on the next read; only a real answer is held for the TTL.
+            if value is not None:
+                self._cache[symbol] = (value, stamp)
+            else:
+                self._cache.pop(symbol, None)
+                return None
+        return self._cache[symbol][0] if self._cache[symbol][0] in self._by_exchange else None
 
     def bars(self, symbol: str, now: datetime, exchange: Optional[str] = None):
         ex = self._exchange_for(symbol, now, exchange)

@@ -185,7 +185,7 @@ def test_exit_of_mtf_position_sends_mtf(tmp_path, monkeypatch):
     bot._positions["INFY|s"] = _pos(product="MTF")
     sent = []
 
-    def capture(intent):
+    def capture(intent, decision=None):  # audit fix 6: the gate now runs before submit_child
         sent.append(intent)
         raise RuntimeError("stop here: the test only needs the intent")
     monkeypatch.setattr(bot._executor, "submit_child", capture)

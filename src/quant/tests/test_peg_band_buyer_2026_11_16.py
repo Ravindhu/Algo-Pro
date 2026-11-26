@@ -1,4 +1,4 @@
-"""Bounded peg (2026-11-16): entries as LIMIT at the best bid, reprice up to peg_max_attempts,
+﻿"""Bounded peg (2026-11-16): entries as LIMIT at the best bid, reprice up to peg_max_attempts,
 fall back to fixed volume when any input is missing."""
 from types import SimpleNamespace
 
@@ -67,7 +67,7 @@ def _fake_child(monkeypatch):
 
 def test_fill_on_first_attempt_is_one_submit():
     fake, p, calls = _fake_bot([{"status": "success", "avg_price": 100.0}], bids=[])
-    out, child = fake._peg.submit(p, 10, 100.0, 101.0)
+    out, child, _sent = fake._peg.submit(p, 10, 100.0, 101.0)
     assert len(calls) == 1 and calls[0][1:] == ("LIMIT", 100.0)
     assert out.response["status"] == "success"
 
@@ -76,7 +76,7 @@ def test_clean_cancel_reprices_from_current_bid():
     unfilled = {"status": "error", "reason": "limit not filled (open); cancelled"}
     fake, p, calls = _fake_bot([unfilled, {"status": "success", "avg_price": 100.2}],
                                bids=[100.2])
-    out, _ = fake._peg.submit(p, 10, 100.0, 101.0)
+    out, _, _sent = fake._peg.submit(p, 10, 100.0, 101.0)
     assert [c[2] for c in calls] == [100.0, 100.2]
     assert out.response["status"] == "success"
 
@@ -196,3 +196,4 @@ def test_peg_ignores_levels_beyond_the_fifth_bid():
         "asks": [{"price": 100.20, "quantity": 10}]}}
     # top 5 = 100.0, 99.95, 99.90, 99.85, 99.80 (largest 50 at 99.80); the 6th level (9999) is outside the top 5
     assert peg_level("BUY", depth, None, 0.05) == (99.85, 50)
+

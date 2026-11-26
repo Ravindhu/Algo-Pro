@@ -29,6 +29,7 @@ Status: PHASE 1 IMPLEMENTED (live sender wired behind the gates). NOT RUN on a l
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib.util
 import math
 import pathlib
@@ -181,8 +182,11 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
     state_dir = pathlib.Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     audit = AuditLog(state_dir / "audit.jsonl")
-    limits_path = pathlib.Path(limits_path)
     kill_path = state_dir / "kill.json"  # the file this bot's KillSwitch uses (2026-11-15 fix)
+    limits_path = pathlib.Path(limits_path)  # audit fix 5: the bot re-reads this file every cycle
+
+    # audit fix 5: the bot re-reads the owner's caps every cycle (frozen cfg -> replace)
+    cfg = dataclasses.replace(cfg, limits_path=str(limits_path))
 
     def gate() -> tuple:
         res = startup_fn(limits_path=limits_path, audit=audit, kill_path=kill_path)

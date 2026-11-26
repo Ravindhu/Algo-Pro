@@ -105,18 +105,20 @@ class PovExecutor:
         child: TradeIntent,
         price_type: str = "MARKET",
         limit_price: Optional[float] = None,
+        decision: Optional[GateDecision] = None,
     ) -> ChildOutcome:
         if child.intent_id in self._sent_ids:
             reasons = ("duplicate child intent id in this executor",)
             self._audit.append("child_refused", {"intent_id": child.intent_id, "reasons": list(reasons)})
             return ChildOutcome(child.intent_id, False, reasons, None)
 
-        decision = self._gate(child)
-        self._audit.append("gate", {
-            "intent_id": child.intent_id, "approved": decision.approved, "reasons": list(decision.reasons),
-        })
-        if not decision.approved:
-            return ChildOutcome(child.intent_id, False, tuple(decision.reasons), None)
+        if decision is None:  # pre-checked decision reuse (exit path, audit fix 6)
+            decision = self._gate(child)
+            self._audit.append("gate", {
+                "intent_id": child.intent_id, "approved": decision.approved, "reasons": list(decision.reasons),
+            })
+            if not decision.approved:
+                return ChildOutcome(child.intent_id, False, tuple(decision.reasons), None)
 
         self._queue.push(child, decision)
         queued = self._queue.pop()

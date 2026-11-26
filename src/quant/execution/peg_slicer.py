@@ -105,6 +105,7 @@ class PegSlicer:
         outcome = None
         child = None
         qty_cap = qty
+        sent_qty = qty  # what the LAST submitted child carried; a reprice may send less
         for attempt in range(self.cfg.peg_max_attempts):
             if attempt > 0:
                 level = self.price_now(p.intent.symbol, cap)
@@ -117,6 +118,7 @@ class PegSlicer:
                 p.seq += 1
                 self._log("peg_reprice", key=p.key, attempt=attempt + 1, px=px)
             child = self._make_child(p.intent, qty, p.seq)
+            sent_qty = qty  # audit fix 3 (2026-11-26): book what was actually sent, not the first size
             outcome = self._executor.submit_child(child, "LIMIT", px)
             if not outcome.sent:
                 break
@@ -127,7 +129,7 @@ class PegSlicer:
                 break
             if "limit not filled" not in str(resp.get("reason", "")):
                 break
-        return outcome, child
+        return outcome, child, sent_qty
 
     # ---- between-cycle tick -------------------------------------------------------------------------
     def tick(self, parents: Dict[str, Any], now: datetime) -> None:
@@ -149,12 +151,15 @@ class PegSlicer:
             if qty < 1:
                 continue
             p.seq += 1
-            outcome, _child = self.submit(p, qty, px, a.cap)
-            self.settle(p, key, qty, outcome)
+            outcome, _child, sent_qty = self.submit(p, qty, px, a.cap)
+            self.settle(p, key, qty, outcome, sent_qty=sent_qty)
 
     # ---- booking of a peg child -----------------------------------------------------------------------
-    def settle(self, p, key: str, qty: int, outcome) -> None:
-        """Book one peg child. Same rules as the cycle path: fills booked, unfilled cancelled, faults raised."""
+    def settle(self, p, key: str, qty: int, outcome, sent_qty: Optional[int] = None) -> None:
+        """Book one peg child. Same rules as the cycle path: fills booked, unfilled cancelled, faults raised.
+        ``sent_qty`` is what the (possibly repriced) child actually carried; a success books that,
+        never the larger first-attempt size (audit fix 3, 2026-11-26)."""
+        booked_qty = qty if sent_qty is None else int(sent_qty)  # fallback keeps the old signature
         if outcome is None or not outcome.sent:
             self._log("peg_not_sent", key=key)
             return
@@ -163,8 +168,8 @@ class PegSlicer:
         status = str(resp.get("status", "")).lower()
         ref_px = float(p.intent.ref_price)
         if status == "success":
-            self._book(p, key, None, qty, ref_px, resp, {"children_sent": 0})
-            self._report["filled_shares"] += qty
+            self._book(p, key, None, booked_qty, ref_px, resp, {"children_sent": 0})
+            self._report["filled_shares"] += booked_qty
             return
         if "limit not filled" in str(resp.get("reason", "")) and not resp.get("partial") \
                 and not resp.get("cancel_failed"):
@@ -173,7 +178,7 @@ class PegSlicer:
             return
         filled = int(resp.get("filled_qty") or 0) if resp.get("partial") else 0
         if resp.get("partial") and filled > 0 and resp.get("avg_price"):
-            filled = min(filled, qty)
+            filled = min(filled, booked_qty)
             self._book(p, key, None, filled, ref_px, {"avg_price": resp.get("avg_price")}, {"children_sent": 0})
             self._report["filled_shares"] += filled
             if resp.get("cancel_failed"):
