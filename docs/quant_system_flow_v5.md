@@ -77,7 +77,7 @@ Support inputs to backtest and risk:
 | Economic engine | Macro risk-on score. Its risk multiplier is clamped to 0.5 to 1.0, so a stale feed cannot lever up |
 | Market engine | Blue market picture: indices, commodities, FII inflow. Advice only. No market data gives an unknown state, never a neutral one (`data/market_engine.py`) |
 | Sector engine | Sector index scores. Short history gives no score, never a made-up one |
-| Screen input | Screener output file (`data/screened/latest.json`). Only fresh, selected, non-ASM symbols with a known circuit limit pass. Missing or stale file means no symbols. |
+| Screen input | Screener output file (`data/screened/latest.json`). Only fresh, selected, non-ASM symbols with a known circuit limit pass. Missing or stale file means no symbols. Chain (2026-11-26): saved screen -> `last_screen.json` (scraped when missing or >60 min old) -> `latest.json` (rebuilt every 5-minute cycle) -> bot. |
 
 ### 2.3 Data and features
 
@@ -242,9 +242,12 @@ Existing `src/quant/blue_engine/` code is wrapped, not copied. Reuse targets are
 
 ### 4.1 blue_engine wraps (Phase 5)
 
-**43** distinct Blue modules are loaded through the bridge (verified 2026-11-24 by
+**44** distinct Blue modules are loaded through the bridge (verified 2026-11-26 by
 counting `load("...")` calls across the `src/quant/` lanes, excluding the one
-deliberately missing module the bridge test uses). The table below names the
+deliberately missing module the bridge test uses). `data/screener_session.py` added
+the 44th on 2026-11-26 by loading `screener.client.screener_client`, which the
+screener engine also reaches indirectly; the guard counts `load()` calls, so the
+number is 44 even though the client is one module. The table below names the
 wrapper rows; a row can cover more than one engine module, and a few engine
 modules are reached indirectly by a wrapper rather than loaded directly. Every
 path in this table is checked to exist by `tests/unit/test_doc_consistency.py`.

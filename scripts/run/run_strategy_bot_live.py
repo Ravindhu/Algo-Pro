@@ -306,11 +306,13 @@ def main(argv=None) -> int:
         on_critical=lambda msg: print(f"CRITICAL: {msg}", flush=True),
     )
     # Screen refresh every 5 minutes, inside the loop (starts and stops with the bot).
-    from quant.data.screen_refresh import make_screen_refresher
+    from quant.data.screen_refresh import make_screen_refresher, make_screener_scraper
+    source = ROOT / "data" / "screened" / "last_screen.json"
     refresh = make_screen_refresher(
         OpenAlgoReadOnly(args.base_url, http_transport), api_key,
-        source=ROOT / "data" / "screened" / "last_screen.json",
+        source=source,
         target=ROOT / bot.cfg.screen_path,
+        scrape=make_screener_scraper(source=source),
     )
     _paper.run(bot, audit, state_dir=args.state_dir, clock=now_ist, max_cycles=args.max_cycles,
                refresh=refresh)

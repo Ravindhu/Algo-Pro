@@ -1434,6 +1434,81 @@ gated (no real order leaves the machine).
   the bot's screen file atomically. Rows without a usable circuit limit, or with an ASM/GSM
   flag, are dropped. `select_universe` (Blue wrap) supplies the ordering.
 
+### 24.6a Screener.in session refresh from the START button (2026-11-26)
+- Before, `ScreenerClient.login` received a fresh `sessionid` but kept it in process memory
+  only, so an expired cookie in `.env` was invisible and every process logged in again.
+- Now the dashboard's **START ENGINE** button first calls `POST /api/screener/session`
+  (owner only). It signs in with `SCREENER_USERNAME` + `SCREENER_PASSWORD`, and on success
+  writes `Screenerdotin_sessionid` back to `.env`.
+- The write goes through `quant.core.env_write.write_env_values`: one process-wide lock,
+  every duplicate line replaced (python-dotenv applies the LAST assignment), temp file +
+  `os.replace`, and the file's own line endings preserved. Same guarantees as the vendored
+  OpenAlgo `update_env_values`; that module lives in the vendored tree and is not imported.
+- The cookie value is never logged, never returned by the API, never in the audit row, and
+  never in an exception message. The audit row records the KEY name and the outcome.
+- A refused login is a **409 with a reason**, not a 500. The engine start still proceeds:
+  the screener sign-in is a side step, not a gate on the engine.
+- No credentials set → no login attempt at all (`reason="credentials missing"`).
+- `.env` is git-ignored. Nothing from this path is committed.
+- `data/screener_session.py` loads `screener.client.screener_client` through the bridge, so
+  the documented wrapped-module count in `docs/quant_system_flow_v5.md` is now **44**.
+
+### 24.6b Session is refreshed ONCE per day, then reused (2026-11-26)
+- **Every screener value comes from the repository `.env`. Nothing else.** No prompt, no
+  CLI argument, no hard-coded credential, no default password. The two lines to fill are:
+  ```
+  SCREENER_USERNAME=your screener.in login (email)
+  SCREENER_PASSWORD=your screener.in password
+  URL_SCREENER_DOT_IN=https://www.screener.in/screens/<id>/<slug>/
+  ```
+- `refresh_session()` calls `load_env_file()` itself before reading anything, so a bot
+  started from a shell that never sourced `.env` still sees the credentials. **This was the
+  bug:** previously the module read `os.environ` only, so a correct `.env` produced
+  `credentials missing` and the desk was asked for a username that was already in the file.
+- A shell `export` still wins over the file (`load_env_file` does not override), which is
+  what lets a one-off test run use a different account without editing `.env`.
+- The failure message names the exact missing key(s), e.g.
+  `credentials missing in .env: SCREENER_PASSWORD`.
+- Legacy aliases `Screenerdotin_username` and `password` are still honoured, because the
+  Blue engine already accepted them. `username`/`email` are tried last and only when
+  non-blank.
+- Owner request: sign in once, keep the id, do not sign in again for the same day.
+- `refresh_session(reuse_today=True)` (the default) checks a day marker first. If a login
+  already succeeded today **and** a cookie is still present, it returns immediately with
+  `reason="session reused from today"` and makes **no network call**.
+- The marker is `data/screened/.screener_session_day` (an IST date). It is NOT a secret, so
+  it is a separate file, never a `.env` key.
+- Both halves are required. A marker with no cookie (someone emptied the `.env` value) still
+  logs in once, because the marker alone is not proof of a live session.
+- A **failed** login does not write the marker, so the next attempt still tries.
+- Force a fresh sign-in with `reuse_today=False` when the desk knows the cookie is dead.
+
+### 24.6c Screened candidates reach the bot automatically, every 5 minutes (2026-11-26)
+The chain, end to end, with no manual step between them:
+
+```
+screener.in saved screen
+   -> data/screened/last_screen.json   (scraped when missing or >60 min old)
+   -> data/screened/latest.json        (REBUILT every 5 minutes, with live bands + ASM/GSM)
+   -> strategy_bot.read_screen()       (stale beyond max_screen_age_minutes = no symbols)
+```
+
+- `make_screen_refresher(..., scrape=..., scrape_every_minutes=60)` runs inside the bot loop
+  (`run_strategy_bot.py` and `run_strategy_bot_live.py`).
+- **Only the selection is refreshed hourly.** `last_screen.json` is the *which names* answer
+  and the saved screen changes at most daily. `latest.json` is rebuilt every cycle because the
+  circuit band and the ASM/GSM flag change intraday.
+- A failed scrape is reported in the cycle's audit row (`screen_refresh`) and the bot carries
+  on with whatever `last_screen.json` already holds. It never stops the loop.
+- The scrape runs the engine with `enrich: false`: enrichment fetches a company page per name
+  at 1.5 s each (minutes for a full universe), and the bot only needs the symbol list because
+  live prices come from OpenAlgo quotes.
+- **Fixed 2026-11-26:** `screener_engine --save` wrote `last_screen.json` INSIDE the package
+  folder (`src/quant/engines/screener/`), so the bot's source path never saw a fresh screen.
+  It now writes repo-relative `data/screened/last_screen.json`.
+- First run with no `URL_SCREENER_DOT_IN`/`screen_id` set: the engine returns "screen_id and
+  screen_slug required", which is reported, not guessed. Set one of them once.
+
 ### 24.7 OCL strategies in the bot
 - `quant.strategies.ocl.adapter.OclStrategyAdapter` serves the bot's closed bars to the OCL
   classes through a local `BarsHistoryClient` (no network). Selectable in `config/bot.yaml`:
@@ -1453,6 +1528,8 @@ gated (no real order leaves the machine).
 | 8 | Trading calendar readable | `PreGate().calendar_ok(today).ok` is `True` |
 | 9 | Compliance (live only) | `ComplianceGate(...).check().ok` is `True` |
 | 10 | Screen file fresh | `data/screened/latest.json` `as_of` within `max_screen_age_minutes` |
+| 11 | Screener.in session saved | START ENGINE reports "screener session saved" (or "reused from today"); `.env` `Screenerdotin_sessionid` is non-empty |
+| 12 | Screener selection present | `data/screened/last_screen.json` exists with at least one `selected` row |
 
 ## 16. LLM call-cost reduction (2026-11-12)
 - Per-stage TTL prompt cache implemented (docs/LLM_STAGE_TTL_PLAN.md): config under engines.agent.cache.stage_ttl_seconds in Blue_engine/input/macro_master.json; all default 0 (behaviour unchanged until opted in). risk and portfolio must stay 0. Entries persist to the runtime data root (llm_cache/stage) so restarts keep hits; session_id removed from the cache key.

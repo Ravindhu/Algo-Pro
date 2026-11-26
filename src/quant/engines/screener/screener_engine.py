@@ -943,7 +943,12 @@ def main(argv=None) -> int:
         _print_report(payload)
 
     if args.save:
-        out = Path(__file__).resolve().parent / "last_screen.json"
+        # Repo-relative data/screened/last_screen.json: this is the file the bot's 5-minute
+        # refresher reads. Before 2026-11-26 it was written INSIDE the package folder, so the
+        # bot's source path never saw a fresh screen. Repo root is FIVE levels up from this
+        # file (src/quant/engines/screener/screener_engine.py -> src -> <repo root>).
+        out = Path(__file__).resolve().parents[4] / "data" / "screened" / "last_screen.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(_json.dumps(payload, indent=2, default=str),
                        encoding="utf-8")
         print(f"\n[saved] {out}")

@@ -1612,8 +1612,12 @@
   }
   $("engstart").onclick = async () => {
     sMsg("engmsg", "Sending…", "d");
+    // Screener.in sign-in first: the screener needs a live session cookie, and the bot reads no
+    // candidates without it. A failure is reported and does NOT block the engine start.
+    const sc = await jpost("/api/screener/session").catch(() => null);
     const res = await jpost("/api/engine/start");
-    if (res.ok) sMsg("engmsg", res.j.message, "g");
+    const scNote = sc ? (sc.j.saved ? " · screener session saved" : " · screener session NOT saved: " + (sc.j.reason || "failed")) : "";
+    if (res.ok) sMsg("engmsg", res.j.message + scNote, sc && sc.j.saved ? "g" : "d");
     else sMsg("engmsg", describeFail(res), "r");
     loadEngine();
   };
