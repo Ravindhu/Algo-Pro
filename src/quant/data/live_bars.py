@@ -96,7 +96,8 @@ class LiveBars:
 
         lot_size comes from the broker's instrument master through OpenAlgo (search_symbol);
         it differs per segment and is 1 for most NSE cash equities but larger for SME-listed
-        stocks. Anything unusable falls back to 1 (the bot default), never to a guess.
+        stocks. If no usable lot size is found the value is 0, and the bot refuses the entry
+        (fail closed). A guessed 1 would size SME orders wrongly (review gap 2026-11-26).
         """
         df = self._window(symbol, "D", ADV_DAYS * 2, now)
         if df is None:
@@ -111,11 +112,22 @@ class LiveBars:
         return {"adv_shares": adv, "prev_close": prev_close, "lot_size": self._lot_size(symbol)}
 
     def _lot_size(self, symbol: str) -> int:
-        """Broker instrument-master lot size for this symbol, minimum 1. Fails to 1."""
-        try:
-            reply = self._reader.search_symbol(self._key, symbol, self.exchange)
-        except Exception:
-            return 1
+        """Broker lot size: OpenAlgo /symbol (exact) first, then /search. 0 = unknown (refuse)."""
+        for fetch in (self._symbol_reply, self._search_reply):
+            try:
+                reply = fetch(symbol)
+            except Exception:  # noqa: BLE001 - a failed lookup must not stop the bot; try the next source
+                continue
+            lot = _lot_from_reply(reply, symbol)
+            if lot is not None:
+                return lot
+        return 0
+
+    def _symbol_reply(self, symbol: str):
+        return self._reader.symbol_info(self._key, symbol, self.exchange)
+
+    def _search_reply(self, symbol: str):
+        return self._reader.search_symbol(self._key, symbol, self.exchange)
         if not isinstance(reply, dict) or reply.get("status") != "success":
             return 1
         rows = reply.get("data")
@@ -134,3 +146,26 @@ class LiveBars:
             if lot >= 1:
                 return lot
         return 1
+
+
+def _lot_from_reply(reply, symbol: str):
+    """Lot size from an OpenAlgo reply (a row list or one record). None when unusable."""
+    if not isinstance(reply, dict) or reply.get("status") != "success":
+        return None
+    data = reply.get("data")
+    rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_symbol = str(row.get("symbol", "") or "").upper()
+        if row_symbol and row_symbol != symbol.upper():
+            continue
+        lot = row.get("lotsize", row.get("lot_size"))
+        try:
+            lot = int(lot)
+        except (TypeError, ValueError):
+            continue
+        if lot >= 1:
+            return lot
+    return None
+

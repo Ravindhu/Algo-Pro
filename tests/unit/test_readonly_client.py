@@ -53,7 +53,7 @@ def test_no_order_capable_method_exists():
     """Reads cannot place or cancel: no attribute name carries an order verb."""
     names = [n for n in dir(OpenAlgoReadOnly) if not n.startswith("_") and n.islower()]
     assert sorted(names) == ["depth", "funds", "history", "margin_for_order", "orderbook", "positionbook",
-                             "quotes", "search_symbol"]
+                             "quotes", "search_symbol", "symbol_info"]
     for name in names:
         assert not any(verb in name for verb in ("place", "cancel", "modify", "order_", "close", "exit"))
 

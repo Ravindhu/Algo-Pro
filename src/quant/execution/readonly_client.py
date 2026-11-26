@@ -24,6 +24,7 @@ class OpenAlgoReadOnly:
     POSITIONBOOK_PATH = "/api/v1/positionbook"
     HISTORY_PATH = "/api/v1/history"
     SEARCH_PATH = "/api/v1/search"
+    SYMBOL_PATH = "/api/v1/symbol"
     MARGIN_PATH = "/api/v1/margin"
 
     def __init__(self, base_url: str, transport: Transport) -> None:
@@ -75,6 +76,12 @@ class OpenAlgoReadOnly:
         position = {"symbol": symbol, "exchange": exchange, "action": action, "quantity": str(int(quantity)),
                     "product": product, "pricetype": pricetype, "price": str(price)}
         return self._transport(self.base_url + self.MARGIN_PATH, {"apikey": api_key, "positions": [position]})
+
+    def symbol_info(self, api_key: str, symbol: str, exchange: str = "NSE") -> Dict:
+        """Exact symbol record from OpenAlgo /symbol (includes lotsize). Read only; raw reply."""
+        self._need_key(api_key)
+        payload = {"apikey": api_key, "symbol": symbol, "exchange": exchange}
+        return self._transport(self.base_url + self.SYMBOL_PATH, payload)
 
     def search_symbol(self, api_key: str, symbol: str, exchange: str = "NSE") -> Dict:
         """Instrument-master lookup (OpenAlgo /search). Read only; raw reply.

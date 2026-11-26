@@ -182,12 +182,35 @@ def test_daily_stats_lot_size_from_search():
     assert LiveBars(reader, "KEY").daily_stats("SME-LTD", NOW)["lot_size"] == 3200
 
 
-def test_lot_size_fails_to_one_on_error_or_junk():
-    assert LiveBars(_Reader(daily=_daily_rows()), "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
-    bad = _Reader(daily=_daily_rows(), search_reply=OSError("down"))
-    assert LiveBars(bad, "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
-    junk = _Reader(daily=_daily_rows(), search_reply={"status": "error", "data": None})
-    assert LiveBars(junk, "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
+def test_lot_size_is_unknown_zero_on_error_or_junk():
+    """Fail closed (review 2026-11-26): an unusable lot size is 0, never a guessed 1."""
+    empty = _Reader(daily=_daily_rows(), search_reply={"status": "success", "data": []})
+    assert LiveBars(empty, "KEY").daily_stats("INFY", NOW)["lot_size"] == 0
+    bad = _Reader(daily=_daily_rows(), search_reply={"status": "error"})
+    assert LiveBars(bad, "KEY").daily_stats("INFY", NOW)["lot_size"] == 0
+    junk = _Reader(daily=_daily_rows(), search_reply={"status": "success", "data": "junk"})
+    assert LiveBars(junk, "KEY").daily_stats("INFY", NOW)["lot_size"] == 0
     nolot = _Reader(daily=_daily_rows(), search_reply={"status": "success",
                                                        "data": [{"symbol": "INFY", "lotsize": "x"}]})
-    assert LiveBars(nolot, "KEY").daily_stats("INFY", NOW)["lot_size"] == 1
+    assert LiveBars(nolot, "KEY").daily_stats("INFY", NOW)["lot_size"] == 0
+
+
+class _SymbolReader(_Reader):
+    def __init__(self, symbol_reply, **kw):
+        super().__init__(**kw)
+        self.symbol_reply = symbol_reply
+
+    def symbol_info(self, api_key, symbol, exchange="NSE"):
+        return self.symbol_reply
+
+
+def test_lot_size_prefers_exact_symbol_endpoint():
+    reader = _SymbolReader({"status": "success", "data": {"symbol": "SME-LTD", "lotsize": 500}},
+                           daily=_daily_rows(), search_reply={"status": "success", "data": [{"symbol": "SME-LTD", "lotsize": 3200}]})
+    assert LiveBars(reader, "KEY").daily_stats("SME-LTD", NOW)["lot_size"] == 500
+
+
+def test_lot_size_falls_back_to_search_when_symbol_endpoint_fails():
+    reader = _SymbolReader({"status": "error"}, daily=_daily_rows(),
+                           search_reply={"status": "success", "data": [{"symbol": "SME-LTD", "lotsize": 3200}]})
+    assert LiveBars(reader, "KEY").daily_stats("SME-LTD", NOW)["lot_size"] == 3200

@@ -841,12 +841,8 @@ class StrategyBot:
             if choice.exchange is None:
                 self._log("parent_skipped", strategy=strat.name, symbol=sym, reason=choice.reason)
                 return None
-            if choice.exchange != "NSE":
-                # Stops and exits still use the NSE client (slice 3). A BSE entry would be
-                # protected and exited on the wrong exchange, so it is refused here.
-                self._log("parent_skipped", strategy=strat.name, symbol=sym,
-                          reason="BSE entry waits for slice 3 (stops and exits per exchange)")
-                return None
+            # BSE entries are allowed (review gap 1, 2026-11-26). Stops, stop modifies and exits
+            # already pass the position's exchange (slice 3), so the protection goes to BSE too.
         # Pre-gate (capital protection): calendar, handoff contract, auction window and
         # feed health. The overnight gap and stress/VaR checks run inside gate_signal on
         # the real intent (proper ref price + size).
