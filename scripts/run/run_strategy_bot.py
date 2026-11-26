@@ -5,7 +5,7 @@ Usage:
   Stop: create the file <state-dir>/stop.flag (the loop checks it every second).
 
 Needs OPENALGO_API_KEY in the environment or the repo-root .env.
-Paper capital is simulated. With --paper-capital 0 (the default) no entries are approved.
+Paper capital is simulated. The default is 1000000 (10 lakh, same as config/settings.yaml risk_budget). Set 0 to approve no entries.
 This runner refuses analyze and live mode. The bot itself also refuses live (live_enabled must stay false).
 Flow stage: Algo router, Risk gate, Approved order queue, Audit log
 Status: PHASE 3 IMPLEMENTED (paper only; the data source must be approved in config/data_sources.yaml)
@@ -211,7 +211,8 @@ def main(argv=None) -> int:
     p.add_argument("--settings", default=str(ROOT / "config" / "settings.yaml"))
     p.add_argument("--state-dir", default=str(ROOT / "data" / "bot"))
     p.add_argument("--base-url", required=True, help="OpenAlgo server URL (read-only history)")
-    p.add_argument("--paper-capital", type=float, default=0.0, help="simulated capital in INR")
+    p.add_argument("--paper-capital", type=float, default=1_000_000.0,
+                   help="simulated capital in INR (default 10 lakh; 0 approves no entries)")
     p.add_argument("--max-cycles", type=int, default=None)
     args = p.parse_args(argv)
 
