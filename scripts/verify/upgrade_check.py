@@ -44,7 +44,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_OA = ROOT / "openalgo"
+# The vendored OpenAlgo tree is the folder this repo pins (decision 0013). The old default,
+# openalgo/, is an installer-made clone that is git-ignored, so the default never existed in a
+# checkout and `--strict-pin` always failed with "folder not found" (fixed 2026-11-26).
+VENDORED_REL = "src/quant/openalgo_platform"
+DEFAULT_OA = ROOT / VENDORED_REL
 PIN_PATH = ROOT / "openalgo.UPSTREAM_PIN"
 
 # Files that change on every upstream release. These are the *only* files we
@@ -126,6 +130,33 @@ def fingerprint(oa: Path) -> dict:
     rolled = hashlib.sha256(repr(content).encode("utf-8")).hexdigest()[:12]
     fp["_rolled"] = rolled
     return fp
+
+
+def committed_fingerprint(repo: Path = ROOT, rel: str = VENDORED_REL) -> dict:
+    """Fingerprint of the vendored folder as committed at HEAD, not the working copy.
+
+    The blobs are read with `git archive`, so local edits, stray files or a dirty
+    checkout cannot change the result. Tests use this so they judge the commit.
+    """
+    import io
+    import shutil
+    import subprocess
+    import tarfile
+    import tempfile
+    data = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", "HEAD", rel],
+        capture_output=True, check=True,
+    ).stdout
+    tmp = Path(tempfile.mkdtemp(prefix="openalgo_pin_"))
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+            if hasattr(tarfile, "data_filter"):
+                tf.extractall(tmp, filter="data")
+            else:
+                tf.extractall(tmp)
+        return fingerprint(tmp / rel)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def read_pin() -> str | None:

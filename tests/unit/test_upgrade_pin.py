@@ -40,9 +40,8 @@ def test_changed_content_changes_pin(tmp_path):
 
 def test_repo_pin_matches_vendored_copy():
     uc = _module()
-    vendored = ROOT / "src/quant/openalgo_platform"
     pin = uc.read_pin()
-    assert pin == uc.fingerprint(vendored)["_rolled"]
+    assert pin == uc.committed_fingerprint(ROOT)["_rolled"]  # committed HEAD, not the working copy
 
 
 def test_crlf_checkout_matches_lf_pin(tmp_path):

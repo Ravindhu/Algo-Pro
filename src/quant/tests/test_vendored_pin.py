@@ -22,8 +22,8 @@ def _pin_module():
 
 def test_vendored_tree_matches_pin():
     mod = _pin_module()
-    rolled = mod.fingerprint(V)["_rolled"]
+    rolled = mod.committed_fingerprint()["_rolled"]  # committed HEAD, not the working copy
     assert mod.read_pin() == rolled, (
         "vendored OpenAlgo changed without a pin update: review the diff, then run "
-        "scripts/verify/upgrade_check.py --openalgo-dir src/quant/openalgo_platform --update-pin"
+        "scripts/verify/upgrade_check.py --update-pin"
     )
