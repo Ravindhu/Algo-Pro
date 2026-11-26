@@ -17,7 +17,7 @@ import pathlib
 import sys
 import time
 from datetime import datetime
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import yaml
 
@@ -142,16 +142,35 @@ def _escalate_cycle_failures(bot, failures: int, exc: Exception) -> None:
         kill.trip(f"repeated cycle failures: {failures}", source="automatic")
 
 
+SCREEN_REFRESH_EVERY_SECONDS = 300  # the bot refuses a screen older than 10 minutes; refresh every 5
+
+
 def run(bot: StrategyBot, audit: AuditLog, *, state_dir, clock: Callable[[], datetime] = now_ist,
-        sleep: Callable[[float], None] = time.sleep, max_cycles: Optional[int] = None) -> int:
-    """Run cycles until max_cycles or the stop flag. An error in one cycle is logged; the loop goes on."""
+        sleep: Callable[[float], None] = time.sleep, max_cycles: Optional[int] = None,
+        refresh: Optional[Callable[[datetime], Any]] = None,
+        refresh_every_seconds: float = SCREEN_REFRESH_EVERY_SECONDS) -> int:
+    """Run cycles until max_cycles or the stop flag. An error in one cycle is logged; the loop goes on.
+
+    refresh (optional): called before a cycle when refresh_every_seconds have passed since the last
+    refresh (and once at the start). It rewrites the screen file. A refresh error is audited and never
+    stops the loop; the screen then goes stale and the bot stops NEW entries after its 10-minute limit.
+    """
     stop = pathlib.Path(state_dir) / STOP_FLAG
     done = 0
     failures = 0  # consecutive cycles that raised (audit fix 3, 2026-11-26)
+    last_refresh: Optional[datetime] = None
     while max_cycles is None or done < max_cycles:
         if stop.exists():
             audit.append("runner_stopped", {"reason": "stop flag", "cycles": done})
             break
+        if refresh is not None:
+            now = clock()
+            if last_refresh is None or (now - last_refresh).total_seconds() >= refresh_every_seconds:
+                last_refresh = now
+                try:
+                    audit.append("screen_refresh", {"result": refresh(now)})
+                except Exception as exc:  # noqa: BLE001 - a refresh problem must not stop the bot
+                    audit.append("screen_refresh_error", {"error": repr(exc)})
         try:
             bot.cycle(clock())
             failures = 0

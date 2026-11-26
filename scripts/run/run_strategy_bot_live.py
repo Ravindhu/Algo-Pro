@@ -305,7 +305,15 @@ def main(argv=None) -> int:
         base_url=args.base_url, api_key=api_key,
         on_critical=lambda msg: print(f"CRITICAL: {msg}", flush=True),
     )
-    _paper.run(bot, audit, state_dir=args.state_dir, clock=now_ist, max_cycles=args.max_cycles)
+    # Screen refresh every 5 minutes, inside the loop (starts and stops with the bot).
+    from quant.data.screen_refresh import make_screen_refresher
+    refresh = make_screen_refresher(
+        OpenAlgoReadOnly(args.base_url, http_transport), api_key,
+        source=ROOT / "data" / "screened" / "last_screen.json",
+        target=ROOT / bot.cfg.screen_path,
+    )
+    _paper.run(bot, audit, state_dir=args.state_dir, clock=now_ist, max_cycles=args.max_cycles,
+               refresh=refresh)
     return 0
 
 

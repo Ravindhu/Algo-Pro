@@ -49,8 +49,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from quant.data import screener_engine  # noqa: E402
-from quant.data.circuit_band import enrich_candidates  # noqa: E402
+from quant.data.screen_refresh import load_candidates, refresh_once  # noqa: E402
 from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # noqa: E402
 from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
 
@@ -86,7 +85,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="report only; write nothing")
     args = ap.parse_args()
 
-    candidates = _load_candidates(args.source, args.symbols)
+    candidates = load_candidates(args.source, args.symbols)
     if not candidates:
         print(f"[FAIL] no candidates: {args.source} missing or has no selected rows",
               file=sys.stderr)
@@ -98,44 +97,29 @@ def main() -> int:
         return 1
 
     reader = OpenAlgoReadOnly(args.base_url, http_transport)
-
-    def quote(symbol: str, exchange: str):
-        return reader.quotes(api_key, symbol, exchange)
-
-    from quant.data.bse_symbol import openalgo_bse_lookup, split_for_screen  # noqa: E402
-
-    nse_list, bse_list, unresolved = split_for_screen(candidates, openalgo_bse_lookup)
-    result = enrich_candidates(nse_list, quote, exchange=args.exchange)
-    bse_result = enrich_candidates(bse_list, lambda s, _e: quote(s, "BSE"), exchange="BSE")
-    merged = result["candidates"] + bse_result["candidates"]
-    payload = {"candidates": merged, "symbols": [c["symbol"] for c in merged]}
-    doc = screener_engine.screen_rows(payload, max_symbols=len(merged) or 1)
-    for item in unresolved:  # a BSE code the OpenAlgo master does not know: reported, never traded
-        print(f"  unresolved BSE code {item['code']} (OpenAlgo symbol: {item['symbol']})")
-
-    print(f"candidates : {len(candidates)}")
-    print(f"enriched   : {result['enriched']}")
-    print(f"selected   : {doc['counts']['selected']}")
-    print(f"dropped    : {doc['counts']['dropped']}")
-    for row in doc["dropped"][:20]:
-        print(f"  drop {row['symbol']:<14} {row['reason']}")
-    for row in doc["results"][:20]:
-        print(f"  keep {row['symbol']:<14} circuit {row['circuit_pct']:.4f}")
+    from quant.data.bse_symbol import openalgo_bse_lookup
 
     if args.dry_run:
-        print("[dry-run] nothing written")
-        return 0 if doc["results"] else 2
+        from quant.data.bse_symbol import split_for_screen
+        from quant.data.screen_refresh import enrich_parallel
+        nse_list, bse_list, unresolved = split_for_screen(candidates, openalgo_bse_lookup)
+        rows = enrich_parallel(nse_list, lambda s, e: reader.quotes(api_key, s, e), args.exchange)
+        rows += enrich_parallel(bse_list, lambda s, e: reader.quotes(api_key, s, "BSE"), "BSE")
+        print(f"candidates : {len(candidates)}  (dry run: nothing written)")
+        for item in unresolved:
+            print(f"  unresolved BSE code {item['code']} (OpenAlgo symbol: {item['symbol']})")
+        return 0
 
-    wrote = screener_engine.write_screen_file(payload, args.target,
-                                              max_symbols=len(candidates))
-    print(f"wrote      : {args.target} ({wrote} row(s))")
-    if wrote == 0:
-        # The band source answered but nothing was tradable. Distinguish that
-        # from "the source is down" so a scheduler alert is meaningful.
-        unreachable = all("quote" in (f.get("reason") or "") for f in result["failed"]) \
-            and bool(result["failed"])
-        return 1 if unreachable else 2
-    return 0
+    result = refresh_once(candidates, lambda s, e: reader.quotes(api_key, s, e), args.target,
+                          lookup_bse=openalgo_bse_lookup)
+    for item in result["unresolved"]:  # a BSE code the OpenAlgo master does not know: reported, never traded
+        print(f"  unresolved BSE code {item['code']} (OpenAlgo symbol: {item['symbol']})")
+    print(f"candidates : {result['candidates']}")
+    print(f"enriched   : {result['enriched']}")
+    print(f"selected   : {result['selected']}")
+    print(f"dropped    : {result['dropped']}")
+    print(f"wrote      : {args.target} ({result['wrote']} row(s))")
+    return result["exit_code"]
 
 
 if __name__ == "__main__":
