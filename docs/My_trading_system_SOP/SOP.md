@@ -1509,6 +1509,26 @@ screener.in saved screen
 - First run with no `URL_SCREENER_DOT_IN`/`screen_id` set: the engine returns "screen_id and
   screen_slug required", which is reported, not guessed. Set one of them once.
 
+### 24.6d Screen chain audited end to end (2026-11-26)
+A probe drove real files through the whole chain offline. Five defects were reproduced, then fixed:
+
+| # | Defect | Effect if left | Fix |
+|---|---|---|---|
+| 1 | `load_candidates` read only flat `{"results": [...]}` | The engine writes `{ok, data:{results}}` -> **zero candidates, `latest.json` never written**, bot silent | Reads both shapes |
+| 2 | Scraper passed `config={"enrich": False}` only | `BaseEngine` never reads `screener_engine.json`, so `screen_id`/`screen_slug`/rules/limits were lost | Loads the real config file, overrides only the two enrichment keys |
+| 3 | `as_of` stamped in **UTC**, bot judges in **IST** | Fresh file landed 5.5 h ahead; `as_of > now` voided it | Refresher passes its own `now` |
+| 4 | `sector_map` read `payload["symbols"]` (plain strings) | Always empty -> every name in one capped UNKNOWN bucket | Reads `results`; sector carried into the written file |
+| 5 | Dashboard chose the file by **mtime** | Hour-old `last_screen.json` outranked fresh `latest.json` | Sorts by `as_of`, falls back to mtime |
+
+- Tests: `src/quant/tests/test_screen_chain_audit_2026_11_26.py` (one per defect, plus a full
+  chain run `last_screen.json` -> `latest.json` -> `read_screen` -> `sector_map`).
+- Also fixed a test leak: `test_screener_session_route` left `SESSION_KEY` in `os.environ`, so the
+  full suite failed while the same test passed alone.
+- Full suite: **2684 passed, 10 skipped, 1 xfailed** (`src/quant/tests` 1733 + `tests/unit` 951;
+  split because the 120 s shell timeout kills a single call).
+- Still unverified: a real screener.in scrape. Set `URL_SCREENER_DOT_IN` once, then read the
+  `screen_refresh` audit row of the first cycle.
+
 ### 24.7 OCL strategies in the bot
 - `quant.strategies.ocl.adapter.OclStrategyAdapter` serves the bot's closed bars to the OCL
   classes through a local `BarsHistoryClient` (no network). Selectable in `config/bot.yaml`:

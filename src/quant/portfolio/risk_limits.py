@@ -89,6 +89,13 @@ def sector_map(screen_path=None) -> Dict[str, str]:
     the engine's ``INDEX_TO_SCREENER_SECTORS`` is keyed by ISIN, not by symbol,
     so it cannot answer this question and is deliberately not used here.
 
+    Accepted shapes (audit 2026-11-26): ``results`` is the row list the bot's own
+    writer produces and is read FIRST; ``symbols`` is kept for a hand-written file.
+    Reading ``symbols`` alone was a defect: ``screen_rows`` writes ``symbols`` as a
+    list of plain strings, so every row was skipped, the map came back empty, and
+    every name fell into one capped UNKNOWN bucket - sector limits silently stopped
+    working on a perfectly good screen file.
+
     Returns an empty dict when there is no screen. Callers then group everything
     as UNKNOWN, which is CAPPED like any other group rather than quietly exempted
     - an unnameable sector bet is still a sector bet.
@@ -106,7 +113,9 @@ def sector_map(screen_path=None) -> Dict[str, str]:
         logger.warning("screen unreadable for the sector map: %r", exc)
         return {}
 
-    rows = payload.get("symbols") if isinstance(payload, dict) else payload
+    rows = payload.get("results") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list) or not rows:
+        rows = payload.get("symbols") if isinstance(payload, dict) else payload
     out: Dict[str, str] = {}
     for row in rows or []:
         if isinstance(row, dict):

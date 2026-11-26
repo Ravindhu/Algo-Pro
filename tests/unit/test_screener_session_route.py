@@ -45,6 +45,15 @@ def clients(tmp_path, monkeypatch):
     env_file.write_text("Screenerdotin_sessionid=expired\nKEEP=1\n", encoding="utf-8")
     # The route calls the default .env; point it at the temp file for this test.
     monkeypatch.setattr(ss, "DEFAULT_ENV_FILE", env_file)
+    # A successful login writes SESSION_KEY into os.environ and stamps a day marker. Both are
+    # process-wide, so undo them when the test ends; otherwise a later test sees a live cookie
+    # that this one invented and skips its own check (found 2026-11-26: the full suite failed
+    # while the same test passed alone).
+    monkeypatch.delenv(ss.SESSION_KEY, raising=False)
+    monkeypatch.delenv("SCREENER_SESSION_ID", raising=False)
+    monkeypatch.delenv("SCREENER_SESSIONID", raising=False)
+    for name in ss._USERNAME_KEYS + ss._PASSWORD_KEYS:
+        monkeypatch.delenv(name, raising=False)
 
     limits = tmp_path / "risk_limits.yaml"
     limits.write_text("blocked: false\n", encoding="utf-8")

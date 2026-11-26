@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from quant.data import screener_engine
 from quant.data.circuit_band import enrich_candidates
+from quant.data.bse_symbol import split_for_screen
 
 DEFAULT_WORKERS = 4   # parallel quote requests; keep low unless the broker allows more
 
@@ -57,10 +58,12 @@ def enrich_parallel(rows: List[Dict[str, Any]], quote_fn: Callable[[str, str], A
 def refresh_once(candidates: List[Dict[str, Any]], quote_fn: Callable[[str, str], Any], target,
                  *, lookup_bse: Optional[Callable[[str], Optional[str]]] = None,
                  bse_quote_fn: Optional[Callable[[str, str], Any]] = None,
-                 workers: int = DEFAULT_WORKERS) -> Dict[str, Any]:
-    """Enrich, screen and write the screen file atomically. Returns a summary dict (no exceptions for data)."""
-    from quant.data.bse_symbol import split_for_screen
+                 workers: int = DEFAULT_WORKERS, as_of: Any = None) -> Dict[str, Any]:
+    """Enrich, screen and write the screen file atomically. Returns a summary dict (no exceptions for data).
 
+    ``as_of`` becomes the file's ``as_of`` stamp and MUST be the clock the bot will judge it with.
+    ``make_screen_refresher`` passes its own ``now``, so the two cannot drift.
+    """
     nse_list, bse_list, unresolved = split_for_screen(candidates, lookup_bse or (lambda code: None))
     nse_rows = enrich_parallel(nse_list, quote_fn, "NSE", workers)
     bse_rows = enrich_parallel(bse_list, bse_quote_fn or quote_fn, "BSE", workers) if bse_list else []
@@ -69,8 +72,13 @@ def refresh_once(candidates: List[Dict[str, Any]], quote_fn: Callable[[str, str]
     failed = [r for r in all_rows if r.pop("_failed", False)]
     transport = [r for r in failed if "quote" in str(r.get("band_reason") or "")]
     payload = {"candidates": all_rows, "symbols": [r["symbol"] for r in all_rows]}
-    doc = screener_engine.screen_rows(payload, max_symbols=len(all_rows) or 1)
-    wrote = screener_engine.write_screen_file(payload, target, max_symbols=len(candidates) or 1)
+    doc = screener_engine.screen_rows(payload, as_of=as_of, max_symbols=len(all_rows) or 1)
+    # Carry each row's sector into the written rows. ``screen_rows`` builds a fixed 4-key row, so
+    # the sector is attached here from the input row (the saved screen's own column).
+    # ``risk_limits.sector_map`` reads exactly this key, and a missing sector leaves every name in
+    # one capped UNKNOWN bucket - sector limits would silently stop separating anything.
+    _attach_sectors(doc["results"], all_rows)
+    wrote = _write_doc(target, doc)
     unreachable = bool(failed) and len(transport) == len(all_rows)
     code = 0 if wrote > 0 else (1 if unreachable else 2)
     return {
@@ -84,8 +92,49 @@ def refresh_once(candidates: List[Dict[str, Any]], quote_fn: Callable[[str, str]
     }
 
 
+def _write_doc(target, doc: Dict[str, Any]) -> int:
+    """Write a finished screen doc atomically. Returns the row count. One writer, one shape."""
+    import json as _json
+    import os
+    import tempfile
+
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            _json.dump(doc, fh, indent=1)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return len(doc.get("results") or [])
+
+
+def _attach_sectors(rows: List[Dict[str, Any]], source_rows: List[Dict[str, Any]]) -> None:
+    """Copy ``sector`` from each input row onto the written row. Absent or blank stays absent."""
+    by_symbol = {str(r.get("symbol") or "").strip().upper(): str(r.get("sector") or "").strip()
+                 for r in source_rows}
+    for row in rows:
+        sector = by_symbol.get(str(row.get("symbol") or "").strip().upper(), "")
+        if sector:
+            row["sector"] = sector
+
+
 def load_candidates(path, symbols: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Explicit symbols win; otherwise the selected rows of the saved Screener.in screen. Never raises."""
+    """Explicit symbols win; otherwise the selected rows of the saved Screener.in screen. Never raises.
+
+    Accepts BOTH real shapes:
+      * the engine's own ``screen_now()`` output - ``{ok, data: {results: [...]}}`` (what
+        ``make_screener_scraper`` writes), and
+      * a flat ``{results: [...]}`` file.
+    Before 2026-11-26 only the flat shape was read, so the file the scraper wrote produced ZERO
+    candidates: ``latest.json`` was never rebuilt and the bot traded nothing while every log line
+    looked healthy.
+    """
     import json
 
     if symbols:
@@ -94,7 +143,12 @@ def load_candidates(path, symbols: Optional[str] = None) -> List[Dict[str, Any]]
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return []
-    return [dict(r) for r in (payload.get("results") or []) if isinstance(r, dict) and r.get("selected")]
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("results")
+    if rows is None and isinstance(payload.get("data"), dict):
+        rows = payload["data"].get("results")
+    return [dict(r) for r in (rows or []) if isinstance(r, dict) and r.get("selected")]
 
 
 def make_screen_refresher(reader, api_key: str, *, source, target,
@@ -142,7 +196,7 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
         if not candidates:
             return {"exit_code": 2, "reason": f"no candidates in {source}", "scrape": scrape_note}
         out = refresh_once(candidates, lambda s, e: reader.quotes(api_key, s, e), target,
-                           lookup_bse=openalgo_bse_lookup)
+                           lookup_bse=openalgo_bse_lookup, as_of=now)
         out["scrape"] = scrape_note
         return out
     return refresh
@@ -205,7 +259,16 @@ def make_screener_scraper(*, source, env_file=None,
 
 
 def _run_screener_engine() -> Dict[str, Any]:
-    """Run the saved screen once through the Blue engine. Returns its ``{ok, data, ...}`` payload."""
+    """Run the saved screen once through the Blue engine. Returns its ``{ok, data, ...}`` payload.
+
+    The engine's own config file (``input/screener_engine.json``) is loaded first, because
+    ``BaseEngine.__init__`` only copies the dict it is handed - it does NOT read the file. Passing
+    ``{"enrich": False}`` alone (the old code) therefore threw away ``screen_id``, ``screen_slug``,
+    the screen rules and the transport limits, so the scrape could not even name a screen. Only the
+    two enrichment keys are overridden on top of the file.
+    """
+    import json as _json
+
     from quant.core.blue_bridge import BlueEngineUnavailable, load
 
     try:
@@ -213,10 +276,21 @@ def _run_screener_engine() -> Dict[str, Any]:
     except BlueEngineUnavailable as exc:  # pragma: no cover - environment dependent
         raise RuntimeError(f"screener engine unavailable: {exc}") from exc
 
+    cfg_path = (Path(__file__).resolve().parents[2] / "quant" / "engines" / "input"
+                / "screener_engine.json")
+    cfg: Dict[str, Any] = {}
+    if cfg_path.is_file():
+        try:
+            cfg = (_json.loads(cfg_path.read_text(encoding="utf-8")).get("screener") or {})
+        except (OSError, ValueError):
+            cfg = {}
+
     # Enrichment fetches a company page per name with a 1.5 s gap - minutes for a full
     # universe. The BOT only needs WHICH names were selected, and the live prices come from
     # OpenAlgo quotes, so enrichment is off on the refresh path.
-    engine = module.ScreenerEngine(config={"enrich": False, "annual_report_enrichment": False})
+    cfg["enrich"] = False
+    cfg["annual_report_enrichment"] = False
+    engine = module.ScreenerEngine(config=cfg)
     payload = engine.screen_now()
     return payload if isinstance(payload, dict) else {"ok": False, "error": "engine returned no payload"}
 
