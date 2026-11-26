@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -38,11 +39,33 @@ _analysis_cache: Dict[str, Any] = {"at": None, "value": None}
 
 
 def _latest_screen_path() -> Path:
-    """Newest existing screen file, or the primary path when none exists (state=not_run)."""
+    """Newest existing screen file, or the primary path when none exists (state=not_run).
+
+    "Newest" is judged by the file's ``as_of`` stamp when it has one, and by its modification
+    time otherwise (audit 2026-11-26). Picking by mtime alone let the admin show ``last_screen.json``
+    - the hour-old selection, with no band or surveillance filter applied - simply because it had
+    been written a moment later than the fresh ``latest.json``. The panel then reported names the
+    bot had already refused to trade.
+    """
     found = [p for p in SCREEN_PATHS if p.is_file()]
     if not found:
         return SCREEN_PATHS[0]
-    return max(found, key=lambda p: p.stat().st_mtime)
+    return max(found, key=_screen_clock)
+
+
+def _screen_clock(path: Path) -> float:
+    """Sort key: the file's ``as_of`` as a timestamp, else its mtime. Never raises."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        stamp = str((payload or {}).get("as_of") or "").strip()
+        if stamp:
+            return datetime.fromisoformat(stamp).timestamp()
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def read_screener(path: Optional[Path] = None, *,

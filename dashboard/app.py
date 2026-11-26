@@ -101,6 +101,7 @@ API_INDEX = {
         "POST /api/account/totp/remove (owner)",
         "/api/schedule", "POST /api/schedule (token or account)",
         "/api/engine", "POST /api/engine/start (token or account)",
+        "POST /api/screener/session (owner; saves the Screener.in sessionid to .env, value never returned)",
         "/api/flow/recommendations", "POST /api/flow/apply (owner; loosening needs the typed phrase)",
     ],
 }
@@ -747,6 +748,26 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         if not ok:
             return JSONResponse({"error": message}, status_code=409)
         return JSONResponse({"message": message, "pid": pid})
+
+    @app.post("/api/screener/session")
+    async def screener_session(request: Request):
+        """Sign in to Screener.in with username + password and save the sessionid to .env.
+
+        Owner only. Writes .env (git-ignored) and never returns or logs the cookie value.
+        A failure is a fact to report, not an error: the engine start is unaffected.
+        """
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        from quant.data.screener_session import refresh_session, SESSION_KEY
+
+        result = refresh_session()
+        AuditLog(paths["audit"]).append(
+            "screener_session_refreshed",
+            {"ok": result["ok"], "saved": result["saved"], "reason": result["reason"],
+             "key": SESSION_KEY, "actor": ACTOR})
+        status_code = 200 if result["saved"] else (409 if not result["ok"] else 500)
+        return JSONResponse(result, status_code=status_code)
 
     @app.get("/api/env")
     def env_status(request: Request):
