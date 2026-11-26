@@ -89,7 +89,10 @@ def _hash_dir(path: Path) -> str:
     h = hashlib.sha256()
     if not path.is_dir():
         return "MISSING"
-    for p in sorted(path.rglob("*")):
+    # Sort by the POSIX relative path as a plain string. A bare Path sort is case-insensitive
+    # on Windows and case-sensitive on Linux, so the same files hashed in a different order
+    # and gave a different pin on each OS (2026-11-26: install/ README.md vs Remote-MCP-readme.md).
+    for p in sorted(path.rglob("*"), key=lambda q: q.relative_to(path).as_posix()):
         if not p.is_file():
             continue
         # Python bytecode caches are written by running the code, not by upstream. Skip them so the
