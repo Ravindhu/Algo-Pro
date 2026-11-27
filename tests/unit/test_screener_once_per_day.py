@@ -1,10 +1,12 @@
-"""Screener.in sign-in happens ONCE per day, then the id is reused (owner request 2026-11-26).
+"""Screener.in sign-in happens ONCE per session lifetime, then the id is reused.
 
-Status: PHASE 5 IMPLEMENTED (2026-11-26)
+Status: PHASE 5 IMPLEMENTED (2026-11-26). Lifetime rule changed 2026-11-27 (owner choice A):
+        a saved session is reused for 24 hours, not "until the calendar day changes".
 
-The rule under test: a login already done today must NOT be repeated. Two independent
-entry points share the same day marker, so the dashboard button and the bot's scraper
-cannot disagree about what "already signed in" means.
+The rule under test: a login already done is NOT repeated while the saved session is under
+24 hours old, and IS repeated once it expires. Two independent entry points (the dashboard
+sign-in job and the bot's start/scraper) share the same marker, so they cannot disagree
+about what "already signed in" means.
 """
 import os
 from pathlib import Path
@@ -56,7 +58,7 @@ def test_first_login_then_the_second_call_reuses_without_a_login(env_file):
     r2 = ss.refresh_session(env_file=env_file, client=second)
     assert r2["ok"] is True and r2["saved"] is True
     assert r2["reason"] == "session reused from today"
-    assert second.calls == 0, "a same-day session must not trigger another login"
+    assert second.calls == 0, "a valid saved session must not trigger another login"
 
 
 def test_reuse_today_false_forces_a_fresh_login(env_file):

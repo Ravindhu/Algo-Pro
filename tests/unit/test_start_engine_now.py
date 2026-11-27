@@ -147,7 +147,7 @@ def test_screener_session_failure_is_reported_not_raised():
     assert note["usable"] is False and "RuntimeError" in note["reason"]
 
 
-# ---------------------------------------------------------------- morning boundary
+# ---------------------------------------------------------------- session lifetime (option A)
 
 def _marker(env_file: Path, written_at: float) -> None:
     marker = ss._marker_path(env_file)
@@ -156,28 +156,43 @@ def _marker(env_file: Path, written_at: float) -> None:
     os.utime(marker, (written_at, written_at))
 
 
-def test_a_session_saved_before_0900_ist_is_refreshed(monkeypatch, tmp_path):
-    """"Screener session on every start when login is needed" (owner 2026-11-27).
+def test_a_session_is_reused_for_24_hours(monkeypatch, tmp_path):
+    """Owner choice A (2026-11-27): log in once, reuse for a day, log in again when expired."""
+    import time
 
-    A cookie is a session cookie: a login at 08:00 must not be reused after the 09:00
-    boundary just because the marker's date still reads today.
-    """
+    monkeypatch.setenv(ss.SESSION_KEY, "abc")
+    env_file = tmp_path / ".env"
+    _marker(env_file, time.time() - 60 * 60)          # an hour old
+    assert ss._saved_today(env_file) is True
+
+
+def test_a_session_older_than_24_hours_is_refreshed(monkeypatch, tmp_path):
+    import time
+
+    monkeypatch.setenv(ss.SESSION_KEY, "abc")
+    env_file = tmp_path / ".env"
+    _marker(env_file, time.time() - 24 * 60 * 60 - 60)
+    assert ss._saved_today(env_file) is False
+
+
+def test_a_morning_sign_in_is_not_followed_by_a_second_login_at_0900(monkeypatch, tmp_path):
+    """The bug the 09:00 boundary caused: 08:00 sign-in, then a pointless 09:00 re-login."""
     import datetime as dt
     import time
 
     monkeypatch.setenv(ss.SESSION_KEY, "abc")
     env_file = tmp_path / ".env"
     _marker(env_file, dt.datetime.combine(dt.date.today(), dt.time(8, 0)).timestamp())
-    assert ss._saved_today(env_file) is False
+    # Judged at 09:05 the same day.
+    at_0905 = dt.datetime.combine(dt.date.today(), dt.time(9, 5)).timestamp()
+    assert ss._saved_today(env_file, now=at_0905) is True
+    assert ss.SESSION_MAX_AGE_S == 24 * 60 * 60
 
 
-def test_a_session_saved_after_0900_ist_is_reused(monkeypatch, tmp_path):
-    import time
-
+def test_an_undateable_marker_is_not_reused(monkeypatch, tmp_path):
     monkeypatch.setenv(ss.SESSION_KEY, "abc")
     env_file = tmp_path / ".env"
-    _marker(env_file, time.time())
-    assert ss._saved_today(env_file) is True
+    assert ss._saved_today(env_file) is False      # no marker at all
 
 
 def test_a_marker_without_a_cookie_never_counts(monkeypatch, tmp_path):

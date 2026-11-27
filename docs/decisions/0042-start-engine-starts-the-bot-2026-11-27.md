@@ -38,12 +38,32 @@ has just created.
 
 ## Screener session timing (owner request, same day)
 
-"A session on every start when login is needed." `ensure_screener_session` runs on every
-START ENGINE and delegates to `screen_refresh.ensure_session`, which is free when a session
-is already valid. The reuse rule now has a **09:00 IST morning boundary**
-(`screener_session.SESSION_REFRESH_HOUR`): a marker written before 09:00 does not cover today,
-because a portal cookie is a session cookie and dies with the trading day. A refused login is
-reported and **never blocks the bot** — the bot must still start to manage exits.
+"A session on every start when login is needed." The cookie is obtained by the **dashboard
+sign-in** first (`refresh_session`); the start path only calls it when the saved session is
+no longer usable, so a normal day sees exactly one login.
+
+**Lifetime: 24 hours (owner choice A, 2026-11-27).** `screener_session.SESSION_MAX_AGE_S` is
+86400 s. A saved session is reused until it expires, then one fresh login replaces it. This
+is independent of the calendar date and of the hour the owner signs in.
+
+An earlier attempt used a 09:00 IST morning boundary. It was wrong for this flow: the owner
+may sign in at 08:00, and the boundary then fired a **second** login at 09:00 against a site
+we do not own - pointless load and a throttle risk. Replaced the same day; the regression is
+pinned by
+`tests/unit/test_start_engine_now.py::test_a_morning_sign_in_is_not_followed_by_a_second_login_at_0900`.
+
+A refused login is reported and **never blocks the bot** - the bot must still start to manage
+exits.
+
+## How the universe reaches the bot (not every cycle)
+
+- `last_screen.json` (the Screener.in selection) is re-scraped only when missing or older
+  than 60 minutes (`scrape_every_minutes`). Scraping a third-party site every 5 minutes would
+  get the account throttled.
+- `latest.json` (the bot's screen file) is REBUILT **every** 5-minute cycle from that
+  selection plus live OpenAlgo quotes, because the circuit band and the ASM/GSM flag move
+  intraday.
+- The bot then runs its strategies on the stocks in `latest.json`, every cycle.
 
 ## What this does NOT change
 
