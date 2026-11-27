@@ -29,6 +29,9 @@
   button.iconbtn { padding: 2px 6px; line-height: 0; margin-left: 8px; vertical-align: middle; }
   button.iconbtn.busy svg { animation: scrspin 0.9s linear infinite; }
   @keyframes scrspin { to { transform: rotate(-360deg); } }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  button.tab { border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--dim); padding: 4px 10px; }
+  button.tab.on { color: var(--cyan); border-bottom-color: var(--cyan); }
   button.go { color: var(--ok); border-color: var(--ok); }
   button.stop { color: var(--bad); border-color: var(--bad); }
   /* header buttons: press feedback on every click, and a filled look while the thing they control is on */
@@ -356,10 +359,17 @@
       </table></div>
     </section>
     <section class="panel">
-      <div class="ph">Execution log <span>today's broker fills, newest first</span></div>
-      <div class="scroll"><table>
+      <div class="tabs" role="tablist" aria-label="Execution log views">
+        <button type="button" role="tab" class="tab on" id="tab-fills" aria-selected="true" aria-controls="fills-view">Execution log <span class="d">today's broker fills</span></button>
+        <button type="button" role="tab" class="tab" id="tab-notify" aria-selected="false" aria-controls="notify-view">Notification <span class="d" id="notify-count"></span></button>
+      </div>
+      <div class="scroll" id="fills-view" role="tabpanel"><table>
         <thead><tr><th>Time</th><th>Symbol</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th><th>Details</th></tr></thead>
         <tbody id="rk-fills-rows"></tbody>
+      </table></div>
+      <div class="scroll" id="notify-view" role="tabpanel" hidden><table>
+        <thead><tr><th>Time (IST)</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
+        <tbody id="notify-rows"></tbody>
       </table></div>
     </section>
   </div>
@@ -765,6 +775,30 @@
     renderAnalysisTiles(o);
   }
 
+  // Execution log block: Fills and Notification tabs. Notifications are alerts and warnings from the quant bot.
+  function renderNotifications(n) {
+    const items = (n && n.items) || [];
+    $("notify-count").textContent = items.length ? "(" + items.length + ")" : "";
+    renderTable($("notify-rows"), items.map(x => {
+      const tr = document.createElement("tr");
+      tr.append(cell(x.time_ist || "—"), cell(x.level || ""), cell(x.source || ""), cell(x.message || ""));
+      return tr;
+    }), "No alerts or warnings from the quant bot.", 4);
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const tabs = {fills: ["tab-fills", "fills-view"], notify: ["tab-notify", "notify-view"]};
+    for (const [name, [tabId, viewId]] of Object.entries(tabs)) {
+      $(tabId).addEventListener("click", () => {
+        for (const [other, [oTab, oView]] of Object.entries(tabs)) {
+          const on = other === name;
+          $(oTab).classList.toggle("on", on);
+          $(oTab).setAttribute("aria-selected", on ? "true" : "false");
+          $(oView).hidden = !on;
+        }
+      });
+    }
+  });
+
   // Refresh button on the screener panel (owner): re-scrape the saved screen now, then reload the panel.
   document.addEventListener("DOMContentLoaded", () => {
     const btn = $("scr-refresh");
@@ -962,6 +996,7 @@
 
     if (o.equity) drawEquity(o.equity);
     renderHome(o);
+    renderNotifications(o.notifications);
     if (!formLoaded) fillForm(o.limits);
     paintFlow(o.flow);
   }
