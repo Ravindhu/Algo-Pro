@@ -52,8 +52,9 @@ def test_empty_key_refused_without_sending(ro, calls, call):
 def test_no_order_capable_method_exists():
     """Reads cannot place or cancel: no attribute name carries an order verb."""
     names = [n for n in dir(OpenAlgoReadOnly) if not n.startswith("_") and n.islower()]
-    assert sorted(names) == ["depth", "funds", "history", "margin_for_order", "orderbook", "positionbook",
-                             "quotes", "search_symbol", "symbol_info"]
+    # analyzer_mode added 2026-11-27: a read of the sandbox switch (no order verb).
+    assert sorted(names) == ["analyzer_mode", "depth", "funds", "history", "margin_for_order", "orderbook",
+                             "positionbook", "quotes", "search_symbol", "symbol_info"]
     for name in names:
         assert not any(verb in name for verb in ("place", "cancel", "modify", "order_", "close", "exit"))
 

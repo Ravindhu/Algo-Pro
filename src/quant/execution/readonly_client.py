@@ -26,6 +26,7 @@ class OpenAlgoReadOnly:
     SEARCH_PATH = "/api/v1/search"
     SYMBOL_PATH = "/api/v1/symbol"
     MARGIN_PATH = "/api/v1/margin"
+    ANALYZER_PATH = "/api/v1/analyzer"
 
     def __init__(self, base_url: str, transport: Transport) -> None:
         self.base_url = base_url.rstrip("/")
@@ -35,6 +36,23 @@ class OpenAlgoReadOnly:
     def _need_key(api_key: str) -> None:
         if not api_key:
             raise ValueError("read refused: empty API key")
+
+    def analyzer_mode(self, api_key: str):
+        """True when OpenAlgo's analyzer (sandbox) is on, False when off, None when unclear.
+
+        Read-only. Used only to decide whether a sandbox-only band fallback may apply.
+        """
+        if not api_key:
+            return None
+        try:
+            resp = self._transport(self.base_url + self.ANALYZER_PATH, {"apikey": api_key})
+        except Exception:  # noqa: BLE001 - unclear is not a yes
+            return None
+        data = resp.get("data") if isinstance(resp, dict) else None
+        if not (isinstance(resp, dict) and resp.get("status") == "success" and isinstance(data, dict)):
+            return None
+        value = data.get("analyze_mode")
+        return value if isinstance(value, bool) else None
 
     def quotes(self, api_key: str, symbol: str, exchange: str) -> Dict:
         self._need_key(api_key)

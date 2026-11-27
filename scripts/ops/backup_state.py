@@ -76,8 +76,15 @@ def setup(root: Path) -> dict:
     if not p["data"].exists():
         p["data"].mkdir(parents=True)
         created.append(str(p["data"]))
-    for template_name, target in (("restored", p["restored"]), ("data", p["data"])):
-        src_dir = TEMPLATE_DIR / template_name
+    screened = p["data"] / "screened"
+    if not screened.exists():
+        screened.mkdir(parents=True)
+        created.append(str(screened))
+    # (template folder, target folder). data/screened/ gets its own templates (2026-11-27).
+    for template_name, target in (("restored", p["restored"]), ("data", p["data"]),
+                                  (("data", "screened"), screened)):
+        src_dir = TEMPLATE_DIR.joinpath(*template_name) if isinstance(template_name, tuple) \
+            else TEMPLATE_DIR / template_name
         for src in src_dir.glob("*"):
             dst = target / src.name
             if src.is_file() and not dst.exists():

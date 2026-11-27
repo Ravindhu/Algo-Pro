@@ -143,9 +143,17 @@ def _surveillance(data: Optional[Dict[str, Any]]) -> Optional[bool]:
     return None
 
 
+#: Band used ONLY in OpenAlgo's sandbox (analyzer ON), and only when the sandbox quote carries no
+#: circuit limits at all (owner report 2026-11-27: every name dropped in analyze mode). Sandbox
+#: orders are simulated, so nothing here can reach the broker. Live never uses this value.
+SANDBOX_CIRCUIT_PCT = MAX_CIRCUIT
+_NO_LIMITS = "quote carries no circuit limits"
+
+
 def enrich_candidates(candidates: Any, reader: Optional[QuoteReader],
                       exchange: str = "NSE",
                       prev_close_fn: Optional[Callable[[str], Optional[float]]] = None,
+                      *, sandbox_circuit_pct: Optional[float] = None,
                       ) -> Dict[str, Any]:
     """Add ``circuit_pct`` / ``asm_gsm`` to each candidate from the broker quote.
 
@@ -182,6 +190,11 @@ def enrich_candidates(candidates: Any, reader: Optional[QuoteReader],
             continue
 
         band = band_from_quote(reply, prev_close=close)
+        row["band_source"] = "broker"
+        if (sandbox_circuit_pct is not None and band["circuit_pct"] is None
+                and band["reason"] == _NO_LIMITS):
+            band = {"circuit_pct": float(sandbox_circuit_pct), "prev_close": band["prev_close"], "reason": ""}
+            row["band_source"] = "sandbox_default"
         data = _quote_data(reply)
         flag = _surveillance(data)
         row["circuit_pct"] = band["circuit_pct"]

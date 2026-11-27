@@ -33,40 +33,45 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from quant.data import screener_engine
-from quant.data.circuit_band import enrich_candidates
+from quant.data.circuit_band import SANDBOX_CIRCUIT_PCT, enrich_candidates
 from quant.data.bse_symbol import split_for_screen
 
 DEFAULT_WORKERS = 4   # parallel quote requests; keep low unless the broker allows more
 
 
-def _enrich_one(row: Dict[str, Any], quote_fn: Callable[[str, str], Any], exchange: str) -> Dict[str, Any]:
-    result = enrich_candidates([row], lambda s, _e: quote_fn(s, exchange), exchange=exchange)
+def _enrich_one(row: Dict[str, Any], quote_fn: Callable[[str, str], Any], exchange: str,
+                sandbox_circuit_pct: Optional[float] = None) -> Dict[str, Any]:
+    result = enrich_candidates([row], lambda s, _e: quote_fn(s, exchange), exchange=exchange,
+                               sandbox_circuit_pct=sandbox_circuit_pct)
     out = result["candidates"][0]
     out["_failed"] = bool(result["failed"])
     return out
 
 
 def enrich_parallel(rows: List[Dict[str, Any]], quote_fn: Callable[[str, str], Any], exchange: str,
-                    workers: int = DEFAULT_WORKERS) -> List[Dict[str, Any]]:
+                    workers: int = DEFAULT_WORKERS,
+                    sandbox_circuit_pct: Optional[float] = None) -> List[Dict[str, Any]]:
     """Enrich every row with its band and flag. Returns rows in the same order. Never raises for one row."""
     if not rows:
         return []
     with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
-        return list(pool.map(lambda r: _enrich_one(r, quote_fn, exchange), rows))
+        return list(pool.map(lambda r: _enrich_one(r, quote_fn, exchange, sandbox_circuit_pct), rows))
 
 
 def refresh_once(candidates: List[Dict[str, Any]], quote_fn: Callable[[str, str], Any], target,
                  *, lookup_bse: Optional[Callable[[str], Optional[str]]] = None,
                  bse_quote_fn: Optional[Callable[[str, str], Any]] = None,
-                 workers: int = DEFAULT_WORKERS, as_of: Any = None) -> Dict[str, Any]:
+                 workers: int = DEFAULT_WORKERS, as_of: Any = None,
+                 sandbox_circuit_pct: Optional[float] = None) -> Dict[str, Any]:
     """Enrich, screen and write the screen file atomically. Returns a summary dict (no exceptions for data).
 
     ``as_of`` becomes the file's ``as_of`` stamp and MUST be the clock the bot will judge it with.
     ``make_screen_refresher`` passes its own ``now``, so the two cannot drift.
     """
     nse_list, bse_list, unresolved = split_for_screen(candidates, lookup_bse or (lambda code: None))
-    nse_rows = enrich_parallel(nse_list, quote_fn, "NSE", workers)
-    bse_rows = enrich_parallel(bse_list, bse_quote_fn or quote_fn, "BSE", workers) if bse_list else []
+    nse_rows = enrich_parallel(nse_list, quote_fn, "NSE", workers, sandbox_circuit_pct)
+    bse_rows = (enrich_parallel(bse_list, bse_quote_fn or quote_fn, "BSE", workers, sandbox_circuit_pct)
+                if bse_list else [])
     all_rows = nse_rows + bse_rows
 
     failed = [r for r in all_rows if r.pop("_failed", False)]
@@ -215,11 +220,24 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
         if not candidates:
             return {"exit_code": 2, "reason": "no candidates (switches or lists are empty)",
                     "scrape": scrape_note}
+        # Owner report 2026-11-27: the sandbox quote has no circuit limits, so every name was dropped.
+        # The fallback band applies ONLY when the analyzer (sandbox) is confirmed ON this cycle.
+        sandbox = _analyzer_on(reader, api_key)
         out = refresh_once(candidates, lambda s, e: reader.quotes(api_key, s, e), target,
-                           lookup_bse=openalgo_bse_lookup, as_of=now)
+                           lookup_bse=openalgo_bse_lookup, as_of=now,
+                           sandbox_circuit_pct=SANDBOX_CIRCUIT_PCT if sandbox else None)
         out["scrape"] = scrape_note
+        out["sandbox_band"] = bool(sandbox)
         return out
     return refresh
+
+
+def _analyzer_on(reader, api_key: str) -> bool:
+    """True only when OpenAlgo confirms the sandbox is on. Anything else (unknown, error) is False."""
+    try:
+        return reader.analyzer_mode(api_key) is True
+    except Exception:  # noqa: BLE001 - a status check must never stop the screen
+        return False
 
 
 def make_screener_scraper(*, source, env_file=None,
