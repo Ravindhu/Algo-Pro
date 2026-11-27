@@ -57,11 +57,13 @@ from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # no
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 from quant.execution.order_details import OrderDetailStore  # noqa: E402
 from quant.reporting import home_view  # noqa: E402
-from quant.reporting import notifications  # noqa: E402
+from quant.reporting import notifications
+from quant.data import manual_symbols  # noqa: E402
 
 REASON_MAX = 200
 ACTOR = "dashboard-api"
 
+MANUAL_SYMBOLS_PATH = ROOT / "data" / "screened" / "manual_symbols.json"
 DEFAULT_PATHS = {
     "ledger": ROOT / "data" / "paper" / "ledger.jsonl",
     "audit": ROOT / "data" / "paper" / "audit.jsonl",
@@ -189,6 +191,7 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
         overview, recs.live(paths.get("recs", DEFAULT_PATHS["recs"])))  # popup nodes + agent recommendations
     # Home page: screener list (last saved run) and portfolio analysis (Blue Engine NAV store). Read-only.
     overview["screener"] = home_view.read_screener()
+    overview["manual_symbols"] = manual_symbols.read(paths.get("manual_symbols", MANUAL_SYMBOLS_PATH))  # owner-entered (2026-11-27)
     overview["analysis"] = home_view.portfolio_analysis()
     # Execution log > Notification tab: alerts and warnings from the bot's audit trail (read-only).
     overview["notifications"] = notifications.recent(
@@ -784,6 +787,33 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         source = ROOT / "data" / "screened" / "last_screen.json"
         result = owner_signin_job(actor, paths["audit"], source, every_minutes=0)
         return JSONResponse(result)
+
+    @app.post("/api/screener/manual")
+    async def screener_manual(request: Request):
+        """Owner: add or remove one manual symbol (2026-11-27). Applies at the next bot refresh.
+
+        A manual symbol still needs a live quote, a valid circuit band and no ASM/GSM flag at
+        refresh time, so this route cannot put an untradable name on the screen. Audited.
+        """
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        action = body.get("action") if isinstance(body, dict) else None
+        symbol = body.get("symbol") if isinstance(body, dict) else None
+        if action not in ("add", "remove"):
+            return JSONResponse({"error": "action must be add or remove"}, status_code=422)
+        actor = signed_in(request) or ACTOR
+        fn = manual_symbols.add if action == "add" else manual_symbols.remove
+        ok, reason, symbols = fn(paths.get("manual_symbols", MANUAL_SYMBOLS_PATH), symbol)
+        AuditLog(paths["audit"]).append("screener_manual_symbol", {
+            "action": action, "symbol": manual_symbols.normalise(symbol) or str(symbol)[:20],
+            "ok": ok, "reason": reason, "actor": actor})
+        return JSONResponse({"ok": ok, "reason": reason, "symbols": symbols},
+                            status_code=200 if ok else 422)
 
     @app.get("/api/env")
     def env_status(request: Request):

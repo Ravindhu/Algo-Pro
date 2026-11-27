@@ -39,6 +39,12 @@
   .ph-flex { display: flex; align-items: center; gap: 6px; }
   .ph-flex #scr-refresh { margin-left: auto; }
   button.tab#tab-notify { font-weight: 700; }
+  /* Manual symbols box under the screener header (owner request 2026-11-27) */
+  .manual-box { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 6px; }
+  .manual-box input { width: 120px; text-transform: uppercase; }
+  .manual-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+  .manual-chips .chip button { border: none; background: none; color: inherit; padding: 0 0 0 4px; line-height: 1; }
+  .manual-msg { min-height: 14px; font-size: 11px; }
   /* header buttons: press feedback on every click, and a filled look while the thing they control is on */
   header button { transition: background-color .25s ease, color .25s ease, border-color .25s ease, box-shadow .25s ease, transform .15s ease; }
   header button:active { transform: scale(.96); }
@@ -352,6 +358,13 @@
         <button type="button" id="scr-refresh" class="iconbtn" aria-label="Refresh screener candidates" title="Refresh candidates (owner)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg>
         </button></div>
+      <form id="manual-form" class="manual-box" autocomplete="off">
+        <input id="manual-in" maxlength="20" placeholder="Add NSE symbol" aria-label="Manual symbol">
+        <button type="submit" id="manual-add" title="Add a manual symbol (owner). It still passes the quote, circuit and ASM checks.">Add</button>
+        <span class="d">manual · checked each refresh</span>
+      </form>
+      <div id="manual-chips" class="manual-chips"></div>
+      <div id="manual-msg" class="manual-msg d"></div>
       <div class="scroll"><table>
         <thead><tr><th>Ticker</th><th class="n">Price ₹</th></tr></thead>
         <tbody id="scr-rows"></tbody>
@@ -780,6 +793,7 @@
       tr.append(cell(x.symbol || "—"), cell(inr(x.price), "n"));
       return tr;
     }), scr.note || "No screener output yet.", 3);
+    renderManual(o.manual_symbols || []);
     renderAnalysisTiles(o);
   }
 
@@ -805,6 +819,49 @@
         }
       });
     }
+  });
+
+  // Manual symbols (owner, 2026-11-27): merged into each refresh, still through quote/circuit/ASM checks.
+  function renderManual(list) {
+    const box = $("manual-chips");
+    box.replaceChildren(...list.map(sym => {
+      const chip = document.createElement("span");
+      chip.className = "chip on";
+      const x = document.createElement("button");
+      x.type = "button";
+      x.textContent = "× ";
+      x.setAttribute("aria-label", "Remove " + sym);
+      x.title = "Remove " + sym + " (owner)";
+      x.addEventListener("click", () => manualChange("remove", sym));
+      chip.append(sym + " ", x);
+      return chip;
+    }));
+  }
+  async function manualChange(action, symbol) {
+    const msg = $("manual-msg");
+    msg.textContent = action === "add" ? "adding " + symbol + "…" : "removing " + symbol + "…";
+    let text = "";
+    try {
+      const res = await jpost("/api/screener/manual", {action, symbol});
+      text = res.ok ? (action === "add" ? "Added " + symbol : "Removed " + symbol) + " · applies at the next screen refresh (up to 5 min)"
+        : (res.status === 422 ? (res.j.reason || res.j.error || "not added") : describeFail(res));
+    } catch (e) {
+      text = "failed: " + e.message;
+    }
+    msg.textContent = text;
+    await refresh();
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const form = $("manual-form");
+    if (!form) return;
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const input = $("manual-in");
+      const sym = (input.value || "").trim().toUpperCase();
+      if (!sym) { $("manual-msg").textContent = "type a symbol first"; return; }
+      input.value = "";
+      manualChange("add", sym);
+    });
   });
 
   // Refresh button on the screener panel (owner): re-scrape the saved screen now, then reload the panel.

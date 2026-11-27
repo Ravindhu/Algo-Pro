@@ -313,6 +313,7 @@ def main(argv=None) -> int:
         source=source,
         target=ROOT / bot.cfg.screen_path,
         scrape=make_screener_scraper(source=source),
+        manual_path=ROOT / "data" / "screened" / "manual_symbols.json",
     )
     _paper.run(bot, audit, state_dir=args.state_dir, clock=now_ist, max_cycles=args.max_cycles,
                refresh=refresh)

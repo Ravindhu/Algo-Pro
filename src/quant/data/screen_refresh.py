@@ -153,7 +153,8 @@ def load_candidates(path, symbols: Optional[str] = None) -> List[Dict[str, Any]]
 
 def make_screen_refresher(reader, api_key: str, *, source, target,
                           scrape: Optional[Callable[[], Dict[str, Any]]] = None,
-                          scrape_every_minutes: int = 60) -> Callable[[Any], Dict[str, Any]]:
+                          scrape_every_minutes: int = 60,
+                          manual_path=None) -> Callable[[Any], Dict[str, Any]]:
     """The callable the bot's loop runs every 5 minutes. Read-only: quotes and the symbol master only.
 
     Args:
@@ -164,6 +165,8 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
             ``source`` is missing or older than ``scrape_every_minutes``, so the bot does not
             re-scrape a site we do not own on every 5-minute cycle.
         scrape_every_minutes: age after which ``source`` is re-scraped. 0 means every cycle.
+        manual_path: optional owner-entered symbols file (2026-11-27). Its symbols are added to
+            the candidates and go through the SAME quote, circuit and ASM/GSM checks. None = none.
 
     The scrape never blocks the cycle: a failure is reported in the result and the bot carries
     on with whatever ``source`` already holds. A missing ``source`` after a failed scrape is
@@ -183,6 +186,13 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
             except Exception as exc:  # noqa: BLE001 - a scrape problem must not stop the bot
                 scrape_note = {"ok": False, "reason": f"scrape raised {type(exc).__name__}"}
         candidates = load_candidates(source)
+        seen = {str(r.get("symbol") or "").strip().upper() for r in candidates}
+        if manual_path is not None:
+            from quant.data import manual_symbols
+            for row in manual_symbols.as_candidates(manual_symbols.read(manual_path)):
+                if row["symbol"] not in seen:
+                    candidates.append(row)
+                    seen.add(row["symbol"])
         if not candidates:
             return {"exit_code": 2, "reason": f"no candidates in {source}", "scrape": scrape_note}
         out = refresh_once(candidates, lambda s, e: reader.quotes(api_key, s, e), target,
