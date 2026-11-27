@@ -463,8 +463,8 @@ def start_engine() -> bool:
     if py is None:
         fail("no project venv found")
         return False
-    proc = spawn("engine", [str(py), str(ROOT / "scripts" / "run" /
-                                      "run_supervised.py")], cwd=ROOT)
+    proc = spawn("engine", [str(py), str(ROOT / "scripts" / "ops" /
+                                      "supervise_bot.py")], cwd=ROOT)
     return proc is not None
 
 

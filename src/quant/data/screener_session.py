@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -84,6 +85,13 @@ _FALLBACK_BASE = "https://www.screener.in"
 #: screen data rather than in .env. Relative to the .env file's folder (the repo root).
 _DAY_MARKER = Path("data") / "screened" / ".screener_session_day"
 
+#: How long a saved Screener.in session may be reused, in seconds (owner choice A, 2026-11-27).
+#: "Log in once, reuse for a day, log in again when expired." This replaced an attempted
+#: 09:00 IST morning boundary, which fired a SECOND login right after a valid 08:00 dashboard
+#: sign-in - pointless load on a site we do not own, and a throttle risk.
+#: A time-based expiry needs no assumption about WHEN the owner signs in.
+SESSION_MAX_AGE_S = 24 * 60 * 60
+
 
 def _marker_path(env_file: Path) -> Path:
     return Path(env_file).parent / _DAY_MARKER
@@ -91,27 +99,66 @@ def _marker_path(env_file: Path) -> Path:
 
 def _ist_today() -> str:
     """Today's date on the exchange's clock (IST)."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta, timezone
 
     return (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).date().isoformat()
 
 
-def _saved_today(env_file: Path) -> bool:
-    """True when a login already succeeded today AND a cookie is still available.
+def _marker_time(env_file: Path) -> Optional[datetime]:
+    """When the day marker was written, or None when absent/unreadable.
 
-    Both halves are required. A marker without a cookie means the .env was edited by hand
-    since the login, so the cookie must be obtained again rather than assumed.
+    The marker holds the IST date a login succeeded. Its file mtime says WHEN that write
+    happened, which is the only record of the login time. Missing or unreadable -> None, so
+    the caller logs in again rather than guessing (fail closed).
     """
     try:
-        if _marker_path(env_file).read_text(encoding="utf-8").strip() != _ist_today():
+        return datetime.fromtimestamp(_marker_path(env_file).stat().st_mtime)
+    except OSError:
+        return None
+
+
+def session_age_seconds(env_file: Path, now: Optional[float] = None) -> Optional[float]:
+    """Age of the saved session in seconds, or None when it cannot be dated.
+
+    None means "no proof": the caller logs in again rather than guessing (fail closed).
+    """
+    written = _marker_time(env_file)
+    if written is None:
+        return None
+    return (now if now is not None else datetime.now().timestamp()) - written.timestamp()
+
+
+def _saved_today(env_file: Path, now: Optional[float] = None) -> bool:
+    """True when a saved login is still REUSABLE: it has a cookie and is under 24 h old.
+
+    Both halves are required. A marker without a cookie means the .env was edited by hand
+    since the login (or the page never published one), so the cookie must be obtained again
+    rather than assumed.
+
+    Session lifetime (owner choice A, 2026-11-27): a saved session is reused until
+    SESSION_MAX_AGE_S elapses, then one fresh login replaces it. This is deliberately
+    independent of the calendar date AND of the hour the owner signs in, so a valid 08:00
+    dashboard sign-in is never followed by a second login at 09:00.
+    """
+    if not bool((os.environ.get(SESSION_KEY) or "").strip()):
+        return False          # no cookie: never claim a session we cannot use
+    try:
+        if not _marker_path(env_file).is_file():
             return False
     except OSError:
         return False
-    return bool((os.environ.get(SESSION_KEY) or "").strip())
+    age = session_age_seconds(env_file, now)
+    if age is None:
+        return False          # cannot date the login -> log in again rather than guess
+    return 0 <= age < SESSION_MAX_AGE_S
 
 
 def mark_signed_in_today(env_file: Optional[Path] = None) -> None:
-    """Record that a login succeeded today. Best effort: a failure only costs one re-login."""
+    """Record that a login just succeeded: the marker's mtime starts the 24 h clock.
+
+    Best effort - a failure only costs one re-login. The file content keeps the IST date so a
+    human reading it can see the day; the LIFETIME is decided by the mtime, never by the text.
+    """
     target = _marker_path(Path(env_file) if env_file is not None else DEFAULT_ENV_FILE)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)

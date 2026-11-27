@@ -14,9 +14,11 @@ Each run:
 1. Updates the repo (fast-forward only; local changes are kept).
 2. Finds Python 3.11+.
 3. Creates `.venv` and installs the dependencies and `Blue_engine`.
-4. Clones OpenAlgo if missing. If it exists, runs the safe upgrade
-   (`scripts\ops\upgrade_openalgo.ps1`). That upgrade refuses during market hours
-   or while there are open positions, and then the old version is kept.
+4. Checks the OpenAlgo tree (`src\quant\openalgo_platform`, tracked by this repo).
+   If it is there, runs the safe upgrade (`scripts\ops\upgrade_openalgo.ps1`).
+   That upgrade refuses during market hours or while there are open positions,
+   and then the old version is kept. OpenAlgo is never cloned a second time:
+   a missing tree is an error, fixed by `git pull`.
 5. Creates `.env` from `.env.example` if missing.
 6. Starts the stack.
 

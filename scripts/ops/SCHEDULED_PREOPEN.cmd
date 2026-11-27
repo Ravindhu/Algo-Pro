@@ -40,7 +40,7 @@ if "%PREOPEN_ENGINE_ALLOWED%"=="0" (
 set "ENGINE_FLAG=0"
 for /f "usebackq delims=" %%F in (`"%PY%" "%ROOT%\scripts\ops\read_engine_flag.py" 2^>nul`) do set "ENGINE_FLAG=%%F"
 if "%ENGINE_FLAG%"=="1" (
-    "%PY%" "%ROOT%\scripts\run\run_supervised.py"
+    "%PY%" "%ROOT%\scripts\ops\supervise_bot.py"
     set "ENGINE_RC=%ERRORLEVEL%"
     echo [%DATE% %TIME%] engine exit=%ENGINE_RC% >> "%LOG%"
     exit /b %ENGINE_RC%
