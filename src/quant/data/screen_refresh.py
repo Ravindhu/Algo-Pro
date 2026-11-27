@@ -297,12 +297,19 @@ def _write_last_screen(target: Path, payload: Dict[str, Any]) -> None:
     import json as _json
     import os
     import tempfile
+    from datetime import datetime, timezone
 
+    from quant.core.time_ist import naive_ist
+
+    # as_of = when this selection was scraped, on the bot's IST clock. The dashboard orders its
+    # screen files by this stamp, so a fresh scrape is shown even when the bot's file is older.
+    stamped = dict(payload)
+    stamped["as_of"] = naive_ist(datetime.now(timezone.utc)).isoformat()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix="." + target.name + "-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            _json.dump(payload, fh, indent=1, default=str)
+            _json.dump(stamped, fh, indent=1, default=str)
         os.replace(tmp, target)
     except BaseException:
         try:

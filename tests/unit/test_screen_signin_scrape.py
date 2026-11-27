@@ -87,3 +87,22 @@ def test_source_is_stale_fails_closed(tmp_path):
     f.write_text("{}", encoding="utf-8")
     assert sr.source_is_stale(f, now, 0) is True
     assert sr.source_is_stale(f, now + timedelta(hours=2), 60) is True
+
+
+def test_dashboard_shows_the_scraped_candidates(tmp_path, monkeypatch):
+    """A sign-in scrape must show its names on the dashboard, not 'the last run selected no names'."""
+    from quant.reporting import home_view
+
+    monkeypatch.setattr(sr, "ensure_session", lambda **_: {"usable": True, "action": "test", "reason": ""})
+    source = tmp_path / "last_screen.json"
+    engine_payload = {"ok": True, "warnings": [], "data": {
+        "results": [{"symbol": "INFY", "selected": True, "metrics": {"current_price": 1500.5}}],
+        "selected": ["INFY"]}}
+    out = sr.make_screener_scraper(source=source, run_engine=lambda: engine_payload)()
+    assert out["ok"] is True
+
+    monkeypatch.setattr(home_view, "SCREEN_PATHS", (source, tmp_path / "latest.json"))
+    panel = home_view.read_screener()
+    assert panel["state"] == "ok"
+    assert [r["symbol"] for r in panel["rows"]] == ["INFY"]
+    assert panel["rows"][0]["price"] == 1500.5

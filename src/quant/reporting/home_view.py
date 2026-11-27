@@ -90,6 +90,9 @@ def read_screener(path: Optional[Path] = None, *,
         return {"state": "error", "as_of": None, "source": None, "count": 0, "rows": [],
                 "note": "Screener file could not be read."}
     results = payload.get("results") if isinstance(payload, dict) else None
+    if results is None and isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        # The scraper writes the engine's own shape: {ok, data: {results}} (2026-11-27).
+        results = payload["data"].get("results")
     results = results if isinstance(results, list) else []
     selected = [r for r in results if isinstance(r, dict) and r.get("selected")]
     rows: List[Dict[str, Any]] = [{
