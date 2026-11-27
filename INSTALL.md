@@ -101,6 +101,36 @@ The smoke test must pass before you trade. Then open the UI (`https://<your
 domain>`), log in to your broker, and confirm the platform is in analyzer
 (paper) mode.
 
+## Screener inputs (`data/screened/`)
+
+Setup creates `data/screened/` from its templates (2026-11-27). Run it once per machine:
+
+```
+python scripts/ops/backup_state.py --setup      # Ubuntu; install.bat runs this on Windows
+```
+
+It creates:
+
+| File | Starts as | Purpose |
+|---|---|---|
+| `README.md` | (text) | What the folder holds |
+| `manual_symbols.json` | `{"symbols": []}` | Owner's manual symbols |
+| `source_mode.json` | both `false` | M and A switches. Both off = both paths work |
+
+It never overwrites an existing file, so running it again is safe.
+
+Screener.in login goes in the repo `.env` (not `_restored/.env`): `SCREENER_USERNAME`,
+`SCREENER_PASSWORD` and `URL_SCREENER_DOT_IN` (the screen's `/screens/<id>/<slug>` link). Check the
+values before the first start; the screen is read with them.
+
+Set the sources on the dashboard: in the Screener stocks panel, **M** and **A**
+choose the source, and the input box adds manual symbols. The bot applies the
+change at its next refresh (up to 5 minutes).
+
+In sandbox (analyze) mode, a quote with no circuit limits uses the NSE maximum
+band (20%) and is labelled `sandbox_default`. This applies only while OpenAlgo's
+analyzer is on. ASM/GSM is always checked.
+
 ## Start automatically (scheduled)
 
 | Machine | When | What runs | Set up by |
