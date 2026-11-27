@@ -69,3 +69,19 @@ Change the pre-open time: re-run setup with `-PreOpenTime HH:MM`.
 Log of each scheduled run: `Temp\run\scheduled_start.log`.
 
 Agents: do not register or remove these jobs unless the owner asks.
+
+## 7. Backup and first setup
+
+Run once on a new PC, after `git clone` and `install.bat`:
+```
+.venv\Scripts\python.exe scripts\ops\backup_state.py --setup        # folders and templates (never creates .env)
+```
+Then copy your ORIGINAL `.env` into `_restored\.env`.
+
+Daily backup (once per PC): `scripts\ops\register_backup_job.ps1` schedules `MTS - daily backup` at 15:45. Backups go to `E:\Algopro-restore\<YYYYMMDD-HHMMSS>\`, and the last 30 are kept. Log: `Temp\run\backup.log`.
+
+Backup now: `.venv\Scripts\python.exe scripts\ops\backup_state.py`
+Restore: stop the stack (`--stop`), then `.venv\Scripts\python.exe scripts\ops\backup_state.py --restore E:\Algopro-restore\<folder>`. The current state is first saved to `pre-restore-<stamp>`.
+Stop the daily backup: `scripts\ops\register_backup_job.ps1 -Remove`
+
+Agents: do not restore, and do not remove the backup job, unless the owner asks.
