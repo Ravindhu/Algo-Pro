@@ -11,6 +11,12 @@ Read this file first. You do not need to read the whole repo to start the system
 
 ## 1. Start (Windows, from the repo root)
 
+Before the first start on any PC, run the setup once (safe to run again):
+```
+.venv\Scripts\python.exe scripts\ops\backup_state.py --setup
+```
+If it reports `MISSING: _restored\.env`, stop and ask the owner for the original `.env`. Never create one.
+
 ```
 .venv\Scripts\python.exe scripts\ops\start_all.py            # platform only (OpenAlgo, WebSocket, Dash)
 .venv\Scripts\python.exe scripts\ops\start_all.py --check    # ports and prerequisites only
@@ -85,3 +91,11 @@ Restore: stop the stack (`--stop`), then `.venv\Scripts\python.exe scripts\ops\b
 Stop the daily backup: `scripts\ops\register_backup_job.ps1 -Remove`
 
 Agents: do not restore, and do not remove the backup job, unless the owner asks.
+
+## 8. Backup rules for agents
+
+- Run a backup before you change anything in `_restored\`, `data\` or the OpenAlgo database:
+  `.venv\Scripts\python.exe scripts\ops\backup_state.py`
+- The daily backup job (15:45) is set up by the owner. Check it exists before you assume backups are running.
+- Never run `--restore` without the owner's approval. Stop the stack first.
+- Never copy, print or commit the `.env` or any backup folder.
