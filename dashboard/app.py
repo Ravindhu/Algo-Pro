@@ -775,6 +775,23 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         status_code = 200 if result["saved"] else (409 if not result["ok"] else 500)
         return JSONResponse(result, status_code=status_code)
 
+    @app.post("/api/screener/refresh")
+    def screener_refresh(request: Request):
+        """Owner: the Refresh button on the screener panel. Re-scrapes the saved screen now.
+
+        Session: reused if already signed in today. Scrape: always (no staleness wait). It writes
+        only data/screened/last_screen.json; no order is ever placed here. Audited with the actor.
+        """
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        from quant.data.screen_refresh import owner_signin_job
+
+        actor = signed_in(request) or ACTOR
+        source = ROOT / "data" / "screened" / "last_screen.json"
+        result = owner_signin_job(actor, paths["audit"], source, every_minutes=0)
+        return JSONResponse(result)
+
     @app.get("/api/env")
     def env_status(request: Request):
         """Which broker and OpenAlgo secrets are set. Never returns a value. Owner only."""

@@ -26,6 +26,9 @@
   button { font: inherit; background: transparent; color: var(--cyan); border: 1px solid var(--cyan); border-radius: 3px; padding: 4px 10px; cursor: pointer; }
   button:disabled { color: var(--dim); border-color: var(--line); cursor: default; }
   button.kill { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
+  button.iconbtn { padding: 2px 6px; line-height: 0; margin-left: 8px; vertical-align: middle; }
+  button.iconbtn.busy svg { animation: scrspin 0.9s linear infinite; }
+  @keyframes scrspin { to { transform: rotate(-360deg); } }
   button.go { color: var(--ok); border-color: var(--ok); }
   button.stop { color: var(--bad); border-color: var(--bad); }
   /* header buttons: press feedback on every click, and a filled look while the thing they control is on */
@@ -329,7 +332,10 @@
       </svg>
     </section>
     <section class="panel scr-panel">
-      <div class="ph">Screener stocks <span id="scr-note"></span></div>
+      <div class="ph">Screener stocks <span id="scr-note"></span>
+        <button type="button" id="scr-refresh" class="iconbtn" aria-label="Refresh screener candidates" title="Refresh candidates (owner)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg>
+        </button></div>
       <div class="scroll"><table>
         <thead><tr><th>Ticker</th><th class="n">Price ₹</th></tr></thead>
         <tbody id="scr-rows"></tbody>
@@ -758,6 +764,29 @@
     }), scr.note || "No screener output yet.", 3);
     renderAnalysisTiles(o);
   }
+
+  // Refresh button on the screener panel (owner): re-scrape the saved screen now, then reload the panel.
+  document.addEventListener("DOMContentLoaded", () => {
+    const btn = $("scr-refresh");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; btn.classList.add("busy");
+      let msg = "";
+      try {
+        const res = await jpost("/api/screener/refresh");
+        if (!res.ok) msg = "refresh failed: " + describeFail(res);
+        else if (res.j.scrape) msg = res.j.scrape.ok
+          ? "refreshed: " + (res.j.scrape.count || 0) + " selected"
+          : "refresh failed: " + (res.j.scrape.reason || "no reason given");
+        else msg = "refresh skipped: " + ((res.j.session && res.j.session.reason) || "session not usable");
+      } catch (e) {
+        msg = "refresh failed: " + e.message;
+      }
+      await refresh();
+      $("scr-note").textContent = msg;
+      btn.disabled = false; btn.classList.remove("busy");
+    });
+  });
 
   // Instructions: hidden behind a star after the field name. The text pops up while the cursor is on
   // the star and disappears when the cursor leaves it. The hidden text is read on hover, so text the
