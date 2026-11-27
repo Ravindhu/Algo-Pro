@@ -717,7 +717,27 @@ class BrokerAuth:
 
         if verify:
             result = self.verify_session(result)
+        if result.ok:
+            result = self.sync_api_key(result)  # non-fatal: a key problem never fails the login
         return self._finish(result, started)
+
+    def sync_api_key(self, result: AuthResult) -> AuthResult:
+        """Read OpenAlgo's CURRENT API key and keep _restored/.env in step (2026-11-27).
+
+        Read-only on OpenAlgo (GET /apikey). Never generates a key, never logs or records the
+        value, and never changes ``result.ok``. Only fixed outcome words are recorded.
+        """
+        from quant.core import openalgo_apikey as apikey
+        try:
+            fetched = apikey.fetch_key(self.session.get)
+            if fetched["key"] is None:
+                result.add("openalgo_apikey", False, fetched["reason"])
+                return result
+            outcome = apikey.sync_env(fetched["key"], apikey.RESTORED_ENV)
+            result.add("openalgo_apikey", True, outcome)
+        except Exception as exc:  # noqa: BLE001 - recorded by type only, never the value
+            result.add("openalgo_apikey", False, f"failed ({type(exc).__name__})")
+        return result
 
     @staticmethod
     def _finish(result: AuthResult, started: float) -> AuthResult:
