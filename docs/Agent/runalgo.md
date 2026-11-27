@@ -38,7 +38,7 @@ URLs after start:
 
 ## 4. Do not read or run to start the system
 
-- `Temp/`, `archive/`, `Temp/Stag/`, `src/quant/blue_engine/old_*` (retired code, staging only)
+- `Temp/`, `archive/`, `Temp/Stag/`(retired code, staging only)
 - `docs/` plan files (read only when a task asks for them)
 - Scripts that place orders or close positions, such as `sample_order.py` or `kill_close.py`. Only the owner runs these.
 
