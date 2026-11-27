@@ -110,6 +110,33 @@ Not changed in this commit (needs a decision, or the live machine):
   and an owner decision on the file location, given the backup rules.
 - The full-auto kill step still takes a single path argument; it is covered by the engine-level check.
 
+## Phase 4 - done (this commit)
+Findings (verified by running, 2026-11-28):
+- Item 14 (session key never rotates) and tests 1-2: src/quant/core/key_rotation.py is on master,
+  and its route test passes. The old remote branch feature/auto-key-rotation-2026-11-25 is no
+  longer on origin, so it was merged or deleted; no separate action needed.
+- Test 3 (/api/overview flow_map) and test 4 (POST /api/screener/refresh scrapes now): pass with
+  FastAPI installed. The audit saw them failing on an older state.
+- The audit's "5 failed in tests/unit" are fixed on master: tests/unit has no failures now.
+- Test fix: test_owner_refresh_scrapes_now_and_returns_result asserted exactly one scrape. A
+  background sign-in job from another test can scrape in the same window (timing-dependent), so it
+  now asserts at least one scrape, which is what the rule requires. Stable over 3 repeats.
+
+IMPORTANT correction to earlier reports: the 105 failures I carried as "pre-existing" were
+ENVIRONMENT gaps in the sandbox (websocket-client, openalgo==2.0.3 pinned in requirements.txt,
+fastapi, and sqlalchemy), not code bugs. With the pinned dependencies installed, the full suite on
+this branch is: 2840 passed, 3 skipped, 1 xfailed, 0 failed.
+
+Ops (no change in this repo):
+- "runner not found at C:\\Users\\Admin\\...\\run_preopen_once.py": that file is not in this repo. The
+  trading PC runs an older copy. Pull the current master on that PC.
+- "feed auth failed": broker or OpenAlgo session has expired. The owner signs in at /broker.
+
+Open for the owner:
+- sqlalchemy is imported by src/quant/engines/market/sqlite_downloader.py but is NOT in
+  requirements.txt. Add it with a version pin before a fresh install.
+- Test paths named in the audit (tests/parity, blue_engine/tests) no longer exist.
+
 ## Status
-- Phase 0: done. Phase 1: done. Phase 2: partly done. Phase 3: partly done (items 10, 11, 16, 19 open, see above). Phase 4: not started.
+- Phase 0: done. Phase 1: done. Phase 2: partly done. Phase 3: partly done (items 10, 11, 16, 19 open). Phase 4: done. Full suite on the branch: 2840 passed, 0 failed.
 - Items not verifiable from this sandbox: NSE/broker endpoints, OpenAlgo routes (bugs 15, 16).
