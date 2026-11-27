@@ -173,17 +173,7 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
 
     def _stale(now) -> bool:
         """True when ``source`` is missing or old enough to re-scrape."""
-        try:
-            path = Path(source)
-            if not path.is_file():
-                return True
-            if scrape_every_minutes <= 0:
-                return True
-            age_s = float(now.timestamp()) - path.stat().st_mtime
-            return age_s >= scrape_every_minutes * 60
-        except (OSError, AttributeError, TypeError):
-            # Cannot judge the age -> scrape. A wrong "fresh" would freeze the universe.
-            return True
+        return source_is_stale(source, now, scrape_every_minutes)
 
     def refresh(now) -> Dict[str, Any]:
         scrape_note = None
@@ -366,3 +356,63 @@ def ensure_session(*, env_file=None) -> Dict[str, Any]:
         return {"usable": True, "action": "logged in (not persisted)",
                 "reason": outcome.get("reason", "")}
     return {"usable": False, "action": "failed", "reason": outcome.get("reason", "login failed")}
+
+
+def source_is_stale(source, now, every_minutes: int) -> bool:
+    """True when the saved selection is missing, unreadable or older than ``every_minutes``.
+
+    Shared by the bot's refresher and the dashboard sign-in job, so both judge the file the same way.
+    Cannot judge the age -> stale: a wrong "fresh" would freeze the universe.
+    """
+    try:
+        path = Path(source)
+        if not path.is_file():
+            return True
+        if every_minutes <= 0:
+            return True
+        age_s = float(now.timestamp()) - path.stat().st_mtime
+        return age_s >= every_minutes * 60
+    except (OSError, AttributeError, TypeError):
+        return True
+
+
+def owner_signin_job(actor: str, audit_path, source, *, every_minutes: int = 60,
+                     session_runner: Optional[Callable[[], Dict[str, Any]]] = None,
+                     scrape: Optional[Callable[[], Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Dashboard OWNER sign-in, one background job (2026-11-27).
+
+    1. Refresh the Screener.in session (once a day; reuse otherwise).
+    2. If the saved selection (``last_screen.json``) is missing or older than ``every_minutes``,
+       scrape the saved screen once, so the universe is ready before the bot starts.
+    After this the bot refreshes its own screen every 5 minutes and re-scrapes when stale.
+
+    Never raises. Every step is audited with the actor; no cookie value is written.
+    ``session_runner`` and ``scrape`` are test seams.
+    """
+    from datetime import datetime, timezone
+
+    from quant.audit.log import AuditLog
+    from quant.data.screener_session import screener_login_after_signin
+
+    audit = AuditLog(audit_path)
+    session = screener_login_after_signin(actor, audit_path, runner=session_runner)
+    if not session.get("ok"):
+        audit.append("screener_scrape_after_signin", {
+            "ran": False, "reason": "session not usable: " + str(session.get("reason", ""))[:160],
+            "actor": actor})
+        return {"ran": False, "session": session}
+
+    if not source_is_stale(source, datetime.now(timezone.utc), every_minutes):
+        audit.append("screener_scrape_after_signin", {
+            "ran": False, "reason": "saved selection is fresh", "actor": actor})
+        return {"ran": False, "session": session}
+
+    try:
+        scrape_fn = scrape or make_screener_scraper(source=source)
+        result = scrape_fn()
+    except Exception as exc:  # noqa: BLE001 - a scrape problem must never break the dashboard
+        result = {"ok": False, "reason": f"scrape raised {type(exc).__name__}"}
+    audit.append("screener_scrape_after_signin", {
+        "ran": True, "ok": bool(result.get("ok")), "count": int(result.get("count") or 0),
+        "reason": str(result.get("reason", ""))[:200], "actor": actor})
+    return {"ran": True, "session": session, "scrape": result}

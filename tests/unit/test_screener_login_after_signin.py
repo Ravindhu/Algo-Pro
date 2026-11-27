@@ -72,16 +72,17 @@ def app_paths(tmp_path, monkeypatch):
 
 def test_owner_sign_in_starts_screener_refresh(app_paths, monkeypatch):
     from app import create_app
+    import quant.data.screen_refresh as sr
 
     started = threading.Event()
     seen = []
 
-    def fake(actor, audit_path, runner=None):
+    def fake(actor, audit_path, source, **kwargs):
         seen.append(actor)
         started.set()
-        return {"ok": True}
+        return {"ran": False}
 
-    monkeypatch.setattr(ss, "screener_login_after_signin", fake)
+    monkeypatch.setattr(sr, "owner_signin_job", fake)
     client = testclient.TestClient(create_app(app_paths))
     r = client.post("/api/account/login", json={"name": "Owner", "password": "owner-password-1"})
     assert r.status_code == 200
@@ -91,9 +92,11 @@ def test_owner_sign_in_starts_screener_refresh(app_paths, monkeypatch):
 def test_viewer_sign_in_does_not_start_screener_refresh(app_paths, monkeypatch):
     from app import create_app
 
+    import quant.data.screen_refresh as sr
+
     started = threading.Event()
-    monkeypatch.setattr(ss, "screener_login_after_signin",
-                        lambda *a, **k: (started.set(), {"ok": True})[1])
+    monkeypatch.setattr(sr, "owner_signin_job",
+                        lambda *a, **k: (started.set(), {"ran": False})[1])
     client = testclient.TestClient(create_app(app_paths))
     r = client.post("/api/account/login", json={"name": "Peon", "password": "viewer-password"})
     assert r.status_code == 200

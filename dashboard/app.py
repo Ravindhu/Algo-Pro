@@ -514,9 +514,10 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         signin_mod.last_thread = thread
         thread.start()
         if accounts.is_owner(name, paths["users"]):
-            # Owner only (2026-11-27): the Screener.in session is refreshed at sign-in, once a day.
-            from quant.data.screener_session import screener_login_after_signin
-            threading.Thread(target=screener_login_after_signin, args=(name[:32], paths["audit"]),
+            # Owner only (2026-11-27): Screener.in session, then the saved-screen scrape if stale.
+            from quant.data.screen_refresh import owner_signin_job
+            threading.Thread(target=owner_signin_job,
+                             args=(name[:32], paths["audit"], ROOT / "data" / "screened" / "last_screen.json"),
                              daemon=True).start()
         response = JSONResponse({"signed_in": name,
                                  "role": accounts.account_role(name, paths["users"]),
