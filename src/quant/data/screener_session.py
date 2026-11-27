@@ -278,3 +278,24 @@ def refresh_session(env_file: Optional[Path] = None,
     result["reason"] = "session saved to .env"
     _log.info("screener session refreshed and saved to %s", target.name)
     return result
+
+
+def screener_login_after_signin(actor: str, audit_path, runner=None) -> Dict[str, Any]:
+    """Refresh the Screener.in session when the OWNER signs in to the dashboard.
+
+    Runs in a background thread started by the dashboard login, so it never blocks the login
+    and never raises. ``reuse_today=True``: a login already saved today is reused with no
+    network call, so repeated sign-ins do not hit screener.in. Audits the outcome only, never
+    the cookie value. ``runner`` is a test seam.
+    """
+    from quant.audit.log import AuditLog
+
+    run = runner or (lambda: refresh_session(reuse_today=True))
+    try:
+        result = run()
+    except Exception as exc:  # noqa: BLE001 - a screener problem must never break the dashboard
+        result = {"ok": False, "saved": False, "reason": type(exc).__name__}
+    AuditLog(audit_path).append("screener_autologin_after_signin", {
+        "ok": bool(result.get("ok")), "saved": bool(result.get("saved")),
+        "reason": str(result.get("reason", ""))[:200], "actor": actor})
+    return result

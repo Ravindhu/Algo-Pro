@@ -513,6 +513,11 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         import quant.core.broker_signin as signin_mod
         signin_mod.last_thread = thread
         thread.start()
+        if accounts.is_owner(name, paths["users"]):
+            # Owner only (2026-11-27): the Screener.in session is refreshed at sign-in, once a day.
+            from quant.data.screener_session import screener_login_after_signin
+            threading.Thread(target=screener_login_after_signin, args=(name[:32], paths["audit"]),
+                             daemon=True).start()
         response = JSONResponse({"signed_in": name,
                                  "role": accounts.account_role(name, paths["users"]),
                                  "avatar": (accounts.avatar_file(name) is not None)})
