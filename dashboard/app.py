@@ -719,7 +719,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.get("/api/engine")
     def engine_status():
         pid = engine_control.running_pid()
-        return JSONResponse({"running": pid is not None, "pid": pid})
+        return JSONResponse({"running": pid is not None, "pid": pid,
+                             "mode": engine_control.bot_mode()})
 
     @app.post("/api/engine/stop")
     async def engine_stop(request: Request):
@@ -736,17 +737,26 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
 
     @app.post("/api/engine/start")
     async def engine_start(request: Request):
-        """Button: broker login, then engine start. The supervisor's own gates still decide whether anything trades."""
+        """Button: start the bot. Broker login already happened at dashboard sign-in.
+
+        `mode` (paper|live, default paper) picks the runner. It does NOT decide where orders
+        go: the bot's OpenAlgoClient sends anywhere only while OpenAlgo's analyzer (sandbox)
+        switch is OFF, which is the owner's control in the OpenAlgo UI.
+        """
         denied = owner_denied(request)
         if denied is not None:
             return denied
+        body = await _json_body(request)
+        mode = str(body.get("mode") or "paper").strip().lower()
+        if mode not in ("paper", "live"):
+            return JSONResponse({"error": f"mode must be paper or live, got {mode!r}"}, status_code=422)
         kill_active = KillSwitch(paths["kill"]).active
-        ok, message, pid = engine_control.request_manual_start(kill_active=kill_active)
+        ok, message, pid = engine_control.request_manual_start(kill_active=kill_active, mode=mode)
         AuditLog(paths["audit"]).append("engine_start_requested", {"accepted": ok, "message": message,
-                                                                  "actor": ACTOR})
+                                                                  "mode": mode, "actor": ACTOR})
         if not ok:
             return JSONResponse({"error": message}, status_code=409)
-        return JSONResponse({"message": message, "pid": pid})
+        return JSONResponse({"message": message, "pid": pid, "mode": mode})
 
     @app.post("/api/screener/session")
     async def screener_session(request: Request):

@@ -52,9 +52,12 @@ def test_page_reads_overview_and_writes_only_known_routes():
     routes = set(re.findall(r'"(/api/[\w/-]+)"', text))
     # Settings popup routes added 2026-11-10: account, schedule, engine, infrastructure.
     # Kill switch STOP/RESET and its read-only state added 2026-11-11 (owner request in the header).
-    # /api/screener/session added 2026-11-26: START ENGINE signs in to Screener.in and saves the cookie.
-    # /api/screener/refresh added 2026-11-27: the screener panel Refresh button (owner) re-scrapes the saved screen.
-    assert routes == {"/api/account", "/api/account/avatar", "/api/account/change-password", "/api/account/forgot-password", "/api/account/login", "/api/account/logout", "/api/account/reset-password", "/api/account/totp/enroll", "/api/account/totp/remove", "/api/engine", "/api/engine/start", "/api/engine/stop", "/api/env", "/api/flow/apply", "/api/infrastructure", "/api/kill", "/api/kill/reset", "/api/kill/trip", "/api/limits", "/api/live/status", "/api/loop/start", "/api/loop/stop", "/api/overview", "/api/portfolio", "/api/schedule", "/api/screener/refresh", "/api/screener/session", "/api/setup", "/api/trading-mode"}
+    # /api/screener/session was fetched by START ENGINE (2026-11-26) until decision 0042
+    # (2026-11-27): the screener session now runs inside the start path
+    # (scripts/ops/start_engine_now.py) and the scrape inside the owner sign-in job, so the
+    # page no longer calls this route. It is removed from the allowlist to keep the list honest:
+    # the server still exposes it for scripts, the page just does not use it.
+    assert routes == {"/api/account", "/api/account/avatar", "/api/account/change-password", "/api/account/forgot-password", "/api/account/login", "/api/account/logout", "/api/account/reset-password", "/api/account/totp/enroll", "/api/account/totp/remove", "/api/engine", "/api/engine/start", "/api/engine/stop", "/api/env", "/api/flow/apply", "/api/infrastructure", "/api/kill", "/api/kill/reset", "/api/kill/trip", "/api/limits", "/api/live/status", "/api/loop/start", "/api/loop/stop", "/api/overview", "/api/portfolio", "/api/schedule", "/api/screener/refresh", "/api/setup", "/api/trading-mode"}
     # postMode, postLoop, saveLimits, saveSetup, jpost helper (settings writes), avatar upload (2026-11-10)
     # 2026-11-27: the screener Refresh button reuses the jpost helper, so the count is unchanged.
     assert text.count('method: "POST"') == 6

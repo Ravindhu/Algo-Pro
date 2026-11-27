@@ -50,6 +50,8 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
+from datetime import time as dtime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -84,6 +86,11 @@ _FALLBACK_BASE = "https://www.screener.in"
 #: screen data rather than in .env. Relative to the .env file's folder (the repo root).
 _DAY_MARKER = Path("data") / "screened" / ".screener_session_day"
 
+#: Hour (IST) after which a login counts for the trading day. A marker written before this
+#: time does not cover today, so the session is refreshed once it is needed
+#: (owner request 2026-11-27). 09:00 is deliberately before the 09:15 open.
+SESSION_REFRESH_HOUR = 9
+
 
 def _marker_path(env_file: Path) -> Path:
     return Path(env_file).parent / _DAY_MARKER
@@ -91,23 +98,51 @@ def _marker_path(env_file: Path) -> Path:
 
 def _ist_today() -> str:
     """Today's date on the exchange's clock (IST)."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta, timezone
 
     return (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).date().isoformat()
 
 
+def _marker_time(env_file: Path) -> Optional[datetime]:
+    """When the day marker was written, or None when absent/unreadable.
+
+    The marker holds the IST date a login succeeded. Its file mtime says WHEN that write
+    happened, which is the only record of the login time. Missing or unreadable -> None, so
+    the caller logs in again rather than guessing (fail closed).
+    """
+    try:
+        return datetime.fromtimestamp(_marker_path(env_file).stat().st_mtime)
+    except OSError:
+        return None
+
+
 def _saved_today(env_file: Path) -> bool:
-    """True when a login already succeeded today AND a cookie is still available.
+    """True when a login already succeeded in the CURRENT trading session, with a cookie.
 
     Both halves are required. A marker without a cookie means the .env was edited by hand
     since the login, so the cookie must be obtained again rather than assumed.
+
+    MORNING BOUNDARY (owner request 2026-11-27: "screener session on every start when login
+    is needed"): a marker written BEFORE today's 09:00 IST boundary does not count after it.
+    A ".env" cookie is a session cookie - it dies with the broker/portal day - so a login made
+    at 09:20 yesterday must not be reused at 09:20 today just because both reads found
+    "today's" date. Written at 08:00 today, it also does not cover today: the marker must
+    post-date the boundary to be reusable.
     """
     try:
         if _marker_path(env_file).read_text(encoding="utf-8").strip() != _ist_today():
             return False
     except OSError:
         return False
-    return bool((os.environ.get(SESSION_KEY) or "").strip())
+    if not bool((os.environ.get(SESSION_KEY) or "").strip()):
+        return False          # no cookie: never claim a session we cannot use
+
+    written = _marker_time(env_file)
+    if written is None:
+        return False          # cannot date the login -> log in again rather than guess
+    boundary = datetime.combine(datetime.now().date(),
+                                dtime(hour=SESSION_REFRESH_HOUR))
+    return written.replace(tzinfo=None) >= boundary
 
 
 def mark_signed_in_today(env_file: Optional[Path] = None) -> None:

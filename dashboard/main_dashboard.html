@@ -1651,14 +1651,18 @@
     $("enginechip").textContent = "engine " + (running ? "running" : "stopped");
     $("enginechip").className = "chip " + (running ? "g" : "");
   }
+  // Engine mode for START ENGINE. Read at boot from /api/engine, which reads config/bot.yaml
+  // (mode + live_enabled must BOTH agree). Live does NOT bypass anything: OpenAlgo's analyzer
+  // (sandbox) switch still decides whether an order is real money or simulated.
+  let ENGINE_MODE = "paper";
+  jget("/api/engine").then((r) => { if (r && r.j && r.j.mode) ENGINE_MODE = r.j.mode; }).catch(() => {});
+
   $("engstart").onclick = async () => {
-    sMsg("engmsg", "Sending…", "d");
-    // Screener.in sign-in first: the screener needs a live session cookie, and the bot reads no
-    // candidates without it. A failure is reported and does NOT block the engine start.
-    const sc = await jpost("/api/screener/session").catch(() => null);
-    const res = await jpost("/api/engine/start");
-    const scNote = sc ? (sc.j.saved ? " · screener session saved" : " · screener session NOT saved: " + (sc.j.reason || "failed")) : "";
-    if (res.ok) sMsg("engmsg", res.j.message + scNote, sc && sc.j.saved ? "g" : "d");
+    sMsg("engmsg", "Starting bot…", "d");
+    // Broker + OpenAlgo login already ran on dashboard sign-in, so nothing to do here but start.
+    // mode=live does NOT by itself send real orders: OpenAlgo's analyzer (sandbox) switch decides.
+    const res = await jpost("/api/engine/start", {mode: ENGINE_MODE});
+    if (res.ok) sMsg("engmsg", res.j.message, "g");
     else sMsg("engmsg", describeFail(res), "r");
     loadEngine();
   };
