@@ -34,6 +34,11 @@
   button.tab.on { color: var(--cyan); border-bottom-color: var(--cyan); }
   button.go { color: var(--ok); border-color: var(--ok); }
   button.stop { color: var(--bad); border-color: var(--bad); }
+  /* START ENGINE is filled green so it is clear whether it has been pressed (owner request 2026-11-27) */
+  button#engstart { background: var(--ok); color: #03140d; border-color: var(--ok); font-weight: 700; }
+  .ph-flex { display: flex; align-items: center; gap: 6px; }
+  .ph-flex #scr-refresh { margin-left: auto; }
+  button.tab#tab-notify { font-weight: 700; }
   /* header buttons: press feedback on every click, and a filled look while the thing they control is on */
   header button { transition: background-color .25s ease, color .25s ease, border-color .25s ease, box-shadow .25s ease, transform .15s ease; }
   header button:active { transform: scale(.96); }
@@ -335,7 +340,7 @@
       </svg>
     </section>
     <section class="panel scr-panel">
-      <div class="ph">Screener stocks <span id="scr-note"></span>
+      <div class="ph ph-flex">Screener stocks <span id="scr-note"></span>
         <button type="button" id="scr-refresh" class="iconbtn" aria-label="Refresh screener candidates" title="Refresh candidates (owner)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg>
         </button></div>
