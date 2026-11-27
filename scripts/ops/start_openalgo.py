@@ -15,16 +15,16 @@ which flask-socketio then REFUSES in production mode:
     production. Pass allow_unsafe_werkzeug=True to the run() method...
 
 This launcher fixes the *environment*, not upstream code:
-  1. materialises the _restored/ state into the clone (see RESTORE below)
+  1. materialises the _restored/ state into the tree (see RESTORE below)
   2. loads .env exactly like app.py does
   3. starts the WebSocket proxy (port 8765) as a separate process
   4. runs the Flask/SocketIO app on the Werkzeug dev server with
      allow_unsafe_werkzeug=True
 
 RESTORE (why _restored/ exists)
--------------------------------The openalgo/ folder must stay a PRISTINE upstream clone so that a
-`git pull` / re-clone never conflicts and never needs a hand edit. All
-local state therefore lives in a SIBLING folder, my-trading-system/_restored/:
+-------------------------------The vendored tree src/quant/openalgo_platform is tracked by THIS
+repo and pinned (openalgo.UPSTREAM_PIN), so a repo update never needs a hand edit to it. All
+local state lives in a SIBLING folder, my-trading-system/_restored/:
 
     _restored/
       .env          OpenAlgo config  (FERNET_SALT, API_KEY_PEPPER, DB URLs)
@@ -34,7 +34,7 @@ local state therefore lives in a SIBLING folder, my-trading-system/_restored/:
 
 OpenAlgo resolves .env and the db relative to its OWN root, so a
 subfolder is invisible to it. This launcher bridges the gap: before
-importing app it copies _restored/* into openalgo/ (only if newer, or
+importing app it copies _restored/* into the tree (only if newer, or
 with --force-restore). Nothing is ever edited in the upstream code.
 
 CRITICAL: .env and db/ are cryptographically married. FERNET_SALT and
@@ -50,11 +50,11 @@ explicitly pass --allow-external.
 
 USAGE
 -----
-    # Preferred (Docker-style, isolated openalgo venv):
-    openalgo\.venv\Scripts\python.exe my-trading-system\scripts\ops\start_openalgo.py
+    # Preferred (Docker-style, isolated venv inside the vendored tree):
+    src\quant\openalgo_platform\.venv\Scripts\python.exe scripts\ops\start_openalgo.py
 
-    # Fallback (project venv, when openalgo/.venv has not been created):
-    .venv\Scripts\python.exe my-trading-system\scripts\ops\start_openalgo.py
+    # Fallback (project venv, when the tree has no .venv):
+    .venv\Scripts\python.exe scripts\ops\start_openalgo.py
 
     # OpenAlgo only. install.bat starts the whole stack.
 """
@@ -68,10 +68,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent      # my-trading-system/
-OPENALGO_DIR = ROOT / "openalgo"
+# The vendored tree (decision 0013) is the ONLY OpenAlgo copy this repo keeps. It used to
+# point at openalgo/, a git-ignored clone that never exists in a fresh checkout, so the
+# launcher died with "openalgo folder not found" on every install (fixed 2026-11-27).
+# The same default as scripts/verify/upgrade_check.py, so the pin check and the launcher
+# can never disagree about which folder is OpenAlgo.
+OPENALGO_DIR = ROOT / "src" / "quant" / "openalgo_platform"
 RESTORED_DIR = ROOT / "_restored"
-# Prefer openalgo/.venv (the Docker-style install); fall back to the
-# project-level .venv at the repo root when the openalgo venv is missing.
+# Prefer the tree's own .venv (the Docker-style install); fall back to the
+# project-level .venv at the repo root when that venv is missing.
 # The project venv already has the openalgo SDK; we just install the
 # additional server-side deps (flask-socketio, eventlet, etc.) into it.
 _VENV_CANDIDATES = [
@@ -82,8 +87,8 @@ VENV_PY = next((p for p in _VENV_CANDIDATES if p.exists()), _VENV_CANDIDATES[0])
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 
-# State that must survive a re-clone. Each entry is (source under _restored,
-# destination under openalgo). 'download' is optional - it is just a cache.
+# State that must survive a repo update. Each entry is (source under _restored,
+# destination under the tree). 'download' is optional - it is just a cache.
 RESTORE_ITEMS = [
     (".env", ".env"),
     ("db", "db"),
@@ -111,10 +116,10 @@ def _newer(src: Path, dst: Path) -> bool:
 
 
 def bootstrap_restored(force: bool = False) -> int:
-    """Copy _restored/<item> into openalgo/<item>.
+    """Copy _restored/<item> into <tree>/<item>.
 
     This is the ONLY bridge between the isolated state folder and the
-    pristine clone. It never touches upstream code - it only places
+    vendored tree. It never touches upstream code - it only places
     config/data files that upstream itself expects to be untracked
     (.env and db/ are both in OpenAlgo's own .gitignore).
 
@@ -160,7 +165,7 @@ def bootstrap_restored(force: bool = False) -> int:
                 print(f"[OpenAlgo]   - {src_name:<9} up to date")
 
     if not (OPENALGO_DIR / ".env").exists():
-        print("[FAIL] openalgo/.env missing after bootstrap - cannot start.\n"
+        print("[FAIL] .env missing in the OpenAlgo tree after bootstrap - cannot start.\n"
               "       Put your .env in _restored/.env and retry.")
         return 1
     return 0
@@ -179,25 +184,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force-restore", action="store_true",
                    help="Restore every _restored/ file, ignoring timestamps")
     p.add_argument("--strict-pin", action="store_true",
-                   help="Refuse to start if the openalgo/ folder does not match the "
+                   help="Refuse to start if the OpenAlgo tree does not match the "
                         "upstream pin in openalgo.UPSTREAM_PIN. Use scripts/"
                         "upgrade_check.py --update-pin after a deliberate upgrade.")
     p.add_argument("--no-scrub-on-exit", action="store_true",
                    help="Skip the secret-scrub on exit. Only useful for debugging; "
-                        "leaves your mstock secret in openalgo/.env on disk.")
+                        "leaves your mstock secret in the tree's .env on disk.")
     p.add_argument("--check-only", action="store_true",
                    help="Run the bootstrap + upgrade check, then exit (no app start)")
     return p.parse_args()
 
 
 def scrub_secrets(only: list[str] | None = None) -> list[str]:
-    """Delete the secret-bearing files we placed in openalgo/ at bootstrap.
+    """Delete the secret-bearing files we placed in the tree at bootstrap.
 
     The point of `_restored/` is that the .env and any other secret-bearing
-    files live ONLY there. If we leave them in openalgo/ after OpenAlgo
-    stops, anyone who later runs `git init` inside openalgo/ would stage
+    files live ONLY there. If we leave them in the tree after OpenAlgo
+    stops, anyone who later runs `git init` inside it would stage
     them as a fresh commit. We therefore delete them on clean exit so
-    openalgo/ remains a *pristine* upstream copy with no local secrets.
+    the tree remains a *pristine* upstream copy with no local secrets.
 
     The next `start_openalgo.py` run will re-bootstrap them from
     `_restored/`, so this is safe to do on every exit.
@@ -247,7 +252,7 @@ def main() -> int:
         print(f"[FAIL] openalgo folder not found at {OPENALGO_DIR}")
         return 1
 
-    # Bridge _restored/ state into the pristine clone BEFORE importing app,
+    # Bridge _restored/ state into the vendored tree BEFORE importing app,
     # because app.py binds its db paths and .env at import time.
     if not args.no_restore:
         rc = bootstrap_restored(force=args.force_restore)
@@ -327,7 +332,7 @@ def main() -> int:
         if not args.no_scrub_on_exit:
             removed = scrub_secrets()
             if removed:
-                print(f"[OpenAlgo] Scrubbed from openalgo/ on exit: {', '.join(removed)}")
+                print(f"[OpenAlgo] Scrubbed from the tree on exit: {', '.join(removed)}")
                 print("             (will be re-bootstrapped from _restored/ on next start)")
     return 0
 

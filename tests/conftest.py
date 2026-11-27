@@ -22,6 +22,7 @@ The same fixture is installed at the repo level so the guarantee does not depend
 on folder placement or on pytest's collection order. It is a no-op when
 ``blue_engine`` or its optional SDK is absent.
 """
+import os
 import pathlib
 import sys
 
@@ -30,6 +31,32 @@ import pytest
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+
+
+@pytest.fixture(autouse=True)
+def _restore_environ(request):
+    """Snapshot os.environ and restore it after EVERY test, whatever the test did.
+
+    WHY: ``monkeypatch`` only undoes what monkeypatch itself set. Application code writes
+    the process environment DIRECTLY - ``screener_session.refresh_session`` publishes the
+    fresh cookie with ``os.environ[SESSION_KEY] = ...`` because the engine reads it from
+    there, and ``load_dotenv`` fills every key from a real .env. Those writes survive the
+    test, so a later test that is hermetic only through ``monkeypatch.delenv`` still sees a
+    cookie it never set.
+
+    Measured 2026-11-27: ``tests/unit/test_screener_session.py`` (which really logs in and
+    really writes the marker) followed by
+    ``src/quant/tests/test_screen_chain_audit_2026_11_26.py::test_scraper_reports_the_selected_count``
+    made the chain test's "no credentials, no cookie" refusal pass straight through: 1 failed
+    in the full run, 7 passed when the file ran alone. Restoring the whole environ removes the
+    class of failure, not just that instance.
+    """
+    before = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
 
 
 @pytest.fixture(autouse=True)

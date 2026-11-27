@@ -4,7 +4,7 @@ start_all.py - ONE launcher for the whole local stack.
 Starts, in order, and verifies each one before moving on:
 
     1. free the ports       (5000 OpenAlgo, 8050 Dash, 8765 WebSocket)
-    2. [optional] updates   (pip / OpenAlgo git pull / data)  -- OFF by default
+    2. [optional] updates   (pip / pin check / data)  -- OFF by default
     3. OpenAlgo             via Docker if available, else natively
     4. WebSocket proxy      whatever OpenAlgo did NOT already start
     5. Dash terminal        always native (no Docker image exists for it)
@@ -21,8 +21,8 @@ Verify, do not assume. "The process started" is not "the service works".
 Each service is polled over HTTP until it answers, with a timeout, and the
 run exits non-zero if one never does. A green exit means every port answered.
 
-UPDATES ARE OFF BY DEFAULT. `pip install -U` and `git pull` inside
-openalgo/ can break a working desk, and they take minutes. Pass --update to
+UPDATES ARE OFF BY DEFAULT. `pip install -U` and a repo update can break a working desk,
+and they take minutes. Pass --update to
 opt in. They run BEFORE anything starts, never against a live service.
 
 WHAT THIS SCRIPT DELIBERATELY DOES NOT DO
@@ -30,7 +30,7 @@ WHAT THIS SCRIPT DELIBERATELY DOES NOT DO
 * It never logs into the broker. OpenAlgo restores a session from
   _restored/; if that session is stale you log in yourself at /broker.
   Automating TOTP/credentials is not a launcher's job and is not safe.
-* It never edits the openalgo/ clone. All local state stays in _restored/
+* It never edits the OpenAlgo tree. All local state stays in _restored/
   and is bridged in by scripts/ops/start_openalgo.py.
 * It never reaches the network except for the opt-in --update.
 
@@ -69,7 +69,9 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[2]          # my-trading-system/
-OPENALGO_DIR = ROOT / "openalgo"
+# Vendored OpenAlgo tree (decision 0013). Was ROOT/'openalgo', a git-ignored clone that does
+# not exist in a fresh checkout; fixed 2026-11-27 to match scripts/verify/upgrade_check.py.
+OPENALGO_DIR = ROOT / "src" / "quant" / "openalgo_platform"
 LOG_DIR = ROOT / "Temp" / "run"
 PID_FILE = LOG_DIR / "start_all.pids.json"
 
@@ -227,10 +229,10 @@ def refresh_dotenv() -> bool:
         warn("_restored/.env not found - OpenAlgo will boot unconfigured")
         return False
     if dst.is_file() and dst.stat().st_mtime >= src.stat().st_mtime:
-        ok("openalgo/.env is current")
+        ok("openalgo .env in the tree is current")
         return True
     shutil.copy2(src, dst)
-    ok("openalgo/.env refreshed from _restored/.env")
+    ok("openalgo .env in the tree refreshed from _restored/.env")
     return True
 
 
@@ -250,15 +252,15 @@ def run_updates(args: argparse.Namespace) -> bool:
     else:
         ok("dependencies up to date")
 
-    if (OPENALGO_DIR / ".git").is_dir():
-        say("  openalgo: git pull --ff-only ...")
-        rc = subprocess.call(["git", "pull", "--ff-only"], cwd=str(OPENALGO_DIR))
-        if rc != 0:
-            warn("openalgo git pull failed (local changes?) - NOT forcing it")
-        else:
-            ok("openalgo is at upstream")
+    # The OpenAlgo tree is vendored and tracked by THIS repo (decision 0013) - it has no
+    # .git of its own, so a `git pull` inside it is a no-op at best and a fork at worst.
+    # OpenAlgo moves only by a repo commit that re-vendors the tree and updates the pin.
+    say("  openalgo: vendored tree - updated by this repo, no separate pull")
+    pin = ROOT / "openalgo.UPSTREAM_PIN"
+    if pin.is_file():
+        ok(f"openalgo pinned at {pin.read_text(encoding='utf-8').strip()[:40]}")
     else:
-        warn("openalgo/ is not a git clone - skipping pull")
+        warn("openalgo.UPSTREAM_PIN missing - run scripts/verify/upgrade_check.py")
 
     return True
 
@@ -401,6 +403,10 @@ def start_openalgo(args: argparse.Namespace) -> bool:
 
     if args.use_docker:
         say("  mode: Docker (openalgo container)")
+        if not (OPENALGO_DIR / "docker-compose.yaml").is_file():
+            warn("docker-compose.yaml not in the OpenAlgo tree - using the native path")
+            args.use_docker = False
+    if args.use_docker:
         rc = subprocess.call(
             ["docker", "compose", "up", "-d"],
             cwd=str(OPENALGO_DIR))

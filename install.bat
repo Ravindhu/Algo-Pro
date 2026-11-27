@@ -78,14 +78,12 @@ echo   [ok] dependencies checked
 :deps_done
 
 echo.
-echo [4/6] OpenAlgo platform (openalgo\)
-if exist "openalgo\app.py" goto openalgo_present
-where git >nul 2>&1
-if errorlevel 1 goto no_git
-git clone --depth 1 https://github.com/marketcalls/openalgo.git openalgo
-if errorlevel 1 goto fail
-echo   [ok] openalgo cloned
-goto openalgo_done
+echo [4/6] OpenAlgo platform (src\quant\openalgo_platform\)
+REM The vendored tree IS OpenAlgo (decision 0013). Cloning a second copy into openalgo\
+REM forked the code and broke the pin, so a missing tree is now an error, not a clone.
+if exist "src\quant\openalgo_platform\app.py" goto openalgo_present
+echo   [fail] src\quant\openalgo_platform\app.py missing - run: git pull
+goto fail
 :openalgo_present
 if "%SCHED%"=="1" goto openalgo_kept
 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\ops\upgrade_openalgo.ps1"
