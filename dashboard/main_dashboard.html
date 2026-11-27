@@ -670,13 +670,8 @@
       <p class="d">Broker login runs every trading day at the start time. If the machine is off then, the run happens as soon as it is on and the user is logged in (Windows) or the server boots (Ubuntu). It is never skipped; after 15:30 that day's run is skipped and logged. OS and start time changes need one install run on the machine.</p>
 
       <h3>Engine</h3>
-      <div class="seg" role="group" aria-label="Engine start mode">
-        <button type="button" id="mode-auto-eng" aria-pressed="false">Auto engine start</button>
-        <button type="button" id="mode-manual-eng" aria-pressed="false">Manual engine start</button>
-      </div>
-      <p class="d">Both modes log in to the broker at the start time. Auto: the engine then starts, if that is before 09:15. Manual: the engine waits for the button.</p>
+      <p class="d">START ENGINE in the header logs in to the broker, then starts the engine. Nothing starts it on a timer.</p>
       <p id="eng-state" class="d"></p>
-      <p id="eng-msg" class="d"></p>
     </div>
 
   </div>
@@ -1629,7 +1624,6 @@
     $("sc-os").value = s.os_target || "auto";
     $("sc-broker").value = s.broker || "mstock";
     $("sc-time").value = s.start_time || "08:50";
-    setModeButtons(!!s.engine_start);
     const p = res.j.preview || {};
     const where = p.refused ? "This machine: " + p.refused
       : "This machine: " + (p.detected_os || "unknown") + (p.scheduler ? " · scheduler: " + p.scheduler : "");
@@ -1643,29 +1637,12 @@
     else sMsg("sc-msg", describeFail(res), "r");
     loadSchedule();
   };
-  function setModeButtons(auto) {
-    const a = $("mode-auto-eng"), m = $("mode-manual-eng");
-    a.setAttribute("aria-pressed", String(auto));
-    m.setAttribute("aria-pressed", String(!auto));
-    a.classList.toggle("go", auto);
-    m.classList.toggle("go", !auto);
-  }
   function popMode(btn) {
     btn.classList.remove("pop");
     void btn.offsetWidth; // restart animation
     btn.classList.add("pop");
     btn.addEventListener("animationend", () => btn.classList.remove("pop"), { once: true });
   }
-  async function setEngineMode(auto) {
-    sMsg("eng-msg", "Saving…", "d");
-    const res = await jpost("/api/schedule", {engine_start: auto});
-    if (res.ok) sMsg("eng-msg", auto ? "Auto engine start on." : "Manual engine start on.", "g");
-    else sMsg("eng-msg", describeFail(res), "r");
-    loadSchedule();
-  }
-  $("mode-auto-eng").onclick = () => { popMode($("mode-auto-eng")); setEngineMode(true); };
-  $("mode-manual-eng").onclick = () => { popMode($("mode-manual-eng")); setEngineMode(false); };
-
   async function loadEngine() {
     const res = await jget("/api/engine");
     const running = !!res.j.running;

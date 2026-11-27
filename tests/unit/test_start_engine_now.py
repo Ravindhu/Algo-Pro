@@ -72,3 +72,10 @@ def test_timed_pre_open_job_is_gone_from_code():
     assert not (ROOT / "scripts" / "ops" / "install_schedule.py").exists()
     html = (ROOT / "dashboard" / "app.py").read_text(encoding="utf-8")
     assert "install_schedule" not in html and "run_preopen_once" not in html
+
+
+def test_auto_manual_engine_buttons_are_gone_from_dashboard():
+    html = (ROOT / "dashboard" / "main_dashboard.html").read_text(encoding="utf-8")
+    assert "mode-auto-eng" not in html and "mode-manual-eng" not in html
+    assert "setEngineMode" not in html and "setModeButtons" not in html
+    assert 'id="engstart"' in html  # START ENGINE stays
