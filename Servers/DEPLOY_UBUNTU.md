@@ -2,8 +2,8 @@
 
 **Architecture (locked):** `Python (blue_engine) → OpenAlgo (server) → Broker → Exchange`
 
-Everything here follows that line. OpenAlgo is a **pristine upstream clone** — nothing
-of ours is patched into it, and no POV wiring is injected. The engine is a pure
+Everything here follows that line. OpenAlgo is the **vendored tree in this repo** (`src/quant/openalgo_platform`, pinned in
+`openalgo.UPSTREAM_PIN`) — nothing of ours is patched into it, and no POV wiring is injected. The engine is a pure
 *consumer* of the platform through the public SDK.
 
 > **Note on the old scripts.** A previous generation of deploy scripts
@@ -18,8 +18,8 @@ of ours is patched into it, and no POV wiring is injected. The engine is a pure
 
 ## 0. Quick start — the whole thing in 2 commands
 
-The repository contains **your code only**. The installer clones OpenAlgo itself, so
-you never track or upload the 3,175 upstream files.
+The repository contains **your code only**. OpenAlgo is part of the same repo (the vendored
+tree), so there is one checkout and no second clone.
 
 ### One-time setup
 
@@ -56,7 +56,7 @@ sudo cp -r /tmp/mts-state/.env /tmp/mts-state/db /opt/my-trading-system/_restore
 sudo bash Servers/install_ubuntu.sh
 
 # 2) verify (command 1 also runs this as its acceptance gate)
-sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
+sudo -u algo /opt/my-trading-system/src/quant/openalgo_platform/.venv/bin/python \
      /opt/my-trading-system/scripts/smoke_test.py
 ```
 
@@ -75,7 +75,7 @@ sudo bash /opt/my-trading-system/Servers/launch_ubuntu_server.sh --domain trade.
 `--skip-platform --skip-desktop --skip-schedule --skip-backup --dry-run
 --start-engine --no-chrome --no-rdp`. See sections 12-14.
 
-Command 1 reads `deploy.env`, clones OpenAlgo, builds the venv, installs
+Command 1 reads `deploy.env`, checks the vendored OpenAlgo tree, builds the venv, installs
 `blue_engine`, writes the systemd units, configures nginx, bridges `_restored/`,
 writes the API key into `_restored/.env`, verifies the `.env`/`db` pairing still
 decrypts, and runs the smoke gate.
@@ -98,7 +98,7 @@ decrypts, and runs the smoke gate.
 
 ```
 /opt/my-trading-system/
-├── openalgo/          pristine upstream clone (git pull to upgrade)
+├── src/quant/openalgo_platform/   OpenAlgo itself (vendored in this repo)
 │   └── .venv/         the one venv everything uses
 ├── _restored/         YOUR STATE — the source of truth
 │   ├── .env           OpenAlgo config (FERNET_SALT, API_KEY_PEPPER, DB urls)
@@ -124,7 +124,7 @@ decrypts, and runs the smoke gate.
 
 OpenAlgo resolves `.env` and `db/` **relative to its own root**. State kept in a
 subfolder would be invisible to it. As a sibling it is both visible to OpenAlgo
-(the installer bridges it into the clone) and immune to a re-clone.
+(the installer bridges it into the OpenAlgo tree) and immune to a repo update.
 
 ### The one thing that will bite you
 
@@ -212,12 +212,12 @@ systemctl status openalgo openalgo-ws --no-pager
 journalctl -u openalgo -n 50 --no-pager
 
 # the acceptance gate
-sudo -u algo /opt/my-trading-system/openalgo/.venv/bin/python \
+sudo -u algo /opt/my-trading-system/src/quant/openalgo_platform/.venv/bin/python \
     /opt/my-trading-system/scripts/smoke_test.py
 ```
 
 `smoke_test.py` must print `SMOKE TEST: PASS` before you trade. It checks that
-`_restored/` state is present, the clone is clean of POV, and the SDK answers.
+`_restored/` state is present, the tree is clean of POV, and the SDK answers.
 
 ---
 
@@ -259,31 +259,25 @@ SocketIO room state, which shows up as orders silently never receiving updates.
 sudo systemctl stop pov-runner
 
 cd /opt/my-trading-system
-sudo -u algo git -C openalgo fetch --all --tags
-sudo -u algo git -C openalgo pull --ff-only
-sudo -u algo openalgo/.venv/bin/python -m pip install -r openalgo/requirements.txt
+sudo -u algo git pull --ff-only                       # the repo, which holds the OpenAlgo tree
+sudo -u algo /opt/my-trading-system/src/quant/openalgo_platform/.venv/bin/python -m pip install -r /opt/my-trading-system/src/quant/openalgo_platform/requirements.txt
 
-# state is untouched by the pull; re-bridge it into the clone
+# state is untouched by the pull; re-bridge it into the tree
 for i in .env db keys download; do
-  [ -e "_restored/$i" ] && sudo cp -r "_restored/$i" openalgo/ 2>/dev/null || true
+  [ -e "_restored/$i" ] && sudo cp -r "_restored/$i" /opt/my-trading-system/src/quant/openalgo_platform/ 2>/dev/null || true
 done
-sudo chown -R algo:algo openalgo
+sudo chown -R algo:algo /opt/my-trading-system/src/quant/openalgo_platform
 
 sudo systemctl restart openalgo openalgo-ws
-sudo -u algo openalgo/.venv/bin/python scripts/smoke_test.py   # must PASS
+sudo -u algo /opt/my-trading-system/src/quant/openalgo_platform/.venv/bin/python scripts/smoke_test.py   # must PASS
 sudo systemctl start pov-runner
 ```
 
 **No patch re-application step.** Nothing POV-related is patched into OpenAlgo, so
 `git pull` can never conflict with our code. That is the whole point of the layout.
 
-A re-clone is equally safe, because state lives in `_restored/`:
-
-```bash
-sudo mv openalgo openalgo.old
-sudo -u algo git clone --depth 1 https://github.com/marketcalls/openalgo.git openalgo
-# recreate .venv, re-bridge _restored/, reinstall requirements
-```
+There is no second copy to re-clone. If the tree is damaged, `git checkout -- src/quant/openalgo_platform`
+restores it from the repo, then re-run the bridge and the install (`state lives in _restored/`).
 
 ---
 
@@ -319,10 +313,10 @@ to a git remote.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `openalgo` won't start, import error | state not bridged into clone | check `openalgo/.env` exists; re-run installer |
+| `openalgo` won't start, import error | state not bridged into the tree | check `src/quant/openalgo_platform/.env` exists; re-run installer |
 | Boots but "broker session invalid" | `.env` and `db/` restored separately | restore both from the same snapshot |
 | Order updates never arrive | nginx missing `Upgrade` headers, or `--workers > 1` | check section 5/7 |
-| `povorder` returns 200 | old-architecture POV present | investigate the clone; it should be 404 |
+| `povorder` returns 200 | old-architecture POV present | investigate the tree; it should be 404 |
 | `pov-dash` exits immediately | bad config JSON | check `blue_engine/input/*.json` |
 | `pov-runner` exits immediately | platform not up yet | it has `Restart=on-failure`; check `journalctl -u pov-runner` |
 | Dashboard unreachable at `/pov-dash/` | dash unit stopped | `systemctl start pov-dash` |

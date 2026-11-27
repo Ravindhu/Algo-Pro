@@ -12,7 +12,9 @@
 # LAYOUT THIS SCRIPT CREATES:
 #
 #     /opt/my-trading-system/
-#       openalgo/        pristine upstream clone (git pull to upgrade)
+#       src/quant/openalgo_platform/   OpenAlgo itself: the vendored tree tracked
+#                        by this repo (decision 0013, pin in openalgo.UPSTREAM_PIN).
+#                        Upgrade = git pull of this repo. No second clone.
 #       _restored/       YOUR STATE - the source of truth
 #         .env           OpenAlgo config (FERNET_SALT, API_KEY_PEPPER, DB urls)
 #         db/            SQLite DBs - broker session tokens, encrypted
@@ -56,7 +58,6 @@ set -euo pipefail
 APP_NAME="my-trading-system"
 INSTALL_ROOT="/opt/${APP_NAME}"
 SERVICE_USER="algo"
-OPENALGO_REPO="https://github.com/marketcalls/openalgo.git"
 OPENALGO_PORT="5000"
 OPENALGO_URL="http://127.0.0.1:${OPENALGO_PORT}"
 DASH_PORT="8050"
@@ -105,7 +106,6 @@ if [[ -f "$DEPLOY_ENV" ]]; then
       MTS_OPENALGO_PORT)    [[ -n "$_v" ]] && OPENALGO_PORT="$_v" ;;
       MTS_DASH_PORT)        [[ -n "$_v" ]] && DASH_PORT="$_v" ;;
       MTS_WS_PORT)          [[ -n "$_v" ]] && WS_PORT="$_v" ;;
-      MTS_OPENALGO_REPO)    [[ -n "$_v" ]] && OPENALGO_REPO="$_v" ;;
       MTS_EMAIL)            [[ -n "$_v" ]] && EMAIL="$_v" ;;
       MTS_ALLOW_PLAIN_HTTP) [[ "$_v" == "1" ]] && ALLOW_PLAIN_HTTP=1 ;;
       MTS_START_ENGINE)     [[ "$_v" == "1" ]] && START_ENGINE=1 ;;
@@ -182,25 +182,24 @@ fi
 
 # ------------------------------------------------------------------ dirs
 step "Creating directory layout"
-mkdir -p "$INSTALL_ROOT"/{openalgo,_restored,scripts,data,backups,log}
+mkdir -p "$INSTALL_ROOT"/{_restored,scripts,data,backups,log}
 mkdir -p "$INSTALL_ROOT/_restored"/{db,keys,download}
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_ROOT"
-ok "created $INSTALL_ROOT/{openalgo,_restored,scripts,data,backups,log}"
+ok "created $INSTALL_ROOT/{_restored,scripts,data,backups,log}"
 
-# ------------------------------------------------------------------ clone
-step "Cloning OpenAlgo (pristine - never patched)"
-if [[ -d "$INSTALL_ROOT/openalgo/.git" ]]; then
-  ok "openalgo/ already a git repo - leaving it alone"
-else
-  rm -rf "$INSTALL_ROOT/openalgo"
-  sudo -u "$SERVICE_USER" git clone --depth 1 "$OPENALGO_REPO" "$INSTALL_ROOT/openalgo" >/dev/null 2>&1 \
-    || die "git clone failed"
-  ok "cloned $(cd "$INSTALL_ROOT/openalgo" && git log -1 --format='%h %s')"
-fi
+# ------------------------------------------------------------------ tree
+step "Checking the OpenAlgo tree (vendored in this repo - never cloned again)"
+# Derived AFTER argument parsing, so --root / MTS_ROOT are honoured.
+OA_TREE="${INSTALL_ROOT}/src/quant/openalgo_platform"
+# The tree is part of this repo (src/quant/openalgo_platform). Cloning upstream
+# into a second folder forked the code and broke the pin, so it is a hard error
+# when the tree is missing, not a clone.
+[[ -f "$OA_TREE/app.py" ]] || die "$OA_TREE/app.py missing - the repo is not checked out at $INSTALL_ROOT (git pull, or re-run launch_ubuntu_server.sh)"
+ok "OpenAlgo tree present: src/quant/openalgo_platform"
 
 # ------------------------------------------------------------------ venv
 step "Creating OpenAlgo virtualenv"
-OA_VENV="$INSTALL_ROOT/openalgo/.venv"
+OA_VENV="$OA_TREE/.venv"
 if [[ ! -x "$OA_VENV/bin/python" ]]; then
   sudo -u "$SERVICE_USER" "$PY_VER" -m venv "$OA_VENV"
   sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q --upgrade pip wheel setuptools
@@ -208,7 +207,7 @@ if [[ ! -x "$OA_VENV/bin/python" ]]; then
 else
   ok "venv already present"
 fi
-sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -r "$INSTALL_ROOT/openalgo/requirements.txt"
+sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" -m pip install -q -r "$OA_TREE/requirements.txt"
 ok "OpenAlgo requirements installed"
 
 # ------------------------------------------------------------------ state
@@ -272,17 +271,17 @@ else
     warn "set MTS_API_KEY in Servers/deploy.env to have the installer manage it"
   fi
 
-  # Bridge state into the clone the same way start_openalgo.py does. OpenAlgo
+  # Bridge state into the tree the same way start_openalgo.py does. OpenAlgo
   # reads .env and db/ from its OWN root, so they must be materialised there.
   for item in .env db keys download; do
     [[ -e "$INSTALL_ROOT/_restored/$item" ]] || continue
-    cp -r "$INSTALL_ROOT/_restored/$item" "$INSTALL_ROOT/openalgo/" 2>/dev/null || true
+    cp -r "$INSTALL_ROOT/_restored/$item" "$OA_TREE/" 2>/dev/null || true
   done
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_ROOT/openalgo"
-  ok "bridged _restored/* into openalgo/"
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$OA_TREE"
+  ok "bridged _restored/* into the OpenAlgo tree"
 
   # The one check that matters: can the restored .env decrypt the db tokens?
-  if sudo -u "$SERVICE_USER" test -f "$INSTALL_ROOT/openalgo/db/openalgo.db"; then
+  if sudo -u "$SERVICE_USER" test -f "$OA_TREE/db/openalgo.db"; then
     VERIFY=$(mktemp)
     cat > "$VERIFY" <<'PYEOF'
 import os, sys, sqlite3
@@ -301,7 +300,7 @@ except Exception as e:
     print("DECRYPT_FAIL: %s" % e)
 PYEOF
     chmod +r "$VERIFY"
-    RESULT=$(cd "$INSTALL_ROOT/openalgo" && sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" "$VERIFY" 2>&1 | tail -1)
+    RESULT=$(cd "$OA_TREE" && sudo -u "$SERVICE_USER" "$OA_VENV/bin/python" "$VERIFY" 2>&1 | tail -1)
     rm -f "$VERIFY"
     case "$RESULT" in
       DECRYPT_OK)   ok "broker tokens decrypt with restored .env (pairing valid)" ;;
@@ -344,7 +343,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=${SERVICE_USER}
-WorkingDirectory=${INSTALL_ROOT}/openalgo
+WorkingDirectory=${OA_TREE}
 # gunicorn + eventlet: the production pairing OpenAlgo's own start.sh uses.
 # --workers 1 is REQUIRED - multiple workers break SocketIO room state.
 ExecStart=${OA_VENV}/bin/gunicorn --worker-class eventlet -w 1 --bind 127.0.0.1:5000 app:app
@@ -366,7 +365,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=${SERVICE_USER}
-WorkingDirectory=${INSTALL_ROOT}/openalgo
+WorkingDirectory=${OA_TREE}
 ExecStart=${OA_VENV}/bin/python -m websocket_proxy.server
 Restart=on-failure
 RestartSec=5

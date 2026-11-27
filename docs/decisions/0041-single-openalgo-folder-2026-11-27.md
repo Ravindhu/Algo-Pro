@@ -34,7 +34,8 @@ bridged into the tree by `bootstrap_restored`.
 - One copy of OpenAlgo. The pin check and the launcher cannot disagree.
 - Local state stays out of the tracked tree: `.env` is already ignored by the vendored
   `.gitignore` (`*.env`), and `_restored/` is ignored at the repo root.
-- The Ubuntu path (`Servers/install_ubuntu.sh`, decision 0013 deployment) still clones a separate
-  `openalgo/` on the server. That is deliberate and out of scope here — it is a server deployment
-  layout, not a dev-machine launcher — but it now disagrees with this decision. Revisit before
-  the next server deploy.
+- The Ubuntu server path is aligned (2026-11-27): `Servers/install_ubuntu.sh` no longer clones
+  upstream. The server's repo checkout at `/opt/my-trading-system` holds the same vendored tree at
+  `src/quant/openalgo_platform`; the installer checks it, builds its `.venv` there, and bridges
+  `_restored/` into it. `launch_ubuntu_server.sh` treats "installed" as the tree's `.venv` existing
+  (the tree itself is always present after the repo clone). `Servers/DEPLOY_UBUNTU.md` updated.

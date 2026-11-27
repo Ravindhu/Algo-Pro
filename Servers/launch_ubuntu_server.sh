@@ -236,7 +236,7 @@ fi
 # -----------------------------------------------------------------------------
 update_platform() {
   if [[ "$DRY_RUN" -eq 1 ]]; then note "[dry-run] would update the platform"; return 0; fi
-  local dow hm oa_venv="$INSTALL_ROOT/openalgo/.venv"
+  local dow hm oa_tree="$INSTALL_ROOT/src/quant/openalgo_platform" oa_venv="$INSTALL_ROOT/src/quant/openalgo_platform/.venv"
   dow="$(TZ=Asia/Kolkata date +%u)"
   hm="$(TZ=Asia/Kolkata date +%H%M)"
   if (( dow <= 5 )) && (( 10#$hm >= 915 && 10#$hm <= 1530 )); then
@@ -248,8 +248,7 @@ update_platform() {
     return 0
   fi
   as_service git -C "$INSTALL_ROOT" pull --ff-only || warn "repo pull failed - kept current code"
-  as_service git -C "$INSTALL_ROOT/openalgo" pull --ff-only || warn "openalgo pull failed - kept current code"
-  as_service "$oa_venv/bin/python" -m pip install -q -r "$INSTALL_ROOT/openalgo/requirements.txt" \
+  as_service "$oa_venv/bin/python" -m pip install -q -r "$oa_tree/requirements.txt" \
     || { fail "pip install (openalgo requirements) failed"; return 0; }
   if [[ -d "$INSTALL_ROOT/src/quant/engines" ]]; then
     as_service "$oa_venv/bin/python" -m pip install -q "plotly>=5.18" "pandas>=2.0" "numpy>=1.26" \
@@ -264,7 +263,9 @@ update_platform() {
 # =============================================================================
 step "2/6  Platform (OpenAlgo + quant engines + nginx + systemd)"
 if [[ "$RUN_PLATFORM" -eq 1 ]]; then
-  if [[ -d "$INSTALL_ROOT/openalgo/.git" ]]; then
+  # "Installed" = the tree's own venv exists (install_ubuntu.sh creates it). The
+  # tree itself is always present after the repo clone, so it cannot be the test.
+  if [[ -x "$INSTALL_ROOT/src/quant/openalgo_platform/.venv/bin/python" ]]; then
     if [[ "$START_ONLY" -eq 1 ]]; then
       ok "start-only run: no code update, no engine"
       run systemctl start openalgo openalgo-ws pov-dash || fail "platform start failed (stage 2)"
