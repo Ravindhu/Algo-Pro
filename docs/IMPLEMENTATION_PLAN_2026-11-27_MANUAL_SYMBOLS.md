@@ -26,3 +26,24 @@ circuit band and no ASM/GSM flag, exactly like a Screener.in name.
 - Minimal diff; no order path touched.
 - Audit every add/remove with actor.
 - Bot picks up a change at its next 5-minute refresh (no immediate rebuild).
+
+## Phase 2 (2026-11-27, owner request): M and A source switches, manual rows first
+
+Owner words: "Create manual M and automation A button at header. If both are not selected then
+both paths should work. Sort manual stock first, screener stocks next."
+
+Rule (decided here, owner to confirm if different):
+- M on, A off  -> bot uses manual symbols only.
+- A on, M off  -> bot uses Screener.in selection only (no manual symbols).
+- Both on, or both off -> both paths work.
+
+Steps:
+1. [x] `src/quant/data/source_mode.py`: read/set/effective, file `data/screened/source_mode.json`.
+2. [x] `make_screen_refresher(mode_path=None)`: applies the rule each cycle; the Screener.in scrape
+       runs only when the automation path is on. A manual symbol that is also screened is tagged
+       manual (not duplicated).
+3. [x] `refresh_once` tags each written row `source: manual | screener`.
+4. [x] Bot wiring passes `mode_path`.
+5. [x] Owner-only `POST /api/screener/source` {key, on} (audited); `screener_source` in overview.
+6. [x] Panel: M and A toggle buttons in the header; manual rows sorted first, tagged "· manual".
+7. [x] Tests + full suite + secret scan, commit, push, fast-forward master.

@@ -95,9 +95,11 @@ def read_screener(path: Optional[Path] = None, *,
         results = payload["data"].get("results")
     results = results if isinstance(results, list) else []
     selected = [r for r in results if isinstance(r, dict) and r.get("selected")]
+    # Owner request 2026-11-27: manual symbols first, then the Screener.in names (stable order).
+    selected.sort(key=lambda r: 0 if r.get("source") == "manual" else 1)
     rows: List[Dict[str, Any]] = [{
         "symbol": _ticker_for(str(r.get("symbol") or ""), lookup),
-        "status": "selected",
+        "status": "manual" if r.get("source") == "manual" else "selected",
         "reason": str(r.get("reason") or "")[:120],
         "price": _price(r),
     } for r in selected[:MAX_ROWS]]

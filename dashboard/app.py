@@ -58,12 +58,13 @@ from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 from quant.execution.order_details import OrderDetailStore  # noqa: E402
 from quant.reporting import home_view  # noqa: E402
 from quant.reporting import notifications
-from quant.data import manual_symbols  # noqa: E402
+from quant.data import manual_symbols, source_mode  # noqa: E402
 
 REASON_MAX = 200
 ACTOR = "dashboard-api"
 
 MANUAL_SYMBOLS_PATH = ROOT / "data" / "screened" / "manual_symbols.json"
+SOURCE_MODE_PATH = ROOT / "data" / "screened" / "source_mode.json"
 DEFAULT_PATHS = {
     "ledger": ROOT / "data" / "paper" / "ledger.jsonl",
     "audit": ROOT / "data" / "paper" / "audit.jsonl",
@@ -192,6 +193,9 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     # Home page: screener list (last saved run) and portfolio analysis (Blue Engine NAV store). Read-only.
     overview["screener"] = home_view.read_screener()
     overview["manual_symbols"] = manual_symbols.read(paths.get("manual_symbols", MANUAL_SYMBOLS_PATH))  # owner-entered (2026-11-27)
+    source_state = source_mode.read(paths.get("source_mode", SOURCE_MODE_PATH))
+    use_manual, use_screener = source_mode.effective(source_state)
+    overview["screener_source"] = {**source_state, "use_manual": use_manual, "use_screener": use_screener}
     overview["analysis"] = home_view.portfolio_analysis()
     # Execution log > Notification tab: alerts and warnings from the bot's audit trail (read-only).
     overview["notifications"] = notifications.recent(
@@ -814,6 +818,32 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             "ok": ok, "reason": reason, "actor": actor})
         return JSONResponse({"ok": ok, "reason": reason, "symbols": symbols},
                             status_code=200 if ok else 422)
+
+    @app.post("/api/screener/source")
+    async def screener_source(request: Request):
+        """Owner: switch M (manual symbols) or A (Screener.in automation) on or off (2026-11-27).
+
+        Both off or both on = both paths work. Applies at the next bot refresh. Audited.
+        """
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        key = body.get("key") if isinstance(body, dict) else None
+        on = body.get("on") if isinstance(body, dict) else None
+        if key not in source_mode.KEYS or not isinstance(on, bool):
+            return JSONResponse({"error": "key must be manual or automation, on must be true or false"},
+                                status_code=422)
+        actor = signed_in(request) or ACTOR
+        path = paths.get("source_mode", SOURCE_MODE_PATH)
+        state = source_mode.set_flag(path, key, on)
+        use_manual, use_screener = source_mode.effective(state)
+        AuditLog(paths["audit"]).append("screener_source_mode", {
+            "key": key, "on": on, "use_manual": use_manual, "use_screener": use_screener, "actor": actor})
+        return JSONResponse({"state": state, "use_manual": use_manual, "use_screener": use_screener})
 
     @app.get("/api/env")
     def env_status(request: Request):

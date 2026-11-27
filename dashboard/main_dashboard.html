@@ -37,7 +37,10 @@
   /* START ENGINE is filled green so it is clear whether it has been pressed (owner request 2026-11-27) */
   button#engstart { background: var(--ok); color: #03140d; border-color: var(--ok); font-weight: 700; }
   .ph-flex { display: flex; align-items: center; gap: 6px; }
-  .ph-flex #scr-refresh { margin-left: auto; }
+  .ph-flex #scr-mode-manual { margin-left: auto; }
+  /* M and A source switches in the screener header (owner request 2026-11-27): filled when ON */
+  button.iconbtn.scr-mode { font-weight: 700; line-height: 1.4; min-width: 24px; }
+  button.iconbtn.scr-mode[aria-pressed="true"] { background: var(--cyan); color: #03140d; border-color: var(--cyan); }
   button.tab#tab-notify { font-weight: 700; }
   /* Manual symbols box under the screener header (owner request 2026-11-27) */
   .manual-box { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 6px; }
@@ -355,13 +358,15 @@
     </section>
     <section class="panel scr-panel">
       <div class="ph ph-flex">Screener stocks <span id="scr-note"></span>
+        <button type="button" id="scr-mode-manual" class="iconbtn scr-mode" aria-pressed="false" title="M: manual symbols feed the bot (owner). M and A both off or both on = both paths work.">M</button>
+        <button type="button" id="scr-mode-auto" class="iconbtn scr-mode" aria-pressed="false" title="A: Screener.in automation feeds the bot (owner). M and A both off or both on = both paths work.">A</button>
         <button type="button" id="scr-refresh" class="iconbtn" aria-label="Refresh screener candidates" title="Refresh candidates (owner)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg>
         </button></div>
       <form id="manual-form" class="manual-box" autocomplete="off">
         <input id="manual-in" maxlength="20" placeholder="Add NSE symbol" aria-label="Manual symbol">
         <button type="submit" id="manual-add" title="Add a manual symbol (owner). It still passes the quote, circuit and ASM checks.">Add</button>
-        <span class="d">manual · checked each refresh</span>
+        <span id="manual-hint" class="d">manual · checked each refresh</span>
       </form>
       <div id="manual-chips" class="manual-chips"></div>
       <div id="manual-msg" class="manual-msg d"></div>
@@ -790,10 +795,11 @@
     renderTable($("scr-rows"), rows.map(x => {
       const tr = document.createElement("tr");
       // Ticker is the broker's own symbol (OpenAlgo), translated on the server. "—" if unknown.
-      tr.append(cell(x.symbol || "—"), cell(inr(x.price), "n"));
+      tr.append(cell((x.symbol || "—") + (x.status === "manual" ? " · manual" : "")), cell(inr(x.price), "n"));
       return tr;
     }), scr.note || "No screener output yet.", 3);
     renderManual(o.manual_symbols || []);
+    renderSource(o.screener_source || {});
     renderAnalysisTiles(o);
   }
 
@@ -819,6 +825,35 @@
         }
       });
     }
+  });
+
+  // M and A switches (owner, 2026-11-27). Both off or both on = both paths work.
+  function renderSource(src) {
+    $("scr-mode-manual").setAttribute("aria-pressed", src.manual ? "true" : "false");
+    $("scr-mode-auto").setAttribute("aria-pressed", src.automation ? "true" : "false");
+    const hint = src.use_manual && src.use_screener ? "bot: manual + Screener.in"
+      : src.use_manual ? "bot: manual symbols only" : src.use_screener ? "bot: Screener.in only" : "";
+    $("manual-hint").textContent = hint ? hint + " · checked each refresh" : "manual · checked each refresh";
+  }
+  async function setSource(key, on) {
+    const msg = $("manual-msg");
+    msg.textContent = (key === "manual" ? "M " : "A ") + (on ? "on" : "off") + "…";
+    let text = "";
+    try {
+      const res = await jpost("/api/screener/source", {key, on});
+      text = res.ok ? (key === "manual" ? "M " : "A ") + (on ? "on" : "off") + " · applies at the next screen refresh (up to 5 min)"
+        : describeFail(res);
+    } catch (e) {
+      text = "failed: " + e.message;
+    }
+    msg.textContent = text;
+    await refresh();
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const m = $("scr-mode-manual"), a = $("scr-mode-auto");
+    if (!m || !a) return;
+    m.addEventListener("click", () => setSource("manual", m.getAttribute("aria-pressed") !== "true"));
+    a.addEventListener("click", () => setSource("automation", a.getAttribute("aria-pressed") !== "true"));
   });
 
   // Manual symbols (owner, 2026-11-27): merged into each refresh, still through quote/circuit/ASM checks.

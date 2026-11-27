@@ -78,6 +78,7 @@ def refresh_once(candidates: List[Dict[str, Any]], quote_fn: Callable[[str, str]
     # ``risk_limits.sector_map`` reads exactly this key, and a missing sector leaves every name in
     # one capped UNKNOWN bucket - sector limits would silently stop separating anything.
     _attach_sectors(doc["results"], all_rows)
+    _attach_source(doc["results"], all_rows)
     wrote = _write_doc(target, doc)
     unreachable = bool(failed) and len(transport) == len(all_rows)
     code = 0 if wrote > 0 else (1 if unreachable else 2)
@@ -112,6 +113,14 @@ def _write_doc(target, doc: Dict[str, Any]) -> int:
             pass
         raise
     return len(doc.get("results") or [])
+
+
+def _attach_source(rows: List[Dict[str, Any]], source_rows: List[Dict[str, Any]]) -> None:
+    """Tag each written row ``source``: ``manual`` when the owner entered it, else ``screener``."""
+    manual = {str(r.get("symbol") or "").strip().upper() for r in source_rows if r.get("manual")}
+    for row in rows:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        row["source"] = "manual" if symbol in manual else "screener"
 
 
 def _attach_sectors(rows: List[Dict[str, Any]], source_rows: List[Dict[str, Any]]) -> None:
@@ -154,7 +163,7 @@ def load_candidates(path, symbols: Optional[str] = None) -> List[Dict[str, Any]]
 def make_screen_refresher(reader, api_key: str, *, source, target,
                           scrape: Optional[Callable[[], Dict[str, Any]]] = None,
                           scrape_every_minutes: int = 60,
-                          manual_path=None) -> Callable[[Any], Dict[str, Any]]:
+                          manual_path=None, mode_path=None) -> Callable[[Any], Dict[str, Any]]:
     """The callable the bot's loop runs every 5 minutes. Read-only: quotes and the symbol master only.
 
     Args:
@@ -167,6 +176,8 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
         scrape_every_minutes: age after which ``source`` is re-scraped. 0 means every cycle.
         manual_path: optional owner-entered symbols file (2026-11-27). Its symbols are added to
             the candidates and go through the SAME quote, circuit and ASM/GSM checks. None = none.
+        mode_path: optional M/A switch file (2026-11-27). Decides which sources feed the bot each
+            cycle (see ``source_mode``). None = both sources, as before.
 
     The scrape never blocks the cycle: a failure is reported in the result and the bot carries
     on with whatever ``source`` already holds. A missing ``source`` after a failed scrape is
@@ -179,22 +190,31 @@ def make_screen_refresher(reader, api_key: str, *, source, target,
         return source_is_stale(source, now, scrape_every_minutes)
 
     def refresh(now) -> Dict[str, Any]:
+        from quant.data import source_mode
+        if mode_path is None:
+            use_manual, use_screener = True, True
+        else:
+            use_manual, use_screener = source_mode.effective(source_mode.read(mode_path))
         scrape_note = None
-        if scrape is not None and _stale(now):
+        if use_screener and scrape is not None and _stale(now):
             try:
                 scrape_note = scrape()
             except Exception as exc:  # noqa: BLE001 - a scrape problem must not stop the bot
                 scrape_note = {"ok": False, "reason": f"scrape raised {type(exc).__name__}"}
-        candidates = load_candidates(source)
-        seen = {str(r.get("symbol") or "").strip().upper() for r in candidates}
-        if manual_path is not None:
+        candidates = load_candidates(source) if use_screener else []
+        by_symbol = {str(r.get("symbol") or "").strip().upper(): r for r in candidates}
+        if use_manual and manual_path is not None:
             from quant.data import manual_symbols
             for row in manual_symbols.as_candidates(manual_symbols.read(manual_path)):
-                if row["symbol"] not in seen:
+                existing = by_symbol.get(row["symbol"])
+                if existing is not None:
+                    existing["manual"] = True   # also screened: one row, tagged manual
+                else:
                     candidates.append(row)
-                    seen.add(row["symbol"])
+                    by_symbol[row["symbol"]] = row
         if not candidates:
-            return {"exit_code": 2, "reason": f"no candidates in {source}", "scrape": scrape_note}
+            return {"exit_code": 2, "reason": "no candidates (switches or lists are empty)",
+                    "scrape": scrape_note}
         out = refresh_once(candidates, lambda s, e: reader.quotes(api_key, s, e), target,
                            lookup_bse=openalgo_bse_lookup, as_of=now)
         out["scrape"] = scrape_note
