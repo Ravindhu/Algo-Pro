@@ -1,5 +1,7 @@
 # File: AGENTS.md
 
+> **To run the algo, read [docs/Agent/runalgo.md](docs/Agent/runalgo.md) first.** It has the start, stop and safety steps.
+
 > New version 2026-11-10. Combines `master` with the safety and self-learning sections from the audit branches, and the strategy bot rules. See the commit message for what was not adopted.
 
 ## Agent Self-Learning — DISABLED

@@ -1,5 +1,7 @@
 # Project Engineering & Agent Governance (`CLAUDE.md`)
 
+> **To run the algo, read [docs/Agent/runalgo.md](docs/Agent/runalgo.md) first.** It has the start, stop and safety steps.
+
 All development, refactoring, UI design, and testing in this repository must strictly follow the imported specification files below.
 
 ## Core Execution & Context Efficiency
