@@ -43,6 +43,26 @@ Source: owner audit screenshots, "Bugs that block live trading" (items 8-20),
 - Paper/analyze soak on the trading PC, kill-switch drill, host guard confirmed.
 - Owner switches mode and live_enabled. Not done by the bot branch.
 
+## Phase 1 - done (this commit)
+- One spawn path: the dashboard button and start_engine both call `_spawn_supervisor`. The
+  start_engine_now runner is no longer used by the button.
+- Start lock (`data/run/engine.lock`, O_EXCL) held from the running check until the PID file
+  is written. A second press in that window is refused. A dead or old lock is cleared.
+- PID file written at once with the supervisor's PID (was: the wrapper's PID, written late).
+- Stop: signals the supervisor's process group on POSIX (reaches the bot child), waits for
+  exit, and removes the PID file ONLY after exit is confirmed. If the engine survives, stop
+  is refused and the PID file is kept.
+- Windows: `tasklist` PID match is exact; stop uses `taskkill /T` (no /F). NOT tested on
+  Windows from this sandbox. If taskkill does not stop a detached bot, stop is refused and
+  the owner must check it.
+- Screener login moved from the button's runner into supervise_bot.py (non-fatal).
+- Tests: tests/unit/test_engine_phase1.py (9 tests). Full suite: same 110 pre-existing
+  failures/errors as master (tail-risk tests, and 5 files that need the `openalgo` package
+  missing in this sandbox). No new failures.
+- Not done in Phase 1: bug 16 source_mode default (moved to Phase 2/3). The supervisor has no
+  SIGTERM handler of its own; the bot shuts down through the process-group signal. Not verified
+  against a live bot.
+
 ## Status
-- Phase 0: done. Phases 1-4: not started in this commit.
+- Phase 0: done. Phase 1: done (this commit). Phases 2-4: not started.
 - Items not verifiable from this sandbox: NSE/broker endpoints, OpenAlgo routes (bugs 15, 16).

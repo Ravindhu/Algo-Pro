@@ -140,6 +140,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bot runner not found: {script}")
         return 2
 
+    # Owner request 2026-11-27: screener session on every start. Moved here from the button's
+    # runner (Phase 1): it runs inside the long-lived supervisor, so the dashboard button no
+    # longer waits for the screener login. A failed login is reported, never fatal.
+    from start_engine_now import ensure_screener_session  # scripts/ops is sys.path[0] when run
+    session = ensure_screener_session()
+    print(f"supervise_bot: screener session {session.get('action')} - {session.get('reason', '')}")
+
     command = bot_command(args.mode, args.base_url, config=args.config, limits=args.limits)
     cfg = SupervisorConfig(
         command=command,
