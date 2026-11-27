@@ -3,8 +3,8 @@
 # live_enabled: true here, plus every start gate. Owner enabled live in commit c818caa (2026-11-25).
 # The live data source must be approved in config/data_sources.yaml.
 # Live orders are sent only while the OpenAlgo analyzer (sandbox) is OFF (2026-11-25; LiveApproval removed).
-mode: live                   # paper | analyze | live (live also needs live_enabled and the live runner)
-live_enabled: true
+mode: paper                  # paper | analyze | live. SET TO PAPER 2026-11-27 until live blockers are fixed (fix/live-blockers-2026-11-27)
+live_enabled: false
 # Entries are LIMIT orders this many basis points above the last close (audit fix 6, 2026-11-15).
 # Exits and broker stops are never limited. Owner may change it (0 < x <= 200).
 entry_max_slippage_bps: 20
