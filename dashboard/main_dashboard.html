@@ -61,7 +61,8 @@
   .two { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 8px; }
   .bot { padding: 8px 0 16px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-width: 0; }
-  .ph { display: flex; justify-content: space-between; gap: 8px; color: var(--cyan); font-weight: 700; margin-bottom: 6px; flex-wrap: wrap; }
+  /* section headers: compact type scale from docs/Agent/UI_RULES.md section 3 (10-11px uppercase bold) */
+  .ph { display: flex; justify-content: space-between; gap: 8px; color: var(--cyan); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; flex-wrap: wrap; }
   .ph span { color: var(--dim); font-weight: 400; }
   .kv { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .kv small { display: block; color: var(--dim); }
@@ -128,7 +129,7 @@
   .modal[hidden] { display: none; }
   .sec { border-top: 1px solid #1d2a3a; padding: 8px 0; }
   .seg { display: inline-flex; gap: 8px; margin: 0 0 6px; }
-  .sechead { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
+  .sechead { margin: 0 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
   .sec h3 { margin: 0 0 6px; font-size: 11px; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
   #infra { list-style: none; margin: 0; padding: 0; columns: 2; }
   #infra li { padding: 2px 0; }
