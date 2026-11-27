@@ -755,7 +755,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             return denied
         body = await _json_body(request)
         mode = str(body.get("mode") or "paper").strip().lower()
-        if mode not in ("paper", "live"):
+        if mode not in ("paper", "live", "analyze"):
             return JSONResponse({"error": f"mode must be paper or live, got {mode!r}"}, status_code=422)
         kill_active = KillSwitch(paths["kill"]).active
         ok, message, pid = engine_control.request_manual_start(kill_active=kill_active, mode=mode)

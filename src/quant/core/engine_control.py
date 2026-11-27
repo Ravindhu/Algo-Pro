@@ -170,7 +170,7 @@ def request_manual_start(*, kill_active: bool, mode: str = "paper", pid_path: Pa
     Refused when the kill switch is on or a bot is already running. `mode` (paper|live) is
     handed to the supervisor, which picks the runner; it does not relax any gate.
     """
-    if mode not in ("paper", "live"):
+    if mode not in ("paper", "live", "analyze"):
         return False, f"refused: unknown mode {mode!r} (expected paper or live)", None
     existing = running_pid(pid_path)
     allowed, message = decide_start(kill_active, existing is not None)

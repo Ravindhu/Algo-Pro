@@ -65,6 +65,8 @@ DEFAULT_JOURNAL = ROOT / "data" / "supervisor_journal.jsonl"
 BOT_SCRIPTS = {
     "paper": ROOT / "scripts" / "run" / "run_strategy_bot.py",
     "live": ROOT / "scripts" / "run" / "run_strategy_bot_live.py",
+    # Sandbox (2026-11-27): the live runner with --sandbox; orders go to OpenAlgo's analyzer.
+    "analyze": ROOT / "scripts" / "run" / "run_strategy_bot_live.py",
 }
 
 
@@ -78,6 +80,8 @@ def bot_command(mode: str, base_url: str = DEFAULT_HOST, python: str | None = No
         cmd += ["--config", str(config)]
     if limits is not None:
         cmd += ["--limits", str(limits)]
+    if mode == "analyze":
+        cmd += ["--sandbox"]
     return cmd
 
 

@@ -99,7 +99,7 @@ def run(*, root: Path = ROOT, system_name: Optional[str] = None, python: Optiona
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Start the strategy bot (dashboard START ENGINE).")
-    ap.add_argument("--mode", choices=("paper", "live"), default="paper",
+    ap.add_argument("--mode", choices=("paper", "live", "analyze"), default="paper",
                     help="paper (default) or live; live still obeys bot.yaml and the OpenAlgo analyzer")
     args = ap.parse_args(argv)
     return run(mode=args.mode)

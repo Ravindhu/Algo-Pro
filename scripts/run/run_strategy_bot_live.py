@@ -48,7 +48,7 @@ from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # no
 from quant.risk.margin_daily import DailyMarginStore  # noqa: E402
 from quant.execution.order_details import OrderDetailStore  # noqa: E402
 from quant.execution.readonly_client import OpenAlgoReadOnly  # noqa: E402
-from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused, LiveSender, StrategyBot  # noqa: E402
+from quant.execution.strategy_bot import load_bot_config, BotConfig, BotRefused, AnalyzeSender, LiveSender, StrategyBot  # noqa: E402
 from quant.execution.pnl_store import PnlStore  # noqa: E402
 from quant.execution.position_store import PositionStore  # noqa: E402
 from quant.monitor.broker_recon import make_positionbook_reader  # noqa: E402
@@ -158,9 +158,10 @@ from quant.execution.buyer_vwap import BuyerVwapBook  # noqa: E402
 from quant.execution.peg_verify import BidVerifier, VerifyConfig  # noqa: E402
 
 
-def _live_sender(client, cfg):
-    """LiveSender. In peg mode, LIMIT entries wait peg_wait_seconds before the status check."""
-    sender = LiveSender(client)
+def _live_sender(client, cfg, sandbox: bool = False):
+    """LiveSender, or AnalyzeSender for the sandbox run (2026-11-27). In peg mode, LIMIT entries
+    wait peg_wait_seconds before the status check."""
+    sender = AnalyzeSender(client) if sandbox else LiveSender(client)
     sender.limit_wait_seconds = cfg.peg_wait_seconds if cfg.pov_mode == "peg_band_buyer" else 0.0
     return sender
 
@@ -173,10 +174,19 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
                    startup_fn: Callable = _live_checks.startup_checks,
                    alerts: Optional[Alerts] = None,
                    on_critical: Optional[Callable[[str], None]] = None,
-                   settings_path=None):
-    """Wire the live bot. Raises BotRefused unless every start gate passes. Places no orders."""
+                   settings_path=None, sandbox: bool = False):
+    """Wire the live bot. Raises BotRefused unless every start gate passes. Places no orders.
+
+    ``sandbox=True`` (2026-11-27): the same bot, with orders through OpenAlgo's analyzer (sandbox,
+    fake money). The mode is set to ``analyze`` IN MEMORY only; config/bot.yaml is not changed. The
+    start is refused unless OpenAlgo confirms the analyzer is ON.
+    """
     cfg = load_bot_config(bot_cfg_path)
-    if cfg.mode != "live" or not cfg.live_enabled:
+    if sandbox:
+        # live_enabled is turned off too: the bot refuses live_enabled outside live mode, and a sandbox
+        # run must never carry the live switch.
+        cfg = dataclasses.replace(cfg, mode="analyze", live_enabled=False)
+    elif cfg.mode != "live" or not cfg.live_enabled:
         raise BotRefused("live runner needs mode: live and live_enabled: true in config/bot.yaml")
 
     state_dir = pathlib.Path(state_dir)
@@ -201,10 +211,13 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         raise BotRefused("live startup gate gave no fixed capital cap (live.max_capital_inr)")
 
     client = OpenAlgoClient(
-        base_url, transport, mode="live",
+        base_url, transport, mode="analyze" if sandbox else "live",
         compliance=ComplianceGate(ComplianceConfig(audit_dir=str(state_dir))),
     )
     readonly = reader if reader is not None else OpenAlgoReadOnly(base_url, transport)
+    if sandbox and readonly.analyzer_mode(api_key) is not True:
+        # Sandbox orders must stay in OpenAlgo's sandbox. Anything but a confirmed ON is refused.
+        raise BotRefused("sandbox refused: OpenAlgo analyzer is not confirmed ON")
     # Audit fix 7 (2026-11-26): sizing reads 'availablecash'. A missing or non-numeric field means the bot
     # would silently take no entries, so the start is refused and the owner is told why.
     try:
@@ -253,7 +266,7 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
                 quote_from_reply(readonly.quotes(api_key, sym, "NSE")),
                 quote_from_reply(readonly.quotes(api_key, sym, "BSE"))),  # slice 4: NSE-listed first
         ),
-        sender=_live_sender(client, cfg),
+        sender=_live_sender(client, cfg, sandbox=sandbox),
         audit=audit,
         api_key=api_key,
         # MTF leverage check: the broker's margin reply for the order, read-only (margin_entry.verify_leverage).
@@ -297,12 +310,14 @@ def main(argv=None) -> int:
     p.add_argument("--state-dir", default=str(ROOT / "data" / "bot_live"))
     p.add_argument("--base-url", required=True, help="OpenAlgo server URL")
     p.add_argument("--max-cycles", type=int, default=None)
+    p.add_argument("--sandbox", action="store_true",
+                   help="orders go to OpenAlgo's sandbox (analyzer ON); config mode is not changed")
     args = p.parse_args(argv)
 
     api_key = OpenAlgoClient.api_key_from_env()
     bot, audit = build_live_bot(
         bot_cfg_path=args.config, limits_path=args.limits, state_dir=args.state_dir,
-        base_url=args.base_url, api_key=api_key,
+        base_url=args.base_url, api_key=api_key, sandbox=args.sandbox,
         on_critical=lambda msg: print(f"CRITICAL: {msg}", flush=True),
     )
     # Screen refresh every 5 minutes, inside the loop (starts and stops with the bot).
