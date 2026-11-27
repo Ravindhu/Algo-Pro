@@ -91,6 +91,10 @@ class OpenAlgoReadOnly:
         The reply is checked against the order's full value before any MTF order (margin_entry.verify_leverage).
         """
         self._need_key(api_key)
+        # Phase 2 (audit item 19): every other guard validates the direction; this one did not.
+        action = str(action or "").strip().upper()
+        if action not in ("BUY", "SELL"):
+            raise ValueError(f"margin_for_order: action must be BUY or SELL, got {action!r}")
         position = {"symbol": symbol, "exchange": exchange, "action": action, "quantity": str(int(quantity)),
                     "product": product, "pricetype": pricetype, "price": str(price)}
         return self._transport(self.base_url + self.MARGIN_PATH, {"apikey": api_key, "positions": [position]})

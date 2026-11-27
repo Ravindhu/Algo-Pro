@@ -104,7 +104,8 @@ def test_screen_rows_and_write_file(tmp_path):
     ]}
     doc = screen_rows(payload, as_of="2026-11-11T10:00:00")
     assert [r["symbol"] for r in doc["results"]] == ["INFY"]
-    assert doc["results"][0] == {"symbol": "INFY", "selected": True, "asm_gsm": False, "circuit_pct": 0.2}
+    assert doc["results"][0] == {"symbol": "INFY", "selected": True, "asm_gsm": False, "circuit_pct": 0.2,
+                                 "band_source": "broker"}
 
     out = tmp_path / "screened" / "latest.json"
     n = write_screen_file(payload, out, as_of=doc["as_of"])

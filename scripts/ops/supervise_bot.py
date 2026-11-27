@@ -85,8 +85,14 @@ def bot_command(mode: str, base_url: str = DEFAULT_HOST, python: str | None = No
     return cmd
 
 
-def build_gates(host: str = DEFAULT_HOST, symbol: str = "NSE:NIFTY", exchange: str = "NSE",
-                *, api_key: str | None = None):
+#: Phase 2 (audit items 12, 18): the probe must be a TRADABLE EQUITY. NSE:NIFTY is an index;
+#: a broker that quotes only equities failed the gate forever and the bot never started.
+PREFLIGHT_SYMBOL = "RELIANCE"
+PREFLIGHT_EXCHANGE = "NSE"
+
+
+def build_gates(host: str = DEFAULT_HOST, symbol: str = PREFLIGHT_SYMBOL,
+                exchange: str = PREFLIGHT_EXCHANGE, *, api_key: str | None = None):
     """The supervisor's gate chain for the bot run. Market hours are intentionally excluded.
 
     Fails CLOSED: if the OpenAlgo client cannot be built the gates cannot run, so the

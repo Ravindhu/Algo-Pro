@@ -63,6 +63,27 @@ Source: owner audit screenshots, "Bugs that block live trading" (items 8-20),
   SIGTERM handler of its own; the bot shuts down through the process-group signal. Not verified
   against a live bot.
 
+## Phase 2 - partly done (this commit)
+Done:
+- Items 10, 13 (sandbox band): screener rows carry band_source; read_screen refuses
+  'sandbox_default' rows unless the run is analyze (the sandbox runner passes allow_sandbox_band).
+  A fallback band written while the analyzer was ON can no longer price a live order.
+- Items 12, 18 (preflight): build_gates probes RELIANCE on NSE, not the index NSE:NIFTY.
+- Item 19 (margin_for_order): direction must be BUY or SELL, else ValueError, nothing sent.
+- Tests: tests/unit/test_phase2_live_safety.py (10 tests). One existing test expectation
+  updated for the new band_source field (src/quant/tests/test_pre_gate.py).
+- Full suite: same 110 pre-existing failures/errors as master; no new failures.
+
+Not changed in this commit (needs owner decision or the live machine):
+- Items 11, 14 (ASM/GSM route): the vendored OpenAlgo has NO ASM/GSM endpoint. An unknown flag
+  already drops the symbol (fails closed), so this blocks trades but cannot send a bad order.
+  The real broker field must be confirmed on the trading PC before changing the source.
+- Items 3, 4 (reconciliation and cash): entries are already blocked on mismatch and sized 0 on
+  missing cash (fail closed). Stopping the bot and alerting is a design change: exits must keep
+  running. Owner decision pending.
+- Items 5, 6, 7 (visible refusals): analyzer, feed and risk-hash refusals work correctly but are
+  not yet shown on the dashboard or alerted. Dashboard work, next step.
+
 ## Status
-- Phase 0: done. Phase 1: done (this commit). Phases 2-4: not started.
+- Phase 0: done. Phase 1: done. Phase 2: partly done (items 3-7 and 11/14 open, see above). Phases 3-4: not started.
 - Items not verifiable from this sandbox: NSE/broker endpoints, OpenAlgo routes (bugs 15, 16).

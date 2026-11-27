@@ -327,12 +327,22 @@ def live_feed_approved(path) -> bool:
         return False
 
 
-def read_screen(path, now: datetime, max_age_minutes: float) -> List[Dict[str, Any]]:
+SANDBOX_BAND_SOURCE = "sandbox_default"
+
+
+def read_screen(path, now: datetime, max_age_minutes: float, *,
+                allow_sandbox_band: bool = False) -> List[Dict[str, Any]]:
     """Screened symbols that are safe to trade. Returns [] for any missing, stale or malformed file.
 
     File format (written by the screener):
       {"as_of": "2026-11-10T10:15:00", "results": [
-         {"symbol": "INFY", "selected": true, "asm_gsm": false, "circuit_pct": 0.2}, ...]}
+         {"symbol": "INFY", "selected": true, "asm_gsm": false, "circuit_pct": 0.2,
+          "band_source": "broker"}, ...]}
+
+    A row whose band is the sandbox fallback (band_source "sandbox_default", a flat 20%) is
+    skipped unless ``allow_sandbox_band`` is True. Only the analyze (sandbox) run passes True.
+    The screen file is shared with the live bot, so a fallback band written while the analyzer
+    was ON must never price a live order (Phase 2, audit items 10 and 13).
     """
     import json
 
@@ -345,6 +355,8 @@ def read_screen(path, now: datetime, max_age_minutes: float) -> List[Dict[str, A
         out = []
         for row in data.get("results", []):
             if row.get("selected") is not True or row.get("asm_gsm") is not False:
+                continue
+            if row.get("band_source") == SANDBOX_BAND_SOURCE and not allow_sandbox_band:
                 continue
             circuit = row.get("circuit_pct")
             if not isinstance(circuit, (int, float)) or not 0 < float(circuit) <= 1:
@@ -728,7 +740,8 @@ class StrategyBot:
             return report
 
         self._funds = self._safe_funds()
-        symbols = read_screen(self.cfg.screen_path, now, self.cfg.max_screen_age_minutes)
+        symbols = read_screen(self.cfg.screen_path, now, self.cfg.max_screen_age_minutes,
+                              allow_sandbox_band=self.cfg.mode == "analyze")
         self._log("screen", count=len(symbols), symbols=[s["symbol"] for s in symbols])
         self._alloc_map = self._compute_alloc_map([s["symbol"] for s in symbols]) if self._tree_mode() else {}
 

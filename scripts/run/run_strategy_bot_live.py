@@ -236,7 +236,8 @@ def build_live_bot(*, bot_cfg_path, limits_path, state_dir, base_url: str, api_k
         window_seconds=cfg.peg_verify_window_seconds, dwell_seconds=cfg.peg_dwell_seconds,
         absorb_ratio=cfg.peg_absorb_ratio, max_pull_ratio=cfg.peg_max_pull_ratio))
     def vwap_tick(now):
-        symbols = [r["symbol"] for r in _read_screen(cfg.screen_path, now, cfg.max_screen_age_minutes)]
+        symbols = [r["symbol"] for r in _read_screen(cfg.screen_path, now, cfg.max_screen_age_minutes,
+                                                     allow_sandbox_band=sandbox)]
         if symbols:
             vwap_book.poll(symbols, now)
             if cfg.pov_mode == "peg_band_buyer":

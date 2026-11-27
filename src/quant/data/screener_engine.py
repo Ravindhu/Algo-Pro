@@ -195,8 +195,11 @@ def screen_rows(payload: Dict[str, Any], *, as_of=None, max_symbols: int = 50) -
         if not known:
             dropped.append({"symbol": str(sym), "reason": "ASM/GSM status unknown"})
             continue
+        # band_source travels with the row: a sandbox fallback band must never reach the live bot
+        # (Phase 2, audit items 10 and 13). read_screen refuses 'sandbox_default' unless analyze.
         results.append({"symbol": str(sym).upper(), "selected": True,
-                        "asm_gsm": False, "circuit_pct": float(circuit)})
+                        "asm_gsm": False, "circuit_pct": float(circuit),
+                        "band_source": str(c.get("band_source") or "broker")})
     stamp = as_of.isoformat() if hasattr(as_of, "isoformat") else (as_of or datetime.now(timezone.utc).isoformat())
     # ``dropped`` is diagnostic only; the bot's read_screen ignores unknown keys.
     return {"as_of": stamp, "results": results, "dropped": dropped,
