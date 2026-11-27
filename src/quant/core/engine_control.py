@@ -115,7 +115,7 @@ def stop_engine(*, pid_path: Path = PID_FILE) -> Tuple[bool, str, Optional[int]]
 
 
 MANUAL_LOG = ROOT / "Temp" / "run" / "manual_start.log"
-RUNNER = ROOT / "scripts" / "ops" / "run_preopen_once.py"
+RUNNER = ROOT / "scripts" / "ops" / "start_engine_now.py"
 
 
 def request_manual_start(*, kill_active: bool, pid_path: Path = PID_FILE, log_path: Path = MANUAL_LOG,
@@ -139,5 +139,5 @@ def request_manual_start(*, kill_active: bool, pid_path: Path = PID_FILE, log_pa
             kwargs["creationflags"] = 0x00000008 | 0x00000200
         else:
             kwargs["start_new_session"] = True
-        proc = subprocess.Popen([sys.executable, str(runner), "--manual"], **kwargs)
+        proc = subprocess.Popen([sys.executable, str(runner)], **kwargs)
     return True, f"login, then engine start, requested (progress in {log_path.name})", proc.pid

@@ -110,16 +110,6 @@ API_INDEX = {
 }
 
 
-def _installer_module():
-    """scripts/ops/install_schedule.py loaded by path (it is a script, not a package)."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("install_schedule", ROOT / "scripts" / "ops" / "install_schedule.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def load_or_create_secret(path: Path) -> str:
     """The login signing key. Created once with a random value and reused on every start.
 
@@ -701,11 +691,8 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     @app.get("/api/schedule")
     def schedule_get():
         settings, warning = sched.load(paths["schedule"])
-        installer = _installer_module()
-        plan = installer.build_plan(settings, detected=installer.detect_os(
-            platform.system(), installer._has_systemd()), utc_offset_seconds=installer._utc_offset_seconds())
         return JSONResponse({"settings": settings.to_dict(), "warning": warning,
-                             "errors": settings.errors(), "preview": plan})
+                             "errors": settings.errors(), "preview": None})
 
     @app.post("/api/schedule")
     async def schedule_save(request: Request):
@@ -727,7 +714,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         sched.save(candidate, paths["schedule"])
         AuditLog(paths["audit"]).append("schedule_saved", {"settings": candidate.to_dict(), "actor": ACTOR})
         return JSONResponse({"saved": candidate.to_dict(),
-                             "note": "saved. Auto engine start applies at the next run. OS or start time changes need scripts/ops/install_schedule.py --apply once on this machine."})
+                             "note": "saved. There is no timed login job: START ENGINE logs in, then starts the engine."})
 
     @app.get("/api/engine")
     def engine_status():
@@ -840,9 +827,7 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
                 return False
 
         settings, _ = sched.load(paths["schedule"])
-        installer = _installer_module()
-        detected = installer.detect_os(platform.system(), installer._has_systemd())
-        cron_present = installer.CRON_FILE.exists()
+        detected = "windows" if platform.system() == "Windows" else "ubuntu"
         users_present = paths["users"].is_file()
         items = [
             {"name": "Dashboard server", "ok": True, "detail": "this page is being served"},
@@ -854,12 +839,6 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
             {"name": "Engine", "ok": engine_control.running_pid() is not None,
              "detail": "started by the button or the schedule"},
             {"name": "Machine OS", "ok": detected != "unsupported", "detail": detected},
-            {"name": "Scheduler", "ok": detected != "unsupported" and settings.valid,
-             "detail": f"{detected} · start {settings.start_time} IST · broker {settings.broker}"},
-            {"name": "Auto engine start", "ok": settings.engine_start,
-             "detail": "ON: engine starts after login" if settings.engine_start else "OFF: use the START ENGINE button"},
-            {"name": "Cron job installed", "ok": cron_present if detected == "ubuntu" else None,
-             "detail": "Ubuntu only" if detected != "ubuntu" else ("present" if cron_present else "absent")},
             {"name": "Dashboard accounts", "ok": users_present, "detail": "data/dashboard_users.json"},
             {"name": "Login key", "ok": True,
              "detail": "auto-created in data/session_secret.key (or DASHBOARD_SESSION_SECRET)"},
