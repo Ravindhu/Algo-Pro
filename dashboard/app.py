@@ -57,6 +57,7 @@ from quant.execution.openalgo_client import OpenAlgoClient, http_transport  # no
 from quant.reporting.portfolio_view import HoldingsReader  # noqa: E402
 from quant.execution.order_details import OrderDetailStore  # noqa: E402
 from quant.reporting import home_view  # noqa: E402
+from quant.reporting import notifications  # noqa: E402
 
 REASON_MAX = 200
 ACTOR = "dashboard-api"
@@ -68,6 +69,8 @@ DEFAULT_PATHS = {
     "bot_kill": ROOT / "data" / "bot" / "kill.json",          # paper strategy bot (run_strategy_bot.py)
     "live_kill": ROOT / "data" / "bot_live" / "kill.json",    # live strategy bot (run_strategy_bot_live.py)
     "order_details": ROOT / "data" / "bot_live" / "order_details.json",  # per-order strategy/risk/levels (live bot)
+    "bot_audits": (ROOT / "data" / "bot_live" / "audit.jsonl",   # bot audit trails read for the Notification tab
+                   ROOT / "data" / "bot" / "audit.jsonl"),
     "limits": ROOT / "config" / "risk_limits.yaml",
     "settings": ROOT / "config" / "settings.yaml",
     "strategies": ROOT / "config" / "strategies",
@@ -197,6 +200,9 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     # Home page: screener list (last saved run) and portfolio analysis (Blue Engine NAV store). Read-only.
     overview["screener"] = home_view.read_screener()
     overview["analysis"] = home_view.portfolio_analysis()
+    # Execution log > Notification tab: alerts and warnings from the bot's audit trail (read-only).
+    overview["notifications"] = notifications.recent(
+        paths.get("bot_audits", DEFAULT_PATHS["bot_audits"]))
     return overview
 
 
