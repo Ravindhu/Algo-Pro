@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from quant.core import dashboard_accounts as accounts
-from quant.core.env_write import _quote, write_env_values
+from quant.core.env_write import _quote, write_env_values, write_env_values_or_create
 from quant.core.openalgo_apikey import read_env_value
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -127,6 +127,9 @@ def update(name: str, value: str, *, owner: str, totp_code: str,
             write_env_values(target, {name: text})
         else:
             _create_with(target, name, text)
+        if files is None and target == RESTORED_ENV:
+            # 2026-11-28 (item 2): the readers load the repo-root .env too, so keep it in step.
+            write_env_values_or_create(REPO_ENV, {name: text})
     except FileExistsError:
         return False, f"{target.name} was just created by another save; try again"
     except Exception:  # noqa: BLE001 - the message must not carry the value

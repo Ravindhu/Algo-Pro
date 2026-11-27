@@ -33,6 +33,20 @@ WARNING_KINDS: Dict[str, str] = {
 }
 _DETAIL_KEYS = ("symbol", "key", "status", "reason", "error", "exit_code")
 
+#: Rows about the machine, not the trading book (2026-11-28). They show on the Alert tab.
+#: Everything else is a trading alert and shows on the Notification tab. An ``alert`` row can
+#: set ``payload["category"] = "system"`` to move itself to the Alert tab.
+SYSTEM_KINDS = frozenset({"screen_refresh"})
+CATEGORIES = ("trading", "system")
+
+
+def _category(kind: str, payload: Dict[str, Any]) -> str:
+    if kind in SYSTEM_KINDS:
+        return "system"
+    if kind == "alert" and str(payload.get("category") or "") == "system":
+        return "system"
+    return "trading"
+
 
 def _tail(path: Path) -> Iterable[str]:
     try:
@@ -80,8 +94,9 @@ def _level(kind: str, payload: Dict[str, Any]) -> str:
     return WARNING_KINDS.get(kind, "WARNING")
 
 
-def recent(audit_paths: Iterable[Path], limit: int = MAX_ITEMS) -> Dict[str, Any]:
-    """Newest notifications from the given audit files. Never raises."""
+def recent(audit_paths: Iterable[Path], limit: int = MAX_ITEMS,
+           category: Optional[str] = None) -> Dict[str, Any]:
+    """Newest notifications from the given audit files. ``category`` = "trading" or "system" (None = all). Never raises."""
     items: List[Dict[str, Any]] = []
     for path in audit_paths:
         for line in _tail(Path(path)):
@@ -98,7 +113,10 @@ def recent(audit_paths: Iterable[Path], limit: int = MAX_ITEMS) -> Dict[str, Any
                 continue
             items.append({"ts": str(row.get("ts") or ""), "time_ist": _ist_text(row.get("ts")),
                           "level": _level(kind, payload), "source": kind,
+                          "category": _category(kind, payload),
                           "message": message[:MESSAGE_MAX]})
+    if category is not None:
+        items = [row for row in items if row["category"] == category]
     items.sort(key=lambda r: r["ts"], reverse=True)
     items = items[:max(0, int(limit))]
     return {"count": len(items), "items": items}

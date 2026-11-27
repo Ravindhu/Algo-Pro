@@ -144,3 +144,22 @@ def write_env_values(path, updates: Mapping[str, str]) -> None:
                 lines.append(new_line + eol)
 
         _atomic_write(target, "".join(lines))
+
+
+def write_env_values_or_create(path, updates: Mapping[str, str]) -> None:
+    """Like ``write_env_values`` but creates the file (mode 0600) when it does not exist yet.
+
+    Used for the repository-root ``.env``, which the readers load (2026-11-28, item 2: both
+    copies of the credentials are kept in step). Same validation and atomic write as above.
+    """
+    target = Path(path)
+    if target.is_file():
+        write_env_values(target, updates)
+        return
+    lines = []
+    for key, value in updates.items():
+        _check(key, value)
+        if not value.strip():
+            raise EnvWriteError(f"refusing to write a blank value for {key}")
+        lines.append(f"{key}={_quote(value)}\n")
+    _atomic_write(target, "".join(lines))

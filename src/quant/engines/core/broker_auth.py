@@ -733,7 +733,7 @@ class BrokerAuth:
             if fetched["key"] is None:
                 result.add("openalgo_apikey", False, fetched["reason"])
                 return result
-            outcome = apikey.sync_env(fetched["key"], apikey.RESTORED_ENV)
+            outcome = apikey.sync_env(fetched["key"], apikey.RESTORED_ENV, repo_env=apikey.REPO_ENV)
             result.add("openalgo_apikey", True, outcome)
         except Exception as exc:  # noqa: BLE001 - recorded by type only, never the value
             result.add("openalgo_apikey", False, f"failed ({type(exc).__name__})")
@@ -844,6 +844,24 @@ def record_login_attempt(*, ok: bool, now: Optional[float] = None,
         logger.warning("could not write login guard state: %s", exc)
 
 
+#: The bot audit trail the dashboard Notification tab reads (2026-11-28, item 12).
+_BOT_AUDIT_PATH = Path(__file__).resolve().parents[4] / "data" / "bot_live" / "audit.jsonl"
+
+
+def _notify_login_failure(result: "AuthResult") -> None:
+    """Write a CRITICAL alert for a failed scheduled login, so the owner sees it on the dashboard.
+
+    A failed login used to be a log line and an audit row only. Never raises, and never writes a secret.
+    """
+    try:
+        from quant.audit.log import AuditLog
+        message = f"broker auto-login failed at leg={result.leg or '-'}: {result.reason}"
+        AuditLog(_BOT_AUDIT_PATH).append("alert", {"level": "CRITICAL", "category": "system",
+                                                       "message": message[:300]})
+    except Exception:  # noqa: BLE001 - the alert must never break the login job
+        logger.warning("could not write the login-failure alert to the audit trail")
+
+
 def run_scheduled_login(*, base_url: Optional[str] = None,
                         enable: Optional[bool] = None,
                         verify: bool = True,
@@ -887,6 +905,7 @@ def run_scheduled_login(*, base_url: Optional[str] = None,
         # One structured line an operator can grep, with no secret in it.
         logger.warning("broker autologin failed at leg=%s: %s",
                        result.leg, result.reason)
+        _notify_login_failure(result)
         print(json.dumps({"ok": False, "leg": result.leg,
                           "reason": result.reason,
                           "steps": result.steps}, indent=2))

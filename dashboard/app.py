@@ -204,8 +204,10 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
                                                    paths.get("live_kill", DEFAULT_PATHS["live_kill"]))
     overview["analysis"] = home_view.portfolio_analysis()
     # Execution log > Notification tab: alerts and warnings from the bot's audit trail (read-only).
-    overview["notifications"] = notifications.recent(
-        paths.get("bot_audits", DEFAULT_PATHS["bot_audits"]))
+    # Split 2026-11-28: trading alerts on Notification, machine/system alerts on Alert.
+    bot_audits = paths.get("bot_audits", DEFAULT_PATHS["bot_audits"])
+    overview["notifications"] = notifications.recent(bot_audits, category="trading")
+    overview["alerts"] = notifications.recent(bot_audits, category="system")
     return overview
 
 

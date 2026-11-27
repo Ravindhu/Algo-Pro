@@ -17,6 +17,12 @@ from quant.engines.core import broker_auth as ba
 KEY = "ak_test_0123456789abcdef"
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_repo_env(tmp_path, monkeypatch):
+    """sync_api_key also writes the repo-root .env (2026-11-28). Point it at a temp file in every test."""
+    monkeypatch.setattr(apikey, "REPO_ENV", tmp_path / "repo_root.env")
+
+
 class FakeSession:
     def __init__(self, body=None, ok=True, raises=None):
         self.body, self.ok, self.raises = body, ok, raises

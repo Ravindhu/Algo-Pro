@@ -182,3 +182,19 @@ Not changed in this pass:
 - Item 8 (source_mode default): NOT applied. Explained in the reply; the owner must choose the fail-closed behaviour.
 - Item 12 (daily login failure): confirmed that a failed scheduled login only logs a warning and writes an
   audit record; the owner gets no alert. Fix needs a choice of alert channel.
+
+## Pass 3 (2026-11-28): owner decisions applied (items 2, 8, 12) + Alert tab
+- Item 2 (.env): a saved key/credential is written to BOTH `_restored/.env` and the repo-root `.env`.
+  `sync_env` takes an optional `repo_env` and creates the root file if missing. `credential_update.update`
+  also writes the root copy for `_restored` saves. The live key sync passes both paths. Values already
+  stale in one file stay until the next save or login; no one-off copy was run.
+- Item 8 (source_mode): a missing or broken `source_mode.json` now fails closed to MANUAL symbols only
+  (`FAILSAFE`). An explicit both-off file still means both paths, as before.
+- Item 12 (login failure): a failed scheduled login writes a CRITICAL `alert` (category system) to the
+  bot audit trail, which the dashboard shows. Never raises; no secret in the message.
+- Alert tab: new dashboard tab next to Notification. Notification = trading alerts; Alert = system alerts
+  (login failure, screen refresh). `notifications.recent(category=...)` splits them; each item has a `category`.
+- Tests: tests/unit/test_pending_pass2.py (new), test_source_mode.py (default updated), test_notifications.py
+  (split + page wiring), test_openalgo_apikey.py (repo .env redirected to temp in every test).
+- Full suite: 2865 passed, 3 skipped, 1 xfailed, 0 failed.
+- Still open: item 3 (screener session, needs real login on the trading PC).

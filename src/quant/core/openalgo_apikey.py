@@ -19,11 +19,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Dict
 
-from quant.core.env_write import write_env_values
+from quant.core.env_write import write_env_values, write_env_values_or_create
 
 #: Repository root: src/quant/core/ -> three levels up.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RESTORED_ENV = REPO_ROOT / "_restored" / ".env"
+#: The repository-root .env the readers load (2026-11-28: kept in step with _restored/.env).
+REPO_ENV = REPO_ROOT / ".env"
 KEY_NAME = "OPENALGO_API_KEY"
 APIKEY_PATH = "/apikey"
 
@@ -60,16 +62,28 @@ def fetch_key(get: Callable[[str], Dict[str, Any]]) -> Dict[str, Any]:
     return {"key": key.strip(), "reason": ""}
 
 
-def sync_env(key: str, env_path=RESTORED_ENV) -> str:
-    """Make ``OPENALGO_API_KEY`` in ``env_path`` equal ``key``. Returns a fixed outcome word.
-
-    Outcomes: ``"skipped: _restored/.env not found"`` (the file is never created here),
-    ``"unchanged"``, or ``"updated"``.
-    """
-    target = Path(env_path)
-    if not target.is_file():
-        return "skipped: _restored/.env not found"
-    if read_env_value(target, KEY_NAME) == key:
+def _sync_one(path: Path, key: str) -> str:
+    if read_env_value(path, KEY_NAME) == key:
         return "unchanged"
-    write_env_values(target, {KEY_NAME: key})
+    write_env_values_or_create(path, {KEY_NAME: key})
     return "updated"
+
+
+def sync_env(key: str, env_path=RESTORED_ENV, repo_env=None) -> str:
+    """Make ``OPENALGO_API_KEY`` equal ``key`` in ``env_path`` and, when given, in ``repo_env``.
+
+    ``env_path`` is only updated when it already exists (never created here). ``repo_env`` is
+    created when missing, so both copies the readers may load stay in step. Pass ``repo_env=None``
+    to leave the repository ``.env`` alone (tests do this).
+
+    Outcomes: ``"skipped: _restored/.env not found"`` (nothing to update), ``"unchanged"``, or ``"updated"``.
+    """
+    outcomes = []
+    target = Path(env_path)
+    if target.is_file():
+        outcomes.append(_sync_one(target, key))
+    if repo_env is not None:
+        outcomes.append(_sync_one(Path(repo_env), key))
+    if not outcomes:
+        return "skipped: _restored/.env not found"
+    return "updated" if "updated" in outcomes else "unchanged"

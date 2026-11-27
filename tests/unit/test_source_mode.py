@@ -38,11 +38,12 @@ def test_switch_rule(state, expected):
 
 def test_read_set_and_broken_file(tmp_path):
     f = tmp_path / "source_mode.json"
-    assert sm.read(f) == {"manual": False, "automation": False}
+    # 2026-11-28 (item 8): a missing file fails closed to manual symbols only.
+    assert sm.read(f) == {"manual": True, "automation": False}
     assert sm.set_flag(f, "manual", True) == {"manual": True, "automation": False}
     assert sm.read(f) == {"manual": True, "automation": False}
     f.write_text("[oops", encoding="utf-8")
-    assert sm.read(f) == {"manual": False, "automation": False}
+    assert sm.read(f) == {"manual": True, "automation": False}
     with pytest.raises(ValueError):
         sm.set_flag(f, "bogus", True)
 

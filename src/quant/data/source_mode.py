@@ -22,15 +22,20 @@ from typing import Any, Dict, Tuple
 KEYS = ("manual", "automation")
 
 
+#: Fail closed (owner decision 2026-11-28): a missing or broken file means MANUAL symbols only.
+#: The Screener.in path, which needs a live scrape, is never used unless its switch is turned on.
+FAILSAFE = {"manual": True, "automation": False}
+
+
 def read(path) -> Dict[str, bool]:
-    """Current switches. A missing or broken file gives both OFF (which means both paths work)."""
-    off = {"manual": False, "automation": False}
+    """Current switches. A missing or broken file gives the FAILSAFE state: manual symbols only."""
+    failsafe = dict(FAILSAFE)
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        return off
+        return failsafe
     if not isinstance(payload, dict):
-        return off
+        return failsafe
     return {key: payload.get(key) is True for key in KEYS}
 
 

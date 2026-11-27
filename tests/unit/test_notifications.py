@@ -57,7 +57,39 @@ def test_healthy_recon_is_not_a_notification(tmp_path):
 
 def test_page_has_the_two_tabs_and_renders_the_list():
     text = PAGE.read_text(encoding="utf-8")
-    for element_id in ("tab-fills", "tab-notify", "fills-view", "notify-view", "notify-rows", "notify-count"):
+    for element_id in ("tab-fills", "tab-notify", "tab-alert", "fills-view", "notify-view", "alert-view",
+                       "notify-rows", "notify-count", "alert-rows", "alert-count"):
         assert f'id="{element_id}"' in text, element_id
     assert "function renderNotifications" in text
+    assert "function renderAlerts" in text
     assert "renderNotifications(o.notifications)" in text
+    assert "renderAlerts(o.alerts)" in text
+
+
+# ---- 2026-11-28: trading alerts (Notification tab) and system alerts (Alert tab) are separate ----
+
+def test_system_rows_go_to_the_alert_tab_and_trading_rows_stay_on_notification(tmp_path):
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text("\n".join([
+        _row("alert", "2026-11-27T04:00:00+00:00", level="CRITICAL", message="entries blocked: recon"),
+        _row("alert", "2026-11-27T04:05:00+00:00", level="CRITICAL", category="system",
+             message="broker auto-login failed at leg=broker: bad password"),
+        _row("screen_refresh", "2026-11-27T04:10:00+00:00", result={"exit_code": 2, "reason": "no candidates"}),
+        _row("exit_held_stale_bar", "2026-11-27T04:15:00+00:00", symbol="INFY", age_cycles=5),
+    ]) + "\n", encoding="utf-8")
+
+    trading = nt.recent([audit], category="trading")
+    system = nt.recent([audit], category="system")
+    assert [i["message"] for i in trading["items"]] == [
+        "exit held stale bar · symbol=INFY", "entries blocked: recon"]
+    assert [i["message"] for i in system["items"]] == [
+        "screen refresh: no candidates", "broker auto-login failed at leg=broker: bad password"]
+    assert {i["category"] for i in system["items"]} == {"system"}
+    assert {i["category"] for i in trading["items"]} == {"trading"}
+
+
+def test_unfiltered_reader_still_returns_everything(tmp_path):
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text(_row("alert", "2026-11-27T04:00:00+00:00", level="WARNING", message="x") + "\n",
+                     encoding="utf-8")
+    assert nt.recent([audit])["count"] == 1

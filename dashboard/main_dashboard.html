@@ -42,6 +42,7 @@
   button.iconbtn.scr-mode { font-weight: 700; line-height: 1.4; min-width: 24px; }
   button.iconbtn.scr-mode[aria-pressed="true"] { background: var(--cyan); color: #03140d; border-color: var(--cyan); }
   button.tab#tab-notify { font-weight: 700; }
+  button.tab#tab-alert { font-weight: 700; }
   /* Manual symbols box under the screener header (owner request 2026-11-27) */
   .manual-box { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 6px; }
   .manual-box input { width: 120px; text-transform: uppercase; }
@@ -393,6 +394,7 @@
       <div class="tabs" role="tablist" aria-label="Execution log views">
         <button type="button" role="tab" class="tab on" id="tab-fills" aria-selected="true" aria-controls="fills-view">Execution log <span class="d">today's broker fills</span></button>
         <button type="button" role="tab" class="tab" id="tab-notify" aria-selected="false" aria-controls="notify-view">Notification <span class="d" id="notify-count"></span></button>
+        <button type="button" role="tab" class="tab" id="tab-alert" aria-selected="false" aria-controls="alert-view">Alert <span class="d" id="alert-count"></span></button>
       </div>
       <div class="scroll" id="fills-view" role="tabpanel"><table>
         <thead><tr><th>Time</th><th>Symbol</th><th class="n">Qty</th><th class="n">Price ₹</th><th>Product</th><th>Details</th></tr></thead>
@@ -401,6 +403,10 @@
       <div class="scroll" id="notify-view" role="tabpanel" hidden><table>
         <thead><tr><th>Time (IST)</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
         <tbody id="notify-rows"></tbody>
+      </table></div>
+      <div class="scroll" id="alert-view" role="tabpanel" hidden><table>
+        <thead><tr><th>Time (IST)</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
+        <tbody id="alert-rows"></tbody>
       </table></div>
     </section>
   </div>
@@ -815,17 +821,25 @@
   }
 
   // Execution log block: Fills and Notification tabs. Notifications are alerts and warnings from the quant bot.
-  function renderNotifications(n) {
+  // Notification tab = trading alerts; Alert tab = system alerts (login, screen refresh). 2026-11-28.
+  function renderFeed(n, countId, rowsId, emptyText) {
     const items = (n && n.items) || [];
-    $("notify-count").textContent = items.length ? "(" + items.length + ")" : "";
-    renderTable($("notify-rows"), items.map(x => {
+    $(countId).textContent = items.length ? "(" + items.length + ")" : "";
+    renderTable($(rowsId), items.map(x => {
       const tr = document.createElement("tr");
       tr.append(cell(x.time_ist || "—"), cell(x.level || ""), cell(x.source || ""), cell(x.message || ""));
       return tr;
-    }), "No alerts or warnings from the quant bot.", 4);
+    }), emptyText, 4);
+  }
+  function renderNotifications(n) {
+    renderFeed(n, "notify-count", "notify-rows", "No trading alerts or warnings from the quant bot.");
+  }
+  function renderAlerts(n) {
+    renderFeed(n, "alert-count", "alert-rows", "No system alerts.");
   }
   document.addEventListener("DOMContentLoaded", () => {
-    const tabs = {fills: ["tab-fills", "fills-view"], notify: ["tab-notify", "notify-view"]};
+    const tabs = {fills: ["tab-fills", "fills-view"], notify: ["tab-notify", "notify-view"],
+                  alert: ["tab-alert", "alert-view"]};
     for (const [name, [tabId, viewId]] of Object.entries(tabs)) {
       $(tabId).addEventListener("click", () => {
         for (const [other, [oTab, oView]] of Object.entries(tabs)) {
@@ -1108,6 +1122,7 @@
     if (o.equity) drawEquity(o.equity);
     renderHome(o);
     renderNotifications(o.notifications);
+    renderAlerts(o.alerts);
     if (!formLoaded) fillForm(o.limits);
     paintFlow(o.flow);
   }
