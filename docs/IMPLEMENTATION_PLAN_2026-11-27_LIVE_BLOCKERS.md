@@ -163,3 +163,22 @@ Still open (needs a decision or the live machine):
 ## Status
 - Phase 0: done. Phase 1: done. Phase 2: done except items 11/14 (verify on the live machine). Phase 3: done except items 10, 11, 16. Phase 4: done. Full suite on the branch: 2848 passed, 0 failed.
 - Items not verifiable from this sandbox: NSE/broker endpoints, OpenAlgo routes (bugs 15, 16).
+
+## Pass 2 (2026-11-28): pending-list items 9, 10, 13
+- Item 9 (feed-not-approved alert, audit item 6): tests/unit/test_feed_alert.py (5 tests). A skipped
+  cycle raises one CRITICAL alert, not one per cycle; approval clears it; a missing, broken or
+  non-boolean `live_allowed` counts as not approved. Code unchanged.
+- Item 10 (sqlalchemy): pinned `sqlalchemy==2.1.9` in requirements.txt (the version the suite ran against).
+- Item 13 (origin): `origin` now points at https://github.com/Ravindhu/Algo-Pro.git. Remote branches
+  are now only `master` and `fix/live-blockers-2026-11-27`; nothing stale is left to delete.
+- Item 14 (feat/full-auto-2026-11-27): no longer on origin, so there is nothing to review on the remote.
+- Full suite: 2853 passed, 3 skipped, 1 xfailed, 0 failed.
+
+Not changed in this pass:
+- Item 2 (.env): NOT applied. The readers check `_restored/.env` before the repo-root `.env`. If refresh
+  writes only the root file, a stale key in `_restored/.env` keeps winning. A safe fix must update both
+  files or change the reader order, which is a secrets-path change the owner should choose.
+- Item 3 (screener session): NOT applied. It needs a real screener.in login to test; this sandbox cannot do that.
+- Item 8 (source_mode default): NOT applied. Explained in the reply; the owner must choose the fail-closed behaviour.
+- Item 12 (daily login failure): confirmed that a failed scheduled login only logs a warning and writes an
+  audit record; the owner gets no alert. Fix needs a choice of alert channel.
