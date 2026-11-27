@@ -102,6 +102,13 @@ echo   [todo] Fill in .env (API keys) before you connect a broker.
 :env_ready
 
 echo.
+echo [5b/6] Local state folders (_restored\ and data\)
+REM Creates the empty folders and README notes. Never creates a .env or any secret.
+"%VPY%" scripts\ops\backup_state.py --setup
+if errorlevel 1 echo   [warn] state folders not set up - see the message above
+if not exist "_restored\.env" echo   [todo] Put your ORIGINAL .env in _restored\.env (never generate one).
+
+echo.
 echo [6/6] Starting the stack (OpenAlgo, WebSocket, Dash)
 "%VPY%" scripts\ops\start_all.py
 if errorlevel 1 goto fail
