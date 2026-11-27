@@ -527,6 +527,7 @@ class StrategyBot:
         self._halt = halt
         self.state = state or RiskState()
         self._funds = 0.0
+        self._alerted: set = set()   # keys of conditions already alerted (see _alert_once)
         self._parents: Dict[str, _Parent] = {}
         self._positions: Dict[str, Position] = {}
         self._last_bar: Dict[str, Dict[str, Any]] = {}  # last closed bar per symbol, used during a feed outage
@@ -596,6 +597,7 @@ class StrategyBot:
         self.feed_health = feed_health if feed_health is not None else FeedHealthBook()
         self._executor = PovExecutor(
             gate=self._child_gate, sender=sender, api_key=api_key, audit=audit, pov=cfg.pov,
+            on_refused=self._alert,
         )
         # 15 s peg model, separate from the 5 min POV sizing. Owns the verifier and the peg allotments.
         self._peg = PegSlicer(
@@ -619,6 +621,16 @@ class StrategyBot:
         self._log("alert", level=level, message=message)
         if self.alerts is not None:
             self.alerts.emit(level, "strategy_bot", message)
+
+    def _alert_once(self, key: str, level: str, message: str) -> None:
+        """Alert once per condition until it clears (Phase 3, items 3-6). No alert storm each cycle."""
+        if key in self._alerted:
+            return
+        self._alerted.add(key)
+        self._alert(level, message)
+
+    def _clear_alert(self, key: str) -> None:
+        self._alerted.discard(key)
 
     def _roll_day(self, now: datetime) -> None:
         """New trading day: daily and per-strategy realized P&L start again at zero."""
@@ -689,6 +701,11 @@ class StrategyBot:
                                        audit=self._audit, require_broker=require_broker)
         self._log("startup_recon", status=self.recon.status, mismatches=self.recon.mismatches,
                   error=self.recon.error)
+        if not self.recon.entries_allowed:
+            # Phase 2 (audit items 3, 4): entries stay blocked, but the owner must see why.
+            detail = f" ({self.recon.error})" if self.recon.error else ""
+            self._alert("CRITICAL", f"startup reconciliation {self.recon.status}{detail}: "
+                                    "new entries blocked; exits still run. Check the broker positions.")
         return self.recon
 
     def _entries_allowed(self) -> bool:
@@ -731,6 +748,7 @@ class StrategyBot:
         self._resync_stops()
         if not live_feed_approved(self.cfg.data_sources_path):
             self._log("cycle_skipped", reason="live data source not approved (data_sources.yaml)")
+            self._alert_once("feed", "CRITICAL", "live data source not approved: this cycle is skipped")
             report["skipped"].append("data source not approved")
             if self._positions:
                 # No bars means no stop checks. Open positions are unmanaged until the source is approved.
@@ -740,6 +758,7 @@ class StrategyBot:
             return report
 
         self._funds = self._safe_funds()
+        self._clear_alert("feed")
         symbols = read_screen(self.cfg.screen_path, now, self.cfg.max_screen_age_minutes,
                               allow_sandbox_band=self.cfg.mode == "analyze")
         self._log("screen", count=len(symbols), symbols=[s["symbol"] for s in symbols])
@@ -820,9 +839,15 @@ class StrategyBot:
     def _safe_funds(self) -> float:
         try:
             value = float(self._read_funds())
-            return value if value > 0 else 0.0
-        except Exception:
-            return 0.0  # no funds known: entries are refused
+            if value > 0:
+                self._clear_alert("funds")
+                return value
+            reason = "available cash is zero"
+        except Exception as exc:
+            reason = f"available cash could not be read ({type(exc).__name__})"
+        # No funds known: entries are refused. Phase 2 (item 4): say so, once, until cash is read again.
+        self._alert_once("funds", "CRITICAL", f"{reason}: new entries refused")
+        return 0.0
 
     def _read_bars(self, sym: str, now, exchange: str):
         """Bars for a position or pending entry on its own exchange. NSE keeps the old call."""

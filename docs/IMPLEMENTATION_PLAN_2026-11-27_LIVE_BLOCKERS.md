@@ -137,6 +137,29 @@ Open for the owner:
   requirements.txt. Add it with a version pin before a fresh install.
 - Test paths named in the audit (tests/parity, blue_engine/tests) no longer exist.
 
+## Leftovers pass (2026-11-28)
+Done:
+- Items 5, 7 (refused sends): a send the sender refuses (analyzer ON, changed risk limits) now raises a
+  CRITICAL alert through PovExecutor's on_refused callback. It still raises to the caller.
+- Item 3 (reconciliation): a blocked startup reconciliation raises a CRITICAL alert naming the status.
+  Entries stay blocked and exits still run, as before.
+- Item 4 (cash): an unreadable or zero available-cash read raises one CRITICAL alert until cash is
+  read again, instead of silently refusing entries.
+- Item 6 (data source not approved): one CRITICAL alert while the cycle is skipped. Not covered by a
+  unit test; it sits inside the bot's cycle loop, so it is verified by reading and by the live run.
+- Item 19 (API key field): the vendored OpenAlgo /apikey route returns has_api_key and api_key in
+  its JSON reply, which is what fetch_key reads. Verified against the vendored source. No change.
+- Tests: tests/unit/test_phase2_alerts.py (8 tests). Full suite: 2848 passed, 0 failed.
+
+Still open (needs a decision or the live machine):
+- Items 10, 11 (screener session and env handling): unchanged. The login path is tied to the broker
+  cooldown; it needs its own change and a real double-login test.
+- Item 16 (.env location): refresh writes _restored/.env, but readers load the repo-root .env.
+  Choosing the file is an owner decision, given the backup rules.
+- Items 11, 14 (ASM/GSM source): the vendored OpenAlgo has no ASM/GSM endpoint, so the real broker
+  field must be confirmed on the trading PC. Unknown flags already fail closed; each drop is recorded
+  in the screen file's dropped list.
+
 ## Status
-- Phase 0: done. Phase 1: done. Phase 2: partly done. Phase 3: partly done (items 10, 11, 16, 19 open). Phase 4: done. Full suite on the branch: 2840 passed, 0 failed.
+- Phase 0: done. Phase 1: done. Phase 2: done except items 11/14 (verify on the live machine). Phase 3: done except items 10, 11, 16. Phase 4: done. Full suite on the branch: 2848 passed, 0 failed.
 - Items not verifiable from this sandbox: NSE/broker endpoints, OpenAlgo routes (bugs 15, 16).

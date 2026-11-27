@@ -57,6 +57,7 @@ class PovExecutor:
         api_key: str,
         audit: AuditSink,
         pov: float = 0.1,
+        on_refused: Optional[Callable[[str, str], None]] = None,
     ) -> None:
         if not api_key:
             raise ValueError("executor needs an API key")
@@ -69,6 +70,9 @@ class PovExecutor:
         self.pov = pov
         self._queue = ApprovedOrderQueue()
         self._sent_ids: Set[str] = set()
+        # Phase 2 (audit items 5, 7): a send the sender refused (analyzer ON, changed risk limits)
+        # must reach the owner, not only the audit log. (level, message) -> alert.
+        self._on_refused = on_refused
 
     def child_qty(self, remaining: int, bar_volume: float, pov: Optional[float] = None) -> int:
         """Child size: pov share of the last bar's volume, never more than what is left.
@@ -126,6 +130,10 @@ class PovExecutor:
             response = self._sender.place_child(queued, self._api_key, decision, price_type, limit_price)
         except Exception as exc:
             self._audit.append("child_refused", {"intent_id": child.intent_id, "error": repr(exc)})
+            if self._on_refused is not None:
+                symbol = getattr(child, "symbol", "?")
+                self._on_refused("CRITICAL", f"{symbol}: order not sent ({type(exc).__name__}: "
+                                             f"{str(exc)[:160]})")
             raise
         self._sent_ids.add(child.intent_id)
         self._audit.append("child_sent", {
