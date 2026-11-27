@@ -684,6 +684,28 @@
     <div class="sec">
       <h2 class="sechead">Infrastructure</h2>
       <ul id="infra"></ul>
+      <div id="fa-box" class="fa-box">
+        <div><b>Full Auto (sandbox only)</b> <span id="fa-state">–</span></div>
+        <div id="fa-detail" class="d"></div>
+        <button id="fa-btn" type="button">Full Auto: turn on</button>
+        <details class="cr-box">
+          <summary>Update a credential (needs 2FA code)</summary>
+          <select id="cr-name">
+            <option>OPENALGO_USERNAME</option>
+            <option>OPENALGO_PASSWORD</option>
+            <option>OPENALGO_TOTP_SECRET</option>
+            <option>BROKER_USERNAME</option>
+            <option>BROKER_PASSWORD</option>
+            <option>BROKER_TOTP_SECRET</option>
+            <option>SCREENER_USERNAME</option>
+            <option>SCREENER_PASSWORD</option>
+          </select>
+          <input id="cr-value" type="password" autocomplete="new-password" placeholder="new value">
+          <input id="cr-totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="2FA code">
+          <button id="cr-save" type="button">Save credential</button>
+          <span id="cr-msg" class="d"></span>
+        </details>
+      </div>
       <h2 class="sechead">Secrets (.env)</h2>
       <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
       <div id="envform"></div>
@@ -1721,6 +1743,36 @@
       li.className = it.ok === null ? "d" : (it.ok ? "g" : "r");
       ul.appendChild(li);
     });
+    await loadFullAuto();
+    if (!window._faBound) {
+      window._faBound = true;
+      $("fa-btn").onclick = async () => {
+        const on = !(window._faOn);
+        const res = await jpost("/api/full-auto", { on: on });
+        if (!res.ok) { alert(describeFail(res)); return; }
+        await loadFullAuto();
+      };
+      $("cr-save").onclick = async () => {
+        const res = await jpost("/api/credentials", {
+          name: $("cr-name").value, value: $("cr-value").value, totp_code: $("cr-totp").value });
+        $("cr-value").value = "";   // never keep the value on screen
+        $("cr-totp").value = "";
+        $("cr-msg").textContent = res.ok ? "saved" : describeFail(res);
+      };
+    }
+  }
+
+  async function loadFullAuto() {
+    const res = await jget("/api/full-auto");
+    if (!res.ok) { $("fa-state").textContent = "(sign in as owner to see status)"; return; }
+    const s = res.j || {};
+    window._faOn = !!s.enabled;
+    $("fa-state").textContent = s.enabled ? "ON" : "OFF";
+    $("fa-btn").textContent = s.enabled ? "Full Auto: turn off (stops engine)" : "Full Auto: turn on";
+    const last = s.last_result || {};
+    let line = s.last_start_date ? ("last start " + s.last_start_date + (last.ok ? " - ok" : " - failed at " + (last.failed_step || "?"))) : "not started yet";
+    if (s.kill_active) line += " | kill switch ON: " + (s.kill_reason || "") + " (not reset automatically)";
+    $("fa-detail").textContent = line;
   }
 
   async function loadSchedule() {

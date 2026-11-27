@@ -78,6 +78,9 @@ DEFAULT_PATHS = {
     "settings": ROOT / "config" / "settings.yaml",
     "strategies": ROOT / "config" / "strategies",
     "page": ROOT / "dashboard" / "main_dashboard.html",  # main dashboard (decision 0027)
+    "full_auto_state": ROOT / "data" / "full_auto" / "state.json",   # Full Auto switch + last run (2026-11-27)
+    "pnl_state": ROOT / "data" / "bot_live" / "pnl_state.json",      # live/sandbox bot daily P&L (report input)
+    "reports": ROOT / "data" / "reports",                             # day-end reports (JSON + Markdown)
     "flow": ROOT / "dashboard" / "assets" / "flow_svg.js",
     "loop": ROOT / "data" / "paper" / "loop",
     "holidays": ROOT / "config" / "calendar" / "holidays.csv",
@@ -196,6 +199,9 @@ def load_state(paths: Dict[str, Path], last_prices: Optional[Dict[str, float]] =
     source_state = source_mode.read(paths.get("source_mode", SOURCE_MODE_PATH))
     use_manual, use_screener = source_mode.effective(source_state)
     overview["screener_source"] = {**source_state, "use_manual": use_manual, "use_screener": use_screener}
+    from quant.core import full_auto_steps  # Full Auto status (read-only; 2026-11-27)
+    overview["full_auto"] = full_auto_steps.status(paths.get("full_auto_state", DEFAULT_PATHS["full_auto_state"]),
+                                                   paths.get("live_kill", DEFAULT_PATHS["live_kill"]))
     overview["analysis"] = home_view.portfolio_analysis()
     # Execution log > Notification tab: alerts and warnings from the bot's audit trail (read-only).
     overview["notifications"] = notifications.recent(
@@ -464,6 +470,41 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
     check_key_rotation()  # at start: a key already past its age is replaced before any sign-in
     if not ENV_PIN:
         threading.Thread(target=_rotation_loop, daemon=True, name="login-key-rotation").start()
+
+    # Full Auto (owner decision 2026-11-27): once a minute, run whatever is due (daily start, day-end report).
+    # Does nothing while the switch is OFF. Tests pass paths={"full_auto_loop": False}.
+    from quant.core import full_auto_steps
+    fa_tick_lock = threading.Lock()
+    fa_base_url = os.environ.get("OPENALGO_URL", "http://127.0.0.1:5000")
+
+    def _fa_steps():
+        from quant.execution.openalgo_client import OpenAlgoClient as _Client, http_transport as _http
+        from quant.execution.readonly_client import OpenAlgoReadOnly
+        from quant.engines.core.broker_auth import run_scheduled_login
+        from quant.data.screen_refresh import owner_signin_job
+        return full_auto_steps.make_steps(
+            readonly_factory=lambda: OpenAlgoReadOnly(fa_base_url, _http),
+            api_key=_Client.api_key_from_env,
+            login=lambda: run_scheduled_login(enable=True, allow_live=False),  # never live from Full Auto
+            signin=lambda: owner_signin_job(ACTOR, paths["audit"],
+                                            ROOT / "data" / "screened" / "last_screen.json"),
+            kill_path=paths["live_kill"], pid_path=engine_control.PID_FILE,
+            log_path=engine_control.MANUAL_LOG, runner=engine_control.RUNNER)
+
+    def _fa_report(day: str) -> None:
+        full_auto_steps.report_for_day(day, audit_paths=[paths["audit"], *paths.get("bot_audits", ())],
+                                       pnl_state_path=paths["pnl_state"], reports_dir=paths["reports"])
+
+    def _fa_loop() -> None:
+        from quant.core.full_auto import ist_now
+        while True:
+            time.sleep(60)
+            with fa_tick_lock:
+                full_auto_steps.tick(ist_now(), state_path=paths["full_auto_state"], audit_path=paths["audit"],
+                                     steps=_fa_steps(), report=_fa_report)
+
+    if paths.get("full_auto_loop", True):
+        threading.Thread(target=_fa_loop, daemon=True, name="full-auto").start()
 
     def signed_in(request: Request) -> Optional[str]:
         return accounts.read_session(request.cookies.get(SESSION_COOKIE, ""), session_secret())
@@ -741,6 +782,48 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
         if not ok:
             return JSONResponse({"error": message}, status_code=409)
         return JSONResponse({"ok": True, "message": message, "pid": pid})
+
+    @app.get("/api/full-auto")
+    def full_auto_status():
+        """Read-only Full Auto status: switch, last start result, kill-switch reason."""
+        return JSONResponse(full_auto_steps.status(paths["full_auto_state"], paths["live_kill"]))
+
+    @app.post("/api/full-auto")
+    async def full_auto_switch(request: Request):
+        """Owner switch. ON: the daily start runs within a minute if the window is open.
+        OFF: stops the engine. Sign-ins and the kill switch are left as they are. Sandbox only."""
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        on = body.get("on")
+        if not isinstance(on, bool):
+            return JSONResponse({"error": "on must be true or false"}, status_code=422)
+        if on:
+            from quant.core.full_auto import set_enabled
+            set_enabled(actor=ACTOR, audit_path=paths["audit"], state_path=paths["full_auto_state"], on=True)
+            return JSONResponse({"ok": True, "enabled": True})
+        result = full_auto_steps.switch_off(audit_path=paths["audit"], state_path=paths["full_auto_state"],
+                                            pid_path=engine_control.PID_FILE)
+        return JSONResponse({"ok": True, **result})
+
+    @app.post("/api/credentials")
+    async def credentials_update(request: Request):
+        """Owner-only credential change, with the owner's 2FA code. The value is never logged or returned."""
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        body = await _json_body(request)
+        name, value, code = body.get("name"), body.get("value"), body.get("totp_code")
+        if not all(isinstance(x, str) for x in (name, value, code)):
+            return JSONResponse({"error": "name, value and totp_code are required"}, status_code=422)
+        from quant.core import credential_update
+        owner = signed_in(request) or ""
+        ok, reason = credential_update.update(name, value, owner=owner, totp_code=code,
+                                              users_path=paths["users"])
+        AuditLog(paths["audit"]).append("credential_update", {"name": name[:40], "ok": ok,
+                                                             "reason": reason[:200], "actor": owner[:32]})
+        return JSONResponse({"ok": ok, "reason": reason}, status_code=200 if ok else 422)
 
     @app.post("/api/engine/start")
     async def engine_start(request: Request):

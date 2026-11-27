@@ -50,3 +50,13 @@ Phase 5 (soak test): two weeks in sandbox before any live decision.
 - Live stays OFF until the owner decides after the soak test (config/bot.yaml is not changed here).
 - No automatic kill switch reset.
 - No secret in logs, reports or audit.
+
+
+## Status update (2026-11-27, implementation)
+- Phase 1 (sandbox runner, analyze mode): DONE. Commit 96e78e0.
+- Phase 2 (daily start, switch, scheduler tick, wiring): DONE. `src/quant/core/full_auto.py`, `src/quant/core/full_auto_steps.py`, dashboard `POST/GET /api/full-auto`, Infrastructure button. Tests: tests/unit/test_full_auto.py.
+- Phase 3 (day-end report): DONE. `src/quant/reporting/daily_report.py`, written from the tick. Tests: tests/unit/test_daily_report.py.
+- Phase 4 (credential update with 2FA): DONE. `src/quant/core/credential_update.py`, dashboard `POST /api/credentials`, UI in Infrastructure. Tests: tests/unit/test_credential_update.py.
+- Phase 5 (soak checklist, live refused): checklist DONE in docs/FULL_AUTO_SOAK_CHECKLIST.md. Live refusal holds by construction (START_MODE is analyze only). Soak itself is NOT done: needs two weeks of sandbox days.
+- Owner decisions kept: sandbox first; kill switch never reset automatically; credential updates from dashboard with 2FA.
+- Not merged to master. Merge waits for owner approval.
