@@ -84,6 +84,32 @@ Not changed in this commit (needs owner decision or the live machine):
 - Items 5, 6, 7 (visible refusals): analyzer, feed and risk-hash refusals work correctly but are
   not yet shown on the dashboard or alerted. Dashboard work, next step.
 
+## Phase 3 - partly done (this commit)
+Done:
+- Items 2, 13 (kill switches): one shared check, quant.risk.kill_switch.operator_kill_active(),
+  over the three owner kill files (paper, paper bot, live bot). It is called inside
+  engine_control.start_engine (so the dashboard button, start_engine_now and full-auto are all
+  covered) and in the supervisor preflight (owner_kill_gate). Before this, the button and
+  start_engine_now checked only the paper file, the preflight checked only the optim-policy switch,
+  and the live kill file stopped nothing at start.
+- Item 9 (paper universe): the paper runner now passes the same M and A switch files as live.
+- Item 1 (screen clock): the re-scrape check judges age by the screen's as_of (IST), not by mtime.
+  A stamp more than 5 minutes in the future counts as stale (clock skew tolerance).
+- Item 12 (symbols): SYMBOL_RE requires a letter for NSE symbols, or exactly six digits for BSE.
+- Item 17 (restore retention): pre-restore-* folders are pruned to the newest 30 after each restore.
+- Tests: tests/unit/test_phase3_safety.py (28 tests). Existing test test_screener_once_per_day
+  now uses the real clock (a fixed past date only worked with the old mtime logic).
+- Full suite: no new failures against master.
+
+Not changed in this commit (needs a decision, or the live machine):
+- Items 10, 11 (screener session): _saved_today reads os.environ, and the login marker is mtime
+  based on purpose (it records the login time). Changing it touches the broker-cooldown login path,
+  so it needs a dedicated change with a test for a real double-login.
+- Items 19 (key), 16 (.env path): fetch_key infers has_api_key, and refresh_session writes
+  _restored/.env while readers load the repo-root .env. Both need the real OpenAlgo /apikey reply
+  and an owner decision on the file location, given the backup rules.
+- The full-auto kill step still takes a single path argument; it is covered by the engine-level check.
+
 ## Status
-- Phase 0: done. Phase 1: done. Phase 2: partly done (items 3-7 and 11/14 open, see above). Phases 3-4: not started.
+- Phase 0: done. Phase 1: done. Phase 2: partly done. Phase 3: partly done (items 10, 11, 16, 19 open, see above). Phase 4: not started.
 - Items not verifiable from this sandbox: NSE/broker endpoints, OpenAlgo routes (bugs 15, 16).

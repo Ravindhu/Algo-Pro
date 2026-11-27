@@ -159,9 +159,12 @@ def start_engine(*, kill_active: bool, pid_path: Path = PID_FILE, log_path: Path
         return False, "refused: an engine start is already in progress.", None
     try:
         existing = running_pid(pid_path)
-        allowed, message = decide_start(kill_active, existing is not None)
+        # Phase 3 (audit items 2, 13): every owner kill file blocks a start, not only the paper one.
+        from quant.risk.kill_switch import operator_kill_active
+        any_kill, kill_reason = operator_kill_active(ROOT)
+        allowed, message = decide_start(bool(kill_active or any_kill), existing is not None)
         if not allowed:
-            return False, message, existing
+            return False, (message if not any_kill else f"refused: {kill_reason}"), existing
         pid = _spawn_supervisor(mode=mode, pid_path=pid_path, log_path=log_path,
                                 supervisor=supervisor, now=now)
     finally:

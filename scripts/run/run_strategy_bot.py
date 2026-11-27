@@ -233,6 +233,10 @@ def main(argv=None) -> int:
         # Scrape screener.in only when last_screen.json is missing or an hour old, so the
         # selection follows the saved screen without re-hitting the site every 5 minutes.
         scrape=make_screener_scraper(source=source),
+        # Phase 3 (audit item 9): paper uses the same owner switches (M and A) as live, so the
+        # paper universe matches the live universe.
+        manual_path=ROOT / "data" / "screened" / "manual_symbols.json",
+        mode_path=ROOT / "data" / "screened" / "source_mode.json",
     )
     run(bot, audit, state_dir=args.state_dir, max_cycles=args.max_cycles, refresh=refresh)
     return 0

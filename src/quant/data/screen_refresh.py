@@ -29,6 +29,7 @@ Exit codes (same meaning as scripts/ops/refresh_screen.py):
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -413,6 +414,10 @@ def ensure_session(*, env_file=None) -> Dict[str, Any]:
     return {"usable": False, "action": "failed", "reason": outcome.get("reason", "login failed")}
 
 
+#: Clock skew allowed before a screen stamp counts as 'from the future' (stale).
+FUTURE_TOLERANCE_S = 300.0
+
+
 def source_is_stale(source, now, every_minutes: int) -> bool:
     """True when the saved selection is missing, unreadable or older than ``every_minutes``.
 
@@ -425,10 +430,30 @@ def source_is_stale(source, now, every_minutes: int) -> bool:
             return True
         if every_minutes <= 0:
             return True
-        age_s = float(now.timestamp()) - path.stat().st_mtime
+        age_s = float(now.timestamp()) - _screen_timestamp(path)
+        if age_s < -FUTURE_TOLERANCE_S:
+            return True   # a stamp well in the future (copied file, other clock) is not "fresh"
         return age_s >= every_minutes * 60
     except (OSError, AttributeError, TypeError):
         return True
+
+
+def _screen_timestamp(path: Path) -> float:
+    """The screen's own ``as_of`` stamp as epoch seconds; the file mtime only when there is none.
+
+    Phase 3 (audit item 1): the bot and the dashboard both judge freshness by ``as_of``. Judging
+    the re-scrape by mtime let a copied or re-saved file look fresh.
+    """
+    import json
+    try:
+        stamp = str((json.loads(path.read_text(encoding="utf-8")) or {}).get("as_of") or "").strip()
+        if stamp:
+            from datetime import timedelta, timezone
+            ist = timezone(timedelta(hours=5, minutes=30))   # as_of is naive IST, whatever the machine clock
+            return datetime.fromisoformat(stamp).replace(tzinfo=ist).timestamp()
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return path.stat().st_mtime
 
 
 def owner_signin_job(actor: str, audit_path, source, *, every_minutes: int = 60,

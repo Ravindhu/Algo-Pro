@@ -55,3 +55,23 @@ class KillSwitch:
         elif not actor or not reason:
             raise ValueError("reset needs an actor and a reason")
         self._save(False, "")
+
+
+#: Every owner-facing kill file. ANY active one blocks a new start (Phase 3, audit items 2 and 13).
+#: The dashboard button, start_engine_now, the full-auto start and the supervisor preflight all
+#: call operator_kill_active(), so no start path can check only one of these files again.
+OPERATOR_KILL_FILES = (
+    ("paper", "data/paper/kill_switch.json"),        # dashboard kill, paper loop
+    ("paper_bot", "data/bot/kill.json"),              # paper strategy bot (run_strategy_bot.py)
+    ("live_bot", "data/bot_live/kill.json"),          # live strategy bot (run_strategy_bot_live.py)
+)
+
+
+def operator_kill_active(root) -> Tuple[bool, str]:
+    """(active, reason). True when any owner kill file is ON or unreadable (fail closed)."""
+    root = Path(root)
+    for name, rel in OPERATOR_KILL_FILES:
+        switch = KillSwitch(root / rel)
+        if switch.active:
+            return True, f"{name} kill switch on: {switch.reason or 'no reason recorded'}"
+    return False, ""

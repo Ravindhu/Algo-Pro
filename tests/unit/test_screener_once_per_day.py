@@ -198,7 +198,9 @@ def test_refresh_scrapes_only_when_the_source_is_missing_or_old(tmp_path):
     refresh = sr.make_screen_refresher(Reader(), "KEY", source=source, target=tmp_path / "latest.json",
                                        scrape=scrape, scrape_every_minutes=60)
     from datetime import datetime
-    now = datetime(2026, 11, 26, 10, 0)
+    # Phase 3: use the real clock. A fixed past date made the just-written file look "from the
+    # future", which the freshness check now correctly treats as stale.
+    now = datetime.now()
 
     refresh(now)                 # source missing -> scrape
     assert len(calls) == 1

@@ -131,6 +131,19 @@ def prune(dest_root: Path, keep: int) -> List[str]:
     return [p.name for p in doomed]
 
 
+def prune_pre_restore(dest_root: Path, keep: int) -> List[str]:
+    """Delete the oldest ``pre-restore-<stamp>`` folders beyond ``keep``. Other names are untouched."""
+    if not dest_root.exists() or keep <= 0:
+        return []
+    names = sorted(p for p in dest_root.iterdir()
+                   if p.is_dir() and p.name.startswith("pre-restore-")
+                   and STAMP_RE.match(p.name[len("pre-restore-"):]))
+    doomed = names[:-keep] if len(names) > keep else []
+    for p in doomed:
+        shutil.rmtree(p)
+    return [p.name for p in doomed]
+
+
 def backup(root: Path, dest_root: Path, keep: int = DEFAULT_KEEP,
            now: Optional[datetime] = None) -> Path:
     p = paths(root)
@@ -185,6 +198,9 @@ def restore(root: Path, src: Path, dest_root: Path, *, port_check=_port_open) ->
         raise SystemExit(f"stop the stack first; ports still listening: {busy}")
     safety = backup(root, dest_root, keep=0, now=datetime.now())  # keep the current state
     safety = safety.rename(safety.with_name("pre-restore-" + safety.name))
+    # Phase 3 (audit item 17): prune() only sees YYYYMMDD names, so pre-restore folders grew
+    # without limit. Keep the newest DEFAULT_KEEP of them.
+    prune_pre_restore(dest_root, DEFAULT_KEEP)
     p = paths(root)
     if (src / "_restored").exists():
         shutil.copytree(src / "_restored", p["restored"], dirs_exist_ok=True)

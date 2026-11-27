@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 MAX_SYMBOLS = 50
-SYMBOL_RE = re.compile(r"^[A-Z0-9&-]{1,20}$")  # NSE symbols and 6-digit BSE codes
+# NSE symbols: 1-20 chars of A-Z 0-9 & - that contain at least one LETTER (Phase 3, item 12:
+# "-----", "&&&&" and "0" used to pass). BSE: exactly six digits.
+SYMBOL_RE = re.compile(r"^(?:(?=[A-Z0-9&-]*[A-Z])[A-Z0-9&-]{1,20}|[0-9]{6})$")
 
 
 def normalise(symbol: Any) -> Optional[str]:

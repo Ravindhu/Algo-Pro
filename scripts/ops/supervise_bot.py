@@ -85,6 +85,21 @@ def bot_command(mode: str, base_url: str = DEFAULT_HOST, python: str | None = No
     return cmd
 
 
+def owner_kill_gate():
+    """Preflight kill gate (Phase 3, audit items 2 and 13).
+
+    Blocks when ANY owner kill file is on (dashboard, paper bot, live bot), and still applies the
+    supervisor's own drawdown switch. Before this, the preflight read only the drawdown switch,
+    so an operator kill did not stop the supervised start.
+    """
+    from quant.engines.core.supervisor import GateResult, kill_switch_gate
+    from quant.risk.kill_switch import operator_kill_active
+    active, reason = operator_kill_active(ROOT)
+    if active:
+        return GateResult("kill_switch", False, f"refused: {reason}")
+    return kill_switch_gate()
+
+
 #: Phase 2 (audit items 12, 18): the probe must be a TRADABLE EQUITY. NSE:NIFTY is an index;
 #: a broker that quotes only equities failed the gate forever and the bot never started.
 PREFLIGHT_SYMBOL = "RELIANCE"
@@ -99,7 +114,7 @@ def build_gates(host: str = DEFAULT_HOST, symbol: str = PREFLIGHT_SYMBOL,
     returned list starts with a gate that always blocks.
     """
     from quant.engines.core.supervisor import (GateResult, broker_session_gate,
-                                               kill_switch_gate, openalgo_reachable_gate,
+                                               openalgo_reachable_gate,
                                                positionbook_gate, quote_gate,
                                                working_orders_gate)
 
@@ -113,7 +128,7 @@ def build_gates(host: str = DEFAULT_HOST, symbol: str = PREFLIGHT_SYMBOL,
         return [lambda _reason=reason: GateResult("openalgo_client", False, _reason)]
 
     return [
-        kill_switch_gate,
+        owner_kill_gate,
         lambda: openalgo_reachable_gate(host),
         lambda: broker_session_gate(client, symbol, exchange),
         lambda: positionbook_gate(client),
