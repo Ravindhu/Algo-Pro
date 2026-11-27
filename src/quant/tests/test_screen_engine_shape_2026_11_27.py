@@ -52,3 +52,32 @@ def test_real_engine_rows_only_selected_reach_the_bot(tmp_path):
     assert out["wrote"] == 1
 
     assert [r["symbol"] for r in read_screen(target, NOW, 10)] == ["INFY"]
+
+
+def test_empty_engine_payload_does_not_overwrite_last_good_screen(tmp_path, monkeypatch):
+    """Audit 2026-11-27: URL_SCREENER_DOT_IN unset -> engine says ok=True with no rows and a warning.
+    The scraper must refuse that and keep the last good selection on disk."""
+    import quant.data.screen_refresh as sr
+
+    monkeypatch.setattr(sr, "ensure_session", lambda **_: {"usable": True, "action": "test", "reason": ""})
+    source = tmp_path / "last_screen.json"
+    good = _engine_payload()
+    source.write_text(json.dumps(good), encoding="utf-8")
+    empty = {"ok": True, "data": {}, "warnings": ["source='screen' requires screen_id and screen_slug"]}
+
+    out = sr.make_screener_scraper(source=source, run_engine=lambda: empty)()
+
+    assert out["ok"] is False
+    assert "requires screen_id" in out["reason"]
+    assert json.loads(source.read_text(encoding="utf-8")) == good
+
+
+def test_real_engine_payload_is_written_by_scraper(tmp_path, monkeypatch):
+    import quant.data.screen_refresh as sr
+
+    monkeypatch.setattr(sr, "ensure_session", lambda **_: {"usable": True, "action": "test", "reason": ""})
+    source = tmp_path / "last_screen.json"
+    out = sr.make_screener_scraper(source=source, run_engine=_engine_payload)()
+
+    assert out["ok"] is True
+    assert [r["symbol"] for r in load_candidates(source)] == ["INFY"]

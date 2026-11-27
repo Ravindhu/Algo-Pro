@@ -246,6 +246,13 @@ def make_screener_scraper(*, source, env_file=None,
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         selected = data.get("selected") or data.get("symbols") or []
         result["count"] = len(selected) if isinstance(selected, list) else 0
+        warnings = payload.get("warnings") or []
+        if not (data.get("results") or []) and warnings:
+            # Audit 2026-11-27: the engine returns ok=True with an EMPTY payload when the saved screen
+            # cannot be read (for example URL_SCREENER_DOT_IN unset). Writing that would overwrite the
+            # last good selection with nothing. Refuse and keep the file as it is.
+            result["reason"] = f"screener returned no rows: {str(warnings[0])[:160]}"
+            return result
         try:
             _write_last_screen(target, payload)
         except OSError as exc:
