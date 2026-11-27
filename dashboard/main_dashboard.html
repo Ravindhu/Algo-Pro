@@ -688,23 +688,12 @@
         <div><b>Full Auto (sandbox only)</b> <span id="fa-state">–</span></div>
         <div id="fa-detail" class="d"></div>
         <button id="fa-btn" type="button">Full Auto: turn on</button>
-        <details class="cr-box">
-          <summary>Update a credential (needs 2FA code)</summary>
-          <select id="cr-name">
-            <option>OPENALGO_USERNAME</option>
-            <option>OPENALGO_PASSWORD</option>
-            <option>OPENALGO_TOTP_SECRET</option>
-            <option>BROKER_USERNAME</option>
-            <option>BROKER_PASSWORD</option>
-            <option>BROKER_TOTP_SECRET</option>
-            <option>SCREENER_USERNAME</option>
-            <option>SCREENER_PASSWORD</option>
-          </select>
-          <input id="cr-value" type="password" autocomplete="new-password" placeholder="new value">
-          <input id="cr-totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="2FA code">
-          <button id="cr-save" type="button">Save credential</button>
+        <div class="cr-box">
+          <div><b>Credentials</b> <span class="d">- type a value and leave the field: it saves into .env at once. Only the first 4 characters are shown.</span></div>
+          <div><input id="cr-totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="2FA code (required for every save)"></div>
+          <div id="cr-tabs"></div>
           <span id="cr-msg" class="d"></span>
-        </details>
+        </div>
       </div>
       <h2 class="sechead">Secrets (.env)</h2>
       <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
@@ -1752,14 +1741,85 @@
         if (!res.ok) { alert(describeFail(res)); return; }
         await loadFullAuto();
       };
-      $("cr-save").onclick = async () => {
-        const res = await jpost("/api/credentials", {
-          name: $("cr-name").value, value: $("cr-value").value, totp_code: $("cr-totp").value });
-        $("cr-value").value = "";   // never keep the value on screen
-        $("cr-totp").value = "";
-        $("cr-msg").textContent = res.ok ? "saved" : describeFail(res);
-      };
     }
+    await loadCredentials();
+  }
+
+  // Credentials: four tabs. Each field auto-saves when the owner leaves it (2FA code required).
+  let crActive = "broker";
+  let crGroups = [];
+
+  async function loadCredentials() {
+    const res = await jget("/api/credentials");
+    if (!res.ok) { $("cr-tabs").textContent = "(sign in as owner to manage credentials)"; return; }
+    crGroups = (res.j && res.j.credentials) || [];
+    renderCredTabs();
+  }
+
+  function renderCredTabs() {
+    const host = $("cr-tabs");
+    host.innerHTML = "";
+    const strip = document.createElement("div");
+    strip.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin:6px 0";
+    crGroups.forEach(g => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = g.title;
+      b.style.fontWeight = g.id === crActive ? "700" : "400";
+      b.onclick = () => { crActive = g.id; renderCredTabs(); };
+      strip.appendChild(b);
+    });
+    host.appendChild(strip);
+    const g = crGroups.find(x => x.id === crActive) || crGroups[0];
+    if (!g) return;
+    g.fields.forEach(f => host.appendChild(crField(f, g.id)));
+  }
+
+  function crField(f, groupId) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:3px 0";
+    const label = document.createElement("span");
+    label.style.minWidth = "210px";
+    label.textContent = f.name;
+    row.appendChild(label);
+    const now = document.createElement("span");
+    now.className = "d";
+    now.textContent = f.set ? ("saved: " + f.preview) : "not set";
+    row.appendChild(now);
+    if (f.kind === "url" && f.set && /^https?:\/\//i.test(f.preview) && groupId === "openalgo") {
+      const a = document.createElement("a");
+      a.href = f.preview; a.target = "_blank"; a.rel = "noopener"; a.textContent = "open login page";
+      row.appendChild(a);
+    }
+    if (!f.editable) {
+      const note = document.createElement("span");
+      note.className = "d";
+      note.textContent = "(kept in step by the login - not typed here)";
+      row.appendChild(note);
+      return row;
+    }
+    const input = document.createElement("input");
+    input.type = (f.kind === "password" || f.kind === "totp" || f.kind === "key") ? "password" : "text";
+    input.autocomplete = "new-password";
+    input.placeholder = "type new value";
+    input.style.minWidth = "240px";
+    input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); };
+    input.onchange = () => { if (input.value) crSave(f, input); };
+    row.appendChild(input);
+    return row;
+  }
+
+  async function crSave(f, input) {
+    const totp = $("cr-totp").value.trim();
+    if (!/^\d{6}$/.test(totp)) {
+      input.value = "";
+      $("cr-msg").textContent = "enter the 6-digit 2FA code first, then type the value again";
+      return;
+    }
+    const res = await jpost("/api/credentials", { name: f.name, value: input.value, totp_code: totp });
+    input.value = "";   // never keep the value on screen
+    $("cr-msg").textContent = res.ok ? (f.name + ": " + res.j.reason) : describeFail(res);
+    if (res.ok) await loadCredentials();   // the 2FA code stays in the box for the next field
   }
 
   async function loadFullAuto() {

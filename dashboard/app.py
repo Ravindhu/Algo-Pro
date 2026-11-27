@@ -807,9 +807,19 @@ def create_app(paths: Optional[Dict[str, Path]] = None):
                                             pid_path=engine_control.PID_FILE)
         return JSONResponse({"ok": True, **result})
 
+    @app.get("/api/credentials")
+    def credentials_status(request: Request):
+        """Owner only: which credentials are set and in which file. Never a value."""
+        denied = owner_denied(request)
+        if denied is not None:
+            return denied
+        from quant.core import credential_update
+        return JSONResponse({"credentials": credential_update.status()})
+
     @app.post("/api/credentials")
     async def credentials_update(request: Request):
-        """Owner-only credential change, with the owner's 2FA code. The value is never logged or returned."""
+        """Owner-only credential save, with the owner's 2FA code. Saves into .env at once.
+        The value is never logged or returned."""
         denied = owner_denied(request)
         if denied is not None:
             return denied

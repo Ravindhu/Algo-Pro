@@ -37,10 +37,37 @@ def env(tmp_path):
     return {"users": users, "files": files, "restored": restored, "repo": repo}
 
 
-def test_allow_list_is_exactly_the_agreed_names():
-    assert set(cu.ALLOWED) == {"OPENALGO_USERNAME", "OPENALGO_PASSWORD", "OPENALGO_TOTP_SECRET",
-                               "BROKER_USERNAME", "BROKER_PASSWORD", "BROKER_TOTP_SECRET",
-                               "SCREENER_USERNAME", "SCREENER_PASSWORD"}
+def test_allow_list_is_the_four_tabs_editable_names():
+    assert [g["id"] for g in cu.GROUPS] == ["broker", "openalgo", "screener", "llm"]
+    assert "OPENALGO_USERNAME" in cu.ALLOWED and "OPENROUTER_API_KEY" in cu.ALLOWED
+    assert "OPENROUTER_MODEL" in cu.ALLOWED and "URL_SCREENER_DOT_IN" in cu.ALLOWED
+    # OPENALGO_API_KEY is shown only: the login flow keeps it in step.
+    assert "OPENALGO_API_KEY" not in cu.ALLOWED
+
+
+def test_api_key_is_display_only_and_refused(env):
+    ok, _ = cu.update("OPENALGO_API_KEY", "x", owner="owner", totp_code=_code(),
+                      users_path=env["users"], files=env["files"])
+    assert ok is False
+
+
+def test_status_shows_four_char_preview_not_the_secret(env, tmp_path):
+    env["restored"].write_text("BROKER_PASSWORD=Sup3rSecretPass\nBROKER_API_KEY=ab\n", encoding="utf-8")
+    fields = {f["name"]: f for g in cu.status() for f in g["fields"]}
+    # status() reads the real GROUPS paths; check the helper directly for the rule.
+    assert cu.preview_of("Sup3rSecretPass", "password") == "Sup3…"
+    assert cu.preview_of("ab", "key") == "**"                     # short values reveal nothing
+    assert cu.preview_of("https://x.example", "url") == "https://x.example"
+    assert "BROKER_USERNAME" in fields and fields["BROKER_USERNAME"]["set"] is False
+
+
+def test_status_never_returns_a_full_secret(env, monkeypatch):
+    secret = "Full-Secret-Value-123"
+    env["restored"].write_text(f"BROKER_PASSWORD={secret}\n", encoding="utf-8")
+    monkeypatch.setattr(cu, "GROUPS", [{"id": "b", "title": "B", "fields": [
+        {"name": "BROKER_PASSWORD", "kind": "password", "file": env["restored"], "editable": True}]}])
+    text = repr(cu.status())
+    assert secret not in text and "Full…" in text   # the first 4 characters only
 
 
 def test_unknown_name_refused(env):
@@ -67,7 +94,7 @@ def test_owner_without_enrolled_2fa_refused(env):
 def test_correct_totp_updates_only_that_line(env):
     ok, reason = cu.update("OPENALGO_USERNAME", "newuser", owner="owner", totp_code=_code(),
                            users_path=env["users"], files=env["files"])
-    assert ok is True and reason == "saved"
+    assert ok is True and reason.startswith("saved")
     text = env["restored"].read_text(encoding="utf-8")
     assert read_env_value(env["restored"], "OPENALGO_USERNAME") == "newuser"
     assert "# keep me" in text and "OTHER=1" in text
@@ -87,12 +114,14 @@ def test_bad_values_refused(env, bad):
     assert ok is False and "value" in reason
 
 
-def test_missing_target_file_is_never_created(env, tmp_path):
+def test_missing_target_file_is_created_with_only_that_key(env, tmp_path):
     missing = tmp_path / "nope" / ".env"
-    ok, reason = cu.update("OPENALGO_USERNAME", "x", owner="owner", totp_code=_code(),
+    ok, reason = cu.update("OPENALGO_USERNAME", "newuser", owner="owner", totp_code=_code(),
                            users_path=env["users"], files={"OPENALGO_USERNAME": missing})
-    assert ok is False and "never created" in reason
-    assert not missing.exists()
+    assert ok is True and "saved to" in reason
+    assert read_env_value(missing, "OPENALGO_USERNAME") == "newuser"
+    assert missing.read_text(encoding="utf-8").count("=") == 1      # nothing else in it
+    assert (missing.stat().st_mode & 0o777) == 0o600
 
 
 def test_result_never_contains_the_value(env):
