@@ -48,3 +48,24 @@ URLs after start:
 - Launchers: `scripts/ops/` (`start_all.py`, `start_openalgo.py`)
 - Trading engine: `src/quant/` (the bot entry points are in `scripts/run/`)
 - Rules for agents: `AGENTS.md` and `CLAUDE.md`
+
+## 6. Auto-start the platform on Windows (run once)
+
+This starts OpenAlgo, the WebSocket proxy and the dashboard without opening Python by hand. It never starts the trading engine.
+
+Setup (once, no admin needed, from the repo root):
+```
+powershell -ExecutionPolicy Bypass -File scripts\ops\register_start_jobs.ps1
+```
+This creates two Task Scheduler jobs for the current user:
+- `MTS - start at logon`: runs at Windows sign-in.
+- `MTS - pre-open start`: Mon-Fri at 08:40, wakes the PC if asleep.
+
+Stop the scheduler (remove both jobs):
+```
+powershell -ExecutionPolicy Bypass -File scripts\ops\register_start_jobs.ps1 -Remove
+```
+Change the pre-open time: re-run setup with `-PreOpenTime HH:MM`.
+Log of each scheduled run: `Temp\run\scheduled_start.log`.
+
+Agents: do not register or remove these jobs unless the owner asks.
