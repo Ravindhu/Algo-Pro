@@ -272,25 +272,6 @@
         <p id="acct-who" class="d"></p>
         <img id="acct-avatar" alt="avatar" width="48" height="48" style="border-radius:50%;vertical-align:middle;display:none">
       </div>
-      <!-- signed-in panel: TOTP enrollment and picture upload -->
-      <div id="acct-in" hidden>
-        <input id="acct-avatar-file" type="file" accept="image/png,image/jpeg">
-        <button type="button" id="acct-avatar-up">Upload picture</button>
-        <p class="d">Profile picture: PNG or JPEG, up to 256 KB.</p>
-        <div id="totp-box">
-          <p class="d">Two-factor (TOTP / Google Authenticator)</p>
-          <button type="button" id="totp-gen">Create TOTP key</button>
-          <button type="button" id="totp-remove" hidden>Remove TOTP</button>
-          <img id="totp-qr" alt="Scan with Google Authenticator" hidden
-               style="width:180px;height:180px;background:#fff;padding:6px;border-radius:8px">
-        </div>
-        <details>
-          <summary>Change password</summary>
-          <input id="pw-old" type="password" placeholder="Current password" autocomplete="current-password">
-          <input id="pw-new" type="password" placeholder="New password (12+ chars)" autocomplete="new-password">
-          <button type="button" id="pw-change">Change password</button>
-        </details>
-      </div>
       <!-- signed-out panel: sign in / sign up / forgot -->
       <form id="acctform" autocomplete="off">
         <input id="acct-name" placeholder="Account name" autocomplete="username">
@@ -308,7 +289,6 @@
         <button type="button" id="fp-reset" hidden>Set new password</button>
         <button type="button" id="fp-back">Back to sign in</button>
       </form>
-      <button type="button" id="acctout" hidden>Sign out</button>
       <p id="acct-msg" class="d"></p>
   </section>
 </div>
@@ -686,42 +666,100 @@
       <div><b id="settitle">Settings</b></div>
       <button type="button" id="setclose">Close ×</button>
     </div>
-
-    <div class="sec">
-      <h2 class="sechead">Infrastructure</h2>
-      <ul id="infra"></ul>
-      <div id="fa-box" class="fa-box">
-        <div><b>Full Auto (sandbox only)</b> <span id="fa-state">–</span></div>
-        <div id="fa-detail" class="d"></div>
-        <button id="fa-btn" type="button">Full Auto: turn on</button>
-        <div class="cr-box">
-          <div><b>Credentials</b> <span class="d">- type a value and leave the field: it saves into .env at once. Only the first 4 characters are shown.</span></div>
-          <div><input id="cr-totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="2FA code (required for every save)"></div>
-          <div id="cr-tabs"></div>
-          <span id="cr-msg" class="d"></span>
-        </div>
+    <div class="sheet-b">
+      <div class="tabs" role="tablist" aria-label="Settings sections" id="settabs">
+        <button type="button" role="tab" class="tab" data-stab="account" aria-selected="false">Account</button>
+        <button type="button" role="tab" class="tab" data-stab="broker" aria-selected="false">Broker</button>
+        <button type="button" role="tab" class="tab" data-stab="openalgo" aria-selected="false">OpenAlgo</button>
+        <button type="button" role="tab" class="tab" data-stab="llm" aria-selected="false">LLM / cloud API</button>
+        <button type="button" role="tab" class="tab" data-stab="infra" aria-selected="false">Infrastructure</button>
+        <button type="button" role="tab" class="tab" data-stab="profile" aria-selected="false">Profile</button>
       </div>
-      <h2 class="sechead">Secrets (.env)</h2>
-      <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
-      <div id="envform"></div>
-      <button type="button" id="envsave">SAVE SECRETS</button>
-      <span id="envmsg" class="d"></span>
+      <p id="acct-need" class="d" hidden>Sign in (top right) to change account, profile and credential values.</p>
+      <div id="cr-2fa" class="cr-2fa">
+        <label for="cr-totp" class="d">2FA code (required for every save below). Each field saves into .env when you leave it. Only the first 4 characters are shown.</label>
+        <input id="cr-totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6-digit 2FA code">
+        <span id="cr-msg" class="d"></span>
+      </div>
 
-      <h3>Scheduler</h3>
-      <form id="schedform" autocomplete="off">
-        <label>OS <select id="sc-os"><option value="auto">Auto-detect</option><option value="windows">Windows</option><option value="ubuntu">Ubuntu</option></select></label>
-        <label>Broker <select id="sc-broker"><option value="mstock">mstock</option></select></label>
-        <label>Start time (IST) <input id="sc-time" type="time"></label>
-        <button type="submit">Save scheduler</button>
-      </form>
-      <p id="sc-msg" class="d"></p>
-      <p class="d">Broker login runs every trading day at the start time. If the machine is off then, the run happens as soon as it is on and the user is logged in (Windows) or the server boots (Ubuntu). It is never skipped; after 15:30 that day's run is skipped and logged. OS and start time changes need one install run on the machine.</p>
+      <section class="sec" data-spanel="account" hidden>
+        <h2 class="sechead">Account</h2>
+        <div id="acct-in" hidden>
+          <div id="totp-box">
+          <p class="d">Two-factor (TOTP / Google Authenticator)</p>
+          <button type="button" id="totp-gen">Create TOTP key</button>
+          <button type="button" id="totp-remove" hidden>Remove TOTP</button>
+          <img id="totp-qr" alt="Scan with Google Authenticator" hidden
+               style="width:180px;height:180px;background:#fff;padding:6px;border-radius:8px">
+        </div>
+        
+          <details>
+          <summary>Change password</summary>
+          <input id="pw-old" type="password" placeholder="Current password" autocomplete="current-password">
+          <input id="pw-new" type="password" placeholder="New password (12+ chars)" autocomplete="new-password">
+          <button type="button" id="pw-change">Change password</button>
+        </details>
+        </div>
+      </section>
 
-      <h3>Engine</h3>
-      <p class="d">START ENGINE in the header logs in to the broker, then starts the engine. Nothing starts it on a timer.</p>
-      <p id="eng-state" class="d"></p>
+      <section class="sec" data-spanel="broker" hidden>
+        <h2 class="sechead">Broker</h2>
+        <div id="cr-broker"></div>
+      </section>
+
+      <section class="sec" data-spanel="openalgo" hidden>
+        <h2 class="sechead">OpenAlgo</h2>
+        <div id="cr-openalgo"></div>
+      </section>
+
+      <section class="sec" data-spanel="llm" hidden>
+        <h2 class="sechead">LLM / cloud API</h2>
+        <div id="cr-llm"></div>
+      </section>
+
+      <section class="sec" data-spanel="infra" hidden>
+        <h2 class="sechead">Infrastructure</h2>
+        <ul id="infra"></ul>
+        <div id="fa-box" class="fa-box">
+          <div><b>Full Auto (sandbox only)</b> <span id="fa-state">–</span></div>
+          <div id="fa-detail" class="d"></div>
+          <button id="fa-btn" type="button">Full Auto: turn on</button>
+        </div>
+        <h2 class="sechead">Screener login</h2>
+        <div id="cr-screener"></div>
+        <h2 class="sechead">Secrets (.env)</h2>
+        <p class="d">Saved on this machine. Values are never shown again. Leave a box empty to keep the saved value.</p>
+        <div id="envform"></div>
+        <button type="button" id="envsave">SAVE SECRETS</button>
+        <span id="envmsg" class="d"></span>
+
+        <h3>Scheduler</h3>
+        <form id="schedform" autocomplete="off">
+          <label>OS <select id="sc-os"><option value="auto">Auto-detect</option><option value="windows">Windows</option><option value="ubuntu">Ubuntu</option></select></label>
+          <label>Broker <select id="sc-broker"><option value="mstock">mstock</option></select></label>
+          <label>Start time (IST) <input id="sc-time" type="time"></label>
+          <button type="submit">Save scheduler</button>
+        </form>
+        <p id="sc-msg" class="d"></p>
+        <p class="d">Broker login runs every trading day at the start time. If the machine is off then, the run happens as soon as it is on and the user is logged in (Windows) or the server boots (Ubuntu). It is never skipped; after 15:30 that day's run is skipped and logged. OS and start time changes need one install run on the machine.</p>
+
+        <h3>Engine</h3>
+        <p class="d">START ENGINE in the header logs in to the broker, then starts the engine. Nothing starts it on a timer.</p>
+        <p id="eng-state" class="d"></p>
+      </section>
+
+      <section class="sec" data-spanel="profile" hidden>
+        <h2 class="sechead">Profile</h2>
+        <div id="prof-in" hidden>
+          <input id="acct-avatar-file" type="file" accept="image/png,image/jpeg">
+        <button type="button" id="acct-avatar-up">Upload picture</button>
+        <p class="d">Profile picture: PNG or JPEG, up to 256 KB.</p>
+        
+          <button type="button" id="acctout">Sign out</button>
+        </div>
+        <button type="button" id="prof-login" hidden>Sign in</button>
+      </section>
     </div>
-
   </div>
 </div>
 <script src="/assets/flow_svg.js"></script>
@@ -1638,7 +1676,12 @@
 
   // Profile picture (top right) toggles the account box; ALGO PRO returns to the main dashboard.
   function setAcct(open) { $("acctbox").hidden = !open; $("profbtn").setAttribute("aria-expanded", String(open)); }
-  $("profbtn").onclick = e => { e.stopPropagation(); setAcct($("acctbox").hidden); };
+  $("profbtn").onclick = e => {
+    e.stopPropagation();
+    if (window._signedIn) { setAcct(false); openSettings("profile"); }
+    else setAcct($("acctbox").hidden);
+  };
+  $("prof-login").onclick = () => { if (!$("setmodal").hidden) closeSettings(); setAcct(true); };
   document.addEventListener("click", e => { if (!$("acctbox").hidden && !$("acctbox").contains(e.target)) setAcct(false); });
   document.addEventListener("keydown", e => { if (e.key === "Escape") setAcct(false); });
   function goHome() {
@@ -1757,37 +1800,30 @@
         await loadFullAuto();
       };
     }
-    await loadCredentials();
+    const typing = document.activeElement && document.activeElement.tagName === "INPUT" && $("setmodal").contains(document.activeElement);
+    if (!typing) await loadCredentials();
   }
 
-  // Credentials: four tabs. Each field auto-saves when the owner leaves it (2FA code required).
-  let crActive = "broker";
+  // Credentials: one host per settings tab (broker, openalgo, llm, screener). Each field auto-saves on leave.
   let crGroups = [];
+  const CR_HOSTS = {broker: "cr-broker", openalgo: "cr-openalgo", llm: "cr-llm", screener: "cr-screener"};
 
   async function loadCredentials() {
     const res = await jget("/api/credentials");
-    if (!res.ok) { $("cr-tabs").textContent = "(sign in as owner to manage credentials)"; return; }
+    if (!res.ok) {
+      for (const id of Object.values(CR_HOSTS)) $(id).textContent = "(sign in as owner to manage credentials)";
+      return;
+    }
     crGroups = (res.j && res.j.credentials) || [];
-    renderCredTabs();
+    renderCredGroups();
   }
 
-  function renderCredTabs() {
-    const host = $("cr-tabs");
-    host.innerHTML = "";
-    const strip = document.createElement("div");
-    strip.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin:6px 0";
-    crGroups.forEach(g => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = g.title;
-      b.style.fontWeight = g.id === crActive ? "700" : "400";
-      b.onclick = () => { crActive = g.id; renderCredTabs(); };
-      strip.appendChild(b);
-    });
-    host.appendChild(strip);
-    const g = crGroups.find(x => x.id === crActive) || crGroups[0];
-    if (!g) return;
-    g.fields.forEach(f => host.appendChild(crField(f, g.id)));
+  function renderCredGroups() {
+    for (const g of crGroups) {
+      const host = $(CR_HOSTS[g.id]);
+      if (!host) continue;
+      host.replaceChildren(...g.fields.map(f => crField(f, g.id)));
+    }
   }
 
   function crField(f, groupId) {
@@ -1905,10 +1941,13 @@
     const avatarUrl = res.j.avatar ? res.j.avatar + (avatarVersion ? "?v=" + avatarVersion : "") : null;
     const who = res.j.signed_in;
     $("acct-who").textContent = who ? ("Signed in as " + who + " (" + (res.j.role || "viewer") + ")") : "Not signed in.";
+    window._signedIn = !!who;
     $("acctform").hidden = !!who;
     $("forgotform").hidden = true;
     $("acct-in").hidden = !who;
-    $("acctout").hidden = !who;
+    $("prof-in").hidden = !who;
+    $("prof-login").hidden = !!who;
+    $("acct-need").hidden = !!who;
     const img = $("acct-avatar");
     if (who && avatarUrl) { img.src = avatarUrl; img.style.display = "inline"; }
     else img.style.display = "none";
@@ -2011,8 +2050,19 @@
     else sMsg("acct-msg", res.j.error || "Failed.", "r");
   };
 
-  function openSettings() {
+  function setSettingsTab(name) {
+    for (const b of document.querySelectorAll("#settabs [data-stab]")) {
+      const on = b.dataset.stab === name;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    }
+    for (const sec of document.querySelectorAll("[data-spanel]")) sec.hidden = sec.dataset.spanel !== name;
+    $("cr-2fa").hidden = name === "account" || name === "profile";
+  }
+  document.querySelectorAll("#settabs [data-stab]").forEach(b => b.addEventListener("click", () => setSettingsTab(b.dataset.stab)));
+  function openSettings(tab) {
     $("setmodal").hidden = false;
+    setSettingsTab(tab || "infra");
     $("setclose").focus();
     loadInfra(); loadEnv(); loadSchedule(); loadEngine(); loadAccount();
   }
