@@ -58,7 +58,7 @@ GROUPS: List[dict] = [
         {"name": "URL_SCREENER_DOT_IN", "kind": "url", "file": REPO_ENV, "editable": True},
     ]},
     {"id": "llm", "title": "LLM / cloud API", "fields": [
-        {"name": "OLLAMA_URL", "kind": "url", "file": REPO_ENV, "editable": True},
+        {"name": "OLLAMA_HOST", "kind": "url", "file": REPO_ENV, "editable": True},
         {"name": "OLLAMA_MODEL", "kind": "model", "file": REPO_ENV, "editable": True},
         {"name": "ANTHROPIC_API_KEY", "kind": "key", "file": REPO_ENV, "editable": True},
         {"name": "OPENROUTER_API_KEY", "kind": "key", "file": REPO_ENV, "editable": True},
